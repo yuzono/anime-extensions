@@ -23,11 +23,6 @@ android {
         }
     }
 
-    buildFeatures {
-        resValues = false
-        shaders = false
-    }
-
     kotlinOptions {
         freeCompilerArgs += "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
     }
