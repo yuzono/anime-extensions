@@ -66,7 +66,7 @@ open class Pelisplushd(override val name: String, override val baseUrl: String) 
             "VidGuard", "VidHide",
         )
 
-        private val REGEX_LINK = "https?:\\/\\/(www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)".toRegex()
+        private val REGEX_LINK = "https?://(www\\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)".toRegex()
         private val REGEX_VIDEO_OPTS = "'(https?://[^']*)'".toRegex()
     }
 
@@ -120,7 +120,8 @@ open class Pelisplushd(override val name: String, override val baseUrl: String) 
             val apiResponse = client.newCall(GET(opt)).execute()
             if (apiResponse.isSuccessful) {
                 val docResponse = apiResponse.asJsoup()
-                val cryptoScript = docResponse.selectFirst("script:containsData(const dataLink)")?.data() ?: return@forEach
+                val cryptoScript = docResponse.selectFirst("script:containsData(const dataLink)")?.data()
+                if (!cryptoScript.isNullOrBlank()) {
                 val jsLinksMatch = cryptoScript.substringAfter("const dataLink =").substringBefore("];") + "]"
                 val decryptUtf8 = cryptoScript.contains("decryptLink(encrypted){")
                 val key = if (decryptUtf8) {
@@ -148,17 +149,24 @@ open class Pelisplushd(override val name: String, override val baseUrl: String) 
                             .substringBefore("?thumb=")
                             .substringBefore("#poster=")
 
-                        val realUrl = if (!REGEX_LINK.containsMatchIn(url)) {
-                            String(Base64.decode(url, Base64.DEFAULT))
-                        } else if (url.contains("?data=")) {
-                            val apiPageSoup = client.newCall(GET(url)).execute().asJsoup()
-                            apiPageSoup.selectFirst("iframe")?.attr("src") ?: ""
-                        } else {
-                            url
+                            val realUrl = if (!REGEX_LINK.containsMatchIn(url)) {
+                                String(Base64.decode(url, Base64.DEFAULT))
+                            } else if (url.contains("?data=")) {
+                                val apiPageSoup = client.newCall(GET(url)).execute().asJsoup()
+                                apiPageSoup.selectFirst("iframe")?.attr("src") ?: ""
+                            } else {
+                                url
+                            }
+                            serverVideoResolver(realUrl, it.second, it.first)
+                        }.getOrNull() ?: emptyList()
+                    }.also(videoList::addAll)
+                } else {
+                    docResponse.select("li[onclick]")
+                        .flatMap { fetchUrls(it.attr("onclick")) }
+                        .forEach { realUrl ->
+                            serverVideoResolver(realUrl).also(videoList::addAll)
                         }
-                        serverVideoResolver(realUrl, it.second, it.first)
-                    }.getOrNull() ?: emptyList()
-                }.also(videoList::addAll)
+                }
             }
         }
         return videoList
@@ -358,6 +366,15 @@ open class Pelisplushd(override val name: String, override val baseUrl: String) 
     private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }
 
     infix fun <A, B> Pair<A, B>.to(c: String): Triple<A, B, String> = Triple(this.first, this.second, c)
+
+    fun fetchUrls(text: String?): List<String> {
+        if (text.isNullOrEmpty()) {
+            return listOf()
+        }
+        val linkRegex =
+            Regex("""(https?://(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*))""")
+        return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
+    }
 
     @Serializable
     data class DataLinkDto(

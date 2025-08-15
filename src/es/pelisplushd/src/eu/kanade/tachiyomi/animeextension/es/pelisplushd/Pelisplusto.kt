@@ -106,15 +106,9 @@ class Pelisplusto(override val name: String, override val baseUrl: String) : Pel
         }
     }
 
-    private fun fetchUrls(text: String?): List<String> {
-        if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
-        return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
-    }
-
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val regIsUrl = "https?:\\/\\/(www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)".toRegex()
+        val regIsUrl = "https?://(www\\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)".toRegex()
         return document.select(".bg-tabs ul li").flatMap {
             val prefix = it.parent()?.parent()?.selectFirst("button")?.ownText()?.lowercase()?.getLang()
             val decode = String(Base64.decode(it.attr("data-server"), Base64.DEFAULT))
@@ -129,7 +123,7 @@ class Pelisplusto(override val name: String, override val baseUrl: String) : Pel
             } else {
                 url
             }.replace("https://sblanh.com", "https://lvturbo.com")
-                .replace(Regex("([a-zA-Z0-9]{0,8}[a-zA-Z0-9_-]+)=https:\\/\\/ww3.pelisplus.to.*"), "")
+                .replace(Regex("([a-zA-Z0-9]{0,8}[a-zA-Z0-9_-]+)=https://ww3.pelisplus.to.*"), "")
 
             serverVideoResolver(videoUrl, prefix ?: "")
         }
