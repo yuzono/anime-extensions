@@ -156,12 +156,6 @@ data class Season(
 )
 
 @Serializable
-data class NextEpisode(
-    @SerialName("title") var title: String? = null,
-    @SerialName("slug") var slug: String? = null,
-)
-
-@Serializable
 data class Episode(
     @SerialName("TMDbId") var TMDbId: String? = null,
     @SerialName("title") var title: String? = null,
@@ -169,8 +163,6 @@ data class Episode(
     @SerialName("image") var image: String? = null,
     @SerialName("url") var url: Url? = Url(),
     @SerialName("slug") var slug: Slug? = Slug(),
-    @SerialName("nextEpisode") var nextEpisode: NextEpisode? = NextEpisode(),
-    @SerialName("previousEpisode") var previousEpisode: String? = null,
     @SerialName("videos") var videos: Videos? = Videos(),
     @SerialName("downloads") var downloads: ArrayList<Downloads> = arrayListOf(),
 )
