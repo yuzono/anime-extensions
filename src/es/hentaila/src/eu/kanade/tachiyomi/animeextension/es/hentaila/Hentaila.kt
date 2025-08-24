@@ -196,16 +196,15 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodes = mutableListOf<SEpisode>()
-        val animeId = Regex("""media/([^/?#]+)""")
-            .find(response.request.url.toString())?.groupValues?.get(1)?.lowercase() ?: ""
         val jsoup = response.asJsoup()
 
         jsoup.select("article.group\\/item").forEach {
+            val href = it.select("a").attr("abs:href")
             val epNum = it.select("div.bg-line.text-subs span").text()
             val episode = SEpisode.create().apply {
-                episode_number = epNum.toFloatOrNull() ?: return@forEach
+                epNum.toFloatOrNull()?.let { num -> episode_number = num }
                 name = "Episodio $epNum"
-                url = "/media/$animeId/$epNum"
+                setUrlWithoutDomain(href)
             }
             episodes.add(episode)
         }
@@ -268,29 +267,43 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
             }
         }
 
-        val allVideos = serverList.parallelCatchingFlatMapBlocking { each ->
-            when (each.name.lowercase()) {
-                "streamwish" -> streamWishExtractor.videosFromUrl(each.url, videoNameGen = { "StreamWish:$it" })
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(each.url, headers = headers, prefix = "Mp4Upload")
-                "voe" -> voeExtractor.videosFromUrl(each.url)
-                "arc" -> listOf(Video(each.url.substringAfter("#"), "Arc", each.url.substringAfter("#")))
-                "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(each.url, headers = headers)
-                "burst" -> burstCloudExtractor.videoFromUrl(each.url, headers = headers)
-                "sendvid" -> sendvidExtractor.videosFromUrl(each.url)
-                "mediafire" -> mediaFireExtractor.getVideoFromUrl(each.url)
-                "fireload" -> fireLoadExtractor.getVideoFromUrl(each.url)
-                "vidhide" -> vidhideExtractor.videosFromUrl(each.url)
-                "mega" -> megacloudExtractor.getVideosFromUrl(each.url, "Megacloud", "Megacloud")
+        val allVideos = serverList.parallelCatchingFlatMapBlocking { server ->
+            val serverName = serverDomainCatalog.firstOrNull { (_, names) -> names.any { it.lowercase() in server.url.lowercase() } }?.first
+                ?: server.name.lowercase()
+            when (serverName) {
+                "streamwish" -> streamWishExtractor.videosFromUrl(server.url, videoNameGen = { "StreamWish:$it" })
+                "mp4upload" -> mp4uploadExtractor.videosFromUrl(server.url, headers = headers, prefix = "Mp4Upload")
+                "voe" -> voeExtractor.videosFromUrl(server.url)
+                "arc" -> listOf(Video(server.url.substringAfter("#"), "Arc", server.url.substringAfter("#")))
+                "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(server.url, headers = headers)
+                "burst", "burstcloud" -> burstCloudExtractor.videoFromUrl(server.url, headers = headers)
+                "sendvid" -> sendvidExtractor.videosFromUrl(server.url)
+                "mediafire" -> mediaFireExtractor.getVideoFromUrl(server.url)
+                "fireload" -> fireLoadExtractor.getVideoFromUrl(server.url)
+                "vidhide" -> vidhideExtractor.videosFromUrl(server.url) // streamHideVidExtractor
+                "mega" -> megacloudExtractor.getVideosFromUrl(server.url, "Megacloud", "Megacloud")
                 "vip" -> universalExtractor.videosFromUrl(
-                    each.url.replace("/play/", "/m3u8/"),
+                    server.url.replace("/play/", "/m3u8/"),
                     origRequestHeader = headers,
                     prefix = "VIP",
                 )
-                else -> emptyList()
+                else -> universalExtractor.videosFromUrl(server.url, headers)
             }
         }
         return allVideos
     }
+
+    private val serverDomainCatalog = listOf(
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "arc" to listOf("arc"),
+        "mp4upload" to listOf("mp4upload"),
+        "yourupload" to listOf("yourupload", "yupi"),
+        "burstcloud" to listOf("burstcloud", "burst"),
+        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
+        "sendvid" to listOf("sendvid"),
+        "mediafire" to listOf("mediafire"),
+    )
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT).orEmpty()
