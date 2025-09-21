@@ -18,7 +18,6 @@ dependencies {
     implementation(project(':lib:uqloadextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:streamtapeextractor'))
-    implementation(project(':lib:playlistutils'))
     implementation(project(':lib:streamlareextractor'))
     implementation(project(':lib:okruextractor'))
     implementation(project(':lib:vidguardextractor'))
