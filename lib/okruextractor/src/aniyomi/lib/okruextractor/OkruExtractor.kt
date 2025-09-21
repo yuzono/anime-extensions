@@ -4,6 +4,8 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.commonEmptyHeaders
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 
 class OkruExtractor(private val client: OkHttpClient) {
@@ -23,8 +25,8 @@ class OkruExtractor(private val client: OkHttpClient) {
         return qualities.find { it.first == quality }?.second ?: quality
     }
 
-    fun videosFromUrl(url: String, prefix: String = "", fixQualities: Boolean = true): List<Video> {
-        val document = client.newCall(GET(url)).execute().asJsoup()
+    fun videosFromUrl(url: String, prefix: String = "", fixQualities: Boolean = true, headers: Headers = commonEmptyHeaders): List<Video> {
+        val document = client.newCall(GET(url, headers)).execute().asJsoup()
         val videoString = document.selectFirst("div[data-options]")
             ?.attr("data-options")
             ?: return emptyList<Video>()
@@ -36,7 +38,7 @@ class OkruExtractor(private val client: OkHttpClient) {
             }
             "ondemandDash" in videoString -> {
                 val playlistUrl = videoString.extractLink("ondemandDash")
-                playlistUtils.extractFromDash(playlistUrl, videoNameGen = { it -> "Okru:$it".addPrefix(prefix) })
+                playlistUtils.extractFromDash(playlistUrl, videoNameGen = { "Okru:$it".addPrefix(prefix) })
             }
             else -> videosFromJson(videoString, prefix, fixQualities)
         }
