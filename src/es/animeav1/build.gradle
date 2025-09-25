@@ -1,0 +1,17 @@
+ext {
+    extName = 'AnimeAv1'
+    extClass = '.AnimeAv1'
+    extVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:pixeldrainextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:universalextractor'))
+}
