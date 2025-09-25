@@ -4,63 +4,75 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class JsLinks(
-    val remote: String? = null,
-    val slug: String? = null,
-    val server: String? = null,
-    val lang: Int? = null,
+data class Links(
+    @SerialName("url") var url: String? = null,
+    @SerialName("label") var label: String? = null,
+    @SerialName("active") var active: Boolean? = null,
 )
 
 @Serializable
-data class EpisodeDto(
-    val title: String,
-    val number: Int,
-    val image: String?, // <file_name>.jpg, should be appended to https://cdn.jkdesu.com/assets/images/animes/video/image_thumb/<file_name>.jpg
-    val timestamp: String?, // 2011-07-06 10:31:24
+data class Data(
+    @SerialName("id") var id: Int? = null,
+    @SerialName("number") var number: Int? = null,
+    @SerialName("title") var title: String? = null,
+    @SerialName("synopsis") var synopsis: String? = null,
+    @SerialName("image") var image: String? = null,
+    @SerialName("studios") var studios: String? = null,
+    @SerialName("slug") var slug: String? = null,
+    @SerialName("type") var type: String? = null,
+    @SerialName("status") var status: String? = null,
+    @SerialName("url") var url: String? = null,
+    @SerialName("estado") var estado: String? = null,
+    @SerialName("tipo") var tipo: String? = null,
+    @SerialName("base64_id") var base64Id: String? = null,
+    @SerialName("short_title") var shortTitle: String? = null,
+    @SerialName("timestamp") var timestamp: String? = null,
 )
 
 @Serializable
-data class EpisodesPageDto(
-    val data: List<EpisodeDto>,
-    @SerialName("current_page") val currentPage: Int,
-    @SerialName("last_page") val lastPage: Int,
-    @SerialName("next_page_url") val nextPageUrl: String? = null,
-    val from: Int,
-    val to: Int,
-    val total: Int,
+data class PopularAnimeModel(
+    @SerialName("current_page") var currentPage: Int? = null,
+    @SerialName("data") var data: ArrayList<Data> = arrayListOf(),
+    @SerialName("first_page_url") var firstPageUrl: String? = null,
+    @SerialName("from") var from: Int? = null,
+    @SerialName("last_page") var lastPage: Int? = null,
+    @SerialName("last_page_url") var lastPageUrl: String? = null,
+    @SerialName("links") var links: ArrayList<Links> = arrayListOf(),
+    @SerialName("next_page_url") var nextPageUrl: String? = null,
+    @SerialName("path") var path: String? = null,
+    @SerialName("per_page") var perPage: Int? = null,
+    @SerialName("prev_page_url") var prevPageUrl: String? = null,
+    @SerialName("to") var to: Int? = null,
+    @SerialName("total") var total: Int? = null,
 )
 
-@Serializable
-data class AnimeDto(
-    val title: String,
-    val synopsis: String?,
-    @SerialName("image")
-    val thumbnailUrl: String,
-    val studios: String?,
-    @SerialName("estado")
-    val status: String?,
-    @SerialName("status")
-    val statusEn: String?,
-    val url: String,
-    @SerialName("slug")
-    val slug: String?,
-    @SerialName("tipo")
-    val type: String?, // ONA, Serie
-    @SerialName("type")
-    val typeEn: String?, // ONA, TV
-    @SerialName("base64_id")
-    val base64Id: String?,
-    @SerialName("short_title")
-    val shortTitle: String?,
-)
+/*================================================================================================*/
 
 @Serializable
-data class AnimePageDto(
-    @SerialName("current_page")
-    val currentPage: Int?,
-    @SerialName("last_page")
-    val lastPage: Int?,
-    @SerialName("next_page_url")
-    val nextPageUrl: String?,
-    val data: List<AnimeDto>,
+data class EpisodeAnimeModel(
+    @SerialName("current_page") var currentPage: Int? = null,
+    @SerialName("data") var data: ArrayList<Data> = arrayListOf(),
+    @SerialName("first_page_url") var firstPageUrl: String? = null,
+    @SerialName("from") var from: Int? = null,
+    @SerialName("last_page") var lastPage: Int? = null,
+    @SerialName("last_page_url") var lastPageUrl: String? = null,
+    @SerialName("links") var links: ArrayList<Links> = arrayListOf(),
+    @SerialName("next_page_url") var nextPageUrl: String? = null,
+    @SerialName("path") var path: String? = null,
+    @SerialName("per_page") var perPage: Int? = null,
+    @SerialName("prev_page_url") var prevPageUrl: String? = null,
+    @SerialName("to") var to: Int? = null,
+    @SerialName("total") var total: Int? = null,
+)
+
+/*================================================================================================*/
+
+@Serializable
+data class ServerAnimeModel(
+    @SerialName("remote") var remote: String? = null,
+    @SerialName("slug") var slug: String? = null,
+    @SerialName("server") var server: String? = null,
+    @SerialName("lang") var lang: Int? = null,
+    @SerialName("size") var size: String? = null,
+    @SerialName("append") var append: Int? = null,
 )

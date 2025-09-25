@@ -4,6 +4,9 @@ import android.content.SharedPreferences
 import android.util.Base64
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.es.jkanime.extractors.JkanimeExtractor
+import eu.kanade.tachiyomi.animeextension.es.jkanime.models.AnimePageDto
+import eu.kanade.tachiyomi.animeextension.es.jkanime.models.EpisodesPageDto
+import eu.kanade.tachiyomi.animeextension.es.jkanime.models.JsLinks
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -31,7 +34,6 @@ import extensions.utils.delegate
 import extensions.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -39,6 +41,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.text.lowercase
 
 class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
@@ -95,7 +98,6 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
     private val json = Json {
         isLenient = true
         ignoreUnknownKeys = true
-        explicitNulls = false
     }
 
     companion object {
@@ -109,28 +111,21 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private val SERVER_LIST = listOf(
+            "Desu",
             "Okru",
             "Voe",
             "Filemoon",
             "StreamTape",
             "Mp4Upload",
             "Mixdrop",
-            "Streamwish",
             "DoodStream",
             "VidHide",
             "Mediafire",
             "Desuka",
-            "Nozomi",
-            "Desu",
             "Magi",
+            "Nozomi",
         )
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
-
-        private const val PREF_EPISODES_INFO = "pref_episodes_info"
-        private val EPISODES_INFO = mapOf(
-            "Población rápida" to "0",
-            "Solicitar información de la fuente" to "1",
-        )
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
@@ -139,37 +134,30 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/directorio?filtro=popularidad&p=$page", headers)
 
-    override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val scriptData = document.selectFirst("script:containsData(var animes =)")?.data().orEmpty()
+        val regex = Regex("""var animes\s*=\s*(\{.*\});""", RegexOption.DOT_MATCHES_ALL)
+        val jsonString = regex.find(scriptData)?.groupValues?.get(1) ?: return AnimesPage(emptyList(), false)
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return if (page == 1) {
-            GET(baseUrl, headers)
-        } else {
-            GET("$baseUrl/directorio?p=${page - 1}", headers)
-        }
-    }
+        val json = json.decodeFromString<PopularAnimeModel>(jsonString)
 
-    private fun homepageAnimesSelector(): String = "div.trending_div div.custom_thumb_home a"
-
-    private fun homepageAnimesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("a").attr("abs:href").trim('/'))
-            title = element.select("img").attr("alt")
-            thumbnail_url = element.select("img").attr("abs:src")
-        }
-    }
-
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val location = response.request.url.encodedPath
-        return when {
-            location.startsWith("/directorio") -> searchAnimeParse(response)
-            else -> {
-                val document = response.asJsoup()
-                val animes = document.select(homepageAnimesSelector()).map(::homepageAnimesFromElement)
-                AnimesPage(animes, true)
+        val hasNext = !json.nextPageUrl.isNullOrBlank()
+        val animeList = json.data.map {
+            SAnime.create().apply {
+                title = it.title.orEmpty()
+                thumbnail_url = it.image
+                description = it.synopsis
+                author = it.studios
+                setUrlWithoutDomain(it.url.orEmpty())
             }
         }
+        return AnimesPage(animeList, hasNext)
     }
+
+    override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
+
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/directorio?estado=emision&p=$page", headers)
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
@@ -202,8 +190,35 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         val document = response.asJsoup()
         val location = document.location().toHttpUrl().encodedPath
         return when {
-            location.startsWith("/directorio") -> searchAnimeParseDirectory(document)
-            location.startsWith("/buscar") -> searchAnimeParseSearch(document)
+            location.startsWith("/directorio") -> {
+                val scriptData = document.selectFirst("script:containsData(var animes =)")?.data().orEmpty()
+                val regex = Regex("""var animes\s*=\s*(\{.*\});""", RegexOption.DOT_MATCHES_ALL)
+                val jsonString = regex.find(scriptData)?.groupValues?.get(1) ?: return AnimesPage(emptyList(), false)
+
+                val json = json.decodeFromString<PopularAnimeModel>(jsonString)
+
+                val hasNext = !json.nextPageUrl.isNullOrBlank()
+                val animeList = json.data.map {
+                    SAnime.create().apply {
+                        title = it.title.orEmpty()
+                        thumbnail_url = it.image
+                        description = it.synopsis
+                        author = it.studios
+                        setUrlWithoutDomain(it.url.orEmpty())
+                    }
+                }
+                return AnimesPage(animeList, hasNext)
+            }//searchAnimeParseDirectory(document)
+            location.startsWith("/buscar") -> {
+                val animeList = document.select(".anime__item").mapNotNull {
+                    SAnime.create().apply {
+                        title = it.select("h5 a").text()
+                        thumbnail_url = it.selectFirst(".set-bg")?.attr("abs:data-setbg")
+                        setUrlWithoutDomain(it.select("a").attr("abs:href"))
+                    }
+                }
+                return AnimesPage(animeList, false)
+            }//searchAnimeParseSearch(document)
             location.startsWith("/horario") -> searchAnimeParseSchedule(document)
             else -> AnimesPage(emptyList(), false)
         }
@@ -211,7 +226,7 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private fun searchAnimeParseDirectory(document: Document): AnimesPage {
         val animePageJson = document.selectFirst("script:containsData(var animes = )")?.data()
-            ?.let { script -> pattern.find(script)?.groups[1]?.value }
+            ?.let(::parseAnimeJsonString)
             ?.takeIf { it.isNotBlank() }
             ?.let { jsonStr -> json.decodeFromString<AnimePageDto>(jsonStr) }
             ?: return AnimesPage(emptyList(), false)
@@ -220,23 +235,24 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
             SAnime.create().apply {
                 setUrlWithoutDomain(animeDto.url)
                 title = animeDto.title
-                description = animeDto.synopsis
+                description = animeDto.description
                 thumbnail_url = animeDto.thumbnailUrl
-                author = animeDto.studios
-                status = animeDto.status?.let(::parseStatus) ?: SAnime.UNKNOWN
+                author = animeDto.author
+                status = parseStatus(animeDto.status)
             }
         }
         return AnimesPage(animeList, !animePageJson.nextPageUrl.isNullOrBlank())
     }
 
-    // Try to capture a JSON object assigned to `var animes = {...};` using a DOTALL regex.
-    // Use non-greedy matching to get until the first closing brace followed by a semicolon.
-    // Exclude possible closing braces followed by semicolons inside strings quoted by " or '.
-    val pattern by lazy {
-        Regex(
+    private fun parseAnimeJsonString(script: String): String? {
+        // Try to capture a JSON object assigned to `var animes = {...};` using a DOTALL regex.
+        // Use non-greedy matching to get until the first closing brace followed by a semicolon.
+        // Exclude possible closing braces followed by semicolons inside strings quoted by " or '.
+        val pattern = Regex(
             """var\s+animes\s*=\s*(\{(?:[^"']|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')*?\})\s*;""",
             RegexOption.DOT_MATCHES_ALL,
         )
+        return pattern.find(script)?.groups[1]?.value
     }
 
     private fun searchAnimeParseSearch(document: Document): AnimesPage {
@@ -271,7 +287,7 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         val anime = SAnime.create()
-        document.selectFirst("div.anime__details__content div.anime_pic img")?.attr("abs:src")?.let { anime.thumbnail_url = it }
+        document.selectFirst("div.anime__details__content div.anime_info img")?.getImageUrl()?.let { anime.thumbnail_url = it }
         document.selectFirst("div.anime__details__content div.anime_info h3")?.text()?.let { anime.title = it }
         document.selectFirst("div.anime__details__content div.anime_info p.scroll")?.text()?.let { anime.description = it }
         document.select("div.anime__details__content div.anime_data.pc li").forEach { animeData ->
@@ -290,70 +306,87 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         return anime
     }
 
-    private fun List<EpisodeDto>.toEpisodeList(animeUrl: String): List<SEpisode> = map { ep ->
-        SEpisode.create().apply {
-            episode_number = ep.number.toFloat()
-            name = "Episodio ${ep.number}"
-            date_upload = ep.timestamp?.toDate() ?: 0L
-            setUrlWithoutDomain("$animeUrl/${ep.number}")
-        }
-    }
-
     override fun episodeListParse(response: Response): List<SEpisode> {
         val animeUrl = response.request.url.toString().trim('/')
         val pageBody = response.asJsoup()
         val token = pageBody.selectFirst("meta[name=csrf-token]")?.attr("content") ?: return emptyList()
-        val xsrfToken = response.headers.filter { it.first == "set-cookie" }
         val formData = FormBody.Builder().add("_token", token).build()
         val animeId = pageBody.selectFirst("div.anime__details__content div.pc div#guardar-anime")
             ?.attr("data-anime")
             ?.takeIf { it.isNotBlank() } ?: return emptyList()
 
+        val episodesPage = client.newCall(POST("$baseUrl/ajax/episodes/$animeId/1", headers, formData))
+            .execute().body.string()
+            .let { jsonStr -> json.decodeFromString<EpisodesPageDto>(jsonStr) }
+
+        val firstEp = episodesPage.data.firstOrNull()?.number ?: 1
+        val lastEp = if (firstEp == 0) (episodesPage.total - 1) else episodesPage.total
+
         val episodes = mutableListOf<SEpisode>()
-        val cookieHeaders = headers.newBuilder().apply {
-            add(
-                "Cookie",
-                xsrfToken.joinToString(" ") { "${it.second.substringBeforeLast(";")};" },
-            )
-        }.build()
-        val episodesPage = fetchAnimeEpisodes(animeId, 1, cookieHeaders, formData)
-        episodesPage.data.toEpisodeList(animeUrl).let(episodes::addAll)
-
-        if (preferences.episodeInfoPref == "0") {
-            val firstEp = episodesPage.from
-            val lastEp = episodesPage.total + firstEp - 1
-
-            for (i in episodesPage.to + 1..lastEp) {
-                val episode = SEpisode.create().apply {
-                    setUrlWithoutDomain("$animeUrl/$i")
-                    name = "Episodio $i"
-                    episode_number = i.toFloat()
-                }
-                episodes.add(episode)
+        for (i in firstEp..lastEp) {
+            val episode = SEpisode.create().apply {
+                setUrlWithoutDomain("$animeUrl/$i")
+                name = "Episodio $i"
+                episode_number = i.toFloat()
             }
-        } else {
-            for (currentPage in 2..episodesPage.lastPage) {
-                if (currentPage % 10 == 0) {
-                    Thread.sleep(1000)
+            episodes.add(episode)
+        }
+
+        return episodes.reversed()
+    }
+
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val doc = response.asJsoup()
+        val episodes = mutableListOf<SEpisode>()
+        try {
+            val animeId = doc.selectFirst("[data-anime]")?.attr("data-anime").orEmpty()
+            val token = doc.selectFirst("meta[name=csrf-token]")?.attr("content").orEmpty()
+            val episodePath = doc.selectFirst("[property=\"og:url\"]")?.attr("content")
+            val xsrfToken = response.headers.filter { it.first == "set-cookie" }
+            val referer = doc.location()
+            var currentPage = 1
+            var requestCount = 0
+            var animePage = fetchAnimeEpisodes(referer, token, animeId, currentPage, xsrfToken)
+            while (animePage != null) {
+                animePage.data.forEach {
+                    episodes.add(
+                        SEpisode.create().apply {
+                            episode_number = it.number?.toFloat() ?: 0F
+                            name = "Episodio ${it.number}"
+                            date_upload = it.timestamp?.toDate() ?: 0L
+                            setUrlWithoutDomain("$episodePath${it.number}/")
+                        },
+                    )
                 }
 
-                runCatching {
-                    fetchAnimeEpisodes(animeId, currentPage, cookieHeaders, formData)
-                }.getOrNull()
-                    ?.data?.toEpisodeList(animeUrl)?.let(episodes::addAll)
+                // pause every 15 request
+                requestCount++
+                if (requestCount % 10 == 0) {
+                    println("Esperando para evitar 429... ($requestCount requests realizadas)")
+                    Thread.sleep(5000) // wait 5 seconds
+                }
+
+                currentPage++
+                animePage = if (!animePage.nextPageUrl.isNullOrEmpty()) {
+                    fetchAnimeEpisodes(referer, token, animeId, currentPage, xsrfToken)
+                } else {
+                    null
+                }
             }
+        } catch (e: Exception) {
+            Log.i("bruh getEpisodes", "Error: ${e.message}", e)
         }
         return episodes.reversed()
     }
 
-    private fun fetchAnimeEpisodes(
-        animeId: String,
-        currentPage: Int,
-        cookieHeaders: Headers,
-        formData: FormBody,
-    ) = client.newCall(POST("$baseUrl/ajax/episodes/$animeId/$currentPage", headers = cookieHeaders, body = formData))
-        .execute().body.string()
-        .let { jsonStr -> json.decodeFromString<EpisodesPageDto>(jsonStr) }
+    private fun fetchAnimeEpisodes(referer: String, token: String, animeId: String, page: Int, cookies: List<Pair<String, String>>): EpisodeAnimeModel? {
+        return runCatching {
+            val body = "_token=$token".toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            val newHeaders = mapOf("Cookie" to cookies.joinToString(" ") { "${it.second.substringBeforeLast(";")};" }) + mapOf("Referer" to referer)
+            val response = client.newCall(POST("$baseUrl/ajax/episodes/$animeId/$page", body = body, headers = newHeaders.toHeaders())).execute()
+            return json.decodeFromString<EpisodeAnimeModel>(response.body.string())
+        }.getOrNull()
+    }
 
     private val languages = arrayOf(
         Pair(1, "[JAP]"),
@@ -361,9 +394,9 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         Pair(4, "[CHIN]"),
     )
 
-    private fun Int?.getLang() = languages.firstOrNull { it.first == this }?.second ?: ""
+    private fun Int?.getLang(): String = languages.firstOrNull { it.first == this }?.second ?: ""
 
-    private fun getVideoLinks(document: Document): List<Triple<String, String, String>> {
+    private fun getVideoLinks(document: Document): List<Pair<String, String>> {
         val scriptServers = document.selectFirst("script:containsData(var video = [];)")?.data() ?: return emptyList()
         val isRemote = scriptServers.contains("= remote+'", true)
         val jsServer = scriptServers.substringAfter("var remote = '").substringBefore("'")
@@ -372,16 +405,14 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         val jsLinks = if (isRemote && jsServer.isNotEmpty()) {
             client.newCall(GET(jsServer + jsPath)).execute().body.string()
         } else {
-            val regex = Regex("""var servers\s*=\s*(\[.*]);""", RegexOption.UNIX_LINES)
-            regex.find(scriptServers)?.groupValues?.get(1)
-        }?.parseAs<Array<JsLinks>>()?.map {
-            Triple(String(Base64.decode(it.remote, Base64.DEFAULT)), it.lang.getLang(), it.server ?: "")
-        } ?: emptyList()
+            scriptServers.substringAfter("var servers = ").substringBefore(";").substringBefore("var")
+        }.parseAs<Array<JsLinks>>().map {
+            Pair(String(Base64.decode(it.remote, Base64.DEFAULT)), "${it.lang}".getLang())
+        }
 
         val htmlLinks = document.select("div.bg-servers a").map {
             val serverId = it.attr("data-id")
-            val lang = it.attr("class").substringAfter("lg_").substringBefore(" ").toIntOrNull()?.getLang() ?: ""
-            val name = it.text().ifBlank { "" } ?: ""
+            val lang = it.attr("class").substringAfter("lg_").substringBefore(" ").getLang()
             val url = scriptServers
                 .substringAfter("video[$serverId] = '<iframe class=\"player_conte\" src=\"")
                 .substringBefore("\"")
@@ -389,7 +420,7 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
                 .replace("/jkvmixdrop.php?u=", "https://mixdrop.ag/e/")
                 .replace("/jksw.php?u=", "https://sfastwish.com/e/")
                 .replace("/jk.php?u=", "$baseUrl/")
-            Triple(url, lang, name)
+            Pair(url, lang)
         }
 
         return jsLinks + htmlLinks
@@ -403,50 +434,52 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val mixDropExtractor by lazy { MixDropExtractor(client) }
 
+    // Removed StreamWish extractor because it is causing timeout errors and significantly increasing load times.
+    // private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val jkanimeExtractor by lazy { JkanimeExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
+    private fun String.containsAny(vararg substrings: String): Boolean = substrings.any { it in this }
+
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        return getVideoLinks(document).parallelCatchingFlatMapBlocking { (url, lang, name) ->
-            val matched = serverMatching.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first ?: name.lowercase()
+        val doc = response.asJsoup()
+        val scriptData = doc.selectFirst("script:containsData(var servers)")?.data().orEmpty()
+        val regex = Regex("""var servers\s*=\s*(\[.*\]);""", RegexOption.UNIX_LINES)
+        val jsonString = regex.find(scriptData)?.groupValues?.get(1) ?: return emptyList()
+
+        return json.decodeFromString<List<ServerAnimeModel>>(jsonString).parallelCatchingFlatMapBlocking {
+            val url = String(Base64.decode(it.remote.orEmpty(), Base64.DEFAULT))
+            val prefix = it.lang.getLang()
+            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
             when (matched) {
-                // "mega" -> emptyList() // Skip mega server
-                "okru" -> okruExtractor.videosFromUrl(url, lang)
-                "voe" -> voeExtractor.videosFromUrl(url, "$lang ")
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
-                "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "$lang ", headers = headers)
-                "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
-                // Removed StreamWish extractor because it is causing timeout errors and significantly increasing load times.
-                // "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" }) // Use UniversalExtractor
-                "doostream" -> doodExtractor.videosFromUrl(url.replace("d-s.io", "dsvplay.com"), "$lang ${name.ifBlank { "Doodstream" }}")
-                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
-                "mediafire" -> jkanimeExtractor.getMediafireFromUrl(url, "$lang ")
-                "desuka" -> jkanimeExtractor.getDesukaFromUrl(url, "$lang ")
-                "nozomi" -> jkanimeExtractor.getNozomiFromUrl(url, "$lang ")
-                "desu" -> jkanimeExtractor.getDesuFromUrl(url, "$lang ")
-                "magi" -> jkanimeExtractor.getMagiFromUrl(url, "$lang ")
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $name")
+                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+                "okru" -> okruExtractor.videosFromUrl(url, prefix)
+                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+                "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+                "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$prefix ")
+                "desuka" -> jkanimeExtractor.getDesukaFromUrl(url, "$prefix ")
+                "nozomi" -> jkanimeExtractor.getNozomiFromUrl(url, "$prefix ")
+                "desu" -> jkanimeExtractor.getDesuFromUrl(url, "$prefix ")
+                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
             }
         }
     }
 
-    private val serverMatching = listOf(
+    private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "okru" to listOf("ok.ru", "okru"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
-        "mixdrop" to listOf("mixdrop", "mxdrop", "mdbekjwqa"),
-        "streamwish" to listOf("sfastwish", "wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
-        "doostream" to listOf("d-s.io", "dsvplay"),
+        "mp4upload" to listOf("mp4upload"),
+        "mixdrop" to listOf("mixdrop", "mxdrop"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "desuka" to listOf("stream/jkmedia"),
-        "nozomi" to listOf("jkplayer/um2?", "um2.php", "nozomi"),
-        "desu" to listOf("jkplayer/um?", "um.php"),
-        "magi" to listOf("jkplayer/umv?"),
-        "mega" to listOf("mega.nz"),
+        "nozomi" to listOf("um2.php", "nozomi"),
+        "desu" to listOf("um.php"),
     )
 
     override fun List<Video>.sort(): List<Video> {
@@ -472,28 +505,23 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    override fun getFilterList() = AnimeFilterList(
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("La busqueda por texto no incluye filtros"),
+        DayFilter(),
         GenreFilter(),
-        LetterFilter(),
-        DemographyFilter(),
-        CategoryFilter(),
         TypeFilter(),
         StateFilter(),
+        SeasonFilter(),
         AnimeFilter.Header("Busqueda por año"),
         YearFilter(),
-        SeasonFilter(),
         AnimeFilter.Header("Filtros de ordenamiento"),
         OrderByFilter(),
         SortModifiers(),
-        AnimeFilter.Separator(),
-        DayFilter(),
     )
 
     private val SharedPreferences.qualityPref by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
     private val SharedPreferences.langPref by preferences.delegate(PREF_LANGUAGE_KEY, PREF_LANGUAGE_DEFAULT)
-    private val SharedPreferences.episodeInfoPref by preferences.delegate(PREF_EPISODES_INFO, "0")
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val server = getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
@@ -532,15 +560,21 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
             default = PREF_SERVER_DEFAULT,
             summary = "%s",
         )
+    }
 
-        screen.addListPreference(
-            key = PREF_EPISODES_INFO,
-            title = "Episode info",
-            entries = EPISODES_INFO.keys.toList(),
-            entryValues = EPISODES_INFO.values.toList(),
-            default = "0",
-            summary = "%s",
-        )
+    private fun Element.getImageUrl(): String? {
+        return when {
+            isValidUrl("data-src") -> attr("abs:data-src")
+            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+            isValidUrl("src") -> attr("abs:src")
+            else -> null
+        }
+    }
+
+    private fun Element.isValidUrl(attrName: String): Boolean {
+        if (!hasAttr(attrName)) return false
+        return !attr(attrName).contains("anime.png")
     }
 
     private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
