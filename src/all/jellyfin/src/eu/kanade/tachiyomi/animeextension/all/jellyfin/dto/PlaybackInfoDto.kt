@@ -7,7 +7,7 @@ data class PlaybackInfoDto(
     val userId: String,
     val isPlayback: Boolean,
     val mediaSourceId: String,
-    val maxStreamingBitrate: Long,
+    val maxStreamingBitrate: Int,
     val enableTranscoding: Boolean,
     val audioStreamIndex: String? = null,
     val subtitleStreamIndex: String? = null,
@@ -18,9 +18,9 @@ data class PlaybackInfoDto(
 @Serializable
 data class DeviceProfileDto(
     val name: String,
-    val maxStreamingBitrate: Long,
-    val maxStaticBitrate: Long,
-    val musicStreamingTranscodingBitrate: Long,
+    val maxStreamingBitrate: Int,
+    val maxStaticBitrate: Int,
+    val musicStreamingTranscodingBitrate: Int,
     val transcodingProfiles: List<ProfileDto>,
     val directPlayProfiles: List<ProfileDto>,
     val responseProfiles: List<ProfileDto>,
