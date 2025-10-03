@@ -56,7 +56,7 @@ class Q1N : DooPlay(
         val sheader = doc.selectFirst("div.sheader")!!
         return SAnime.create().apply {
             setUrlWithoutDomain(doc.location())
-            sheader.selectFirst("div.poster img")!!.let {
+            sheader.selectFirst("div.poster > img")!!.let {
                 thumbnail_url = it.getImageUrl()
                 title = it.attr("alt").ifEmpty {
                     sheader.selectFirst("div.data > h1")!!.text()
@@ -134,11 +134,12 @@ class Q1N : DooPlay(
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private suspend fun getPlayerVideos(player: Element): List<Video> {
-        val name = player.selectFirst("span.title")!!.text().lowercase()
+        val realName = player.selectFirst("span.title")!!.text()
+        val name = realName.lowercase()
         val url = getPlayerUrl(player) ?: return emptyList()
         Log.d(tag, "Fetching videos from: $url")
 
-        return when {
+        var videos = when {
             "ruplay" in name -> ruplayExtractor.videosFromUrl(url)
             "streamwish" in name -> streamWishExtractor.videosFromUrl(url)
             "filemoon" in name -> filemoonExtractor.videosFromUrl(url)
@@ -146,11 +147,28 @@ class Q1N : DooPlay(
             "streamtape" in name -> streamTapeExtractor.videosFromUrl(url)
             "noa" in name -> noaExtractor.videosFromUrl(url)
             "mdplayer" in name -> noaExtractor.videosFromUrl(url, name)
-            "/antivirus3/" in url -> noaExtractor.videosFromUrl(url, name)
             "/player/" in url -> bloggerExtractor.videosFromUrl(url, headers)
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> universalExtractor.videosFromUrl(url, headers, name)
+            "q1n.net/antivirus" in url -> {
+                Log.d(tag, "Fetching videos from using noa extractor: $url")
+                val videos = noaExtractor.videosFromUrl(url, realName)
+                // Process M3U8 videos through local server (automatic detection)
+                return videos
+                // FIXME: runBlocking { m3u8Integration.processVideoList(videos) }
+            }
+            else -> emptyList()
         }
+
+        if (videos.isEmpty()) {
+            Log.d(tag, "Videos are empty, fetching videos from using universal extractor: $url")
+            val newHeaders = headers.newBuilder().set("Referer", baseUrl).build()
+            videos = universalExtractor.videosFromUrl(url, newHeaders, realName)
+            // Process M3U8 videos through local server (automatic detection)
+            return videos
+            // FIXME: runBlocking { m3u8Integration.processVideoList(videos) }
+        }
+
+        return videos
     }
 
     private fun getPlayerUrl(player: Element): String? {
@@ -188,7 +206,7 @@ class Q1N : DooPlay(
 
     // ============================= Utilities ==============================
     override fun getRealAnimeDoc(document: Document): Document {
-        if (!document.location().contains("/e/")) return document
+        if (!document.location().contains("/episodio/")) return document
 
         return document.selectFirst("div.pag_episodes div.item > a:has(i.fa-th)")?.let {
             client.newCall(GET(it.attr("href"), headers)).execute()
