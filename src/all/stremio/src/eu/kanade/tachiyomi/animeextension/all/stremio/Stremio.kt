@@ -63,7 +63,7 @@ class Stremio : Source() {
     private val addonManager by lazy {
         AddonManager(addonDelegate, authKeyDelegate)
     }
-    private suspend fun addons() = addonManager.getAddons(this)
+    private suspend fun addons() = addonManager.getAddons()
     // KMK <--
 
     // ============================== Popular ===============================
