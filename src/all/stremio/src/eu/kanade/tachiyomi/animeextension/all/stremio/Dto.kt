@@ -7,8 +7,16 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.apache.commons.text.StringSubstitutor
@@ -36,6 +44,15 @@ data class MetaResultDto(
     val meta: MetaDto,
 )
 
+class ObjectToListSerializer<T : Any>(
+    tSerializer: KSerializer<T>,
+) : JsonTransformingSerializer<List<T>>(ListSerializer(tSerializer)) {
+    override fun transformDeserialize(element: JsonElement): JsonElement = when (element) {
+        JsonNull, is JsonArray -> element
+        is JsonPrimitive, is JsonObject -> JsonArray(listOf(element))
+    }
+}
+
 @Serializable
 data class MetaDto(
     val id: String,
@@ -47,6 +64,7 @@ data class MetaDto(
     // Details
     val description: String? = null,
     val genres: List<String>? = null,
+    @Serializable(with = ObjectToListSerializer::class)
     val director: List<String>? = null,
     val cast: List<String>? = null,
     val year: String? = null,
