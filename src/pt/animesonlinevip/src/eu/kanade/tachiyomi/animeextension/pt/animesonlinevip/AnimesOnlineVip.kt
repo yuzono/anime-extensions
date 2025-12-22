@@ -24,7 +24,7 @@ class AnimesOnlineVip : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override val name = "Animes Online Vip"
 
-    override val baseUrl = "https://animesonline.red"
+    override val baseUrl = "https://animesonlinefhd.vip"
 
     override val lang = "pt-BR"
 
