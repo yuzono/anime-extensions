@@ -156,7 +156,7 @@ class Stremio : Source() {
         )
 
         val data = response.parseAs<CatalogListDto>()
-        val entries = data.metas.map { it.toSAnime() }
+        val entries = data.metas.orEmpty().map { it.toSAnime() }
 
         if (page == 1) {
             nextSkip = entries.size
