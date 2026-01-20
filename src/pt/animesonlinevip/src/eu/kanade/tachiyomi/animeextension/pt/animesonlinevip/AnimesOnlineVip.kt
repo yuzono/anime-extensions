@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.pt.animesonlinevip
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -133,15 +134,20 @@ class AnimesOnlineVip :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
-        return document.select("#video source")
+        return document.select("#video source,div.post-video iframe")
             .parallelCatchingFlatMapBlocking {
                 getVideosFromURL(it.attr("src"))
             }
     }
 
-    private fun getVideosFromURL(url: String): List<Video> = listOf(
-        Video(url, "Default", videoUrl = url, headers),
-    )
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
+
+    private fun getVideosFromURL(url: String): List<Video> = when {
+        "assistonapi.link" in url -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> listOf(
+            Video(url, "Default", videoUrl = url, headers),
+        )
+    }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
 
