@@ -1,55 +1,77 @@
 package eu.kanade.tachiyomi.animeextension.es.cuevana.models
 
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Serializable
 data class AnimeEpisodesList(
-    @SerialName("props") var props: Props? = Props(),
-    @SerialName("page") var page: String? = null,
-    @SerialName("query") var query: Query? = Query(),
-    @SerialName("buildId") var buildId: String? = null,
-    @SerialName("isFallback") var isFallback: Boolean? = null,
-    @SerialName("gsp") var gsp: Boolean? = null,
-    @SerialName("locale") var locale: String? = null,
-    @SerialName("locales") var locales: ArrayList<String> = arrayListOf(),
-    @SerialName("defaultLocale") var defaultLocale: String? = null,
-    @SerialName("scriptLoader") var scriptLoader: ArrayList<String> = arrayListOf(),
+    @SerialName("props") val props: Props? = Props(),
+    @SerialName("page") val page: String? = null,
+    @SerialName("query") val query: Query? = Query(),
+    @SerialName("buildId") val buildId: String? = null,
+    @SerialName("isFallback") val isFallback: Boolean? = null,
+    @SerialName("gsp") val gsp: Boolean? = null,
+    @SerialName("locale") val locale: String? = null,
+    @SerialName("locales") val locales: ArrayList<String> = arrayListOf(),
+    @SerialName("defaultLocale") val defaultLocale: String? = null,
+    @SerialName("scriptLoader") val scriptLoader: ArrayList<String> = arrayListOf(),
 )
 
 @Serializable
 data class Episodes(
-    @SerialName("title") var title: String? = null,
-    @SerialName("TMDbId") var TMDbId: String? = null,
-    @SerialName("number") var number: Int? = null,
-    @SerialName("releaseDate") var releaseDate: String? = null,
-    @SerialName("image") var image: String? = null,
-    @SerialName("url") var url: Url? = Url(),
-    @SerialName("slug") var slug: Slug? = Slug(),
-)
+    @SerialName("title") val title: String? = null,
+    @SerialName("TMDbId") val TMDbId: String? = null,
+    @SerialName("number") val number: Int? = null,
+    @SerialName("releaseDate") val releaseDate: String? = null,
+    @SerialName("image") val image: String? = null,
+    @SerialName("url") val url: Url? = Url(),
+    @SerialName("slug") val slug: Slug? = Slug(),
+) {
+    fun toSEpisode(): SEpisode {
+        return SEpisode.create().apply {
+            date_upload = releaseDate?.toDate() ?: 0L
+            name = "T${slug?.season} - Episodio ${slug?.episode}"
+            episode_number = number?.toFloat()!!
+            url = "/episodio/${slug?.name}-temporada-${slug?.season}-episodio-${slug?.episode}"
+        }
+    }
+}
+
+// 2026-01-21T00:00:00.000Z
+private val dateFormatter by lazy {
+    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
+}
+
+private fun String.toDate(): Long {
+    return runCatching { dateFormatter.parse(trim())?.time }
+        .getOrNull() ?: 0L
+}
 
 @Serializable
 data class Seasons(
-    @SerialName("number") var number: Int? = null,
-    @SerialName("episodes") var episodes: ArrayList<Episodes> = arrayListOf(),
+    @SerialName("number") val number: Int? = null,
+    @SerialName("episodes") val episodes: ArrayList<Episodes> = arrayListOf(),
 )
 
 @Serializable
 data class Original(
-    @SerialName("name") var name: String? = null,
+    @SerialName("name") val name: String? = null,
 )
 
 @Serializable
 data class ThisSerie(
-    @SerialName("TMDbId") var TMDbId: String? = null,
-    @SerialName("seasons") var seasons: ArrayList<Seasons> = arrayListOf(),
-    @SerialName("titles") var titles: Titles? = Titles(),
-    @SerialName("images") var images: Images? = Images(),
-    @SerialName("overview") var overview: String? = null,
-    @SerialName("genres") var genres: ArrayList<Genres> = arrayListOf(),
-    @SerialName("cast") var cast: Cast? = Cast(),
-    @SerialName("rate") var rate: Rate? = Rate(),
-    @SerialName("url") var url: Url? = Url(),
-    @SerialName("slug") var slug: Slug? = Slug(),
-    @SerialName("releaseDate") var releaseDate: String? = null,
+    @SerialName("TMDbId") val TMDbId: String? = null,
+    @SerialName("seasons") val seasons: ArrayList<Seasons> = arrayListOf(),
+    @SerialName("titles") val titles: Titles? = Titles(),
+    @SerialName("images") val images: Images? = Images(),
+    @SerialName("overview") val overview: String? = null,
+    @SerialName("genres") val genres: ArrayList<Genres> = arrayListOf(),
+    @SerialName("cast") val cast: Cast? = Cast(),
+    @SerialName("rate") val rate: Rate? = Rate(),
+    @SerialName("url") val url: Url? = Url(),
+    @SerialName("slug") val slug: Slug? = Slug(),
+    @SerialName("releaseDate") val releaseDate: String? = null,
 )

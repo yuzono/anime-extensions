@@ -1,6 +1,6 @@
 ext {
     extName = 'Cuevana'
-    extClass = '.CuevanaFactory'
+    extClass = '.Cuevana'
     extVersionCode = 56
 }
 

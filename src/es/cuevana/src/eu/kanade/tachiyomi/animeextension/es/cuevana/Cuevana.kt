@@ -13,7 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
 import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
 import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
@@ -29,17 +29,15 @@ import extensions.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import java.text.SimpleDateFormat
 
-class CuevanaEu(override val name: String, override val baseUrl: String) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Cuevana() : ConfigurableAnimeSource, AnimeHttpSource() {
+    override val name = "Cuevana"
+
+    override val baseUrl = "https://wv3.cuevana3.eu"
 
     override val lang = "es"
 
-    override val supportsLatest = false
-
-    override val id: Long = 1487248605713977697
+    override val supportsLatest = true
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -48,7 +46,7 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
     companion object {
         private const val PREF_LANGUAGE_KEY = "preferred_language"
         private const val PREF_LANGUAGE_DEFAULT = "[LAT]"
-        private val LANGUAGE_LIST = arrayOf("[LAT]", "[ENG]", "[CAST]", "[JAP]")
+        private val LANGUAGE_LIST = arrayOf("[LAT]", "[ENG]", "[CAST]", "[JAP]", "[SUB]")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
@@ -60,14 +58,23 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
             "Tomatomatela", "YourUpload", "Doodstream", "Okru",
             "Voe", "StreamTape", "StreamWish", "Filemoon",
             "FileLions",
+            "BurstCloud", "Mp4Upload", "Upload", "Upstream", "Amazon",
+            "Fastream", "Streamlare",
+        )
+
+        private const val PREF_CONTENT_TYPE_KEY = "preferred_content"
+        private const val PREF_CONTENT_TYPE_DEFAULT = "peliculas"
+        private val CONTENT_TYPE_NAMES = arrayOf(
+            "Películas",
+            "Series",
+        )
+        private val CONTENT_TYPE_URLS = arrayOf(
+            "peliculas",
+            "series",
         )
     }
 
-    override fun popularAnimeSelector(): String = ".MovieList .TPostMv .TPost"
-
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/peliculas/estrenos/page/$page")
-
-    override fun popularAnimeFromElement(element: Element) = throw UnsupportedOperationException()
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/$contentTypePref/page/$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -91,8 +98,6 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         return AnimesPage(animeList, hasNextPage)
     }
 
-    override fun popularAnimeNextPageSelector(): String = "uwu"
-
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodes = mutableListOf<SEpisode>()
         val document = response.asJsoup()
@@ -100,17 +105,7 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
             val script = document.selectFirst("script:containsData({\"props\":{\"pageProps\":{)")!!.data()
             val responseJson = json.decodeFromString<AnimeEpisodesList>(script)
             responseJson.props?.pageProps?.thisSerie?.seasons?.map {
-                it.episodes.map { ep ->
-                    val episode = SEpisode.create()
-                    val epDate = runCatching {
-                        ep.releaseDate.orEmpty().substringBefore("T").let { date -> SimpleDateFormat("yyyy-MM-dd").parse(date) }?.time
-                    }.getOrDefault(0)
-                    episode.date_upload = epDate ?: 0L
-                    episode.name = "T${ep.slug?.season} - Episodio ${ep.slug?.episode}"
-                    episode.episode_number = ep.number?.toFloat()!!
-                    episode.setUrlWithoutDomain("/episodio/${ep.slug?.name}-temporada-${ep.slug?.season}-episodio-${ep.slug?.episode}")
-                    episodes.add(episode)
-                }
+                it.episodes.map { ep -> ep.toSEpisode() }.forEach(episodes::add)
             }
         } else {
             val episode = SEpisode.create().apply {
@@ -122,10 +117,6 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         }
         return episodes.reversed()
     }
-
-    override fun episodeListSelector() = throw UnsupportedOperationException()
-
-    override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -189,12 +180,6 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
     )
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
@@ -222,13 +207,9 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/$contentTypePref/estrenos/page/$page")
 
-    override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
-
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
-
-    override fun animeDetailsParse(document: Document) = throw UnsupportedOperationException()
+    override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -237,34 +218,34 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         val responseJson = json.decodeFromString<AnimeEpisodesList>(script)
         if (response.request.url.toString().contains("/ver-serie/")) {
             val data = responseJson.props?.pageProps?.thisSerie
+            val backdrop = data?.images?.backdrop
             newAnime.status = SAnime.UNKNOWN
-            newAnime.title = data?.titles?.name ?: ""
-            newAnime.description = data?.overview ?: ""
+            newAnime.description = data?.overview + if (backdrop.isNullOrBlank()) {
+                ""
+            } else {
+                "\n\n![Backdrop]($backdrop)"
+            }
             newAnime.thumbnail_url = data?.images?.poster?.replace("/original/", "/w500/")
             newAnime.genre = data?.genres?.joinToString { it.name ?: "" }
-            newAnime.artist = data?.cast?.acting?.firstOrNull()?.name ?: ""
+            newAnime.artist = data?.cast?.acting?.firstOrNull()?.name
             newAnime.setUrlWithoutDomain(response.request.url.toString())
         } else {
             val data = responseJson.props?.pageProps?.thisMovie
+            val backdrop = data?.images?.backdrop
             newAnime.status = SAnime.UNKNOWN
-            newAnime.title = data?.titles?.name ?: ""
-            newAnime.description = data?.overview ?: ""
+            newAnime.description = data?.overview + if (backdrop.isNullOrBlank()) {
+                ""
+            } else {
+                "\n\n![Backdrop]($backdrop)"
+            }
             newAnime.thumbnail_url = data?.images?.poster?.replace("/original/", "/w500/")
             newAnime.genre = data?.genres?.joinToString { it.name ?: "" }
-            newAnime.artist = data?.cast?.acting?.firstOrNull()?.name ?: ""
+            newAnime.artist = data?.cast?.acting?.firstOrNull()?.name
             newAnime.setUrlWithoutDomain(response.request.url.toString())
         }
 
         return newAnime
     }
-
-    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
-
-    override fun latestUpdatesFromElement(element: Element) = throw UnsupportedOperationException()
-
-    override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
-
-    override fun latestUpdatesSelector() = throw UnsupportedOperationException()
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("La busqueda por texto ignora el filtro"),
@@ -275,7 +256,10 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         "Tipos",
         arrayOf(
             Pair("<selecionar>", ""),
-            Pair("Series", "series/estrenos"),
+            Pair("Películas - Estrenos", "peliculas/estrenos"),
+            Pair("Películas", "peliculas"),
+            Pair("Series - Estrenos", "series/estrenos"),
+            Pair("Series", "series"),
             Pair("Acción", "genero/accion"),
             Pair("Aventura", "genero/aventura"),
             Pair("Animación", "genero/animacion"),
@@ -311,53 +295,46 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         return videoList
     }
 
+    override val supportsRelatedAnimes = false
+
+    private val contentTypePref: String
+        get() = preferences.getString(PREF_CONTENT_TYPE_KEY, PREF_CONTENT_TYPE_DEFAULT)!!
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
+            key = PREF_CONTENT_TYPE_KEY
+            title = "Contenido preferido"
+            entries = CONTENT_TYPE_NAMES
+            entryValues = CONTENT_TYPE_URLS
+            setDefaultValue(PREF_CONTENT_TYPE_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
             key = PREF_LANGUAGE_KEY
-            title = "Preferred language"
+            title = "Idioma preferido"
             entries = LANGUAGE_LIST
             entryValues = LANGUAGE_LIST
             setDefaultValue(PREF_LANGUAGE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
-            title = "Preferred quality"
+            title = "Calidad preferida"
             entries = QUALITY_LIST
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
-            title = "Preferred server"
+            title = "Servidor preferido"
             entries = SERVER_LIST
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }
