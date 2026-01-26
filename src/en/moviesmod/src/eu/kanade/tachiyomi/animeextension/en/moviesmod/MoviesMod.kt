@@ -37,7 +37,9 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override val name = "Movies Mod"
 
     override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        preferences.getString(PREF_DOMAIN_KEY, "")
+            ?.ifBlank { PREF_DOMAIN_DEFAULT }
+            ?: PREF_DOMAIN_DEFAULT
     }
 
     private val currentBaseUrl by lazy {
@@ -351,13 +353,6 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -367,30 +362,15 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = PREF_SIZE_SORT_VALUES
             setDefaultValue(PREF_SIZE_SORT_DEFAULT)
             summary = PREF_SIZE_SORT_SUMMARY
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
             title = PREF_DOMAIN_TITLE
             dialogTitle = PREF_DOMAIN_DIALOG_TITLE
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
+            dialogMessage = "Enter custom domain or leave blank to use default."
+            setDefaultValue("")
             summary = getDomainPrefSummary()
-
-            setOnPreferenceChangeListener { _, newValue ->
-                runCatching {
-                    val value = (newValue as String).ifEmpty { PREF_DOMAIN_DEFAULT }
-                    preferences.edit().putString(key, value).commit().also {
-                        summary = getDomainPrefSummary()
-                    }
-                }.getOrDefault(false)
-            }
         }.also(screen::addPreference)
     }
 
@@ -423,8 +403,8 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         private val SIZE_REGEX = "\\[((?:.(?!\\[))+)]*\\$".toRegex(RegexOption.IGNORE_CASE)
 
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
-        private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.red"
+        private const val PREF_DOMAIN_TITLE = "Custom domain"
+        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.build"
         private const val PREF_DOMAIN_DIALOG_TITLE = PREF_DOMAIN_TITLE
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
