@@ -1,8 +1,9 @@
 ext {
     extName = 'Torbox'
     extClass = '.Torbox'
-    extVersionCode = 1
+    extVersionCode = 2
     extNames = ["Torbox"]
+    versionId = 2
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"

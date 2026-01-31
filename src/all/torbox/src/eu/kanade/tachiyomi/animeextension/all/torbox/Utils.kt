@@ -1,3 +1,5 @@
+@file:Suppress("RegExpRedundantEscape")
+
 package eu.kanade.tachiyomi.animeextension.all.torbox
 
 private val GROUP_REGEX = Regex("""^\[\w+\] ?""")

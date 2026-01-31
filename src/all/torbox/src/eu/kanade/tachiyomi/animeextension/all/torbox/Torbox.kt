@@ -20,13 +20,17 @@ import extensions.utils.addSwitchPreference
 import extensions.utils.delegate
 import extensions.utils.formatBytes
 import extensions.utils.parseAs
+import extensions.utils.toJsonString
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.IOException
 
-class Torbox : Source(), UnmeteredSource {
+@Suppress("unused")
+class Torbox :
+    Source(),
+    UnmeteredSource {
 
     override val baseUrl = "https://api.torbox.app"
 
@@ -35,6 +39,8 @@ class Torbox : Source(), UnmeteredSource {
     override val name = "Torbox"
 
     override val supportsLatest = true
+
+    override val versionId = 2
 
     override val client = network.client.newBuilder()
         .addInterceptor { chain ->
@@ -170,19 +176,18 @@ class Torbox : Source(), UnmeteredSource {
         name: String,
         values: List<CheckboxFilter>,
     ) : AnimeFilter.Group<CheckboxFilter>(name, values) {
-        fun getSelection(): List<String> {
-            return state.filter { it.state }.map { it.id }
-        }
+        fun getSelection(): List<String> = state.filter { it.state }.map { it.id }
     }
 
-    class TypeFilter : CheckboxListFilter(
-        "Types",
-        listOf(
-            CheckboxFilter("Torrents", TORRENT),
-            CheckboxFilter("Web Downloads", WEBDL),
-            CheckboxFilter("Usenet Downloads", USENET),
-        ),
-    )
+    class TypeFilter :
+        CheckboxListFilter(
+            "Types",
+            listOf(
+                CheckboxFilter("Torrents", TORRENT),
+                CheckboxFilter("Web Downloads", WEBDL),
+                CheckboxFilter("Usenet Downloads", USENET),
+            ),
+        )
 
     class SortFilter(
         sortType: SortType = SortType.Default,
@@ -192,9 +197,7 @@ class Torbox : Source(), UnmeteredSource {
         SortType.entries.map { it.displayName }.toTypedArray(),
         Selection(SortType.entries.indexOfFirst { it == sortType }, ascending),
     ) {
-        fun getSelection(): Pair<SortType, Boolean> {
-            return SortType.entries[state!!.index] to state!!.ascending
-        }
+        fun getSelection(): Pair<SortType, Boolean> = SortType.entries[state!!.index] to state!!.ascending
     }
 
     enum class SortType(val displayName: String) {
@@ -211,40 +214,16 @@ class Torbox : Source(), UnmeteredSource {
         ETA("ETA"),
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            TypeFilter(),
-            SortFilter(),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        TypeFilter(),
+        SortFilter(),
+    )
 
     // =========================== Anime Details ============================
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val info = json.decodeFromString<InfoDetailsDto>(anime.url)
-
-        var hasNextPage = true
-        var page = 0
-        while (hasNextPage) {
-            val url = baseUrl.toHttpUrl().newBuilder().apply {
-                addPathSegment("v1")
-                addPathSegment("api")
-                addPathSegment(info.type)
-                addPathSegment("mylist")
-                addQueryParameter("limit", LIMIT.toString())
-                addQueryParameter("offset", (page * LIMIT).toString())
-            }.build()
-
-            val data = client.get(url).parseAs<DataDto<List<ListDataDto>>>().data
-            hasNextPage = data.size == LIMIT
-            page++
-
-            data.firstOrNull { it.id == info.id }?.let {
-                return it.toInfoDataDto(info.type).toSAnime(preferences.trimTitleInfo)
-            }
-        }
-
-        return anime
+        val info = anime.url.parseAs<InfoDetailsDto>()
+        return getInfo(info.type, info.id).toSAnime(preferences.trimTitleInfo)
     }
 
     // ============================== Episodes ==============================
@@ -252,9 +231,10 @@ class Torbox : Source(), UnmeteredSource {
     override suspend fun getSeasonList(anime: SAnime) = throw UnsupportedOperationException()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val info = json.decodeFromString<InfoDetailsDto>(anime.url)
+        val info = anime.url.parseAs<InfoDetailsDto>()
+        val files = getInfo(info.type, info.id).files
 
-        return info.files.reversed()
+        return files.reversed()
             .filter { if (preferences.filterVideos) it.mimetype.startsWith("video", true) else true }
             .map {
                 val extraInfo = buildList(2) {
@@ -268,7 +248,11 @@ class Torbox : Source(), UnmeteredSource {
 
                 SEpisode.create().apply {
                     name = if (preferences.trimEpisodeInfo) it.shortName.trimInfo() else it.shortName
-                    url = "${info.type},${info.id},${it.id}"
+                    url = VideoDetailsDto(
+                        type = info.type,
+                        seriesId = info.id,
+                        videoId = it.id,
+                    ).toJsonString()
                     scanlator = extraInfo.joinToString(" • ")
                 }
             }
@@ -277,21 +261,21 @@ class Torbox : Source(), UnmeteredSource {
     // ============================ Video Links =============================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val (type, id, fileId) = episode.url.split(",")
-        val queryParameter = when (type) {
+        val info = episode.url.parseAs<VideoDetailsDto>()
+        val queryParameter = when (info.type) {
             TORRENT -> "torrent_id"
             WEBDL -> "web_id"
             USENET -> "usenet_id"
-            else -> throw IllegalArgumentException("Invalid type: $type")
+            else -> throw IllegalArgumentException("Invalid type: ${info.type}")
         }
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("v1")
             addPathSegment("api")
-            addPathSegment(type)
+            addPathSegment(info.type)
             addPathSegment("requestdl")
-            addQueryParameter(queryParameter, id)
-            addQueryParameter("file_id", fileId)
+            addQueryParameter(queryParameter, info.seriesId.toString())
+            addQueryParameter("file_id", info.videoId.toString())
             addQueryParameter("token", preferences.apiKey)
         }.build()
 
@@ -306,6 +290,20 @@ class Torbox : Source(), UnmeteredSource {
     }
 
     // ============================= Utilities ==============================
+
+    private suspend fun getInfo(type: String, id: Long): InfoDataDto {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("v1")
+            addPathSegment("api")
+            addPathSegment(type)
+            addPathSegment("mylist")
+            addQueryParameter("id", id.toString())
+        }.build()
+
+        return client.get(url)
+            .parseAs<DataDto<ListDataDto>>()
+            .data.toInfoDataDto(type)
+    }
 
     @Suppress("SpellCheckingInspection")
     companion object {
