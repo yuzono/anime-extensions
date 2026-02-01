@@ -63,9 +63,13 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
         return SAnime.create().apply {
-            genre = doc.select(".single-video-tag").not("[data-toggle]").eachText().joinToString()
+            genre = doc.select(".single-video-tag").not("[data-toggle]").eachText()
+                // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
+                .joinToString { it.replace(Regex("""^(# )?(.*?)( \(\d+\))?$"""), "$2") }
             author = doc.select("#video-artist-name").text()
-            title = doc.select("#shareBtn-title").text()
+            doc.select("#shareBtn-title").text()
+                .takeIf { it.isNotBlank() }
+                ?.let { title = it }
             description = doc.select("meta[property=og:description]").attr("content")
             thumbnail_url = doc.select("meta[property=og:image]").attr("content")
             val type = doc.select("a#video-artist-name + a").text().trim()
@@ -162,7 +166,7 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
                         title = it.select(".home-rows-videos-title").text().appendInvisibleChar()
                     }
                 }
-            ?: jsoup.select("div.video-item-container") // https://hanime1.me/search
+            ?: jsoup.select("div.video-item-container:not(:has(a[target=_blank]))") // https://hanime1.me/search
                 .takeIf { it.isNotEmpty() }
                 ?.map {
                     SAnime.create().apply {
