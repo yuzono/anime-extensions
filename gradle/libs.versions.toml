@@ -13,6 +13,8 @@ gradle-agp = { module = "com.android.tools.build:gradle", version = "9.0.0" }
 gradle-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 gradle-serialization = { module = "org.jetbrains.kotlin:kotlin-serialization", version.ref = "kotlin" }
 
+spotless-gradle = { group = "com.diffplug.spotless", name = "spotless-plugin-gradle", version = "8.2.1" }
+
 aniyomi-lib = { module = "com.github.komikku-app:aniyomi-extensions-lib", version = "F078000101" }
 
 kotlin-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization" }
