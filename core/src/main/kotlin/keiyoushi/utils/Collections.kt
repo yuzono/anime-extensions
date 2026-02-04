@@ -1,5 +1,3 @@
-@file:Suppress("unused")
-
 package keiyoushi.utils
 
 // From https://github.com/keiyoushi/extensions-source/blob/main/core/src/main/kotlin/keiyoushi/utils/Collections.kt

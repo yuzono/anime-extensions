@@ -89,7 +89,7 @@ android {
     }
 
     buildTypes {
-        all {
+        configureEach {
             buildConfigField "String", "MEGACLOUD_API", "\"${System.getenv("MEGACLOUD_API") ?: localProperties.getProperty("MEGACLOUD_API", "")}\""
             buildConfigField "String", "KISSKH_API", "\"${System.getenv("KISSKH_API") ?: localProperties.getProperty("KISSKH_API", "")}\""
             buildConfigField "String", "KISSKH_SUB_API", "\"${System.getenv("KISSKH_SUB_API") ?: localProperties.getProperty("KISSKH_SUB_API", "")}\""

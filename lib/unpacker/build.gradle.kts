@@ -1,3 +1,3 @@
 plugins {
-    id("lib-kotlin")
+    id("lib-android")
 }

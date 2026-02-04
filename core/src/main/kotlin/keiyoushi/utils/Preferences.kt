@@ -105,7 +105,7 @@ class PreferenceDelegate<T>(
                 null -> preferences.all[key] as T
                 else -> throw IllegalArgumentException("Unsupported type: ${default.javaClass}")
             }
-        } catch (e: ClassCastException) { default }
+        } catch (_: ClassCastException) { default }
     }
 
     @Suppress("UNCHECKED_CAST")
