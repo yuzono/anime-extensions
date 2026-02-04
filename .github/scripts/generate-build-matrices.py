@@ -14,7 +14,7 @@ from typing import NoReturn
 
 EXTENSION_REGEX = re.compile(r"^src/(?P<lang>\w+)/(?P<extension>\w+)")
 MULTISRC_LIB_REGEX = re.compile(r"^lib-multisrc/(?P<multisrc>\w+)")
-LIB_REGEX = re.compile(r"^lib/(?P<lib>[\w-]+)")
+LIB_REGEX = re.compile(r"^lib/(?P<lib>\w+)")
 MODULE_REGEX = re.compile(r"^:src:(?P<lang>\w+):(?P<extension>\w+)$")
 CORE_FILES_REGEX = re.compile(
     r"^(buildSrc/|core/|gradle/|build\.gradle\.kts|common\.gradle|gradle\.properties|settings\.gradle\.kts|.github/scripts)"

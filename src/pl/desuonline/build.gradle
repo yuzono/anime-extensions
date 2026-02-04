@@ -9,7 +9,7 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:googledrive-extractor'))
-    implementation(project(':lib:sibnet-extractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:googledriveextractor'))
+    implementation(project(':lib:sibnetextractor'))
 }

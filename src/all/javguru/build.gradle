@@ -8,11 +8,11 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:mixdrop-extractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:mixdropextractor'))
     implementation(libs.jsunpacker)
-    implementation(project(':lib:playlist-utils'))
+    implementation(project(':lib:playlistutils'))
     implementation(project(':lib:javcoverfetcher'))
 }

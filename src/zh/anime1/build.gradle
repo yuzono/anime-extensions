@@ -7,7 +7,7 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:bangumi-scraper"))
+    implementation(project(":lib:bangumiscraper"))
     //noinspection UseTomlInstead
     implementation "com.github.houbb:opencc4j:1.8.1"
 }

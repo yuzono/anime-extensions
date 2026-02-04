@@ -9,5 +9,5 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    api(project(":lib:rapidcloud-extractor"))
+    api(project(":lib:rapidcloudextractor"))
 }
