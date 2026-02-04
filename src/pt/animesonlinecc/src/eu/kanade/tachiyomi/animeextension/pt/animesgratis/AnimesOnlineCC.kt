@@ -13,11 +13,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesOnlineCC : DooPlay(
-    "pt-BR",
-    "Animes Online CC",
-    "https://animesonlinecc.to",
-) {
+class AnimesOnlineCC :
+    DooPlay(
+        "pt-BR",
+        "Animes Online CC",
+        "https://animesonlinecc.to",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"
@@ -25,8 +26,7 @@ class AnimesOnlineCC : DooPlay(
     override fun popularAnimeRequest(page: Int) = GET(baseUrl, headers)
 
     // =============================== Latest ===============================
-    override fun latestUpdatesNextPageSelector() =
-        "div.pagination > a.arrow_pag > i.icon-caret-right"
+    override fun latestUpdatesNextPageSelector() = "div.pagination > a.arrow_pag > i.icon-caret-right"
 
     // =============================== Search ===============================
     override fun searchAnimeSelector() = "div#animation-2 > article > div.poster > a"

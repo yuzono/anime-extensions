@@ -35,11 +35,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FlixLatam : DooPlay(
-    "es",
-    "FlixLatam",
-    "https://flixlatam.com",
-) {
+class FlixLatam :
+    DooPlay(
+        "es",
+        "FlixLatam",
+        "https://flixlatam.com",
+    ) {
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/pelicula/page/$page")
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
@@ -112,31 +113,29 @@ class FlixLatam : DooPlay(
     private val streamSilkExtractor by lazy { StreamSilkExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
-        return runCatching {
-            Log.d("SoloLatino", "URL: $url")
-            when {
-                "voe" in url -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "ok.ru" in url || "okru" in url -> okruExtractor.videosFromUrl(url, prefix)
-                "filemoon" in url || "moonplayer" in url -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
-                "amazon" in url || "amz" in url -> extractAmazonVideo(url, prefix)
-                "uqload" in url -> uqloadExtractor.videosFromUrl(url, prefix)
-                "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
-                "streamwish" in url || "wish" in url -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
-                "doodstream" in url || "dood." in url -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
-                "streamlare" in url -> streamlareExtractor.videosFromUrl(url, prefix)
-                "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
-                "burstcloud" in url -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
-                "fastream" in url -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
-                "upstream" in url -> upstreamExtractor.videosFromUrl(url, "$prefix ")
-                "streamsilk" in url -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
-                "streamtape" in url || "stp" in url -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
-                arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
-                arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                else -> emptyList()
-            }
-        }.getOrElse { emptyList() }
-    }
+    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = runCatching {
+        Log.d("SoloLatino", "URL: $url")
+        when {
+            "voe" in url -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "ok.ru" in url || "okru" in url -> okruExtractor.videosFromUrl(url, prefix)
+            "filemoon" in url || "moonplayer" in url -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
+            "amazon" in url || "amz" in url -> extractAmazonVideo(url, prefix)
+            "uqload" in url -> uqloadExtractor.videosFromUrl(url, prefix)
+            "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
+            "streamwish" in url || "wish" in url -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
+            "doodstream" in url || "dood." in url -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
+            "streamlare" in url -> streamlareExtractor.videosFromUrl(url, prefix)
+            "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
+            "burstcloud" in url -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
+            "fastream" in url -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
+            "upstream" in url -> upstreamExtractor.videosFromUrl(url, "$prefix ")
+            "streamsilk" in url -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
+            "streamtape" in url || "stp" in url -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
+            arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+            else -> emptyList()
+        }
+    }.getOrElse { emptyList() }
 
     private fun extractAmazonVideo(url: String, prefix: String): List<Video> {
         val body = client.newCall(GET(url)).execute().asJsoup()
@@ -174,9 +173,7 @@ class FlixLatam : DooPlay(
         return links.ifEmpty { null }
     }
 
-    private fun getFirstMatch(regex: Regex, input: String): String? {
-        return regex.find(input)?.groupValues?.get(1)
-    }
+    private fun getFirstMatch(regex: Regex, input: String): String? = regex.find(input)?.groupValues?.get(1)
 
     // ============================== Filters ===============================
     override val fetchGenres = false
@@ -193,6 +190,7 @@ class FlixLatam : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

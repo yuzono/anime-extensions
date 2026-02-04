@@ -34,7 +34,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
+class Animefenix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeFenix"
 
@@ -146,38 +148,53 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val amazonExtractor by lazy { AmazonExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return runCatching {
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url)
-                "amazon" -> amazonExtractor.videosFromUrl(url)
-                "okru" -> okruExtractor.videosFromUrl(url)
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-                "uqload" -> uqloadExtractor.videosFromUrl(url)
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
-                "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-                "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream")
-                "streamlare" -> streamlareExtractor.videosFromUrl(url)
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers)
-                "burstcloud" -> burstcloudExtractor.videoFromUrl(url, headers = headers)
-                "upstream" -> upstreamExtractor.videosFromUrl(url)
-                "streamtape" -> streamTapeExtractor.videosFromUrl(url)
-                "vidhide" -> streamHideVidExtractor.videosFromUrl(url)
-                "filelions" -> filelionsExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url)
-                "fireload" -> {
-                    val video = url.substringAfter("/stream/fl.php?v=")
-                    if (client.newCall(GET(video)).execute().code == 200) {
-                        listOf(Video(video, "FireLoad", video))
-                    } else {
-                        emptyList()
-                    }
+    private fun serverVideoResolver(url: String): List<Video> = runCatching {
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+        when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url)
+
+            "amazon" -> amazonExtractor.videosFromUrl(url)
+
+            "okru" -> okruExtractor.videosFromUrl(url)
+
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+
+            "uqload" -> uqloadExtractor.videosFromUrl(url)
+
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
+
+            "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+
+            "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream")
+
+            "streamlare" -> streamlareExtractor.videosFromUrl(url)
+
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers)
+
+            "burstcloud" -> burstcloudExtractor.videoFromUrl(url, headers = headers)
+
+            "upstream" -> upstreamExtractor.videosFromUrl(url)
+
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url)
+
+            "vidhide" -> streamHideVidExtractor.videosFromUrl(url)
+
+            "filelions" -> filelionsExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url)
+
+            "fireload" -> {
+                val video = url.substringAfter("/stream/fl.php?v=")
+                if (client.newCall(GET(video)).execute().code == 200) {
+                    listOf(Video(video, "FireLoad", video))
+                } else {
+                    emptyList()
                 }
-                else -> universalExtractor.videosFromUrl(url, headers)
             }
-        }.getOrElse { emptyList() }
-    }
+
+            else -> universalExtractor.videosFromUrl(url, headers)
+        }
+    }.getOrElse { emptyList() }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
@@ -211,22 +228,18 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Elements.getStatus(): Int {
-        return when {
-            text().contains("finalizado", true) -> SAnime.COMPLETED
-            text().contains("emision", true) -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun Elements.getStatus(): Int = when {
+        text().contains("finalizado", true) -> SAnime.COMPLETED
+        text().contains("emision", true) -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {

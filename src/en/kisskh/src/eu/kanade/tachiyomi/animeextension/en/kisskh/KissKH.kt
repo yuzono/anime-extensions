@@ -34,7 +34,9 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 
-class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
+class KissKH :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "KissKH"
 
@@ -58,8 +60,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Popular Animes */
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/api/DramaList/List?page=$page&type=0&sub=0&country=0&status=0&order=1&pageSize=40")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/DramaList/List?page=$page&type=0&sub=0&country=0&status=0&order=1&pageSize=40")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -100,8 +101,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Search */
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseUrl/api/DramaList/Search?q=$query&type=0")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/api/DramaList/Search?q=$query&type=0")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -123,9 +123,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Details */
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return baseUrl + anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         val id = anime.url.substringAfter("id=").substringBefore("&")
@@ -137,14 +135,12 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
         return parseAnimeDetailsParseJson(responseString)
     }
 
-    private fun parseAnimeDetailsParseJson(jsonData: String): SAnime {
-        return SAnime.create().apply {
-            val jObject = json.decodeFromString<JsonObject>(jsonData)
-            jObject.jsonObject["title"]?.jsonPrimitive?.content?.let { title = it }
-            jObject.jsonObject["status"]?.jsonPrimitive?.content?.let { status = parseStatus(it) }
-            jObject.jsonObject["description"]?.jsonPrimitive?.content?.let { description = it }
-            jObject.jsonObject["thumbnail"]?.jsonPrimitive?.content?.let { thumbnail_url = it }
-        }
+    private fun parseAnimeDetailsParseJson(jsonData: String): SAnime = SAnime.create().apply {
+        val jObject = json.decodeFromString<JsonObject>(jsonData)
+        jObject.jsonObject["title"]?.jsonPrimitive?.content?.let { title = it }
+        jObject.jsonObject["status"]?.jsonPrimitive?.content?.let { status = parseStatus(it) }
+        jObject.jsonObject["description"]?.jsonPrimitive?.content?.let { description = it }
+        jObject.jsonObject["thumbnail"]?.jsonPrimitive?.content?.let { thumbnail_url = it }
     }
 
     private fun parseStatus(status: String?) = when {
@@ -177,12 +173,12 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
                         name = "Video $number"
                     }
 
-                    type.contains("Hollywood") && episodesCount == 1 || type.contains("Movie") -> {
+                    (type.contains("Hollywood") && episodesCount == 1) || type.contains("Movie") -> {
                         name = "Movie"
                     }
 
                     type.contains("Anime") || type.contains("TVSeries") ||
-                        type.contains("Hollywood") && episodesCount > 1 -> {
+                        (type.contains("Hollywood") && episodesCount > 1) -> {
                         name = "Episode $number"
                     }
                 }

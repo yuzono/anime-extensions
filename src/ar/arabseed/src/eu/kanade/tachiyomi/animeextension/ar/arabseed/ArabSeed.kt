@@ -21,7 +21,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class ArabSeed : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class ArabSeed :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "عرب سيد"
 
@@ -63,6 +65,7 @@ class ArabSeed : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     name = "مشاهدة"
                 }.let(::listOf)
             }
+
             else -> episodes.map(::episodeFromElement)
         }
     }
@@ -83,32 +86,32 @@ class ArabSeed : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListSelector() = "div.containerServers ul li"
 
-    private fun videosFromElement(document: Document): List<Video> {
-        return document.select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
-            val quality = element.text()
-            val embedUrl = element.attr("data-link")
-            getVideosFromUrl(embedUrl, quality)
-        }
+    private fun videosFromElement(document: Document): List<Video> = document.select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
+        val quality = element.text()
+        val embedUrl = element.attr("data-link")
+        getVideosFromUrl(embedUrl, quality)
     }
 
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun getVideosFromUrl(url: String, quality: String): List<Video> {
-        return when {
-            "reviewtech" in url || "reviewrate" in url -> {
-                val iframeResponse = client.newCall(GET(url)).execute()
-                    .asJsoup()
-                val videoUrl = iframeResponse.selectFirst("source")!!.attr("abs:src")
-                listOf(Video(videoUrl, quality + "p", videoUrl))
-            }
-            "dood" in url -> doodExtractor.videosFromUrl(url)
-            "fviplions" in url || "wish" in url -> streamwishExtractor.videosFromUrl(url)
-            "voe.sx" in url -> voeExtractor.videosFromUrl(url)
-            else -> null
-        } ?: emptyList()
-    }
+    private fun getVideosFromUrl(url: String, quality: String): List<Video> = when {
+        "reviewtech" in url || "reviewrate" in url -> {
+            val iframeResponse = client.newCall(GET(url)).execute()
+                .asJsoup()
+            val videoUrl = iframeResponse.selectFirst("source")!!.attr("abs:src")
+            listOf(Video(videoUrl, quality + "p", videoUrl))
+        }
+
+        "dood" in url -> doodExtractor.videosFromUrl(url)
+
+        "fviplions" in url || "wish" in url -> streamwishExtractor.videosFromUrl(url)
+
+        "voe.sx" in url -> voeExtractor.videosFromUrl(url)
+
+        else -> null
+    } ?: emptyList()
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
@@ -163,35 +166,35 @@ class ArabSeed : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         TypeFilter(),
     )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    private class TypeFilter : UriPartFilter(
-        "نوع الفلم",
-        arrayOf(
-            Pair("أختر", ""),
-            Pair("افلام عربي", "arabic-movies-5/"),
-            Pair("افلام اجنبى", "foreign-movies3/"),
-            Pair("افلام اسيوية", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%a7%d8%b3%d9%8a%d9%88%d9%8a%d8%a9/"),
-            Pair("افلام هندى", "indian-movies/"),
-            Pair("افلام تركية", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%aa%d8%b1%d9%83%d9%8a%d8%a9/"),
-            Pair("افلام انيميشن", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%a7%d9%86%d9%8a%d9%85%d9%8a%d8%b4%d9%86/"),
-            Pair("افلام كلاسيكيه", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d9%83%d9%84%d8%a7%d8%b3%d9%8a%d9%83%d9%8a%d9%87/"),
-            Pair("افلام مدبلجة", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d9%85%d8%af%d8%a8%d9%84%d8%ac%d8%a9/"),
-            Pair("افلام Netfilx", "netfilx/افلام-netfilx/"),
-            Pair("مسلسلات عربي", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b9%d8%b1%d8%a8%d9%8a/"),
-            Pair("مسلسلات اجنبي", "foreign-series/"),
-            Pair("مسلسلات تركيه", "turkish-series-1/"),
-            Pair("برامج تلفزيونية", "%d8%a8%d8%b1%d8%a7%d9%85%d8%ac-%d8%aa%d9%84%d9%81%d8%b2%d9%8a%d9%88%d9%86%d9%8a%d8%a9/"),
-            Pair("مسلسلات كرتون", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d9%83%d8%b1%d8%aa%d9%88%d9%86/"),
-            Pair("مسلسلات رمضان 2019", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2019/"),
-            Pair("مسلسلات رمضان 2020", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2020-hd/"),
-            Pair("مسلسلات رمضان 2021", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2021/"),
-            Pair("مسلسلات Netfilx", "netfilx/%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-netfilz/"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "نوع الفلم",
+            arrayOf(
+                Pair("أختر", ""),
+                Pair("افلام عربي", "arabic-movies-5/"),
+                Pair("افلام اجنبى", "foreign-movies3/"),
+                Pair("افلام اسيوية", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%a7%d8%b3%d9%8a%d9%88%d9%8a%d8%a9/"),
+                Pair("افلام هندى", "indian-movies/"),
+                Pair("افلام تركية", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%aa%d8%b1%d9%83%d9%8a%d8%a9/"),
+                Pair("افلام انيميشن", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d8%a7%d9%86%d9%8a%d9%85%d9%8a%d8%b4%d9%86/"),
+                Pair("افلام كلاسيكيه", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d9%83%d9%84%d8%a7%d8%b3%d9%8a%d9%83%d9%8a%d9%87/"),
+                Pair("افلام مدبلجة", "%d8%a7%d9%81%d9%84%d8%a7%d9%85-%d9%85%d8%af%d8%a8%d9%84%d8%ac%d8%a9/"),
+                Pair("افلام Netfilx", "netfilx/افلام-netfilx/"),
+                Pair("مسلسلات عربي", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b9%d8%b1%d8%a8%d9%8a/"),
+                Pair("مسلسلات اجنبي", "foreign-series/"),
+                Pair("مسلسلات تركيه", "turkish-series-1/"),
+                Pair("برامج تلفزيونية", "%d8%a8%d8%b1%d8%a7%d9%85%d8%ac-%d8%aa%d9%84%d9%81%d8%b2%d9%8a%d9%88%d9%86%d9%8a%d8%a9/"),
+                Pair("مسلسلات كرتون", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d9%83%d8%b1%d8%aa%d9%88%d9%86/"),
+                Pair("مسلسلات رمضان 2019", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2019/"),
+                Pair("مسلسلات رمضان 2020", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2020-hd/"),
+                Pair("مسلسلات رمضان 2021", "%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86-2021/"),
+                Pair("مسلسلات Netfilx", "netfilx/%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-netfilz/"),
+            ),
+        )
 
     // =============================== Latest ===============================
     override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()

@@ -21,7 +21,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Goyabu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Goyabu :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Goyabu"
 
@@ -60,15 +62,13 @@ class Goyabu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector(): String? = null
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -108,11 +108,9 @@ class Goyabu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = getRealDoc(response.asJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
 
     override fun episodeListSelector() = "ul.listaEps li a"
 
@@ -136,24 +134,16 @@ class Goyabu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private fun getVideosFromURL(url: String): List<Video> {
-        return when {
-            "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> emptyList()
-        }
+    private fun getVideosFromURL(url: String): List<Video> = when {
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> emptyList()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

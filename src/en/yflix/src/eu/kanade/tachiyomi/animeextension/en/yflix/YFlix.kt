@@ -30,7 +30,9 @@ import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
+class YFlix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "YFlix"
 
@@ -146,9 +148,8 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             val type = if (isMovie) "Movie" else "TV Show"
             append("**Type:** $type\n")
 
-            fun getInfo(label: String): String? =
-                document.selectFirst("ul.mics li:contains($label:)")
-                    ?.text()?.substringAfter(":")?.trim()
+            fun getInfo(label: String): String? = document.selectFirst("ul.mics li:contains($label:)")
+                ?.text()?.substringAfter(":")?.trim()
 
             getInfo("Country")?.let { append("**Country:** $it\n") }
             getInfo("Released")?.let { append("**Released:** $it\n") }
@@ -233,8 +234,7 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> =
-        throw UnsupportedOperationException("Not used.")
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used.")
 
     private fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode = SEpisode.create().apply {
         val epNum = element.attr("num")
@@ -292,23 +292,17 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         .add("X-Requested-With", "XMLHttpRequest")
         .build()
 
-    private suspend fun encrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<ResultResponse>(json = json).result
-            }
-    }
+    private suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<ResultResponse>(json = json).result
+        }
 
-    private suspend fun decrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<DecryptedIframeResponse>(json = json).result.url
-            }
-    }
+    private suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<DecryptedIframeResponse>(json = json).result.url
+        }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.qualityPref

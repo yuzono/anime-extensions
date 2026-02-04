@@ -22,7 +22,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class HentaiMama :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HentaiMama"
 
@@ -34,17 +36,14 @@ class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val preferences by getPreferencesLazy()
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", baseUrl)
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", baseUrl)
 
     // Popular Anime
 
     override fun popularAnimeSelector(): String = "article.tvshows"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/advance-search/page/$page/?submit=Submit&filter=weekly")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/advance-search/page/$page/?submit=Submit&filter=weekly")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -58,9 +57,7 @@ class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // episodes
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response)
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
 
     override fun episodeListSelector() = "div.series div.items article"
 
@@ -174,12 +171,10 @@ class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    override fun searchAnimeNextPageSelector(): String {
-        return if (filterSearch) {
-            "div.pagination-wraper div.resppages a" // filter search
-        } else {
-            "link[rel=next]" // normal search
-        }
+    override fun searchAnimeNextPageSelector(): String = if (filterSearch) {
+        "div.pagination-wraper div.resppages a" // filter search
+    } else {
+        "link[rel=next]" // normal search
     }
 
     override fun searchAnimeSelector(): String = "article"
@@ -210,11 +205,9 @@ class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Ongoing" -> SAnime.ONGOING
-            else -> SAnime.COMPLETED
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Ongoing" -> SAnime.ONGOING
+        else -> SAnime.COMPLETED
     }
 
     // Latest
@@ -577,6 +570,7 @@ class HentaiMama : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
+
                 is OrderList -> { // ---Order
                     sortBy = getOrder()[filter.state].id
                 }

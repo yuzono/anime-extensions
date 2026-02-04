@@ -31,7 +31,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class DonghuaNoSekai :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Donghua no Sekai"
 
@@ -76,15 +78,13 @@ class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "ul.content-pagination > li.next"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -139,24 +139,20 @@ class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return POST("$baseUrl/wp-admin/admin-ajax.php", body = body, headers = headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return runCatching {
-            val data = response.parseAs<SearchResponseDto>()
-            val animes = data.results.map(Jsoup::parse)
-                .mapNotNull { it.selectFirst(searchAnimeSelector()) }
-                .map(::searchAnimeFromElement)
-            val hasNext = data.total_page > data.page
-            AnimesPage(animes, hasNext)
-        }.getOrElse { AnimesPage(emptyList(), false) }
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = runCatching {
+        val data = response.parseAs<SearchResponseDto>()
+        val animes = data.results.map(Jsoup::parse)
+            .mapNotNull { it.selectFirst(searchAnimeSelector()) }
+            .map(::searchAnimeFromElement)
+        val hasNext = data.total_page > data.page
+        AnimesPage(animes, hasNext)
+    }.getOrElse { AnimesPage(emptyList(), false) }
 
     override fun searchAnimeSelector() = "div.itemE > a"
 
     override fun searchAnimeFromElement(element: Element) = latestUpdatesFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -214,17 +210,11 @@ class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -246,13 +236,11 @@ class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun getRealDoc(document: Document): Document {
-        return document.selectFirst("div.controles li.list-ep > a")?.let { link ->
-            client.newCall(GET(link.attr("href")))
-                .execute()
-                .asJsoup()
-        } ?: document
-    }
+    private fun getRealDoc(document: Document): Document = document.selectFirst("div.controles li.list-ep > a")?.let { link ->
+        client.newCall(GET(link.attr("href")))
+            .execute()
+            .asJsoup()
+    } ?: document
 
     private fun String?.parseStatus() = when (this?.run { trim().lowercase() }) {
         "completo" -> SAnime.COMPLETED
@@ -261,10 +249,8 @@ class DonghuaNoSekai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         else -> SAnime.UNKNOWN
     }
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

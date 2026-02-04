@@ -63,8 +63,7 @@ class ShittyCaptchaInterceptor(private val baseUrl: String, private val headers:
         return chain.proceed(GET(currentUrl, headers))
     }
 
-    private fun md5Hash(byteArray: ByteArray) =
-        MessageDigest.getInstance("MD5")
-            .digest(byteArray)
-            .joinToString("") { "%02x".format(it) } // create hex
+    private fun md5Hash(byteArray: ByteArray) = MessageDigest.getInstance("MD5")
+        .digest(byteArray)
+        .joinToString("") { "%02x".format(it) } // create hex
 }

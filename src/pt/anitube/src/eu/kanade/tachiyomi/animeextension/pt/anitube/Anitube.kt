@@ -25,7 +25,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Anitube :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anitube"
 
@@ -64,9 +66,8 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
      *
      * I hate the antichrist.
      */
-    override fun popularAnimeNextPageSelector() =
-        "div.pagination > a.current:not(:nth-last-child(2)) + a, " +
-            "div.pagination:not(:has(.current)):not(:has(a:first-child + a + a:last-child)) > a:last-child"
+    override fun popularAnimeNextPageSelector() = "div.pagination > a.current:not(:nth-last-child(2)) + a, " +
+        "div.pagination:not(:has(.current)):not(:has(a:first-child + a + a:last-child)) > a:last-child"
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/?page=$page", headers)
@@ -82,15 +83,13 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    ): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -113,6 +112,7 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             val char = params.initialChar
             when {
                 season.isNotBlank() -> "$baseUrl/temporada/$season/$year"
+
                 genre.isNotBlank() ->
                     "$baseUrl/genero/$genre/page/$page/${
                         char.replace(
@@ -273,12 +273,10 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             } ?: document
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Completo" -> SAnime.COMPLETED
-            "Em Progresso" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "Completo" -> SAnime.COMPLETED
+        "Em Progresso" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun Element.getInfo(key: String): String? {
@@ -302,11 +300,9 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun String.toDate(): Long {
-        return runCatching {
-            DATE_FORMATTER.parse(this)?.time
-        }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching {
+        DATE_FORMATTER.parse(this)?.time
+    }.getOrNull() ?: 0L
 
     companion object {
         const val PREFIX_SEARCH = "id:"

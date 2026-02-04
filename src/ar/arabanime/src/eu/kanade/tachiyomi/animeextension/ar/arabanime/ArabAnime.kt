@@ -26,7 +26,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class ArabAnime : ConfigurableAnimeSource, AnimeHttpSource() {
+class ArabAnime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "ArabAnime"
 
@@ -78,16 +80,14 @@ class ArabAnime : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotEmpty()) {
-            val body = FormBody.Builder().add("searchq", query).build()
-            POST("$baseUrl/searchq", body = body)
-        } else {
-            val type = filters.asQueryPart<TypeFilter>()
-            val status = filters.asQueryPart<StatusFilter>()
-            val order = filters.asQueryPart<OrderFilter>()
-            GET("$baseUrl/api?order=$order&type=$type&stat=$status&tags=&page=$page")
-        }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotEmpty()) {
+        val body = FormBody.Builder().add("searchq", query).build()
+        POST("$baseUrl/searchq", body = body)
+    } else {
+        val type = filters.asQueryPart<TypeFilter>()
+        val status = filters.asQueryPart<StatusFilter>()
+        val order = filters.asQueryPart<OrderFilter>()
+        GET("$baseUrl/api?order=$order&type=$type&stat=$status&tags=&page=$page")
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -124,9 +124,7 @@ class ArabAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (firstOrNull { it is R } as? QueryPartFilter)?.toQueryPart() ?: ""
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (firstOrNull { it is R } as? QueryPartFilter)?.toQueryPart() ?: ""
 
     private class OrderFilter : QueryPartFilter("ترتيب", ORDER_LIST)
     private class TypeFilter : QueryPartFilter("النوع", TYPE_LIST)

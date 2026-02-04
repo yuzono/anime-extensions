@@ -34,7 +34,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
+class HexaWatch :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HexaWatch"
 
@@ -66,9 +68,7 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Latest ===============================
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -104,9 +104,7 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -185,18 +183,14 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // ============================== Filters ===============================
 
     override fun getFilterList(): AnimeFilterList = HexaWatchFilters.getFilterList()
 
     // ============================== Details ===============================
-    override fun getAnimeUrl(anime: SAnime): String {
-        return animeUrl + anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = animeUrl + anime.url
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         val url = (apiUrl + anime.url).toHttpUrl().newBuilder().apply {
@@ -310,17 +304,13 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return client.newCall(episodeListRequest(anime))
-            .awaitSuccess()
-            .use { response ->
-                episodeListParseAsync(response)
-            }
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = client.newCall(episodeListRequest(anime))
+        .awaitSuccess()
+        .use { response ->
+            episodeListParseAsync(response)
+        }
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        return animeDetailsRequest(anime)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
     private suspend fun episodeListParseAsync(response: Response): List<SEpisode> {
@@ -361,13 +351,11 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .awaitSuccess()
-            .use { response ->
-                videoListParseAsync(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .awaitSuccess()
+        .use { response ->
+            videoListParseAsync(response)
+        }
 
     override fun videoListRequest(episode: SEpisode): Request {
         val key = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }
@@ -543,19 +531,15 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
             Pair("vi", "Vietnamese"),
         )
 
-        fun statusParser(status: String?): Int {
-            return when (status) {
-                "Released", "Ended" -> SAnime.COMPLETED
-                "Returning Series", "In Production" -> SAnime.ONGOING
-                else -> SAnime.UNKNOWN
-            }
+        fun statusParser(status: String?): Int = when (status) {
+            "Released", "Ended" -> SAnime.COMPLETED
+            "Returning Series", "In Production" -> SAnime.ONGOING
+            else -> SAnime.UNKNOWN
         }
 
-        fun parseDate(dateStr: String?): Long {
-            return runCatching {
-                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
-            }.getOrDefault(0L)
-        }
+        fun parseDate(dateStr: String?): Long = runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
+        }.getOrDefault(0L)
     }
 
     // ============================= Utilities ==============================
@@ -569,12 +553,10 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun mediaItemToSAnime(media: MediaItemDto): SAnime {
-        return SAnime.create().apply {
-            title = media.realTitle
-            val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
-            url = "/$type/${media.id}"
-            thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-        }
+    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
+        title = media.realTitle
+        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
+        url = "/$type/${media.id}"
+        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
     }
 }

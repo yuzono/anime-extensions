@@ -32,7 +32,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class HDFilmCehennemi :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "HDFilmCehennemi"
 
     override val baseUrl = "https://www.hdfilmcehennemi.nl"
@@ -50,8 +52,7 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/load/page/$page/mostLiked/", apiHeaders)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/load/page/$page/mostLiked/", apiHeaders)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<ApiResponse>()
@@ -109,30 +110,29 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        when {
-            query.isNotBlank() -> {
-                val body = FormBody.Builder().add("query", query).build()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = when {
+        query.isNotBlank() -> {
+            val body = FormBody.Builder().add("query", query).build()
 
-                POST("$baseUrl/search", apiHeaders, body)
-            }
-
-            else -> {
-                val params = HDFilmCehennemiFilters.getSearchParameters(filters)
-
-                val form = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("kesfet[type]", params.type)
-                    .addFormDataPart("kesfet[genres]", params.genres)
-                    .addFormDataPart("kesfet[years]", params.years)
-                    .addFormDataPart("kesfet[imdb]", params.imdbScore)
-                    .addFormDataPart("kesfet[orderBy]", params.order)
-                    .addFormDataPart("page", page.toString())
-                    .build()
-
-                POST("$baseUrl/movies/load/", headers, form)
-            }
+            POST("$baseUrl/search", apiHeaders, body)
         }
+
+        else -> {
+            val params = HDFilmCehennemiFilters.getSearchParameters(filters)
+
+            val form = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("kesfet[type]", params.type)
+                .addFormDataPart("kesfet[genres]", params.genres)
+                .addFormDataPart("kesfet[years]", params.years)
+                .addFormDataPart("kesfet[imdb]", params.imdbScore)
+                .addFormDataPart("kesfet[orderBy]", params.order)
+                .addFormDataPart("page", page.toString())
+                .build()
+
+            POST("$baseUrl/movies/load/", headers, form)
+        }
+    }
 
     @Serializable
     data class SearchResponse(
@@ -178,7 +178,9 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = when {
-            document.location().contains("/dizi/") -> SAnime.UNKNOWN // serie
+            document.location().contains("/dizi/") -> SAnime.UNKNOWN
+
+            // serie
             else -> SAnime.COMPLETED // movie
         }
 
@@ -216,8 +218,7 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         )
     }
 
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).sortedByDescending { it.episode_number }
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).sortedByDescending { it.episode_number }
 
     override fun episodeListSelector() = "div.seasons-tabs-wrapper > div.seasons-tab-content > a"
 
@@ -264,12 +265,16 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         println(url)
         return when {
             url.contains("/rplayer") -> rapidrameExtractor.videosFromUrl(url, name)
+
             name.contains("close") || url.contains("rapidrame") -> closeloadExtractor.videosFromUrl(
                 url,
                 name,
             )
+
             name.contains("vidmoly") -> vidmolyExtractor.videosFromUrl(url, name)
+
             url.contains("trstx.org") -> xbetExtractor.videosFromUrl(url)
+
             else -> emptyList()
         }
     }

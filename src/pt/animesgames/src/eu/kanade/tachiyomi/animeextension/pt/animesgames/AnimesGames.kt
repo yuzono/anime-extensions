@@ -67,15 +67,13 @@ class AnimesGames : ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "ol.pagination > a:contains(>)"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/animes/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/animes/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -128,16 +126,14 @@ class AnimesGames : ParsedAnimeHttpSource() {
         return POST("$baseUrl/func/listanime", body = body, headers = headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return runCatching {
-            val data = response.parseAs<SearchResponseDto>()
-            val animes = data.results.map(Jsoup::parse)
-                .mapNotNull { it.selectFirst(searchAnimeSelector()) }
-                .map(::searchAnimeFromElement)
-            val hasNext = data.total_page > data.page
-            AnimesPage(animes, hasNext)
-        }.getOrElse { AnimesPage(emptyList(), false) }
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = runCatching {
+        val data = response.parseAs<SearchResponseDto>()
+        val animes = data.results.map(Jsoup::parse)
+            .mapNotNull { it.selectFirst(searchAnimeSelector()) }
+            .map(::searchAnimeFromElement)
+        val hasNext = data.total_page > data.page
+        AnimesPage(animes, hasNext)
+    }.getOrElse { AnimesPage(emptyList(), false) }
 
     override fun searchAnimeSelector() = "section.animeItem > a"
 
@@ -147,9 +143,7 @@ class AnimesGames : ParsedAnimeHttpSource() {
         thumbnail_url = element.selectFirst("img")!!.getImageUrl()
     }
 
-    override fun searchAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -173,18 +167,15 @@ class AnimesGames : ParsedAnimeHttpSource() {
         }
     }
 
-    private fun Element.getInfo(info: String) =
-        selectFirst("li:has(span:contains($info))")?.run {
-            selectFirst("span[data]")?.text() ?: ownText()
-        }
+    private fun Element.getInfo(info: String) = selectFirst("li:has(span:contains($info))")?.run {
+        selectFirst("span[data]")?.text() ?: ownText()
+    }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-            .reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = getRealDoc(response.asJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
+        .reversed()
 
     override fun episodeListSelector() = "div.listaEp > section.episodioItem > a"
 
@@ -245,17 +236,11 @@ class AnimesGames : ParsedAnimeHttpSource() {
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
@@ -268,23 +253,19 @@ class AnimesGames : ParsedAnimeHttpSource() {
         } ?: document
     }
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     /**
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
      */
-    protected open fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }.substringBefore("?resize")
-    }
+    protected open fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }.substringBefore("?resize")
 
     companion object {
         const val PREFIX_SEARCH = "id:"

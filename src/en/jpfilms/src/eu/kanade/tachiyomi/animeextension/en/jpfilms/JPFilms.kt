@@ -23,7 +23,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class JPFilms :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "JPFilms"
     override val baseUrl = "https://jp-films.com"
     override val lang = "en"
@@ -32,8 +34,7 @@ class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular Anime ==============================
-    override fun popularAnimeSelector(): String =
-        "div.item"
+    override fun popularAnimeSelector(): String = "div.item"
 
     override fun popularAnimeRequest(page: Int): Request = GET("https://jp-films.com/wp-content/themes/halimmovies/halim-ajax.php?action=halim_get_popular_post&showpost=50&type=all")
 
@@ -49,9 +50,8 @@ class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun popularAnimeNextPageSelector(): String? = null
 
     // ============================== Latest Anime ==============================
-    override fun latestUpdatesSelector(): String =
-        "#ajax-vertical-widget-movie > div.item, " +
-            "#ajax-vertical-widget-tv_series > div.item"
+    override fun latestUpdatesSelector(): String = "#ajax-vertical-widget-movie > div.item, " +
+        "#ajax-vertical-widget-tv_series > div.item"
 
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
 
@@ -105,9 +105,7 @@ class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         @SerialName("@type") val type: String? = null,
     )
 
-    override fun episodeListSelector(): String {
-        throw UnsupportedOperationException("Not used because we override episodeListParse.")
-    }
+    override fun episodeListSelector(): String = throw UnsupportedOperationException("Not used because we override episodeListParse.")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -201,9 +199,7 @@ class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }.reversed()
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw UnsupportedOperationException("Not used because we override episodeListParse.")
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException("Not used because we override episodeListParse.")
 
     // ============================== Video List ==============================
 
@@ -221,14 +217,12 @@ class JPFilms : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         Log.d("JPFilmsDebug", "Post ID: $postId")
 
         // Helper function to construct the player URL
-        fun getPlayerUrl(serverId: Int, subsvId: String? = null): String {
-            return "$baseUrl/wp-content/themes/halimmovies/player.php?" +
-                "episode_slug=$episodeSlug&" +
-                "server_id=$serverId&" +
-                (if (subsvId != null) "subsv_id=$subsvId&" else "") +
-                "post_id=$postId&" +
-                "nonce=8c934fd387&custom_var="
-        }
+        fun getPlayerUrl(serverId: Int, subsvId: String? = null): String = "$baseUrl/wp-content/themes/halimmovies/player.php?" +
+            "episode_slug=$episodeSlug&" +
+            "server_id=$serverId&" +
+            (if (subsvId != null) "subsv_id=$subsvId&" else "") +
+            "post_id=$postId&" +
+            "nonce=8c934fd387&custom_var="
 
         // Create custom headers to match Postman
         val customHeaders = Headers.Builder()

@@ -25,7 +25,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Asia2TV : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Asia2TV :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Asia2TV"
 
@@ -55,9 +57,7 @@ class Asia2TV : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.loop-episode a"
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response).reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
@@ -91,27 +91,32 @@ class Asia2TV : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val vidbomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun getVideosFromUrl(url: String): List<Video> {
-        return when {
-            "dood" in url || "ds2play" in url -> doodExtractor.videosFromUrl(url)
-            "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
-            "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
-            STREAM_WISH_DOMAINS.any(url::contains) -> streamwishExtractor.videosFromUrl(url)
-            "uqload" in url -> uqloadExtractor.videosFromUrl(url)
-            VID_BOM_DOMAINS.any(url::contains) -> vidbomExtractor.videosFromUrl(url)
-            "youdbox" in url || "yodbox" in url -> {
-                client.newCall(GET(url)).execute().let {
-                    val doc = it.asJsoup()
-                    val videoUrl = doc.selectFirst("source")?.attr("abs:src")
-                    when (videoUrl) {
-                        null -> emptyList()
-                        else -> listOf(Video(videoUrl, "Yodbox: mirror", videoUrl))
-                    }
+    private fun getVideosFromUrl(url: String): List<Video> = when {
+        "dood" in url || "ds2play" in url -> doodExtractor.videosFromUrl(url)
+
+        "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
+
+        "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
+
+        STREAM_WISH_DOMAINS.any(url::contains) -> streamwishExtractor.videosFromUrl(url)
+
+        "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+
+        VID_BOM_DOMAINS.any(url::contains) -> vidbomExtractor.videosFromUrl(url)
+
+        "youdbox" in url || "yodbox" in url -> {
+            client.newCall(GET(url)).execute().let {
+                val doc = it.asJsoup()
+                val videoUrl = doc.selectFirst("source")?.attr("abs:src")
+                when (videoUrl) {
+                    null -> emptyList()
+                    else -> listOf(Video(videoUrl, "Yodbox: mirror", videoUrl))
                 }
             }
-            else -> null
-        } ?: emptyList()
-    }
+        }
+
+        else -> null
+    } ?: emptyList()
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
@@ -161,6 +166,7 @@ class Asia2TV : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             return GET(genreUrl.toString(), headers)
                         }
                     }
+
                     is StatusList -> {
                         if (filter.state > 0) {
                             val statusN = getStatusList()[filter.state].query
@@ -168,6 +174,7 @@ class Asia2TV : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             return GET(statusUrl.toString(), headers)
                         }
                     }
+
                     else -> {}
                 }
             }

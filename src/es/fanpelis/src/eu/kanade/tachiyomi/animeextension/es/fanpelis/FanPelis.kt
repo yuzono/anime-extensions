@@ -27,7 +27,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class FanPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class FanPelis :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "FanPelis"
 
@@ -68,11 +70,23 @@ class FanPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             episodeList.add(ep)
         } else {
             document.select("#seasons .tvseason").mapIndexed { idxSeason, season ->
-                val noSeason = try { getNumberFromString(season.selectFirst(".les-title strong")?.text() ?: "") } catch (_: Exception) { idxSeason + 1 }
+                val noSeason = try {
+                    getNumberFromString(season.selectFirst(".les-title strong")?.text() ?: "")
+                } catch (_: Exception) {
+                    idxSeason + 1
+                }
                 season.select(".les-content a").mapIndexed { idxEpisode, ep ->
-                    val noEpisode = try { getNumberFromString(ep.text()) } catch (_: Exception) { idxEpisode + 1 }
+                    val noEpisode = try {
+                        getNumberFromString(ep.text())
+                    } catch (_: Exception) {
+                        idxEpisode + 1
+                    }
                     val episode = SEpisode.create()
-                    episode.name = try { "T$noSeason - E$noEpisode - ${ep.text()}" } catch (_: Exception) { "" }
+                    episode.name = try {
+                        "T$noSeason - E$noEpisode - ${ep.text()}"
+                    } catch (_: Exception) {
+                        ""
+                    }
                     episode.episode_number = noEpisode.toString().toFloat()
                     episode.setUrlWithoutDomain(ep.attr("href"))
                     episodeList.add(episode)
@@ -131,26 +145,22 @@ class FanPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> {
-        return try {
-            val videoSorted = this.sortedWith(
-                compareBy<Video> { it.quality.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.quality) },
-            ).toTypedArray()
-            val userPreferredQuality = preferences.getString("preferred_quality", "DoodStream")
-            val preferredIdx = videoSorted.indexOfFirst { x -> x.quality == userPreferredQuality }
-            if (preferredIdx != -1) {
-                videoSorted.drop(preferredIdx + 1)
-                videoSorted[0] = videoSorted[preferredIdx]
-            }
-            videoSorted.toList()
-        } catch (e: Exception) {
-            this
+    override fun List<Video>.sort(): List<Video> = try {
+        val videoSorted = this.sortedWith(
+            compareBy<Video> { it.quality.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.quality) },
+        ).toTypedArray()
+        val userPreferredQuality = preferences.getString("preferred_quality", "DoodStream")
+        val preferredIdx = videoSorted.indexOfFirst { x -> x.quality == userPreferredQuality }
+        if (preferredIdx != -1) {
+            videoSorted.drop(preferredIdx + 1)
+            videoSorted[0] = videoSorted[preferredIdx]
         }
+        videoSorted.toList()
+    } catch (e: Exception) {
+        this
     }
 
-    private fun getNumberFromString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }.ifEmpty { "0" }
-    }
+    private fun getNumberFromString(epsStr: String): String = epsStr.filter { it.isDigit() }.ifEmpty { "0" }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
@@ -167,23 +177,21 @@ class FanPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Peliculas", "movies-hd"),
-            Pair("Series", "series"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Peliculas", "movies-hd"),
+                Pair("Series", "series"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return popularAnimeFromElement(element)
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
@@ -199,16 +207,12 @@ class FanPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun externalOrInternalImg(url: String): String {
-        return if (url.contains("https")) url else "$baseUrl/$url"
-    }
+    private fun externalOrInternalImg(url: String): String = if (url.contains("https")) url else "$baseUrl/$url"
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Finalizado") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Finalizado") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()

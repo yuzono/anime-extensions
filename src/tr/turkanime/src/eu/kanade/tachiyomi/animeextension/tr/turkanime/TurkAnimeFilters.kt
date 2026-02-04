@@ -14,63 +14,62 @@ object TurkAnimeFilters {
         fun toQueryPart() = vals[state].first
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): List<String> {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.second == checkbox.name }!!.first }
-            .filter(String::isNotBlank)
-    }
+    ): List<String> = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.second == checkbox.name }!!.first }
+        .filter(String::isNotBlank)
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    class TypeFilter : CheckBoxFilterList(
-        "Kategori",
-        TurkAnimeFiltersData.TYPE.map { CheckBoxVal(it.second, false) },
-    )
+    class TypeFilter :
+        CheckBoxFilterList(
+            "Kategori",
+            TurkAnimeFiltersData.TYPE.map { CheckBoxVal(it.second, false) },
+        )
 
-    class GenreFilter : CheckBoxFilterList(
-        "Tür",
-        TurkAnimeFiltersData.GENRE.map { CheckBoxVal(it.second, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Tür",
+            TurkAnimeFiltersData.GENRE.map { CheckBoxVal(it.second, false) },
+        )
 
-    class YearFilter : CheckBoxFilterList(
-        "Başlama & Bitiş Yılı",
-        TurkAnimeFiltersData.YEAR.map { CheckBoxVal(it.second, false) },
-    )
+    class YearFilter :
+        CheckBoxFilterList(
+            "Başlama & Bitiş Yılı",
+            TurkAnimeFiltersData.YEAR.map { CheckBoxVal(it.second, false) },
+        )
 
-    class PointFilter : CheckBoxFilterList(
-        "Başlama & Bitiş Puanı",
-        TurkAnimeFiltersData.POINT.map { CheckBoxVal(it.second, false) },
-    )
+    class PointFilter :
+        CheckBoxFilterList(
+            "Başlama & Bitiş Puanı",
+            TurkAnimeFiltersData.POINT.map { CheckBoxVal(it.second, false) },
+        )
 
-    class LikeFilter : CheckBoxFilterList(
-        "Başlama & Bitiş Beğenisi",
-        TurkAnimeFiltersData.LIKE.map { CheckBoxVal(it.second, false) },
-    )
+    class LikeFilter :
+        CheckBoxFilterList(
+            "Başlama & Bitiş Beğenisi",
+            TurkAnimeFiltersData.LIKE.map { CheckBoxVal(it.second, false) },
+        )
 
-    class ProducerFilter : CheckBoxFilterList(
-        "Yapımcı Firma",
-        TurkAnimeFiltersData.PRODUCER.map { CheckBoxVal(it.second, false) },
-    )
+    class ProducerFilter :
+        CheckBoxFilterList(
+            "Yapımcı Firma",
+            TurkAnimeFiltersData.PRODUCER.map { CheckBoxVal(it.second, false) },
+        )
 
-    class StudioFilter : CheckBoxFilterList(
-        "Stüdyo",
-        TurkAnimeFiltersData.PRODUCER.map { CheckBoxVal(it.second, false) },
-    )
+    class StudioFilter :
+        CheckBoxFilterList(
+            "Stüdyo",
+            TurkAnimeFiltersData.PRODUCER.map { CheckBoxVal(it.second, false) },
+        )
 
     class ListFilter : QueryPartFilter("Listeleme", TurkAnimeFiltersData.LIST)
     class SeasonFilter : QueryPartFilter("Sezon", TurkAnimeFiltersData.SEASON)

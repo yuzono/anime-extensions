@@ -29,7 +29,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
+class AniList :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniList"
 
@@ -80,9 +82,7 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
         return POST(apiUrl, body = body)
     }
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return createSortRequest("TRENDING_DESC", page)
-    }
+    override fun popularAnimeRequest(page: Int): Request = createSortRequest("TRENDING_DESC", page)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val titleLang = preferences.titleLang
@@ -95,13 +95,9 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return createSortRequest("START_DATE_DESC", page, Pair("status", "RELEASING"))
-    }
+    override fun latestUpdatesRequest(page: Int): Request = createSortRequest("START_DATE_DESC", page, Pair("status", "RELEASING"))
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
@@ -160,21 +156,15 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
         return POST(apiUrl, body = body)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList {
-        return Filters.FILTER_LIST
-    }
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // =========================== Anime Details ============================
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return "$baseUrl/anime/${anime.url}"
-    }
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/anime/${anime.url}"
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val currentTime = System.currentTimeMillis() / 1000L
@@ -393,11 +383,9 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request =
-        throw UnsupportedOperationException()
+    override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
 
-    override fun videoListParse(response: Response): List<Video> =
-        throw UnsupportedOperationException()
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 

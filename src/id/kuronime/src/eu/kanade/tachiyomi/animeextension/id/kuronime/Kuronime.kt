@@ -26,7 +26,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Locale
 
-class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Kuronime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String = "https://tv1.kuronime.vip"
     override val lang: String = "id"
     override val name: String = "Kuronime"
@@ -66,9 +68,7 @@ class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episode
     }
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     override fun episodeListSelector(): String = "div.bixbox.bxcl > ul > li"
 
@@ -135,19 +135,24 @@ class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 hosterSelection.contains("animeku") && decoded.contains("animeku.org") -> {
                     videoList.addAll(AnimekuExtractor(client).getVideosFromUrl(decoded, opt.text()))
                 }
+
                 hosterSelection.contains("mp4upload") && decoded.contains("mp4upload.com") -> {
                     val videos = Mp4uploadExtractor(client).videosFromUrl(decoded, headers, suffix = " - ${opt.text()}")
                     videoList.addAll(videos)
                 }
+
                 hosterSelection.contains("yourupload") && decoded.contains("yourupload.com") -> {
                     videoList.addAll(YourUploadExtractor(client).videoFromUrl(decoded, headers, opt.text(), "Original - "))
                 }
+
                 hosterSelection.contains("streamlare") && decoded.contains("streamlare.com") -> {
                     videoList.addAll(StreamlareExtractor(client).videosFromUrl(decoded, suffix = "- " + opt.text()))
                 }
+
                 hosterSelection.contains("hxfile") && decoded.contains("hxfile.co") -> {
                     videoList.addAll(HxFileExtractor(client).getVideoFromUrl(decoded, opt.text()))
                 }
+
                 hosterSelection.contains("linkbox") && decoded.contains("linkbox.to") -> {
                     videoList.addAll(LinkBoxExtractor(client).videosFromUrl(decoded, opt.text()))
                 }

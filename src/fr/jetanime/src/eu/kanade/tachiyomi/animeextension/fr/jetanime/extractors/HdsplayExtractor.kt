@@ -34,6 +34,7 @@ class HdsplayExtractor(private val client: OkHttpClient) {
 
         return when {
             videoUrl.contains(".m3u8") -> playListUtils.extractFromHls(videoUrl, url, videoNameGen = { quality -> "Hdsplay: $quality ($name)" }, subtitleList = subtitleList)
+
             else -> {
                 listOf(
                     Video(videoUrl, "Sentinel: Video ($name)", videoUrl, subtitleTracks = subtitleList),

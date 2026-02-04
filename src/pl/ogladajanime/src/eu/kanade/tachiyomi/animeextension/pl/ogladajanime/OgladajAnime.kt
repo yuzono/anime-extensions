@@ -20,7 +20,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class OgladajAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class OgladajAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "OgladajAnime"
 
@@ -43,17 +45,13 @@ class OgladajAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/search/page/$page", apiHeaders)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search/page/$page", apiHeaders)
     override fun popularAnimeSelector(): String = "div#anime_main div.card.bg-white"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-            thumbnail_url = element.selectFirst("img")?.attr("data-srcset")
-            title = element.selectFirst("h5.card-title > a")!!.text()
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
+        thumbnail_url = element.selectFirst("img")?.attr("data-srcset")
+        title = element.selectFirst("h5.card-title > a")!!.text()
     }
     override fun popularAnimeNextPageSelector(): String = "section:has(div#anime_main)" // To nie działa zostało to tylko dlatego by ładowało ale na końcu niestety wyskakuje ze "nie znaleziono" i tak zostaje zamiast zniknać możliwe ze zle fetchuje.
 
@@ -78,16 +76,14 @@ class OgladajAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun searchAnimeNextPageSelector(): String? = null
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            // status = document.selectFirst("div.toggle-content > ul > li:contains(Status)")?.let { parseStatus(it.text()) } ?: SAnime.UNKNOWN // Nie pamietam kiedyś sie to naprawi.
-            description = document.selectFirst("p#animeDesc")?.text()
-            genre = document.select("div.row > div.col-12 > span.badge[href^=/search/name/]").joinToString(", ") {
-                it.text()
-            }
-            author = document.select("div.row > div.col-12:contains(Studio:) > span.badge[href=#]").joinToString(", ") {
-                it.text()
-            }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        // status = document.selectFirst("div.toggle-content > ul > li:contains(Status)")?.let { parseStatus(it.text()) } ?: SAnime.UNKNOWN // Nie pamietam kiedyś sie to naprawi.
+        description = document.selectFirst("p#animeDesc")?.text()
+        genre = document.select("div.row > div.col-12 > span.badge[href^=/search/name/]").joinToString(", ") {
+            it.text()
+        }
+        author = document.select("div.row > div.col-12:contains(Studio:) > span.badge[href=#]").joinToString(", ") {
+            it.text()
         }
     }
 
@@ -98,9 +94,7 @@ class OgladajAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return GET(url, apiHeaders)
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response).reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
     override fun episodeListSelector(): String = "ul#ep_list > li:has(div > img)"
 
@@ -133,9 +127,7 @@ class OgladajAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET("$baseUrl:8443/Player/${episode.url}", apiHeaders)
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl:8443/Player/${episode.url}", apiHeaders)
 
     override fun videoListParse(response: Response): List<Video> {
         val players = json.decodeFromString<List<ApiPlayer>>(response.body.string())

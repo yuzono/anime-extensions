@@ -26,7 +26,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLEncoder.encode
 
-class OppaiStream : AnimeHttpSource(), ConfigurableAnimeSource {
+class OppaiStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Oppai Stream"
 
@@ -63,6 +65,7 @@ class OppaiStream : AnimeHttpSource(), ConfigurableAnimeSource {
                     is OrderByFilter -> {
                         addQueryParameter("order", filter.selectedValue())
                     }
+
                     is GenreListFilter -> {
                         val genresInclude = mutableListOf<String>()
                         val genresExclude = mutableListOf<String>()
@@ -75,9 +78,11 @@ class OppaiStream : AnimeHttpSource(), ConfigurableAnimeSource {
                         addQueryParameter("genres", genresInclude.joinToString(","))
                         addQueryParameter("blacklist", genresExclude.joinToString(","))
                     }
+
                     is StudioListFilter -> {
                         addQueryParameter("studio", filter.state.filter { it.state }.joinToString(",") { it.value })
                     }
+
                     else -> {}
                 }
                 addQueryParameter("page", page.toString())
@@ -262,8 +267,7 @@ class OppaiStream : AnimeHttpSource(), ConfigurableAnimeSource {
         return Pair(coverURL, studiosList)
     }
 
-    private fun String.fixLink(): String =
-        this.replace(Regex("(?<=\\?e=)(.*?)(?=&f=)")) { encode(it.groupValues[1], "UTF-8") }
+    private fun String.fixLink(): String = this.replace(Regex("(?<=\\?e=)(.*?)(?=&f=)")) { encode(it.groupValues[1], "UTF-8") }
 
     companion object {
         private const val SEARCH_PATH = "actions/search.php"

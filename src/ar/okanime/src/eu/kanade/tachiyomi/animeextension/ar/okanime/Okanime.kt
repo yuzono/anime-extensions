@@ -24,7 +24,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Okanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Okanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Okanime"
 
@@ -61,15 +63,13 @@ class Okanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "ul.pagination > li:last-child:not(.disabled)"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -81,10 +81,9 @@ class Okanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        "$baseUrl/search/?s=$query"
-            .let { if (page > 1) "$it&page=$page" else it }
-            .let(::GET)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = "$baseUrl/search/?s=$query"
+        .let { if (page > 1) "$it&page=$page" else it }
+        .let(::GET)
 
     override fun searchAnimeSelector() = popularAnimeSelector()
 
@@ -158,39 +157,36 @@ class Okanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val vidBomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun extractVideosFromUrl(url: String, quality: String, selection: Set<String>): List<Video> {
-        return when {
-            "https://doo" in url && "/e/" in url && selection.contains("Dood") -> {
-                doodExtractor.videoFromUrl(url, "DoodStream - $quality")
-                    ?.let(::listOf)
-            }
-            "mp4upload" in url && selection.contains("Mp4upload") -> {
-                mp4uploadExtractor.videosFromUrl(url, headers)
-            }
-            "ok.ru" in url && selection.contains("Okru") -> {
-                okruExtractor.videosFromUrl(url)
-            }
-            "voe.sx" in url && selection.contains("Voe") -> {
-                voeExtractor.videosFromUrl(url)
-            }
-            VID_BOM_DOMAINS.any(url::contains) && selection.contains("VidBom") -> {
-                vidBomExtractor.videosFromUrl(url)
-            }
-            else -> null
-        }.orEmpty()
-    }
+    private fun extractVideosFromUrl(url: String, quality: String, selection: Set<String>): List<Video> = when {
+        "https://doo" in url && "/e/" in url && selection.contains("Dood") -> {
+            doodExtractor.videoFromUrl(url, "DoodStream - $quality")
+                ?.let(::listOf)
+        }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+        "mp4upload" in url && selection.contains("Mp4upload") -> {
+            mp4uploadExtractor.videosFromUrl(url, headers)
+        }
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+        "ok.ru" in url && selection.contains("Okru") -> {
+            okruExtractor.videosFromUrl(url)
+        }
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+        "voe.sx" in url && selection.contains("Voe") -> {
+            voeExtractor.videosFromUrl(url)
+        }
+
+        VID_BOM_DOMAINS.any(url::contains) && selection.contains("VidBom") -> {
+            vidBomExtractor.videosFromUrl(url)
+        }
+
+        else -> null
+    }.orEmpty()
+
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
+
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
+
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

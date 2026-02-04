@@ -28,7 +28,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class DramaFull : AnimeHttpSource(), ConfigurableAnimeSource {
+class DramaFull :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "DramaFull"
 

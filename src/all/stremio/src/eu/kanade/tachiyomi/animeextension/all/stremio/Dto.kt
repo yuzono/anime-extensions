@@ -108,9 +108,7 @@ data class LibraryItemDto(
         thumbnail_url = poster
     }
 
-    fun watched(): Boolean {
-        return state.timesWatched > 0
-    }
+    fun watched(): Boolean = state.timesWatched > 0
 }
 
 @Serializable

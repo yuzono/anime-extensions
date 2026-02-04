@@ -22,7 +22,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class FilmPalast :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "FilmPalast"
 
@@ -123,8 +125,10 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
+
                 url.contains("hide") && hosterSelection.contains("hide") ->
                     StreamHideVidExtractor(client).videosFromUrl(url, "StreamHide")
+
                 url.contains("streamvid") && hosterSelection.contains("vid") ->
                     StreamHideVidExtractor(client).videosFromUrl(url, "StreamVid")
 
@@ -138,6 +142,7 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             listOf(Video(videoUrl, "WolfStream", videoUrl, headers = headers))
                         }
                 }
+
                 else -> null
             }
         }.flatten()

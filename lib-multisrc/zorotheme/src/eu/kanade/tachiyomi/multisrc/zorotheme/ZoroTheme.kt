@@ -35,7 +35,8 @@ abstract class ZoroTheme(
     override val name: String,
     override val baseUrl: String,
     private val hosterNames: List<String>,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
@@ -47,16 +48,14 @@ abstract class ZoroTheme(
         newHeaders()
     }
 
-    protected fun newHeaders(): Headers {
-        return headers.newBuilder().apply {
-            add(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            )
-            add("Host", baseUrl.toHttpUrl().host)
-            add("Referer", "$baseUrl/")
-        }.build()
-    }
+    protected fun newHeaders(): Headers = headers.newBuilder().apply {
+        add(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        )
+        add("Host", baseUrl.toHttpUrl().host)
+        add("Referer", "$baseUrl/")
+    }.build()
 
     protected open val ajaxRoute = ""
 
@@ -182,12 +181,10 @@ abstract class ZoroTheme(
         return if (full && value != null) "\n$tag $value" else value
     }
 
-    protected fun parseStatus(statusString: String?): Int {
-        return when (statusString) {
-            "Currently Airing" -> SAnime.ONGOING
-            "Finished Airing" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    protected fun parseStatus(statusString: String?): Int = when (statusString) {
+        "Currently Airing" -> SAnime.ONGOING
+        "Finished Airing" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -284,9 +281,7 @@ abstract class ZoroTheme(
         return this
     }
 
-    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean {
-        return any { it.equals(s, ignoreCase) }
-    }
+    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
 
     private fun apiHeaders(referer: String): Headers = headers.newBuilder().apply {
         add("Accept", "*/*")

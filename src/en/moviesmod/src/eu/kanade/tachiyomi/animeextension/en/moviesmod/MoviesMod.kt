@@ -32,7 +32,9 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.net.URL
 
-class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class MoviesMod :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Movies Mod"
 
@@ -54,6 +56,7 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                                         preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
                                     }
                                 }
+
                                 else -> baseUrl
                             }
                         }
@@ -82,8 +85,7 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .replace("Download", "").trim()
     }
 
-    override fun popularAnimeNextPageSelector(): String =
-        "#content_box > nav > div > a.next.page-numbers"
+    override fun popularAnimeNextPageSelector(): String = "#content_box > nav > div > a.next.page-numbers"
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
@@ -218,6 +220,7 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         } ?: emptyList()
                     }
                 }
+
                 else -> videos
             }
         }
@@ -243,7 +246,9 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         } else if (url.contains("r?key=")) {
             /* everything under control */
             client.newCall(GET(url)).execute()
-        } else { return null }
+        } else {
+            return null
+        }
 
         val path = mediaResponse.body.string().substringAfter("replace(\"").substringBefore("\"")
 
@@ -252,10 +257,8 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return "https://" + mediaResponse.request.url.host + path
     }
 
-    private fun extractVideo(url: String, quality: String): List<Video> {
-        return (1..3).toList().flatMap { type ->
-            extractWorkerLinks(url, quality, type)
-        }
+    private fun extractVideo(url: String, quality: String): List<Video> = (1..3).toList().flatMap { type ->
+        extractWorkerLinks(url, quality, type)
     }
 
     private fun extractWorkerLinks(mediaUrl: String, quality: String, type: Int): List<Video> {
@@ -408,16 +411,13 @@ class MoviesMod : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     @Serializable
     data class DriveLeechDirect(val url: String? = null)
 
-    private fun EpLinks.toJson(): String {
-        return json.encodeToString(this)
-    }
+    private fun EpLinks.toJson(): String = json.encodeToString(this)
 
-    private fun getDomainPrefSummary(): String =
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
-            """$it
+    private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
+        """$it
                 |For any change to be applied App restart is required.
-            """.trimMargin()
-        }
+        """.trimMargin()
+    }
 
     companion object {
         private val SIZE_REGEX = "\\[((?:.(?!\\[))+)]*\\$".toRegex(RegexOption.IGNORE_CASE)

@@ -23,7 +23,9 @@ import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 
-class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
+class Lacartoons :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "LACartoons"
 
@@ -131,7 +133,9 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
+
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
             embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("strwish") || embedUrl.contains("wish") -> {
                 val docHeaders = headers.newBuilder()
                     .add("Origin", "https://streamwish.to")
@@ -139,10 +143,14 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
                     .build()
                 StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
             }
+
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
                 embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url)
+
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
+
             embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+
             else -> UniversalExtractor(client).videosFromUrl(url, headers)
         }
     }
@@ -164,23 +172,23 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
         StudioFilter(),
     )
 
-    private class StudioFilter : UriPartFilter(
-        "Estudio",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Nickelodeon", "1"),
-            Pair("Cartoon Network", "2"),
-            Pair("Fox Kids", "3"),
-            Pair("Hanna Barbera", "4"),
-            Pair("Disney", "5"),
-            Pair("Warner Channel", "6"),
-            Pair("Marvel", "7"),
-            Pair("Otros", "8"),
-        ),
-    )
+    private class StudioFilter :
+        UriPartFilter(
+            "Estudio",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Nickelodeon", "1"),
+                Pair("Cartoon Network", "2"),
+                Pair("Fox Kids", "3"),
+                Pair("Hanna Barbera", "4"),
+                Pair("Disney", "5"),
+                Pair("Warner Channel", "6"),
+                Pair("Marvel", "7"),
+                Pair("Otros", "8"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

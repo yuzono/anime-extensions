@@ -116,11 +116,11 @@ class MegaUpExtractor(
         }
     }
 
-    private fun String.proper(): String {
-        return this.replaceFirstChar {
-            if (it.isLowerCase()) {
-                it.titlecase()
-            } else it.toString()
+    private fun String.proper(): String = this.replaceFirstChar {
+        if (it.isLowerCase()) {
+            it.titlecase()
+        } else {
+            it.toString()
         }
     }
 
@@ -135,12 +135,10 @@ class MegaUpExtractor(
         val tracks: List<MegaUpTrack>,
         val download: String? = null,
     ) {
-        fun subtitleTracks(): List<Track> {
-            return tracks
-                .filter { it.kind == "captions" && it.file.endsWith(".vtt") }
-                .sortedByDescending { it.default }
-                .map { Track(it.file, it.label ?: "Unknown") }
-        }
+        fun subtitleTracks(): List<Track> = tracks
+            .filter { it.kind == "captions" && it.file.endsWith(".vtt") }
+            .sortedByDescending { it.default }
+            .map { Track(it.file, it.label ?: "Unknown") }
     }
 
     @Serializable

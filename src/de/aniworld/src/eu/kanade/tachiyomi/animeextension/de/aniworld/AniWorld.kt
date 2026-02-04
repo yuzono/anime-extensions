@@ -31,7 +31,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AniWorld : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AniWorld :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniWorld"
 
@@ -55,9 +57,7 @@ class AniWorld : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeNextPageSelector(): String? = null
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/beliebte-animes")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/beliebte-animes")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -238,6 +238,7 @@ class AniWorld : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             videoList.add(video)
                         }
                     }
+
                     hoster.contains("Vidoza") && hosterSelection.contains(AWConstants.NAME_VIZ) -> {
                         val quality = "Vidoza $language"
                         val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
@@ -257,12 +258,15 @@ class AniWorld : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             langkey.contains("${AWConstants.KEY_GER_SUB}") -> {
                 return "Deutscher Sub"
             }
+
             langkey.contains("${AWConstants.KEY_GER_DUB}") -> {
                 return "Deutscher Dub"
             }
+
             langkey.contains("${AWConstants.KEY_ENG_SUB}") -> {
                 return "Englischer Sub"
             }
+
             else -> {
                 return null
             }

@@ -21,7 +21,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeLek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeLek :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeLek"
 
@@ -38,13 +40,11 @@ class AnimeLek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET(baseUrl)
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            val ahref = element.selectFirst("h3 a")!!
-            setUrlWithoutDomain(ahref.attr("href"))
-            title = ahref.text()
-            thumbnail_url = element.selectFirst("img")?.attr("src")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        val ahref = element.selectFirst("h3 a")!!
+        setUrlWithoutDomain(ahref.attr("href"))
+        title = ahref.text()
+        thumbnail_url = element.selectFirst("img")?.attr("src")
     }
 
     override fun popularAnimeNextPageSelector() = null
@@ -52,16 +52,14 @@ class AnimeLek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.ep-card-anime-title-detail h3 a"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            val text = element.text()
-            name = text
-            val epNum = text.filter { it.isDigit() }
-            episode_number = when {
-                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                else -> 1F
-            }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        val text = element.text()
+        name = text
+        val epNum = text.filter { it.isDigit() }
+        episode_number = when {
+            epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+            else -> 1F
         }
     }
 
@@ -88,17 +86,21 @@ class AnimeLek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     DoodExtractor(client).videoFromUrl(url, qualityy)
                         ?.let(::listOf)
                 }
+
                 url.contains("ok.ru") -> {
                     OkruExtractor(client).videosFromUrl(url)
                 }
+
                 url.contains("streamtape") -> {
                     StreamTapeExtractor(client).videoFromUrl(url)
                         ?.let(::listOf)
                 }
+
                 url.contains("4shared") -> {
                     SharedExtractor(client).videoFromUrl(url, qualityy)
                         ?.let(::listOf)
                 }
+
                 else -> null
             }
         }.flatten()
@@ -119,29 +121,27 @@ class AnimeLek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/search/?s=$query&page=$page")
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            val infos = document.selectFirst("div.anime-container-infos")!!
-            val datas = document.selectFirst("div.anime-container-data")!!
-            thumbnail_url = infos.selectFirst("img")!!.attr("src")
-            title = datas.selectFirst("h1")!!.text()
-            genre = datas.select("ul li > a").joinToString { it.text() }
-            status = infos.selectFirst("div.full-list-info:contains(حالة الأنمي) a")?.text()?.let {
-                when {
-                    it.contains("يعرض الان") -> SAnime.ONGOING
-                    it.contains("مكتمل", true) -> SAnime.COMPLETED
-                    else -> null
-                }
-            } ?: SAnime.UNKNOWN
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        val infos = document.selectFirst("div.anime-container-infos")!!
+        val datas = document.selectFirst("div.anime-container-data")!!
+        thumbnail_url = infos.selectFirst("img")!!.attr("src")
+        title = datas.selectFirst("h1")!!.text()
+        genre = datas.select("ul li > a").joinToString { it.text() }
+        status = infos.selectFirst("div.full-list-info:contains(حالة الأنمي) a")?.text()?.let {
+            when {
+                it.contains("يعرض الان") -> SAnime.ONGOING
+                it.contains("مكتمل", true) -> SAnime.COMPLETED
+                else -> null
+            }
+        } ?: SAnime.UNKNOWN
 
-            artist = document.selectFirst("div:contains(المخرج) > span.info")?.text()
+        artist = document.selectFirst("div:contains(المخرج) > span.info")?.text()
 
-            description = buildString {
-                append(datas.selectFirst("p.anime-story")!!.text() + "\n\n")
+        description = buildString {
+            append(datas.selectFirst("p.anime-story")!!.text() + "\n\n")
 
-                infos.select("div.full-list-info").forEach {
-                    append(it.text() + "\n")
-                }
+            infos.select("div.full-list-info").forEach {
+                append(it.text() + "\n")
             }
         }
     }

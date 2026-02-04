@@ -40,5 +40,4 @@ object UrlUtils {
             baseUrl.removeSuffix("/") + "/" + url.removePrefix("/")
         }
     }
-
 }

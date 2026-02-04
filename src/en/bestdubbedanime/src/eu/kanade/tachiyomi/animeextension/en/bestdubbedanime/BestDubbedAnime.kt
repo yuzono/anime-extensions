@@ -28,7 +28,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class BestDubbedAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class BestDubbedAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "BestDubbedAnime"
 
@@ -58,8 +60,7 @@ class BestDubbedAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/xz/gridgrabrecent.php?p=$page&limit=12&_=${System.currentTimeMillis() / 1000}", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/xz/gridgrabrecent.php?p=$page&limit=12&_=${System.currentTimeMillis() / 1000}", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -86,15 +87,13 @@ class BestDubbedAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotEmpty()) {
-            GET("$baseUrl/xz/searchgrid.php?p=$page&limit=12&s=$query&_=${System.currentTimeMillis() / 1000}", headers)
-        } else {
-            val genreFilter = (filters.find { it is TagFilter } as TagFilter).state.filter { it.state }
-            val categories = genreFilter.map { it.name }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotEmpty()) {
+        GET("$baseUrl/xz/searchgrid.php?p=$page&limit=12&s=$query&_=${System.currentTimeMillis() / 1000}", headers)
+    } else {
+        val genreFilter = (filters.find { it is TagFilter } as TagFilter).state.filter { it.state }
+        val categories = genreFilter.map { it.name }
 
-            GET("$baseUrl/xz/v3/taglist.php?tags=${categories.joinToString(separator = ",,")}&_=${System.currentTimeMillis() / 1000}", headers)
-        }
+        GET("$baseUrl/xz/v3/taglist.php?tags=${categories.joinToString(separator = ",,")}&_=${System.currentTimeMillis() / 1000}", headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -139,37 +138,35 @@ class BestDubbedAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun animeDetailsParse(document: Document): SAnime = throw UnsupportedOperationException()
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        return if (response.request.url.encodedPath.startsWith("/movies/")) {
-            val slug = response.request.url.toString().split(".com/movies/")[1]
+    override fun animeDetailsParse(response: Response): SAnime = if (response.request.url.encodedPath.startsWith("/movies/")) {
+        val slug = response.request.url.toString().split(".com/movies/")[1]
 
-            val apiResp = client.newCall(
-                GET(baseUrl + "/movies/jsonMovie.php?slug=" + slug + "&_=${System.currentTimeMillis() / 1000}"),
-            ).execute()
+        val apiResp = client.newCall(
+            GET(baseUrl + "/movies/jsonMovie.php?slug=" + slug + "&_=${System.currentTimeMillis() / 1000}"),
+        ).execute()
 
-            val apiJson = apiResp.body.let { Json.decodeFromString<JsonObject>(it.string()) }
-            val animeJson = apiJson["result"]!!
-                .jsonObject["anime"]!!
-                .jsonArray[0]
-                .jsonObject
+        val apiJson = apiResp.body.let { Json.decodeFromString<JsonObject>(it.string()) }
+        val animeJson = apiJson["result"]!!
+            .jsonObject["anime"]!!
+            .jsonArray[0]
+            .jsonObject
 
-            SAnime.create().apply {
-                title = animeJson["title"]!!.jsonPrimitive.content
-                description = animeJson["desc"]!!.jsonPrimitive.content
-                status = animeJson["status"]?.jsonPrimitive?.let { parseStatus(it.content) } ?: SAnime.UNKNOWN
-                genre = Jsoup.parse(animeJson["tags"]!!.jsonPrimitive.content).select("a").eachText().joinToString(separator = ", ")
-            }
-        } else {
-            val document = response.asJsoup()
-            val info = document.select("div.animeDescript")
+        SAnime.create().apply {
+            title = animeJson["title"]!!.jsonPrimitive.content
+            description = animeJson["desc"]!!.jsonPrimitive.content
+            status = animeJson["status"]?.jsonPrimitive?.let { parseStatus(it.content) } ?: SAnime.UNKNOWN
+            genre = Jsoup.parse(animeJson["tags"]!!.jsonPrimitive.content).select("a").eachText().joinToString(separator = ", ")
+        }
+    } else {
+        val document = response.asJsoup()
+        val info = document.select("div.animeDescript")
 
-            SAnime.create().apply {
-                genre = document.select("div[itemprop=keywords] > a").eachText().joinToString(separator = ", ")
-                description = info.select("p").text()
-                status = info.select("div > div").firstOrNull {
-                    it.text().contains("Status")
-                }?.let { parseStatus(it.text()) } ?: SAnime.UNKNOWN
-            }
+        SAnime.create().apply {
+            genre = document.select("div[itemprop=keywords] > a").eachText().joinToString(separator = ", ")
+            description = info.select("p").text()
+            status = info.select("div > div").firstOrNull {
+                it.text().contains("Status")
+            }?.let { parseStatus(it.text()) } ?: SAnime.UNKNOWN
         }
     }
 
@@ -302,12 +299,10 @@ class BestDubbedAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Ongoing") -> SAnime.ONGOING
-            statusString.contains("Completed") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Ongoing") -> SAnime.ONGOING
+        statusString.contains("Completed") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun List<Video>.sort(): List<Video> {

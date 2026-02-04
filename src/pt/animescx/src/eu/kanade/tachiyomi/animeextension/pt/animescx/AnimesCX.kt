@@ -28,7 +28,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class AnimesCX :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animes CX"
 
@@ -60,37 +62,27 @@ class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         thumbnail_url = element.selectFirst("img")?.absUrl("src")
     }
 
-    override fun popularAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun popularAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/doramas-em-lancamento/page/$page", headers)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -102,8 +94,7 @@ class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$baseUrl/page/$page/?s=$query", headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/page/$page/?s=$query", headers)
 
     override fun searchAnimeSelector() = "article.rl_episodios:has(.rl_AnimeIndexImg)"
 
@@ -134,8 +125,7 @@ class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         description = infos.getInfo("Sinopse")
     }
 
-    private fun Element.getInfo(text: String) =
-        selectFirst(".rl_anime_meta:contains($text)")?.ownText().orEmpty()
+    private fun Element.getInfo(text: String) = selectFirst(".rl_anime_meta:contains($text)")?.ownText().orEmpty()
 
     // ============================== Episodes ==============================
     override fun episodeListSelector() = ".rl_anime_episodios > article.rl_episodios"
@@ -200,31 +190,25 @@ class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                         val url = doc.selectFirst("a#downloadButton")?.attr("href")
                         url?.let { listOf(Video(url, "Mediafire - $quality", url, headers)) }.orEmpty()
                     }
+
                     "Google Drive" -> {
                         GDRIVE_REGEX.find(it.url)?.groupValues?.get(0)
                             ?.let { gdriveExtractor.videosFromUrl(it, "GDrive - $quality") }
                             .orEmpty()
                     }
+
                     else -> emptyList()
                 }
             }
         }
     }
-    override fun videoListParse(response: Response): List<Video> {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -249,10 +233,9 @@ class AnimesCX : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // ============================= Utilities ==============================
     private fun String.getPage() = substringAfterLast("/page/").substringBefore("/")
 
-    private fun Document.hasNextPage() =
-        selectFirst("a.rl_anime_pagination:last-child")
-            ?.let { it.attr("href").getPage() != location().getPage() }
-            ?: false
+    private fun Document.hasNextPage() = selectFirst("a.rl_anime_pagination:last-child")
+        ?.let { it.attr("href").getPage() != location().getPage() }
+        ?: false
 
     companion object {
         const val PREFIX_SEARCH = "id:"

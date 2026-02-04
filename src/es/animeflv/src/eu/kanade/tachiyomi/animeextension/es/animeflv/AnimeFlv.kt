@@ -30,7 +30,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AnimeFlv : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeFlv :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeFLV"
 
@@ -168,12 +170,10 @@ class AnimeFlv : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Finalizado") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Finalizado") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesRequest(page: Int) = GET(baseUrl, headers)

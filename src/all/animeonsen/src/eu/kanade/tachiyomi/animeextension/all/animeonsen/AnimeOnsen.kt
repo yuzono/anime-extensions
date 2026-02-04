@@ -26,7 +26,9 @@ import okhttp3.Headers
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeOnsen :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeOnsen"
 
@@ -52,8 +54,7 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
     // The site doesn't have a popular anime tab, so we use the home page instead (latest anime).
-    override fun popularAnimeRequest(page: Int) =
-        GET("$apiUrl/content/index?start=${(page - 1) * 20}&limit=20")
+    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/content/index?start=${(page - 1) * 20}&limit=20")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseJson = response.parseAs<AnimeListResponse>()
@@ -69,8 +70,7 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$apiUrl/search/$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$apiUrl/search/$query")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val searchResult = response.parseAs<SearchResponse>().result
@@ -150,11 +150,9 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "finished_airing" -> SAnime.COMPLETED
-            else -> SAnime.ONGOING
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "finished_airing" -> SAnime.COMPLETED
+        else -> SAnime.ONGOING
     }
 
     private fun AnimeListItem.toSAnime() = SAnime.create().apply {

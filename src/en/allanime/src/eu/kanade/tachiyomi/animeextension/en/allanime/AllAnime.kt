@@ -41,7 +41,9 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import uy.kohesive.injekt.injectLazy
 
-class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
+class AllAnime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AllAnime"
 
@@ -180,9 +182,7 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         return buildPost(data)
     }
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        return parseAnime(response).animes
-    }
+    override fun relatedAnimeListParse(response: Response): List<SAnime> = parseAnime(response).animes
 
     // ============================== Filters ===============================
 
@@ -334,9 +334,11 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                 } -> {
                     serverList.add(Server(videoUrl, "internal ${video.sourceName}", video.priority))
                 }
+
                 altHosterSelection.contains("player") && video.type == "player" -> {
                     serverList.add(Server(videoUrl, "player@${video.sourceName}", video.priority))
                 }
+
                 matchingMapping != null -> {
                     serverList.add(Server(videoUrl, matchingMapping.first, video.priority))
                 }
@@ -350,6 +352,7 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                     sName.startsWith("internal ") -> {
                         allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName)
                     }
+
                     sName.startsWith("player@") -> {
                         val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).await()
                             .parseAs<AllAnimeExtractor.VersionResponse>()
@@ -370,27 +373,35 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                             ),
                         )
                     }
+
                     sName == "vidstreaming" -> {
                         gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
                     }
+
                     sName == "dood" -> {
                         doodExtractor.videosFromUrl(server.sourceUrl)
                     }
+
                     sName == "okru" -> {
                         okruExtractor.videosFromUrl(server.sourceUrl)
                     }
+
                     sName == "mp4upload" -> {
                         mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
                     }
+
                     sName == "streamlare" -> {
                         streamlareExtractor.videosFromUrl(server.sourceUrl)
                     }
+
                     sName == "filemoon" -> {
                         filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
                     }
+
                     sName == "streamwish" -> {
                         streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
                     }
+
                     else -> emptyList()
                 }.let { it.map { v -> Pair(v, server.priority) } }
             },
@@ -448,20 +459,16 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         val priority: Float,
     )
 
-    private fun parseStatus(string: String?): Int {
-        return when (string) {
-            "Releasing" -> SAnime.ONGOING
-            "Finished" -> SAnime.COMPLETED
-            "Not Yet Released" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(string: String?): Int = when (string) {
+        "Releasing" -> SAnime.ONGOING
+        "Finished" -> SAnime.COMPLETED
+        "Not Yet Released" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun String.slugify(): String {
-        return this.replace("""[^a-zA-Z0-9]""".toRegex(), "-")
-            .replace("""-{2,}""".toRegex(), "-")
-            .lowercase()
-    }
+    private fun String.slugify(): String = this.replace("""[^a-zA-Z0-9]""".toRegex(), "-")
+        .replace("""-{2,}""".toRegex(), "-")
+        .lowercase()
 
     private fun parseAnime(response: Response): AnimesPage {
         val parsed = response.parseAs<SearchResult>()
@@ -481,17 +488,13 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, animeList.size == PAGE_SIZE)
     }
 
-    private fun thumbnailUrl(url: String): String {
-        return if (url.startsWith("https://")) {
-            THUMBNAIL_PROXY.format(url.removePrefix("https://"))
-        } else {
-            THUMBNAIL_PROXY_SUB.format(url)
-        }
+    private fun thumbnailUrl(url: String): String = if (url.startsWith("https://")) {
+        THUMBNAIL_PROXY.format(url.removePrefix("https://"))
+    } else {
+        THUMBNAIL_PROXY_SUB.format(url)
     }
 
-    private fun String.containsAny(keywords: List<String>): Boolean {
-        return keywords.any { this.contains(it) }
-    }
+    private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API

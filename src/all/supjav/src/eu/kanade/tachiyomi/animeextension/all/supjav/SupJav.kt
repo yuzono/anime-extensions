@@ -24,7 +24,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class SupJav(override val lang: String = "en") :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "SupJav"
 
@@ -60,32 +62,22 @@ class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, Parsed
     override fun popularAnimeNextPageSelector() = "div.pagination li.active:not(:nth-last-child(2))"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -97,8 +89,7 @@ class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, Parsed
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$baseUrl$langPath/?s=$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl$langPath/?s=$query")
 
     override fun searchAnimeSelector() = popularAnimeSelector()
 
@@ -133,13 +124,9 @@ class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, Parsed
         return listOf(episode)
     }
 
-    override fun episodeListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListSelector(): String = throw UnsupportedOperationException()
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -173,8 +160,11 @@ class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, Parsed
 
         return when (hoster) {
             "ST" -> streamtapeExtractor.videosFromUrl(url)
+
             "VOE" -> voeExtractor.videosFromUrl(url)
+
             "FST" -> streamwishExtractor.videosFromUrl(url)
+
             "TV" -> {
                 val body = client.newCall(GET(url)).execute().body.string()
                 val playlistUrl = body.substringAfter("var urlPlay = '", "")
@@ -185,21 +175,16 @@ class SupJav(override val lang: String = "en") : ConfigurableAnimeSource, Parsed
                 playlistUtils.extractFromHls(playlistUrl, url, videoNameGen = { "TV - $it" })
                     .distinctBy { it.videoUrl }
             }
+
             else -> emptyList()
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

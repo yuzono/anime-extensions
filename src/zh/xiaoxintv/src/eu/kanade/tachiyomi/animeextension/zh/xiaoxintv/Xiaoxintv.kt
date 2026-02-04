@@ -80,9 +80,7 @@ class Xiaoxintv : AnimeHttpSource() {
         return listOf(Video(videoUrl, "小宝影院", videoUrl))
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return searchFilterParse(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = searchFilterParse(response)
 
     override fun latestUpdatesRequest(page: Int) = searchAnimeRequest(
         page,
@@ -92,9 +90,7 @@ class Xiaoxintv : AnimeHttpSource() {
         ),
     )
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return searchFilterParse(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = searchFilterParse(response)
 
     override fun popularAnimeRequest(page: Int) = searchAnimeRequest(
         page,

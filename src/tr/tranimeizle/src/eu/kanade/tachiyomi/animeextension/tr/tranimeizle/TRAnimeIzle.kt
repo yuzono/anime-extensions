@@ -37,7 +37,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class TRAnimeIzle :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "TR Anime Izle"
 
@@ -77,24 +79,21 @@ class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
-    override fun latestUpdatesFromElement(element: Element) =
-        popularAnimeFromElement(element).apply {
-            // Convert episode url to anime url
-            url = "/anime$url".substringBefore("-bolum").substringBeforeLast("-") + "-izle"
-        }
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element).apply {
+        // Convert episode url to anime url
+        url = "/anime$url".substringBefore("-bolum").substringBeforeLast("-") + "-izle"
+    }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -106,8 +105,7 @@ class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseUrl/arama/$query?page=$page")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/arama/$query?page=$page")
 
     override fun searchAnimeSelector() = popularAnimeSelector()
 
@@ -141,6 +139,7 @@ class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                         append("\n$text: ")
                         dtCount = 0
                     }
+
                     "dt" -> {
                         if (dtCount == 0) {
                             append(text)
@@ -244,34 +243,38 @@ class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         // That's going to take an entire year to load, and I really don't care.
         return when {
             "filemoon.sx" in url -> filemoonExtractor.videosFromUrl(url, headers = headers)
+
             "mixdrop" in url -> mixDropExtractor.videoFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "sendvid.com" in url -> sendvidExtractor.videosFromUrl(url)
+
             "video.sibnet" in url -> sibnetExtractor.videosFromUrl(url)
+
             "streamlare.com" in url -> streamlareExtractor.videosFromUrl(url)
+
             "voe.sx" in url -> voeExtractor.videosFromUrl(url)
+
             "//vudeo." in url -> vudeoExtractor.videosFromUrl(url)
+
             "yourupload.com" in url -> {
                 yourUploadExtractor.videoFromUrl(url, headers)
                     // ignore error links
                     .filterNot { it.url.contains("/novideo.mp4") }
             }
+
             else -> emptyList()
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -340,10 +343,8 @@ class TRAnimeIzle : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // ============================= Utilities ==============================
     private fun String.clearName() = removeSuffix(" İzle").removeSuffix(" Bölüm")
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

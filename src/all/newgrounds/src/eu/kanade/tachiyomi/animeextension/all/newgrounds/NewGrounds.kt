@@ -35,7 +35,9 @@ import java.util.Locale
 
 private const val PAGE_SIZE = 20
 
-class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class NewGrounds :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val lang = "all"
     override val baseUrl = "https://www.newgrounds.com"
@@ -59,9 +61,7 @@ class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     // Latest
 
-    private fun getLatestSection(): String {
-        return preferences.getString("LATEST", PREF_SECTIONS["Latest"])!!
-    }
+    private fun getLatestSection(): String = preferences.getString("LATEST", PREF_SECTIONS["Latest"])!!
 
     override fun latestUpdatesRequest(page: Int): Request {
         val offset = (page - 1) * PAGE_SIZE
@@ -77,15 +77,11 @@ class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun latestUpdatesSelector(): String = animeSelector(getLatestSection())
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return animeFromElement(element, getLatestSection())
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = animeFromElement(element, getLatestSection())
 
     // Browse
 
-    private fun getPopularSection(): String {
-        return preferences.getString("POPULAR", PREF_SECTIONS["Popular"])!!
-    }
+    private fun getPopularSection(): String = preferences.getString("POPULAR", PREF_SECTIONS["Popular"])!!
 
     override fun popularAnimeRequest(page: Int): Request {
         val offset = (page - 1) * PAGE_SIZE
@@ -101,9 +97,7 @@ class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun popularAnimeSelector(): String = animeSelector(getPopularSection())
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return animeFromElement(element, getPopularSection())
-    }
+    override fun popularAnimeFromElement(element: Element): SAnime = animeFromElement(element, getPopularSection())
 
     // Search
 
@@ -451,12 +445,10 @@ class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     /**
      * Chooses an extraction technique for anime information, based on section selected in Preferences
      */
-    private fun animeFromElement(element: Element, section: String): SAnime {
-        return if (section == PREF_SECTIONS["Your Feed"]) {
-            animeFromFeedElement(element)
-        } else {
-            animeFromGridElement(element)
-        }
+    private fun animeFromElement(element: Element, section: String): SAnime = if (section == PREF_SECTIONS["Your Feed"]) {
+        animeFromFeedElement(element)
+    } else {
+        animeFromGridElement(element)
     }
 
     /**
@@ -495,12 +487,10 @@ class NewGrounds : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     /**
      * Returns CSS selector for anime, based on the section selected in Preferences
      */
-    private fun animeSelector(section: String): String {
-        return if (section == PREF_SECTIONS["Your Feed"]) {
-            "a.item-portalsubmission"
-        } else {
-            "a.inline-card-portalsubmission"
-        }
+    private fun animeSelector(section: String): String = if (section == PREF_SECTIONS["Your Feed"]) {
+        "a.item-portalsubmission"
+    } else {
+        "a.inline-card-portalsubmission"
     }
 
     /**

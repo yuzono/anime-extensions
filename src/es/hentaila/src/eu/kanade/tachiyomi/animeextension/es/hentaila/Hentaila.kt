@@ -39,7 +39,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
+class Hentaila :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hentaila"
     override val baseUrl = "https://hentaila.com"
@@ -106,7 +108,9 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
             filterList.forEach { filter ->
                 when (filter) {
                     is GenreFilter -> urlBuilder.addQueryParameter("genre", filter.toUriPart())
+
                     is OrderFilter -> urlBuilder.addQueryParameter("filter", filter.toUriPart())
+
                     is StatusOngoingFilter -> if (filter.state) {
                         urlBuilder.addQueryParameter("status", "emision")
                     }
@@ -271,21 +275,33 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
         val allVideos = serverList.parallelCatchingFlatMapBlocking { each ->
             when (each.name.lowercase()) {
                 "streamwish" -> streamWishExtractor.videosFromUrl(each.url, videoNameGen = { "StreamWish:$it" })
+
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(each.url, headers = headers, prefix = "Mp4Upload")
+
                 "voe" -> voeExtractor.videosFromUrl(each.url)
+
                 "arc" -> listOf(Video(each.url.substringAfter("#"), "Arc", each.url.substringAfter("#")))
+
                 "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(each.url, headers = headers)
+
                 "burst" -> burstCloudExtractor.videoFromUrl(each.url, headers = headers)
+
                 "sendvid" -> sendvidExtractor.videosFromUrl(each.url)
+
                 "mediafire" -> mediaFireExtractor.getVideoFromUrl(each.url)
+
                 "fireload" -> fireLoadExtractor.getVideoFromUrl(each.url)
+
                 "vidhide" -> vidhideExtractor.videosFromUrl(each.url)
+
                 "mega" -> megacloudExtractor.getVideosFromUrl(each.url, "Megacloud", "Megacloud")
+
                 "vip" -> universalExtractor.videosFromUrl(
                     each.url.replace("/play/", "/m3u8/"),
                     origRequestHeader = headers,
                     prefix = "VIP",
                 )
+
                 else -> emptyList()
             }
         }
@@ -319,60 +335,62 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
     private class StatusCompletedFilter : AnimeFilter.CheckBox("Finalizado")
     private class UncensoredFilter : AnimeFilter.CheckBox("Sin Censura")
 
-    private class OrderFilter : UriPartFilter(
-        "Ordenar por",
-        arrayOf(
-            "<Seleccionar>" to "",
-            "Populares" to "popular",
-            "Recientes" to "recent",
-        ),
-    )
+    private class OrderFilter :
+        UriPartFilter(
+            "Ordenar por",
+            arrayOf(
+                "<Seleccionar>" to "",
+                "Populares" to "popular",
+                "Recientes" to "recent",
+            ),
+        )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            "<Seleccionar>" to "",
-            "3D" to "3d",
-            "Ahegao" to "ahegao",
-            "Anal" to "anal",
-            "Casadas" to "casadas",
-            "Chikan" to "chikan",
-            "Ecchi" to "ecchi",
-            "Enfermeras" to "enfermeras",
-            "Futanari" to "futanari",
-            "Escolares" to "escolares",
-            "Gore" to "gore",
-            "Hardcore" to "hardcore",
-            "Harem" to "harem",
-            "Incesto" to "incesto",
-            "Juegos Sexuales" to "juegos-sexuales",
-            "Milfs" to "milfs",
-            "Maids" to "maids",
-            "Netorare" to "netorare",
-            "Ninfomanía" to "ninfomania",
-            "Ninjas" to "ninjas",
-            "Orgías" to "orgias",
-            "Romance" to "romance",
-            "Shota" to "shota",
-            "Softcore" to "softcore",
-            "Succubus" to "succubus",
-            "Teacher" to "teacher",
-            "Tentáculos" to "tentaculos",
-            "Tetonas" to "tetonas",
-            "Vanilla" to "vanilla",
-            "Violación" to "violacion",
-            "Vírgenes" to "virgenes",
-            "Yaoi" to "yaoi",
-            "Yuri" to "yuri",
-            "Bondage" to "bondage",
-            "Elfas" to "elfas",
-            "Petit" to "petit",
-            "Threesome" to "threesome",
-            "Paizuri" to "paizuri",
-            "Gal" to "gal",
-            "Oyakodon" to "oyakodon",
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                "<Seleccionar>" to "",
+                "3D" to "3d",
+                "Ahegao" to "ahegao",
+                "Anal" to "anal",
+                "Casadas" to "casadas",
+                "Chikan" to "chikan",
+                "Ecchi" to "ecchi",
+                "Enfermeras" to "enfermeras",
+                "Futanari" to "futanari",
+                "Escolares" to "escolares",
+                "Gore" to "gore",
+                "Hardcore" to "hardcore",
+                "Harem" to "harem",
+                "Incesto" to "incesto",
+                "Juegos Sexuales" to "juegos-sexuales",
+                "Milfs" to "milfs",
+                "Maids" to "maids",
+                "Netorare" to "netorare",
+                "Ninfomanía" to "ninfomania",
+                "Ninjas" to "ninjas",
+                "Orgías" to "orgias",
+                "Romance" to "romance",
+                "Shota" to "shota",
+                "Softcore" to "softcore",
+                "Succubus" to "succubus",
+                "Teacher" to "teacher",
+                "Tentáculos" to "tentaculos",
+                "Tetonas" to "tetonas",
+                "Vanilla" to "vanilla",
+                "Violación" to "violacion",
+                "Vírgenes" to "virgenes",
+                "Yaoi" to "yaoi",
+                "Yuri" to "yuri",
+                "Bondage" to "bondage",
+                "Elfas" to "elfas",
+                "Petit" to "petit",
+                "Threesome" to "threesome",
+                "Paizuri" to "paizuri",
+                "Gal" to "gal",
+                "Oyakodon" to "oyakodon",
+            ),
+        )
 
     private open class UriPartFilter(
         displayName: String,

@@ -24,7 +24,9 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeGG :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeGG"
 
@@ -161,11 +163,9 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun fixJsonString(jsonString: String): String {
-        return jsonString.replace(Regex("""(\w+):"""), """"$1":""")
-            .replace(Regex("""(:\s)([^{\[}\]":\s,]+)"""), """$1"$2"""")
-            .replace(Regex("""(:\s)("[^"]*")"""), """$1$2""")
-    }
+    private fun fixJsonString(jsonString: String): String = jsonString.replace(Regex("""(\w+):"""), """"$1":""")
+        .replace(Regex("""(:\s)([^{\[}\]":\s,]+)"""), """$1"$2"""")
+        .replace(Regex("""(:\s)("[^"]*")"""), """$1$2""")
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -186,14 +186,15 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genre",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Películas", "peliculas"),
-            Pair("Series", "series"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genre",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Películas", "peliculas"),
+                Pair("Series", "series"),
+            ),
+        )
 
     private fun Element?.getEpNumber(): Float? {
         val input = this?.text() ?: return null
@@ -203,16 +204,13 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     @SuppressLint("DefaultLocale")
-    private fun Float.formatEp(): String {
-        return if (this % 1 == 0.0f) {
-            String.format(Locale.US, "%.0f", this)
-        } else {
-            String.format(Locale.US, "%.1f", this)
-        }
+    private fun Float.formatEp(): String = if (this % 1 == 0.0f) {
+        String.format(Locale.US, "%.0f", this)
+    } else {
+        String.format(Locale.US, "%.1f", this)
     }
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

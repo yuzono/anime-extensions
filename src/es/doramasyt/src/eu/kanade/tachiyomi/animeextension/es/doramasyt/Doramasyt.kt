@@ -30,7 +30,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import kotlin.math.ceil
 
-class Doramasyt : ConfigurableAnimeSource, AnimeHttpSource() {
+class Doramasyt :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Doramasyt"
 
@@ -216,14 +218,12 @@ class Doramasyt : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {

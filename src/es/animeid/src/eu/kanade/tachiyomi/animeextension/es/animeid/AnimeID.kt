@@ -28,7 +28,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Date
 
-class AnimeID : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeID :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeID"
 
@@ -97,18 +99,16 @@ class AnimeID : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return capList
     }
 
-    private fun manualDateParse(stringDate: String): Long? {
-        return try {
-            val format = SimpleDateFormat("dd MMM yyyy")
-            format.parse(stringDate!!.toString()).time
-        } catch (e: Exception) {
-            var dateParsed = stringDate.split(" ")
-            val arrMonths = arrayOf("Jun", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-            val day = dateParsed[0]!!.trim().toInt()
-            val month = arrMonths.indexOf(dateParsed[1].trim()) + 1
-            val year = dateParsed[2]!!.trim().toInt()
-            Date(year, month, day).time
-        }
+    private fun manualDateParse(stringDate: String): Long? = try {
+        val format = SimpleDateFormat("dd MMM yyyy")
+        format.parse(stringDate!!.toString()).time
+    } catch (e: Exception) {
+        var dateParsed = stringDate.split(" ")
+        val arrMonths = arrayOf("Jun", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val day = dateParsed[0]!!.trim().toInt()
+        val month = arrMonths.indexOf(dateParsed[1].trim()) + 1
+        val year = dateParsed[2]!!.trim().toInt()
+        Date(year, month, day).time
     }
 
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
@@ -207,153 +207,152 @@ class AnimeID : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         OrderByFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("+18", "18"),
-            Pair("Acción", "accion"),
-            Pair("Animación", "animacion"),
-            Pair("Arte", "arte"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Aventura", "aventura"),
-            Pair("Bizarro", "bizarro"),
-            Pair("Carreras", "carreras"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Colegialas", "colegialas"),
-            Pair("Comedia", "comedia"),
-            Pair("Concert", "concert"),
-            Pair("Cyberpunk", "cyberpunk"),
-            Pair("Demonios", "demonios"),
-            Pair("Deportes", "deportes"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Escolares", "escolares"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Fútbol", "futbol"),
-            Pair("Game", "game"),
-            Pair("Gore", "gore"),
-            Pair("Guerra", "guerra"),
-            Pair("Harem", "harem"),
-            Pair("Histórico", "historico"),
-            Pair("Horror", "horror"),
-            Pair("Idol", "idol"),
-            Pair("Infantil", "infantil"),
-            Pair("invier", "invier"),
-            Pair("Invierno 2013", "invierno-2013"),
-            Pair("Invierno 2014", "invierno-2014"),
-            Pair("Invierno 2015", "invierno-2015"),
-            Pair("Invierno 2016", "invierno-2016"),
-            Pair("Invierno 2017", "invierno-2017"),
-            Pair("Invierno 2019", "invierno-2019"),
-            Pair("Invierno 2020", "invierno-2020"),
-            Pair("Invierno 2021", "invierno-2021"),
-            Pair("Invierno 2022", "invierno-2022"),
-            Pair("Invierno-2018", "invierno-2018"),
-            Pair("Josei", "josei"),
-            Pair("Juegos", "juegos"),
-            Pair("Juegos De Mesa", "juegos-de-mesa"),
-            Pair("Kids", "kids"),
-            Pair("Loli", "loli"),
-            Pair("Lucha", "lucha"),
-            Pair("Mafia", "mafia"),
-            Pair("Magia", "magia"),
-            Pair("Mahou Shōjo", "mahou-shojo"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Música", "musica"),
-            Pair("Otoño 2012", "otono-2012"),
-            Pair("Otoño 2013", "otono-2013"),
-            Pair("Otoño 2014", "otono-2014"),
-            Pair("Otoño 2015", "otono-2015"),
-            Pair("Otoño 2016", "otono-2016"),
-            Pair("Otoño 2018", "otono-2018"),
-            Pair("Otoño 2019", "otono-2019"),
-            Pair("Otoño 2020", "otono-2020"),
-            Pair("Otoño 2021", "otono-2021"),
-            Pair("otono-2017", "otono-2017"),
-            Pair("Pantsu", "pantsu"),
-            Pair("Parodia", "parodia"),
-            Pair("Policía", "policia"),
-            Pair("Post Apocalitico", "post-apocalitico"),
-            Pair("prima", "prima"),
-            Pair("Primavera 2013", "primavera-2013"),
-            Pair("Primavera 2014", "primavera-2014"),
-            Pair("Primavera 2015", "primavera-2015"),
-            Pair("Primavera 2016", "primavera-2016"),
-            Pair("Primavera 2017", "primavera-2017"),
-            Pair("primavera 2018", "primavera-2018"),
-            Pair("Primavera 2019", "primavera-2019"),
-            Pair("Primavera 2020", "primavera-2020"),
-            Pair("Primavera 2021", "primavera-2021"),
-            Pair("Primavera 2022", "primavera-2022"),
-            Pair("Primvera 2018", "primvera-2018"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
-            Pair("Romance", "romance"),
-            Pair("Samurai", "samurai"),
-            Pair("Sci-Fi", "sci-fi"),
-            Pair("Seinen", "seinen"),
-            Pair("Shōjo", "shojo"),
-            Pair("Shōjo-ai", "shojo-ai"),
-            Pair("Shōnen", "shonen"),
-            Pair("Shōnen-ai", "shonen-ai"),
-            Pair("Shooter", "shooter"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo Ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("shounen ai", "shounen-ai"),
-            Pair("Slice Of Life", "slice-of-life"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Super poder", "super-poder"),
-            Pair("Supernatural", "supernatural"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
-            Pair("Thriller", "thriller"),
-            Pair("Torneo", "torneo"),
-            Pair("Tragedia", "tragedia"),
-            Pair("Vampiros", "vampiros"),
-            Pair("ver", "ver"),
-            Pair("vera", "vera"),
-            Pair("Verano 2013", "verano-2013"),
-            Pair("Verano 2014", "verano-2014"),
-            Pair("Verano 2015", "verano-2015"),
-            Pair("Verano 2016", "verano-2016"),
-            Pair("Verano 2017", "verano-2017"),
-            Pair("Verano 2018", "verano-2018"),
-            Pair("Verano 2019", "verano-2019"),
-            Pair("Verano 2020", "verano-2020"),
-            Pair("Verano 2021", "verano-2021"),
-            Pair("Verano 2022", "verano-2022"),
-            Pair("Violencia", "violencia"),
-            Pair("Vocaloid", "vocaloid"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("+18", "18"),
+                Pair("Acción", "accion"),
+                Pair("Animación", "animacion"),
+                Pair("Arte", "arte"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Aventura", "aventura"),
+                Pair("Bizarro", "bizarro"),
+                Pair("Carreras", "carreras"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Colegialas", "colegialas"),
+                Pair("Comedia", "comedia"),
+                Pair("Concert", "concert"),
+                Pair("Cyberpunk", "cyberpunk"),
+                Pair("Demonios", "demonios"),
+                Pair("Deportes", "deportes"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Escolares", "escolares"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Fútbol", "futbol"),
+                Pair("Game", "game"),
+                Pair("Gore", "gore"),
+                Pair("Guerra", "guerra"),
+                Pair("Harem", "harem"),
+                Pair("Histórico", "historico"),
+                Pair("Horror", "horror"),
+                Pair("Idol", "idol"),
+                Pair("Infantil", "infantil"),
+                Pair("invier", "invier"),
+                Pair("Invierno 2013", "invierno-2013"),
+                Pair("Invierno 2014", "invierno-2014"),
+                Pair("Invierno 2015", "invierno-2015"),
+                Pair("Invierno 2016", "invierno-2016"),
+                Pair("Invierno 2017", "invierno-2017"),
+                Pair("Invierno 2019", "invierno-2019"),
+                Pair("Invierno 2020", "invierno-2020"),
+                Pair("Invierno 2021", "invierno-2021"),
+                Pair("Invierno 2022", "invierno-2022"),
+                Pair("Invierno-2018", "invierno-2018"),
+                Pair("Josei", "josei"),
+                Pair("Juegos", "juegos"),
+                Pair("Juegos De Mesa", "juegos-de-mesa"),
+                Pair("Kids", "kids"),
+                Pair("Loli", "loli"),
+                Pair("Lucha", "lucha"),
+                Pair("Mafia", "mafia"),
+                Pair("Magia", "magia"),
+                Pair("Mahou Shōjo", "mahou-shojo"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Música", "musica"),
+                Pair("Otoño 2012", "otono-2012"),
+                Pair("Otoño 2013", "otono-2013"),
+                Pair("Otoño 2014", "otono-2014"),
+                Pair("Otoño 2015", "otono-2015"),
+                Pair("Otoño 2016", "otono-2016"),
+                Pair("Otoño 2018", "otono-2018"),
+                Pair("Otoño 2019", "otono-2019"),
+                Pair("Otoño 2020", "otono-2020"),
+                Pair("Otoño 2021", "otono-2021"),
+                Pair("otono-2017", "otono-2017"),
+                Pair("Pantsu", "pantsu"),
+                Pair("Parodia", "parodia"),
+                Pair("Policía", "policia"),
+                Pair("Post Apocalitico", "post-apocalitico"),
+                Pair("prima", "prima"),
+                Pair("Primavera 2013", "primavera-2013"),
+                Pair("Primavera 2014", "primavera-2014"),
+                Pair("Primavera 2015", "primavera-2015"),
+                Pair("Primavera 2016", "primavera-2016"),
+                Pair("Primavera 2017", "primavera-2017"),
+                Pair("primavera 2018", "primavera-2018"),
+                Pair("Primavera 2019", "primavera-2019"),
+                Pair("Primavera 2020", "primavera-2020"),
+                Pair("Primavera 2021", "primavera-2021"),
+                Pair("Primavera 2022", "primavera-2022"),
+                Pair("Primvera 2018", "primvera-2018"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
+                Pair("Romance", "romance"),
+                Pair("Samurai", "samurai"),
+                Pair("Sci-Fi", "sci-fi"),
+                Pair("Seinen", "seinen"),
+                Pair("Shōjo", "shojo"),
+                Pair("Shōjo-ai", "shojo-ai"),
+                Pair("Shōnen", "shonen"),
+                Pair("Shōnen-ai", "shonen-ai"),
+                Pair("Shooter", "shooter"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo Ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("shounen ai", "shounen-ai"),
+                Pair("Slice Of Life", "slice-of-life"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Super poder", "super-poder"),
+                Pair("Supernatural", "supernatural"),
+                Pair("Suspenso", "suspenso"),
+                Pair("Terror", "terror"),
+                Pair("Thriller", "thriller"),
+                Pair("Torneo", "torneo"),
+                Pair("Tragedia", "tragedia"),
+                Pair("Vampiros", "vampiros"),
+                Pair("ver", "ver"),
+                Pair("vera", "vera"),
+                Pair("Verano 2013", "verano-2013"),
+                Pair("Verano 2014", "verano-2014"),
+                Pair("Verano 2015", "verano-2015"),
+                Pair("Verano 2016", "verano-2016"),
+                Pair("Verano 2017", "verano-2017"),
+                Pair("Verano 2018", "verano-2018"),
+                Pair("Verano 2019", "verano-2019"),
+                Pair("Verano 2020", "verano-2020"),
+                Pair("Verano 2021", "verano-2021"),
+                Pair("Verano 2022", "verano-2022"),
+                Pair("Violencia", "violencia"),
+                Pair("Vocaloid", "vocaloid"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    private class OrderByFilter : UriPartFilter(
-        "Ordenar Por",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Recientes", "newest"),
-            Pair("A-Z", "asc"),
-            Pair("Más vistos", "views"),
-        ),
-    )
+    private class OrderByFilter :
+        UriPartFilter(
+            "Ordenar Por",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Recientes", "newest"),
+                Pair("A-Z", "asc"),
+                Pair("Más vistos", "views"),
+            ),
+        )
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En emisión") -> SAnime.ONGOING
-            statusString.contains("Finalizada") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En emisión") -> SAnime.ONGOING
+        statusString.contains("Finalizada") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()

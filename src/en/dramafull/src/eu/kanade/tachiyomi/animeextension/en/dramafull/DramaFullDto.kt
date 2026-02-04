@@ -23,12 +23,10 @@ data class DramaDto(
     @SerialName("image")
     val thumbnail: String?,
 ) {
-    fun toSAnime(baseUrl: String): SAnime {
-        return SAnime.create().apply {
-            url = "/film/$slug"
-            title = name
-            thumbnail_url = thumbnail?.let { UrlUtils.fixUrl(it, baseUrl) }
-        }
+    fun toSAnime(baseUrl: String): SAnime = SAnime.create().apply {
+        url = "/film/$slug"
+        title = name
+        thumbnail_url = thumbnail?.let { UrlUtils.fixUrl(it, baseUrl) }
     }
 }
 

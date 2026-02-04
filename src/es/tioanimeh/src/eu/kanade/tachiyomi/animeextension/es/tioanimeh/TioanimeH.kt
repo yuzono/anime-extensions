@@ -23,7 +23,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-open class TioanimeH(override val name: String, override val baseUrl: String) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+open class TioanimeH(override val name: String, override val baseUrl: String) :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val lang = "es"
 
@@ -50,12 +52,10 @@ open class TioanimeH(override val name: String, override val baseUrl: String) : 
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/directorio?p=$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            url = element.select("article a").attr("href")
-            title = element.select("article a h3").text()
-            thumbnail_url = baseUrl + element.select("article a div figure img").attr("src")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        url = element.select("article a").attr("href")
+        title = element.select("article a h3").text()
+        thumbnail_url = baseUrl + element.select("article a div figure img").attr("src")
     }
 
     override fun popularAnimeNextPageSelector(): String = ".pagination .active ~ li:not(.disabled)"
@@ -148,35 +148,29 @@ open class TioanimeH(override val name: String, override val baseUrl: String) : 
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.select("h1.title").text()
-            description = document.selectFirst("p.sinopsis")!!.ownText()
-            genre = document.select("p.genres span.btn.btn-sm.btn-primary.rounded-pill a").joinToString { it.text() }
-            thumbnail_url = document.select(".thumb img").attr("abs:src")
-            status = parseStatus(document.select("a.btn.btn-success.btn-block.status").text())
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.select("h1.title").text()
+        description = document.selectFirst("p.sinopsis")!!.ownText()
+        genre = document.select("p.genres span.btn.btn-sm.btn-primary.rounded-pill a").joinToString { it.text() }
+        thumbnail_url = document.select(".thumb img").attr("abs:src")
+        status = parseStatus(document.select("a.btn.btn-success.btn-block.status").text())
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Finalizado") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Finalizado") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select("article a h3").text()
-            thumbnail_url = baseUrl + element.select("article a div figure img").attr("src")
-            val slug = if (baseUrl.contains("hentai")) "/hentai/" else "/anime/"
-            val fixUrl = element.select("article a").attr("href").split("-").toTypedArray()
-            val realUrl = fixUrl.copyOf(fixUrl.size - 1).joinToString("-").replace("/ver/", slug)
-            setUrlWithoutDomain(realUrl)
-        }
+    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select("article a h3").text()
+        thumbnail_url = baseUrl + element.select("article a div figure img").attr("src")
+        val slug = if (baseUrl.contains("hentai")) "/hentai/" else "/anime/"
+        val fixUrl = element.select("article a").attr("href").split("-").toTypedArray()
+        val realUrl = fixUrl.copyOf(fixUrl.size - 1).joinToString("-").replace("/ver/", slug)
+        setUrlWithoutDomain(realUrl)
     }
 
     override fun latestUpdatesRequest(page: Int) = GET(baseUrl)

@@ -31,7 +31,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class Katanime : ConfigurableAnimeSource, AnimeHttpSource() {
+class Katanime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Katanime"
 
@@ -241,14 +243,12 @@ class Katanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
-    private fun org.jsoup.nodes.Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun org.jsoup.nodes.Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun org.jsoup.nodes.Element.isValidUrl(attrName: String): Boolean {

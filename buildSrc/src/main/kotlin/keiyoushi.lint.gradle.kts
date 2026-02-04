@@ -3,7 +3,7 @@ plugins {
 }
 
 spotless {
-    ratchetFrom = "7a697f6175fbbcdb051e186d4b43c06dbd3749a4"
+    ratchetFrom = ""
 
     kotlin {
         target("**/*.kt", "**/*.kts")

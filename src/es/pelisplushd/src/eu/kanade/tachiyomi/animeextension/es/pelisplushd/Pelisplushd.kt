@@ -38,12 +38,10 @@ class Pelisplushd : PelisPlus() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/series?page=$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("a").attr("abs:href"))
-            title = element.select("a div.listing-content p").text()
-            thumbnail_url = element.select("a img").attr("src").replace("/w154/", "/w200/")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("a").attr("abs:href"))
+        title = element.select("a div.listing-content p").text()
+        thumbnail_url = element.select("a img").attr("src").replace("/w154/", "/w200/")
     }
 
     override fun popularAnimeNextPageSelector(): String = "a.page-link"
@@ -137,15 +135,13 @@ class Pelisplushd : PelisPlus() {
         }
     }
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.selectFirst("h1.m-b-5")!!.text()
-            thumbnail_url = document.selectFirst("div.card-body div.row div.col-sm-3 img.img-fluid")!!
-                .attr("src").replace("/w154/", "/w500/")
-            description = document.selectFirst("div.col-sm-4 div.text-large")!!.ownText()
-            genre = document.select("div.p-v-20.p-h-15.text-center a span").joinToString { it.text() }
-            status = SAnime.COMPLETED
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.selectFirst("h1.m-b-5")!!.text()
+        thumbnail_url = document.selectFirst("div.card-body div.row div.col-sm-3 img.img-fluid")!!
+            .attr("src").replace("/w154/", "/w500/")
+        description = document.selectFirst("div.col-sm-4 div.text-large")!!.ownText()
+        genre = document.select("div.p-v-20.p-h-15.text-center a span").joinToString { it.text() }
+        status = SAnime.COMPLETED
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -155,34 +151,35 @@ class Pelisplushd : PelisPlus() {
         Tags("Año"),
     )
 
-    private class GenreFilter : Filters.UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("Peliculas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Doramas", "generos/dorama"),
-            Pair("Animes", "animes"),
-            Pair("Acción", "generos/accion"),
-            Pair("Animación", "generos/animacion"),
-            Pair("Aventura", "generos/aventura"),
-            Pair("Ciencia Ficción", "generos/ciencia-ficcion"),
-            Pair("Comedia", "generos/comedia"),
-            Pair("Crimen", "generos/crimen"),
-            Pair("Documental", "generos/documental"),
-            Pair("Drama", "generos/drama"),
-            Pair("Fantasía", "generos/fantasia"),
-            Pair("Foreign", "generos/foreign"),
-            Pair("Guerra", "generos/guerra"),
-            Pair("Historia", "generos/historia"),
-            Pair("Misterio", "generos/misterio"),
-            Pair("Pelicula de Televisión", "generos/pelicula-de-la-television"),
-            Pair("Romance", "generos/romance"),
-            Pair("Suspense", "generos/suspense"),
-            Pair("Terror", "generos/terror"),
-            Pair("Western", "generos/western"),
-        ),
-    )
+    private class GenreFilter :
+        Filters.UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("Peliculas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Doramas", "generos/dorama"),
+                Pair("Animes", "animes"),
+                Pair("Acción", "generos/accion"),
+                Pair("Animación", "generos/animacion"),
+                Pair("Aventura", "generos/aventura"),
+                Pair("Ciencia Ficción", "generos/ciencia-ficcion"),
+                Pair("Comedia", "generos/comedia"),
+                Pair("Crimen", "generos/crimen"),
+                Pair("Documental", "generos/documental"),
+                Pair("Drama", "generos/drama"),
+                Pair("Fantasía", "generos/fantasia"),
+                Pair("Foreign", "generos/foreign"),
+                Pair("Guerra", "generos/guerra"),
+                Pair("Historia", "generos/historia"),
+                Pair("Misterio", "generos/misterio"),
+                Pair("Pelicula de Televisión", "generos/pelicula-de-la-television"),
+                Pair("Romance", "generos/romance"),
+                Pair("Suspense", "generos/suspense"),
+                Pair("Terror", "generos/terror"),
+                Pair("Western", "generos/western"),
+            ),
+        )
 
     private class Tags(name: String) : AnimeFilter.Text(name)
 

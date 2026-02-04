@@ -24,7 +24,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 
-class Pandrama : ConfigurableAnimeSource, AnimeHttpSource() {
+class Pandrama :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Pandrama"
 

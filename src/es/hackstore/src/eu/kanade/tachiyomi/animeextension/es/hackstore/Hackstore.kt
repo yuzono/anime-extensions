@@ -28,7 +28,9 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Hackstore :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hackstore"
 
@@ -45,13 +47,11 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector(): String = "div.movie-thumbnail"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select(".movie-title").attr("title")
-            thumbnail_url = element.select(".poster-pad img").attr("abs:data-src")
-            description = ""
-            setUrlWithoutDomain(element.select(".movie-thumbnail a").attr("abs:href"))
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select(".movie-title").attr("title")
+        thumbnail_url = element.select(".poster-pad img").attr("abs:data-src")
+        description = ""
+        setUrlWithoutDomain(element.select(".movie-thumbnail a").attr("abs:href"))
     }
 
     override fun popularAnimeNextPageSelector(): String = "div.wp-pagenavi .current ~ a"
@@ -73,38 +73,38 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Tipos",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Peliculas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Animes", "animes"),
-            Pair("Acción", "genero/accion"),
-            Pair("Action & Adventure", "genero/action-adventure"),
-            Pair("Animación", "genero/animacion"),
-            Pair("Aventura", "genero/aventura"),
-            Pair("Bélica", "genero/belica"),
-            Pair("Ciencia ficción", "genero/ciencia-ficcion"),
-            Pair("Comedia", "genero/comedia"),
-            Pair("Crimen", "genero/crimen"),
-            Pair("Documental", "genero/documental"),
-            Pair("Drama", "genero/drama"),
-            Pair("Familia", "genero/familia"),
-            Pair("Fantasía", "genero/fantasia"),
-            Pair("Historia", "genero/historia"),
-            Pair("Misterio", "genero/misterio"),
-            Pair("Música", "genero/musica"),
-            Pair("Occidental", "genero/occidental"),
-            Pair("Película de TV", "genero/pelicula-de-tv"),
-            Pair("Romance", "genero/romance"),
-            Pair("Suspense", "genero/suspense"),
-            Pair("Suspenso", "genero/suspenso"),
-            Pair("Terror", "genero/terror"),
-        ),
-    )
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private class GenreFilter :
+        UriPartFilter(
+            "Tipos",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Peliculas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Animes", "animes"),
+                Pair("Acción", "genero/accion"),
+                Pair("Action & Adventure", "genero/action-adventure"),
+                Pair("Animación", "genero/animacion"),
+                Pair("Aventura", "genero/aventura"),
+                Pair("Bélica", "genero/belica"),
+                Pair("Ciencia ficción", "genero/ciencia-ficcion"),
+                Pair("Comedia", "genero/comedia"),
+                Pair("Crimen", "genero/crimen"),
+                Pair("Documental", "genero/documental"),
+                Pair("Drama", "genero/drama"),
+                Pair("Familia", "genero/familia"),
+                Pair("Fantasía", "genero/fantasia"),
+                Pair("Historia", "genero/historia"),
+                Pair("Misterio", "genero/misterio"),
+                Pair("Música", "genero/musica"),
+                Pair("Occidental", "genero/occidental"),
+                Pair("Película de TV", "genero/pelicula-de-tv"),
+                Pair("Romance", "genero/romance"),
+                Pair("Suspense", "genero/suspense"),
+                Pair("Suspenso", "genero/suspenso"),
+                Pair("Terror", "genero/terror"),
+            ),
+        )
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -177,7 +177,7 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "uwu"
 
-    override fun episodeFromElement(element: Element): SEpisode { throw UnsupportedOperationException() }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     private fun extractUrlFromDonFunction(fullUrl: String): String {
@@ -210,26 +210,39 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             val url = extractUrlFromDonFunction(fullUrl)
             val isLatino = langs.contains("latino")
             val isSub = langs.contains("subtitulado") || langs.contains("sub") || langs.contains("japonés")
-            val prefix = if (isLatino) "[LAT]" else if (isSub) "[SUB]" else "[CAST]"
+            val prefix = if (isLatino) {
+                "[LAT]"
+            } else if (isSub) {
+                "[SUB]"
+            } else {
+                "[CAST]"
+            }
 
             when {
                 server.contains("streamtape") || server.contains("stp") || server.contains("stape") -> {
                     listOf(streamTapeExtractor.videoFromUrl(url, quality = "$prefix StreamTape")!!)
                 }
+
                 server.contains("voe") -> voeExtractor.videosFromUrl(url, "$prefix ")
+
                 server.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
                 server.contains("wishembed") || server.contains("streamwish") || server.contains("strwish") || server.contains("wish") -> {
                     streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
                 }
+
                 server.contains("doodstream") || server.contains("dood.") || server.contains("ds2play") || server.contains("doods.") -> {
                     doodExtractor.videosFromUrl(url, prefix)
                 }
+
                 server.contains("vidhide") || server.contains("vid.") -> {
                     vidHideExtractor.videosFromUrl(url) { "$prefix VidHide:$it" }
                 }
+
                 server.contains("goodstream") || server.contains("vidstream") -> {
                     goodStreamExtractor.videosFromUrl(url, "$prefix GoodStream")
                 }
+
                 else -> universalExtractor.videosFromUrl(url, headers, prefix = prefix)
             }
         }
@@ -237,9 +250,9 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListSelector(): String = "ul.TbVideoNv li.pres a.playr"
 
-    override fun videoFromElement(element: Element): Video { throw UnsupportedOperationException() }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String { throw UnsupportedOperationException() }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

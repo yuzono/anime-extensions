@@ -25,7 +25,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AnimeTake : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeTake :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeTake"
 
@@ -42,12 +44,10 @@ class AnimeTake : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector() = "div.col-sm-6"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("div > a").attr("href"))
-            thumbnail_url = baseUrl + element.select("div.latestep_image > img").attr("data-src")
-            title = element.select("span.latestep_title > h4").first()!!.ownText()
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("div > a").attr("href"))
+        thumbnail_url = baseUrl + element.select("div.latestep_image > img").attr("data-src")
+        title = element.select("span.latestep_title > h4").first()!!.ownText()
     }
 
     override fun popularAnimeNextPageSelector() = "ul.pagination > li.page-item:last-child"
@@ -129,16 +129,14 @@ class AnimeTake : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episodes.toList()
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            val upDate = element.select("div.col-xs-12 > span.front_time").text().trim()
-            date_upload = parseDate(upDate)
-            val epName = element.select("div.col-xs-12 > div.anime-title > b").text().trim()
-            val epNum = epName.split(" ").last()
-            name = epName
-            episode_number = epNum.toFloatOrNull() ?: 0F
-        }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        val upDate = element.select("div.col-xs-12 > span.front_time").text().trim()
+        date_upload = parseDate(upDate)
+        val epName = element.select("div.col-xs-12 > div.anime-title > b").text().trim()
+        val epNum = epName.split(" ").last()
+        name = epName
+        episode_number = epNum.toFloatOrNull() ?: 0F
     }
 
     // ============================ Video Links =============================
@@ -220,12 +218,10 @@ class AnimeTake : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .getOrNull() ?: 0L
     }
 
-    private fun parseStatus(statusBool: Boolean): Int {
-        return if (statusBool) {
-            SAnime.ONGOING
-        } else {
-            SAnime.COMPLETED
-        }
+    private fun parseStatus(statusBool: Boolean): Int = if (statusBool) {
+        SAnime.ONGOING
+    } else {
+        SAnime.COMPLETED
     }
 
     companion object {

@@ -67,15 +67,13 @@ class AnimeCore : AnimeHttpSource() {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    ): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -210,9 +208,11 @@ class AnimeCore : AnimeHttpSource() {
 
         return when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+
             "proxycdn.cc" in url -> {
                 listOf(Video(url, "Proxy CDN", url))
             }
+
             else -> emptyList()
         }
     }
@@ -225,10 +225,8 @@ class AnimeCore : AnimeHttpSource() {
         return client.newCall(GET(originalUrl, headers)).execute().use { it.asJsoup() }
     }
 
-    private fun String.cleanTitle(): String {
-        return this.replace(titleCleanRegex, "")
-            .trim()
-    }
+    private fun String.cleanTitle(): String = this.replace(titleCleanRegex, "")
+        .trim()
 
     // ( Todos Episodios Assistir Online )
     private val titleCleanRegex by lazy {

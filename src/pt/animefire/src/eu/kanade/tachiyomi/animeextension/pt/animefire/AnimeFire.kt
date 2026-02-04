@@ -22,7 +22,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeFire :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime Fire"
 
@@ -56,6 +58,7 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         // get anime url from episode url
         when (url.substringAfterLast("/").toIntOrNull()) {
             null -> setUrlWithoutDomain(url)
+
             else -> {
                 val substr = url.substringBeforeLast("/")
                 setUrlWithoutDomain("$substr-todos-os-episodios")
@@ -69,15 +72,13 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "ul.pagination img.seta-right"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/animes/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/animes/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -177,17 +178,13 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun getFilterList(): AnimeFilterList = AFFilters.FILTER_LIST
 
     // ============================= Utilities ==============================
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Completo" -> SAnime.COMPLETED
-            "Em lançamento" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "Completo" -> SAnime.COMPLETED
+        "Em lançamento" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("div.animeInfo:contains($key) span")?.text()
-    }
+    private fun Element.getInfo(key: String): String? = selectFirst("div.animeInfo:contains($key) span")?.text()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

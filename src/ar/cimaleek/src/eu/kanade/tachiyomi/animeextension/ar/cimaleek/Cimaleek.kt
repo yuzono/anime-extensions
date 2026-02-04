@@ -22,7 +22,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Cimaleek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Cimaleek :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "سيما ليك"
 
@@ -145,10 +147,12 @@ class Cimaleek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             ".mp4" in webViewResult.url -> {
                 Video(webViewResult.url, element.text(), webViewResult.url, headers = referer).let(::listOf)
             }
+
             ".m3u8" in webViewResult.url -> {
                 val subtitleList = if (webViewResult.subtitle.isNotBlank()) Track(webViewResult.subtitle, "Arabic").let(::listOf) else emptyList()
                 playlistUtils.extractFromHls(webViewResult.url, videoNameGen = { "${element.text()}: $it" }, subtitleList = subtitleList)
             }
+
             else -> emptyList()
         }
     }
@@ -204,44 +208,45 @@ class Cimaleek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         CategoryFilter(),
         GenreFilter(),
     )
-    private class SectionFilter : PairFilter(
-        "اقسام الموقع",
-        arrayOf(
-            Pair("اختر", "none"),
-            Pair("افلام اجنبي", "aflam-online"),
-            Pair("افلام نتفليكس", "netflix-movies"),
-            Pair("افلام هندي", "indian-movies"),
-            Pair("افلام اسيوي", "asian-aflam"),
-            Pair("افلام كرتون", "cartoon-movies"),
-            Pair("افلام انمي", "anime-movies"),
-            Pair("مسلسلات اجنبي", "english-series"),
-            Pair("مسلسلات نتفليكس", "netflix-series"),
-            Pair("مسلسلات اسيوي", "asian-series"),
-            Pair("مسلسلات كرتون", "anime-series"),
-            Pair("مسلسلات انمي", "netflix-anime"),
-        ),
-    )
-    private class CategoryFilter : PairFilter(
-        "النوع",
-        arrayOf(
-            Pair("اختر", "none"),
-            Pair("افلام", "movies"),
-            Pair("مسلسلات", "series"),
-        ),
-    )
-    private class GenreFilter : SingleFilter(
-        "التصنيف",
-        arrayOf(
-            "Action", "Adventure", "Animation", "Western", "Documentary", "Fantasy", "Science-fiction", "Romance", "Comedy", "Family", "Drama", "Thriller", "Crime", "Horror",
-        ).sortedArray(),
-    )
+    private class SectionFilter :
+        PairFilter(
+            "اقسام الموقع",
+            arrayOf(
+                Pair("اختر", "none"),
+                Pair("افلام اجنبي", "aflam-online"),
+                Pair("افلام نتفليكس", "netflix-movies"),
+                Pair("افلام هندي", "indian-movies"),
+                Pair("افلام اسيوي", "asian-aflam"),
+                Pair("افلام كرتون", "cartoon-movies"),
+                Pair("افلام انمي", "anime-movies"),
+                Pair("مسلسلات اجنبي", "english-series"),
+                Pair("مسلسلات نتفليكس", "netflix-series"),
+                Pair("مسلسلات اسيوي", "asian-series"),
+                Pair("مسلسلات كرتون", "anime-series"),
+                Pair("مسلسلات انمي", "netflix-anime"),
+            ),
+        )
+    private class CategoryFilter :
+        PairFilter(
+            "النوع",
+            arrayOf(
+                Pair("اختر", "none"),
+                Pair("افلام", "movies"),
+                Pair("مسلسلات", "series"),
+            ),
+        )
+    private class GenreFilter :
+        SingleFilter(
+            "التصنيف",
+            arrayOf(
+                "Action", "Adventure", "Animation", "Western", "Documentary", "Fantasy", "Science-fiction", "Romance", "Comedy", "Family", "Drama", "Thriller", "Crime", "Horror",
+            ).sortedArray(),
+        )
 
-    open class SingleFilter(displayName: String, private val vals: Array<String>) :
-        AnimeFilter.Select<String>(displayName, vals) {
+    open class SingleFilter(displayName: String, private val vals: Array<String>) : AnimeFilter.Select<String>(displayName, vals) {
         fun toUriPart() = vals[state]
     }
-    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

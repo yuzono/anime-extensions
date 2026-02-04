@@ -22,7 +22,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class Kawaiifu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Kawaiifu :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Kawaiifu"
 
@@ -79,8 +81,7 @@ class Kawaiifu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .use(::searchAnimeParse)
     }
 
-    private fun searchAnimeRequest(page: Int, query: String, filters: KawaiifuFilters.FilterSearchParams): Request =
-        GET("$baseUrl/search-movie/${page.toPage()}?keyword=$query&cat-get=${filters.category}${filters.tags}")
+    private fun searchAnimeRequest(page: Int, query: String, filters: KawaiifuFilters.FilterSearchParams): Request = GET("$baseUrl/search-movie/${page.toPage()}?keyword=$query&cat-get=${filters.category}${filters.tags}")
 
     override fun searchAnimeSelector(): String = latestUpdatesSelector()
 
@@ -207,12 +208,10 @@ class Kawaiifu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Int.toPage(): String {
-        return if (this == 1) {
-            ""
-        } else {
-            "page/$this"
-        }
+    private fun Int.toPage(): String = if (this == 1) {
+        ""
+    } else {
+        "page/$this"
     }
 
     data class EpisodeInfo(

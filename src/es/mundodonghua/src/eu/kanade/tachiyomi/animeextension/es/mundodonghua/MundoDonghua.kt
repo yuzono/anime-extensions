@@ -23,7 +23,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class MundoDonghua :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MundoDonghua"
 
@@ -49,10 +51,9 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element) =
-        popularAnimeFromElement(element).apply {
-            url = url.replace("/ver/", "/donghua/").substringBeforeLast("/")
-        }
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element).apply {
+        url = url.replace("/ver/", "/donghua/").substringBeforeLast("/")
+    }
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/lista-episodios/$page")
 
@@ -80,9 +81,7 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episode
     }
 
-    private fun getAndUnpack(string: String): Sequence<String> {
-        return JsUnpacker.unpack(string)
-    }
+    private fun getAndUnpack(string: String): Sequence<String> = JsUnpacker.unpack(string)
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
@@ -204,72 +203,68 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Acción", "Acción"),
-            Pair("Artes Marciales", "Artes Marciales"),
-            Pair("Aventura", "Aventura"),
-            Pair("Ciencia Ficción", "Ciencia Ficción"),
-            Pair("Comedia", "Comedia"),
-            Pair("Comida", "Comida"),
-            Pair("Cultivación", "Cultivación"),
-            Pair("Demonios", "Demonios"),
-            Pair("Deportes", "Deportes"),
-            Pair("Drama", "Drama"),
-            Pair("Ecchi", "Ecchi"),
-            Pair("Escolar", "Escolar"),
-            Pair("Fantasía", "Fantasía"),
-            Pair("Harem", "Harem"),
-            Pair("Harem Inverso", "Harem Inverso"),
-            Pair("Historico", "Historico"),
-            Pair("Idols", "Idols"),
-            Pair("Juegos", "Juegos"),
-            Pair("Lucha", "Lucha"),
-            Pair("Magia", "Magia"),
-            Pair("Mechas", "Mechas"),
-            Pair("Militar", "Militar"),
-            Pair("Misterio", "Misterio"),
-            Pair("Música", "Música"),
-            Pair("Por Definir", "Por Definir"),
-            Pair("Psicológico", "Psicológico"),
-            Pair("Reencarnación", "Reencarnación"),
-            Pair("Romance", "Romance"),
-            Pair("Seinen", "Seinen"),
-            Pair("Shojo", "Shojo"),
-            Pair("Shonen", "Shonen"),
-            Pair("Sobrenatural", "Sobrenatural"),
-            Pair("Sucesos de la Vida", "Sucesos de la Vida"),
-            Pair("Superpoderes", "Superpoderes"),
-            Pair("Suspenso", "Suspenso"),
-            Pair("Terror", "Terror"),
-            Pair("Vampiros", "Vampiros"),
-            Pair("Viaje a Otro Mundo", "Viaje a Otro Mundo"),
-            Pair("Videojuegos", "Videojuegos"),
-            Pair("Zombis", "Zombis"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Acción", "Acción"),
+                Pair("Artes Marciales", "Artes Marciales"),
+                Pair("Aventura", "Aventura"),
+                Pair("Ciencia Ficción", "Ciencia Ficción"),
+                Pair("Comedia", "Comedia"),
+                Pair("Comida", "Comida"),
+                Pair("Cultivación", "Cultivación"),
+                Pair("Demonios", "Demonios"),
+                Pair("Deportes", "Deportes"),
+                Pair("Drama", "Drama"),
+                Pair("Ecchi", "Ecchi"),
+                Pair("Escolar", "Escolar"),
+                Pair("Fantasía", "Fantasía"),
+                Pair("Harem", "Harem"),
+                Pair("Harem Inverso", "Harem Inverso"),
+                Pair("Historico", "Historico"),
+                Pair("Idols", "Idols"),
+                Pair("Juegos", "Juegos"),
+                Pair("Lucha", "Lucha"),
+                Pair("Magia", "Magia"),
+                Pair("Mechas", "Mechas"),
+                Pair("Militar", "Militar"),
+                Pair("Misterio", "Misterio"),
+                Pair("Música", "Música"),
+                Pair("Por Definir", "Por Definir"),
+                Pair("Psicológico", "Psicológico"),
+                Pair("Reencarnación", "Reencarnación"),
+                Pair("Romance", "Romance"),
+                Pair("Seinen", "Seinen"),
+                Pair("Shojo", "Shojo"),
+                Pair("Shonen", "Shonen"),
+                Pair("Sobrenatural", "Sobrenatural"),
+                Pair("Sucesos de la Vida", "Sucesos de la Vida"),
+                Pair("Superpoderes", "Superpoderes"),
+                Pair("Suspenso", "Suspenso"),
+                Pair("Terror", "Terror"),
+                Pair("Vampiros", "Vampiros"),
+                Pair("Viaje a Otro Mundo", "Viaje a Otro Mundo"),
+                Pair("Videojuegos", "Videojuegos"),
+                Pair("Zombis", "Zombis"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return popularAnimeFromElement(element)
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En Emisión") -> SAnime.ONGOING
-            statusString.contains("Finalizada") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En Emisión") -> SAnime.ONGOING
+        statusString.contains("Finalizada") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

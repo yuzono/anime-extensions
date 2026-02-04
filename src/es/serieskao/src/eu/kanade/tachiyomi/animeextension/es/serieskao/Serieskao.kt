@@ -37,7 +37,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+open class Serieskao :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "SeriesKao"
 
@@ -72,12 +74,10 @@ open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/series?page=$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("a").attr("abs:href"))
-            title = element.select("a div.listing-content p").text()
-            thumbnail_url = element.select("a img").attr("src").replace("/w154/", "/w200/")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("a").attr("abs:href"))
+        title = element.select("a div.listing-content p").text()
+        thumbnail_url = element.select("a img").attr("src").replace("/w154/", "/w200/")
     }
 
     override fun popularAnimeNextPageSelector(): String = "a.page-link"
@@ -191,8 +191,11 @@ open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             Log.d("SoloLatino", "URL: $url")
             when {
                 arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
+
                 arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
+
                 arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
                 !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
                     val body = client.newCall(GET(url)).execute().asJsoup()
                     return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
@@ -210,32 +213,44 @@ open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         emptyList()
                     }
                 }
+
                 arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
+
                 arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+
                 arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
                     streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
                 }
+
                 arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
                     val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
                     doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
                 }
+
                 arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
+
                 arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
                 arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
                 arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
                 arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
                 arrayOf("streamsilk").any(url) -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
+
                 arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
                 arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+
                 arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
                 else -> emptyList()
             }
         }.getOrNull() ?: emptyList()
     }
 
-    private fun getFirstMatch(regex: Regex, input: String): String {
-        return regex.find(input)?.groupValues?.get(1) ?: ""
-    }
+    private fun getFirstMatch(regex: Regex, input: String): String = regex.find(input)?.groupValues?.get(1) ?: ""
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 
@@ -275,15 +290,13 @@ open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.selectFirst("h1.m-b-5")!!.text()
-            thumbnail_url = document.selectFirst("div.card-body div.row div.col-sm-3 img.img-fluid")!!
-                .attr("src").replace("/w154/", "/w500/")
-            description = document.selectFirst("div.col-sm-4 div.text-large")!!.ownText()
-            genre = document.select("div.p-v-20.p-h-15.text-center a span").joinToString { it.text() }
-            status = SAnime.COMPLETED
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.selectFirst("h1.m-b-5")!!.text()
+        thumbnail_url = document.selectFirst("div.card-body div.row div.col-sm-3 img.img-fluid")!!
+            .attr("src").replace("/w154/", "/w500/")
+        description = document.selectFirst("div.col-sm-4 div.text-large")!!.ownText()
+        genre = document.select("div.p-v-20.p-h-15.text-center a span").joinToString { it.text() }
+        status = SAnime.COMPLETED
     }
 
     override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
@@ -301,44 +314,45 @@ open class Serieskao : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         YearFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("Peliculas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Doramas", "generos/dorama"),
-            Pair("Animes", "animes"),
-            Pair("Acción", "generos/accion"),
-            Pair("Animación", "generos/animacion"),
-            Pair("Aventura", "generos/aventura"),
-            Pair("Ciencia Ficción", "generos/ciencia-ficcion"),
-            Pair("Comedia", "generos/comedia"),
-            Pair("Crimen", "generos/crimen"),
-            Pair("Documental", "generos/documental"),
-            Pair("Drama", "generos/drama"),
-            Pair("Fantasía", "generos/fantasia"),
-            Pair("Foreign", "generos/foreign"),
-            Pair("Guerra", "generos/guerra"),
-            Pair("Historia", "generos/historia"),
-            Pair("Misterio", "generos/misterio"),
-            Pair("Pelicula de Televisión", "generos/pelicula-de-la-television"),
-            Pair("Romance", "generos/romance"),
-            Pair("Suspense", "generos/suspense"),
-            Pair("Terror", "generos/terror"),
-            Pair("Western", "generos/western"),
-        ),
-    )
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(Pair("<selecionar>", "")) +
-            (2024 downTo 1979).map {
-                Pair(it.toString(), it.toString())
-            }.toTypedArray(),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("Peliculas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Doramas", "generos/dorama"),
+                Pair("Animes", "animes"),
+                Pair("Acción", "generos/accion"),
+                Pair("Animación", "generos/animacion"),
+                Pair("Aventura", "generos/aventura"),
+                Pair("Ciencia Ficción", "generos/ciencia-ficcion"),
+                Pair("Comedia", "generos/comedia"),
+                Pair("Crimen", "generos/crimen"),
+                Pair("Documental", "generos/documental"),
+                Pair("Drama", "generos/drama"),
+                Pair("Fantasía", "generos/fantasia"),
+                Pair("Foreign", "generos/foreign"),
+                Pair("Guerra", "generos/guerra"),
+                Pair("Historia", "generos/historia"),
+                Pair("Misterio", "generos/misterio"),
+                Pair("Pelicula de Televisión", "generos/pelicula-de-la-television"),
+                Pair("Romance", "generos/romance"),
+                Pair("Suspense", "generos/suspense"),
+                Pair("Terror", "generos/terror"),
+                Pair("Western", "generos/western"),
+            ),
+        )
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(Pair("<selecionar>", "")) +
+                (2024 downTo 1979).map {
+                    Pair(it.toString(), it.toString())
+                }.toTypedArray(),
+        )
 
-    open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

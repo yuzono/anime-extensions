@@ -27,7 +27,9 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
+class HomeCine :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HomeCine"
 
@@ -98,12 +100,10 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getImageUrl(element: Element): String? {
-        return when {
-            element.hasAttr("data-src") -> element.attr("abs:data-src")
-            element.hasAttr("src") -> element.attr("abs:src")
-            else -> null
-        }
+    private fun getImageUrl(element: Element): String? = when {
+        element.hasAttr("data-src") -> element.attr("abs:data-src")
+        element.hasAttr("src") -> element.attr("abs:src")
+        else -> null
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -131,39 +131,39 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getDetailSeason(element: Element, referer: String): List<SEpisode> {
-        return try {
-            val post = element.attr("data-post")
-            val season = element.attr("data-season")
-            val formBody = FormBody.Builder()
-                .add("action", "action_select_season")
-                .add("season", season)
-                .add("post", post)
-                .build()
+    private fun getDetailSeason(element: Element, referer: String): List<SEpisode> = try {
+        val post = element.attr("data-post")
+        val season = element.attr("data-season")
+        val formBody = FormBody.Builder()
+            .add("action", "action_select_season")
+            .add("season", season)
+            .add("post", post)
+            .build()
 
-            val request = Request.Builder()
-                .url("$baseUrl/wp-admin/admin-ajax.php")
-                .post(formBody)
-                .header("Origin", baseUrl)
-                .header("Referer", referer)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .build()
-            val detail = client.newCall(request).execute().asJsoup()
+        val request = Request.Builder()
+            .url("$baseUrl/wp-admin/admin-ajax.php")
+            .post(formBody)
+            .header("Origin", baseUrl)
+            .header("Referer", referer)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
+        val detail = client.newCall(request).execute().asJsoup()
 
-            detail.select(".post").reversed().mapIndexed { idx, it ->
-                val epNumber = try {
-                    it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
-                } catch (_: Exception) { "${idx + 1}" }
-
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(it.select("a").attr("abs:href"))
-                    name = "T$season - Episodio $epNumber"
-                    episode_number = epNumber.toFloat()
-                }
+        detail.select(".post").reversed().mapIndexed { idx, it ->
+            val epNumber = try {
+                it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
+            } catch (_: Exception) {
+                "${idx + 1}"
             }
-        } catch (_: Exception) {
-            emptyList()
+
+            SEpisode.create().apply {
+                setUrlWithoutDomain(it.select("a").attr("abs:href"))
+                name = "T$season - Episodio $epNumber"
+                episode_number = epNumber.toFloat()
+            }
         }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     override fun videoListParse(response: Response): List<Video> {

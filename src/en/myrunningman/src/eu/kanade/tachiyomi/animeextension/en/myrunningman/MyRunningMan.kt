@@ -61,15 +61,13 @@ class MyRunningMan : ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/ep/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/ep/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -81,8 +79,7 @@ class MyRunningMan : ParsedAnimeHttpSource() {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$baseUrl/_search.php?q=$query", headersBuilder().add("X-Requested-With", "XMLHttpRequest").build())
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/_search.php?q=$query", headersBuilder().add("X-Requested-With", "XMLHttpRequest").build())
 
     @Serializable
     data class ResultDto(val value: String, val label: String)
@@ -103,13 +100,9 @@ class MyRunningMan : ParsedAnimeHttpSource() {
         return AnimesPage(animes, false)
     }
 
-    override fun searchAnimeSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeSelector(): String = throw UnsupportedOperationException()
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
     override fun searchAnimeNextPageSelector() = null
 
@@ -156,13 +149,9 @@ class MyRunningMan : ParsedAnimeHttpSource() {
         )
     }
 
-    override fun episodeListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListSelector(): String = throw UnsupportedOperationException()
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     private val doodExtractor by lazy { DoodExtractor(client) }
@@ -184,9 +173,7 @@ class MyRunningMan : ParsedAnimeHttpSource() {
             }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
     private fun getUrlById(id: String): String? {
         val decoded = id.replace(Regex("[a-zA-Z]")) {
@@ -204,20 +191,14 @@ class MyRunningMan : ParsedAnimeHttpSource() {
         }
     }
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     companion object {
         const val PREFIX_SEARCH = "id:"

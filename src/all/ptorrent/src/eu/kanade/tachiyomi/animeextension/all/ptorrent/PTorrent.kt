@@ -24,7 +24,9 @@ import org.jsoup.nodes.Element
 import java.net.SocketTimeoutException
 import java.util.Locale
 
-class PTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class PTorrent :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "PTorrent (Torrent)"
 
@@ -36,15 +38,11 @@ class PTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override val supportsLatest = false
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", baseUrl)
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", baseUrl)
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/page/$page")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page")
 
     override fun popularAnimeSelector(): String = "div.image-container div.image-wrapper"
 
@@ -60,32 +58,22 @@ class PTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun popularAnimeNextPageSelector(): String = "div.pagination a:contains(Next)"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -185,9 +173,7 @@ class PTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return listOf(Video(episode.url, episode.name, episode.url))
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name, episode.url))
 
     override fun videoListSelector() = throw Exception("Not used")
 
@@ -216,31 +202,29 @@ class PTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val categoryName = getCategory().map {
         it.name
     }.toTypedArray()
-    private fun getCategory(): List<Category> {
-        return listOf(
-            Category("Home", "0"),
-            Category("3D and VR Movies", "3D%20and%20VR%20Movies"),
-            Category("Adult Anime and Game", "Adult%20Anime%20and%20Game"),
-            Category("Anime", "Anime"),
-            Category("BDSM", "BDSM"),
-            Category("Bisexual", "Bisexual"),
-            Category("Bukkake", "Bukkake"),
-            Category("Chinese Movie", "Chinese%20Movie"),
-            Category("Erotic Picture Gallery", "Erotic%20Picture%20Gallery"),
-            Category("Erotic Softcore Movies", "Erotic%20Softcore%20Movies"),
-            Category("Femdom and Strapon", "Femdom%20and%20Strapon"),
-            Category("Fetish", "Fetish"),
-            Category("Fisting and Dildo", "Fisting%20and%20Dildo"),
-            Category("Game", "Game"),
-            Category("Japanese Movie", "Japanese%20Movie"),
-            Category("Peeing", "Peeing"),
-            Category("Porn Movies", "Porn%20Movies"),
-            Category("Pregnant", "Pregnant"),
-            Category("Special Porn Movies", "Special%20Porn%20Movies"),
-            Category("Transsexual", "Transsexual"),
-            Category("Voyeur", "Voyeur"),
-        )
-    }
+    private fun getCategory(): List<Category> = listOf(
+        Category("Home", "0"),
+        Category("3D and VR Movies", "3D%20and%20VR%20Movies"),
+        Category("Adult Anime and Game", "Adult%20Anime%20and%20Game"),
+        Category("Anime", "Anime"),
+        Category("BDSM", "BDSM"),
+        Category("Bisexual", "Bisexual"),
+        Category("Bukkake", "Bukkake"),
+        Category("Chinese Movie", "Chinese%20Movie"),
+        Category("Erotic Picture Gallery", "Erotic%20Picture%20Gallery"),
+        Category("Erotic Softcore Movies", "Erotic%20Softcore%20Movies"),
+        Category("Femdom and Strapon", "Femdom%20and%20Strapon"),
+        Category("Fetish", "Fetish"),
+        Category("Fisting and Dildo", "Fisting%20and%20Dildo"),
+        Category("Game", "Game"),
+        Category("Japanese Movie", "Japanese%20Movie"),
+        Category("Peeing", "Peeing"),
+        Category("Porn Movies", "Porn%20Movies"),
+        Category("Pregnant", "Pregnant"),
+        Category("Special Porn Movies", "Special%20Porn%20Movies"),
+        Category("Transsexual", "Transsexual"),
+        Category("Voyeur", "Voyeur"),
+    )
 
     companion object {
         const val PREFIX_SEARCH = "id:"

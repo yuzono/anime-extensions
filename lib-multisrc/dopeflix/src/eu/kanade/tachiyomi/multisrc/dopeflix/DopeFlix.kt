@@ -50,7 +50,8 @@ abstract class DopeFlix(
     ),
     private val preferredHoster: String = hosterNames.first(),
     override val supportsLatest: Boolean = true,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     protected open val preferences by getPreferencesLazy {
         clearOldPrefs()
@@ -62,16 +63,14 @@ abstract class DopeFlix(
         newHeaders()
     }
 
-    protected open fun newHeaders(): Headers {
-        return headers.newBuilder().apply {
-            add(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            )
-            add("Host", baseUrl.toHttpUrl().host)
-            add("Referer", "$baseUrl/")
-        }.build()
-    }
+    protected open fun newHeaders(): Headers = headers.newBuilder().apply {
+        add(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        )
+        add("Host", baseUrl.toHttpUrl().host)
+        add("Referer", "$baseUrl/")
+    }.build()
 
     protected open fun apiHeaders(referer: String = "$baseUrl/"): Headers = headers.newBuilder().apply {
         add("Accept", "*/*")
@@ -86,8 +85,7 @@ abstract class DopeFlix(
 
     protected open val filmSelector by lazy { "div.flw-item" }
 
-    protected open fun sectionSelector(type: String) =
-        "section.block_area:has(h2.cat-heading:contains($type)) $filmSelector"
+    protected open fun sectionSelector(type: String) = "section.block_area:has(h2.cat-heading:contains($type)) $filmSelector"
 
     override fun popularAnimeSelector() = if (preferences.prefPopularType == Types.Movies.value) {
         sectionSelector("Movies")
@@ -101,21 +99,19 @@ abstract class DopeFlix(
         "#trending-tv $filmSelector"
     }
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
-        return client.newCall(popularAnimeRequest(page))
-            .awaitSuccess().use { response ->
-                popularAnimeParse(response).let { animePage ->
-                    if (page == 1) {
-                        AnimesPage(
-                            animes = animePage.animes,
-                            hasNextPage = true,
-                        )
-                    } else {
-                        animePage
-                    }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.newCall(popularAnimeRequest(page))
+        .awaitSuccess().use { response ->
+            popularAnimeParse(response).let { animePage ->
+                if (page == 1) {
+                    AnimesPage(
+                        animes = animePage.animes,
+                        hasNextPage = true,
+                    )
+                } else {
+                    animePage
                 }
             }
-    }
+        }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val url = response.request.url.toString()
@@ -131,16 +127,15 @@ abstract class DopeFlix(
         return AnimesPage(animes, hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null)
     }
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return when (page) {
-            // Trending
-            1 -> GET("$baseUrl/home", docHeaders, cacheControl)
-            // Popular
-            else -> if (preferences.prefPopularType == Types.Movies.value) {
-                GET("$baseUrl/movie?page=${page - 1}", docHeaders, cacheControl)
-            } else {
-                GET("$baseUrl/tv-show?page=${page - 1}", docHeaders, cacheControl)
-            }
+    override fun popularAnimeRequest(page: Int): Request = when (page) {
+        // Trending
+        1 -> GET("$baseUrl/home", docHeaders, cacheControl)
+
+        // Popular
+        else -> if (preferences.prefPopularType == Types.Movies.value) {
+            GET("$baseUrl/movie?page=${page - 1}", docHeaders, cacheControl)
+        } else {
+            GET("$baseUrl/tv-show?page=${page - 1}", docHeaders, cacheControl)
         }
     }
 
@@ -163,12 +158,10 @@ abstract class DopeFlix(
 
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage {
-        return client.newCall(latestUpdatesRequest(page))
-            .awaitSuccess().use { response ->
-                latestUpdatesParse(response, page)
-            }
-    }
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.newCall(latestUpdatesRequest(page))
+        .awaitSuccess().use { response ->
+            latestUpdatesParse(response, page)
+        }
 
     protected fun latestUpdatesParse(response: Response, page: Int): AnimesPage {
         val selector = if (page == 1) {
@@ -192,9 +185,7 @@ abstract class DopeFlix(
     }
 
     /* Both latest Movies & TV Shows are on same home page */
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/home/", docHeaders, cacheControl)
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home/", docHeaders, cacheControl)
 
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
     override fun latestUpdatesSelector() = throw UnsupportedOperationException()
@@ -273,26 +264,20 @@ abstract class DopeFlix(
         }
     }
 
-    protected open fun Document.getTrailer(): String? {
-        return selectFirst("#iframe-trailer")?.let {
-            val trailerUrl = it.attr("data-src")
-            "[Trailer]($trailerUrl)"
-        }
+    protected open fun Document.getTrailer(): String? = selectFirst("#iframe-trailer")?.let {
+        val trailerUrl = it.attr("data-src")
+        "[Trailer]($trailerUrl)"
     }
 
-    protected open fun Element.getIMDBRating(): Float? {
-        return selectFirst("span:contains(IMDB)")?.text()
-            ?.substringAfter("IMDB:")?.trim()?.toFloatOrNull()
-    }
+    protected open fun Element.getIMDBRating(): Float? = selectFirst("span:contains(IMDB)")?.text()
+        ?.substringAfter("IMDB:")?.trim()?.toFloatOrNull()
 
     protected open val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
     protected open val coverSelector by lazy { "div.cover_follow" }
 
-    protected open fun Document.getCover(): String? {
-        return selectFirst(coverSelector)?.let {
-            val style = it.attr("style")
-            coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
-        }
+    protected open fun Document.getCover(): String? = selectFirst(coverSelector)?.let {
+        val style = it.attr("style")
+        coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
     }
 
     protected open fun Element.getInfo(
@@ -371,9 +356,7 @@ abstract class DopeFlix(
 
     override fun videoListSelector() = "a.link-item"
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET("$baseUrl${episode.url}", apiHeaders("$baseUrl${episode.url}"))
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl${episode.url}", apiHeaders("$baseUrl${episode.url}"))
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         client.newCall(videoListRequest(episode)).awaitSuccess().use { response ->
@@ -413,11 +396,9 @@ abstract class DopeFlix(
 
     protected open val dopeFlixExtractor by LazyMutable { DopeFlixExtractor(client, headers, megaCloudApi) }
 
-    protected open fun extractVideo(server: VideoData): List<Video> {
-        return when (server.name) {
-            "UpCloud", "MegaCloud", "Vidcloud", "AKCloud" -> dopeFlixExtractor.getVideosFromUrl(server.link, server.name)
-            else -> emptyList()
-        }
+    protected open fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+        "UpCloud", "MegaCloud", "Vidcloud", "AKCloud" -> dopeFlixExtractor.getVideosFromUrl(server.link, server.name)
+        else -> emptyList()
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()

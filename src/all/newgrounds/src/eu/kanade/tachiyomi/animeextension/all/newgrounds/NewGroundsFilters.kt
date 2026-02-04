@@ -6,13 +6,14 @@ class MatchAgainstFilter : AnimeFilter.Select<String>("Match against", MATCH_AGA
 
 class TuningExactFilter : AnimeFilter.CheckBox("exact matches", false)
 class TuningAnyFilter : AnimeFilter.CheckBox("match any words", false)
-class TuningFilterGroup : AnimeFilter.Group<AnimeFilter.CheckBox>(
-    "Tuning",
-    listOf(
-        TuningExactFilter(),
-        TuningAnyFilter(),
-    ),
-)
+class TuningFilterGroup :
+    AnimeFilter.Group<AnimeFilter.CheckBox>(
+        "Tuning",
+        listOf(
+            TuningExactFilter(),
+            TuningAnyFilter(),
+        ),
+    )
 
 class AuthorFilter : AnimeFilter.Text("Author")
 
@@ -20,29 +21,31 @@ class GenreFilter : AnimeFilter.Select<String>("Genre", GENRE.keys.toTypedArray(
 
 class MinLengthFilter : AnimeFilter.Text("Min Length")
 class MaxLengthFilter : AnimeFilter.Text("Max Length")
-class LengthFilterGroup : AnimeFilter.Group<AnimeFilter.Text>(
-    "Length (00:00:00)",
-    listOf(
-        MinLengthFilter(),
-        MaxLengthFilter(),
-    ),
-)
+class LengthFilterGroup :
+    AnimeFilter.Group<AnimeFilter.Text>(
+        "Length (00:00:00)",
+        listOf(
+            MinLengthFilter(),
+            MaxLengthFilter(),
+        ),
+    )
 
 class FrontpagedFilter : AnimeFilter.CheckBox("Frontpaged?", false)
 
 class AfterDateFilter : AnimeFilter.Text("On, or after")
 class BeforeDateFilter : AnimeFilter.Text("Before")
-class DateFilterGroup : AnimeFilter.Group<AnimeFilter.Text>(
-    "Date (YYYY-MM-DD)",
-    listOf(
-        AfterDateFilter(),
-        BeforeDateFilter(),
-    ),
-)
+class DateFilterGroup :
+    AnimeFilter.Group<AnimeFilter.Text>(
+        "Date (YYYY-MM-DD)",
+        listOf(
+            AfterDateFilter(),
+            BeforeDateFilter(),
+        ),
+    )
 
-class SortingFilter() : AnimeFilter.Sort("Sort by", SORTING.keys.toTypedArray(), Selection(0, true))
+class SortingFilter : AnimeFilter.Sort("Sort by", SORTING.keys.toTypedArray(), Selection(0, true))
 
-class TagsFilter() : AnimeFilter.Text("Tags (comma separated)")
+class TagsFilter : AnimeFilter.Text("Tags (comma separated)")
 
 // ===================================================================
 val MATCH_AGAINST = mapOf(

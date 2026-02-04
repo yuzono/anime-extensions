@@ -32,7 +32,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import kotlin.math.roundToInt
 
-class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Animerco :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animerco"
 
@@ -77,11 +79,13 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             addQueryParameter("genres", filter.toUriPart())
                         }
                     }
+
                     is YearFilter -> {
                         if (filter.state.isNotBlank()) {
                             addQueryParameter("dtyear", filter.state)
                         }
                     }
+
                     else -> {}
                 }
             }
@@ -138,16 +142,15 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             }
     }
 
-    private fun fancyScore(score: String): String =
-        score.toFloatOrNull()?.div(2f)
-            ?.roundToInt()
-            ?.let {
-                buildString {
-                    append("★".repeat(it))
-                    if (it < 5) append("☆".repeat(5 - it))
-                    append(" $score\n")
-                }
-            } ?: ""
+    private fun fancyScore(score: String): String = score.toFloatOrNull()?.div(2f)
+        ?.roundToInt()
+        ?.let {
+            buildString {
+                append("★".repeat(it))
+                if (it < 5) append("☆".repeat(5 - it))
+                append(" $score\n")
+            }
+        } ?: ""
 
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "ul.episodes-lists li a:has(h3)"
@@ -211,18 +214,28 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val name = player.selectFirst("span.server")?.text()?.lowercase() ?: "Unknown"
         return when {
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             "wish" in name -> streamWishExtractor.videosFromUrl(url)
+
             "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers)
+
             "dood" in url -> doodExtractor.videoFromUrl(url)?.let(::listOf)
+
             "drive.google" in url -> {
                 val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
                 gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
             }
+
             "streamtape" in url -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf)
+
             "4shared" in url -> sharedExtractor.videoFromUrl(url)?.let(::listOf)
+
             "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+
             VIDBOM_DOMAINS.any(url::contains) -> vidBomExtractor.videosFromUrl(url)
+
             else -> null
         } ?: emptyList()
     }
@@ -260,18 +273,17 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Filters ===============================
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        GenreFilter(GenresList),
+        GenreFilter(genresList),
         YearFilter(),
     )
 
-    private class GenreFilter(val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>("التصنيفات", vals.map { it.first }.toTypedArray()) {
+    private class GenreFilter(val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>("التصنيفات", vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
     class YearFilter : AnimeFilter.Text("السنوات") // Years
 
-    private val GenresList = arrayOf(
+    private val genresList = arrayOf(
         "التصنيفات" to "",
         "أكشن" to "action",
         "أوفا" to "ova",

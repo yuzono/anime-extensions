@@ -34,6 +34,7 @@ class VideaExtractor(private val client: OkHttpClient) {
         val doc = response.body.string().let {
             when {
                 it.startsWith("<?xml") -> Jsoup.parse(it)
+
                 else -> {
                     val key = result.substring(16) + seed + response.headers["x-videa-xs"]
                     val b64dec = Base64.decode(it, Base64.DEFAULT)

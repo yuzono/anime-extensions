@@ -21,7 +21,9 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Hentaijk : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Hentaijk :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hentaijk"
 
@@ -173,7 +175,7 @@ class Hentaijk : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return videos
     }
 
-    private class HentaijkExtractor() {
+    private class HentaijkExtractor {
         fun videoFromUrl(url: String, server: String): Video {
             var url1 = ""
             Jsoup.connect(url).get().body().select("script").forEach {
@@ -191,26 +193,22 @@ class Hentaijk : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> {
-        return try {
-            val videoSorted = this.sortedWith(
-                compareBy<Video> { it.quality.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.quality) },
-            ).toTypedArray()
-            val userPreferredQuality = preferences.getString("preferred_quality", "Sabrosio")
-            val preferredIdx = videoSorted.indexOfFirst { x -> x.quality == userPreferredQuality }
-            if (preferredIdx != -1) {
-                videoSorted.drop(preferredIdx + 1)
-                videoSorted[0] = videoSorted[preferredIdx]
-            }
-            videoSorted.toList()
-        } catch (e: Exception) {
-            this
+    override fun List<Video>.sort(): List<Video> = try {
+        val videoSorted = this.sortedWith(
+            compareBy<Video> { it.quality.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.quality) },
+        ).toTypedArray()
+        val userPreferredQuality = preferences.getString("preferred_quality", "Sabrosio")
+        val preferredIdx = videoSorted.indexOfFirst { x -> x.quality == userPreferredQuality }
+        if (preferredIdx != -1) {
+            videoSorted.drop(preferredIdx + 1)
+            videoSorted[0] = videoSorted[preferredIdx]
         }
+        videoSorted.toList()
+    } catch (e: Exception) {
+        this
     }
 
-    private fun getNumberFromString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }.ifEmpty { "0" }
-    }
+    private fun getNumberFromString(epsStr: String): String = epsStr.filter { it.isDigit() }.ifEmpty { "0" }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
@@ -297,13 +295,11 @@ class Hentaijk : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Por estrenar") -> SAnime.ONGOING
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Concluido") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Por estrenar") -> SAnime.ONGOING
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Concluido") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector(): String = "div.container div.navigation a.text.nav-next"
@@ -328,101 +324,101 @@ class Hentaijk : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Generos",
-        arrayOf(
-            Pair("<selecionar>", "none"),
-            Pair("Español latino", "latino"),
-            Pair("Accion", "accion"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Autos", "autos"),
-            Pair("Aventura", "aventura"),
-            Pair("Colegial", "colegial"),
-            Pair("Comedia", "comedia"),
-            Pair("Cosas de la vida", "cosas-de-la-vida"),
-            Pair("Dementia", "dementia"),
-            Pair("Demonios", "demonios"),
-            Pair("Deportes", "deportes"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Fantasia", "fantasa"),
-            Pair("Harem", "harem"),
-            Pair("Historico", "historico"),
-            Pair("Josei", "josei"),
-            Pair("Juegos", "juegos"),
-            Pair("Magia", "magia"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Musica", "musica"),
-            Pair("Niños", "nios"),
-            Pair("Parodia", "parodia"),
-            Pair("Policial", "policial"),
-            Pair("Psicologico", "psicologico"),
-            Pair("Romance", "romance"),
-            Pair("Samurai", "samurai"),
-            Pair("Sci-fi", "sci-fi"),
-            Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Shounen ai", "shounen-ai"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Space", "space"),
-            Pair("Super poderes", "super-poderes"),
-            Pair("Terror", "terror"),
-            Pair("Thriller", "thriller"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-            Pair("Español latino", "latino"),
-            Pair("Accion", "accion"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Autos", "autos"),
-            Pair("Aventura", "aventura"),
-            Pair("Colegial", "colegial"),
-            Pair("Comedia", "comedia"),
-            Pair("Cosas de la vida", "cosas-de-la-vida"),
-            Pair("Dementia", "dementia"),
-            Pair("Demonios", "demonios"),
-            Pair("Deportes", "deportes"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Fantasia", "fantasa"),
-            Pair("Harem", "harem"),
-            Pair("Historico", "historico"),
-            Pair("Josei", "josei"),
-            Pair("Juegos", "juegos"),
-            Pair("Magia", "magia"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Musica", "musica"),
-            Pair("Niños", "nios"),
-            Pair("Parodia", "parodia"),
-            Pair("Policial", "policial"),
-            Pair("Psicologico", "psicologico"),
-            Pair("Romance", "romance"),
-            Pair("Samurai", "samurai"),
-            Pair("Sci-fi", "sci-fi"),
-            Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Shounen ai", "shounen-ai"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Space", "space"),
-            Pair("Super poderes", "super-poderes"),
-            Pair("Terror", "terror"),
-            Pair("Thriller", "thriller"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Generos",
+            arrayOf(
+                Pair("<selecionar>", "none"),
+                Pair("Español latino", "latino"),
+                Pair("Accion", "accion"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Autos", "autos"),
+                Pair("Aventura", "aventura"),
+                Pair("Colegial", "colegial"),
+                Pair("Comedia", "comedia"),
+                Pair("Cosas de la vida", "cosas-de-la-vida"),
+                Pair("Dementia", "dementia"),
+                Pair("Demonios", "demonios"),
+                Pair("Deportes", "deportes"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Fantasia", "fantasa"),
+                Pair("Harem", "harem"),
+                Pair("Historico", "historico"),
+                Pair("Josei", "josei"),
+                Pair("Juegos", "juegos"),
+                Pair("Magia", "magia"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Musica", "musica"),
+                Pair("Niños", "nios"),
+                Pair("Parodia", "parodia"),
+                Pair("Policial", "policial"),
+                Pair("Psicologico", "psicologico"),
+                Pair("Romance", "romance"),
+                Pair("Samurai", "samurai"),
+                Pair("Sci-fi", "sci-fi"),
+                Pair("Seinen", "seinen"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("Shounen ai", "shounen-ai"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Space", "space"),
+                Pair("Super poderes", "super-poderes"),
+                Pair("Terror", "terror"),
+                Pair("Thriller", "thriller"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+                Pair("Español latino", "latino"),
+                Pair("Accion", "accion"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Autos", "autos"),
+                Pair("Aventura", "aventura"),
+                Pair("Colegial", "colegial"),
+                Pair("Comedia", "comedia"),
+                Pair("Cosas de la vida", "cosas-de-la-vida"),
+                Pair("Dementia", "dementia"),
+                Pair("Demonios", "demonios"),
+                Pair("Deportes", "deportes"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Fantasia", "fantasa"),
+                Pair("Harem", "harem"),
+                Pair("Historico", "historico"),
+                Pair("Josei", "josei"),
+                Pair("Juegos", "juegos"),
+                Pair("Magia", "magia"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Musica", "musica"),
+                Pair("Niños", "nios"),
+                Pair("Parodia", "parodia"),
+                Pair("Policial", "policial"),
+                Pair("Psicologico", "psicologico"),
+                Pair("Romance", "romance"),
+                Pair("Samurai", "samurai"),
+                Pair("Sci-fi", "sci-fi"),
+                Pair("Seinen", "seinen"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("Shounen ai", "shounen-ai"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Space", "space"),
+                Pair("Super poderes", "super-poderes"),
+                Pair("Terror", "terror"),
+                Pair("Thriller", "thriller"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

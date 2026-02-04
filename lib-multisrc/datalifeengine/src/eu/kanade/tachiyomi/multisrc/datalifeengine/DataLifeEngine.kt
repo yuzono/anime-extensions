@@ -26,7 +26,8 @@ abstract class DataLifeEngine(
     override val name: String,
     override val baseUrl: String,
     override val lang: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = false
 
@@ -38,12 +39,10 @@ abstract class DataLifeEngine(
 
     override fun popularAnimeNextPageSelector(): String = "span.navigation > span:not(.nav_ext) + a"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a[href]")!!.attr("href").toHttpUrl().encodedPath)
-            thumbnail_url = element.selectFirst("img[src]")?.absUrl("src") ?: ""
-            title = "${element.selectFirst("a[href]")!!.text()} ${element.selectFirst("span.block-sai")?.text() ?: ""}"
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a[href]")!!.attr("href").toHttpUrl().encodedPath)
+        thumbnail_url = element.selectFirst("img[src]")?.absUrl("src") ?: ""
+        title = "${element.selectFirst("a[href]")!!.text()} ${element.selectFirst("span.block-sai")?.text() ?: ""}"
     }
 
     // =============================== Latest ===============================
@@ -85,12 +84,15 @@ abstract class DataLifeEngine(
                     POST("$baseUrl/index.php?do=search", body = postBody, headers = postHeaders)
                 }
             }
+
             genreFilter.state != 0 -> {
                 GET("$baseUrl${genreFilter.toUriPart()}page/$page/")
             }
+
             subPageFilter.state != 0 -> {
                 GET("$baseUrl${subPageFilter.toUriPart()}page/$page/")
             }
+
             else -> popularAnimeRequest(page)
         }
     }
@@ -113,29 +115,28 @@ abstract class DataLifeEngine(
         GenreFilter(genres),
     )
 
-    private class SubPageFilter(categories: Array<Pair<String, String>>) : UriPartFilter(
-        "Catégories",
-        categories,
-    )
+    private class SubPageFilter(categories: Array<Pair<String, String>>) :
+        UriPartFilter(
+            "Catégories",
+            categories,
+        )
 
-    private class GenreFilter(genres: Array<Pair<String, String>>) : UriPartFilter(
-        "Genres",
-        genres,
-    )
+    private class GenreFilter(genres: Array<Pair<String, String>>) :
+        UriPartFilter(
+            "Genres",
+            genres,
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
     // =========================== Anime Details ============================
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        return client.newCall(animeDetailsRequest(anime))
-            .awaitSuccess()
-            .let { response ->
-                animeDetailsParse(response, anime).apply { initialized = true }
-            }
-    }
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = client.newCall(animeDetailsRequest(anime))
+        .awaitSuccess()
+        .let { response ->
+            animeDetailsParse(response, anime).apply { initialized = true }
+        }
 
     override fun animeDetailsParse(document: Document): SAnime = throw UnsupportedOperationException()
 

@@ -5,11 +5,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
-class DonghuaStream : AnimeStream(
-    "en",
-    "DonghuaStream",
-    "https://donghuastream.org",
-) {
+class DonghuaStream :
+    AnimeStream(
+        "en",
+        "DonghuaStream",
+        "https://donghuastream.org",
+    ) {
     override val fetchFilters: Boolean
         get() = false
 

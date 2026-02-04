@@ -22,7 +22,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeQ :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeQ"
 
@@ -65,15 +67,13 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "div.ContainerEps a.next.page-numbers"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -123,12 +123,10 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-            .reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = getRealDoc(response.asJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
+        .reversed()
 
     override fun episodeListSelector() = "#lAnimes a"
 
@@ -183,24 +181,16 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private fun getVideosFromURL(url: String, quality: String?): List<Video> {
-        return when {
-            "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> emptyList()
-        }
+    private fun getVideosFromURL(url: String, quality: String?): List<Video> = when {
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> emptyList()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -242,22 +232,18 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return document
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when {
-            statusString?.trim()?.lowercase() == "em lançamento" -> SAnime.ONGOING
-            statusString?.trim()?.lowercase() == "em andamento" -> SAnime.ONGOING
-            statusString?.trim()?.let { REGEX_NUMBER.matches(it) } == true -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when {
+        statusString?.trim()?.lowercase() == "em lançamento" -> SAnime.ONGOING
+        statusString?.trim()?.lowercase() == "em andamento" -> SAnime.ONGOING
+        statusString?.trim()?.let { REGEX_NUMBER.matches(it) } == true -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("div.boxAnimeSobreLinha:has(b:contains($key))")?.run {
-            text()
-                .substringAfter(":")
-                .trim()
-                .takeUnless { it.isBlank() || it == "???" }
-        }
+    private fun Element.getInfo(key: String): String? = selectFirst("div.boxAnimeSobreLinha:has(b:contains($key))")?.run {
+        text()
+            .substringAfter(":")
+            .trim()
+            .takeUnless { it.isBlank() || it == "???" }
     }
 
     private fun Element.tryGetAttr(vararg attributeKeys: String): String? {

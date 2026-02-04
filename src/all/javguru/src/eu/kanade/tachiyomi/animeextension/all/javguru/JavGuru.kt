@@ -32,7 +32,9 @@ import okhttp3.Response
 import org.jsoup.select.Elements
 import kotlin.math.min
 
-class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
+class JavGuru :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Jav Guru"
 
@@ -53,18 +55,15 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
 
     private lateinit var popularElements: Elements
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
-        return if (page == 1) {
-            client.newCall(popularAnimeRequest(page))
-                .awaitSuccess()
-                .use(::popularAnimeParse)
-        } else {
-            cachedPopularAnimeParse(page)
-        }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = if (page == 1) {
+        client.newCall(popularAnimeRequest(page))
+            .awaitSuccess()
+            .use(::popularAnimeParse)
+    } else {
+        cachedPopularAnimeParse(page)
     }
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/most-watched-rank/", headers)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/most-watched-rank/", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         popularElements = response.asJsoup().select(".tabcontent li")
@@ -149,6 +148,7 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
                                 .use(::searchAnimeParse)
                         }
                     }
+
                     is ActressFilter,
                     is ActorFilter,
                     is StudioFilter,
@@ -162,6 +162,7 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
                                 .use(::searchAnimeParse)
                         }
                     }
+
                     else -> { }
                 }
             }
@@ -230,14 +231,12 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                url = anime.url
-                name = "Episode"
-            },
-        )
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            url = anime.url
+            name = "Episode"
+        },
+    )
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -303,34 +302,32 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
     private val maxStreamExtractor by lazy { MaxStreamExtractor(client, headers) }
     private val emTurboExtractor by lazy { EmTurboExtractor(client, headers) }
 
-    private fun getVideos(hosterUrl: String): List<Video> {
-        return when {
-            listOf("javplaya", "javclan").any { it in hosterUrl } -> {
-                streamWishExtractor.videosFromUrl(hosterUrl)
-            }
-
-            hosterUrl.contains("streamtape") -> {
-                streamTapeExtractor.videoFromUrl(hosterUrl).let(::listOfNotNull)
-            }
-
-            listOf("dood", "ds2play").any { it in hosterUrl } -> {
-                doodExtractor.videosFromUrl(hosterUrl)
-            }
-
-            listOf("mixdrop", "mixdroop").any { it in hosterUrl } -> {
-                mixDropExtractor.videoFromUrl(hosterUrl)
-            }
-
-            hosterUrl.contains("maxstream") -> {
-                maxStreamExtractor.videoFromUrl(hosterUrl)
-            }
-
-            hosterUrl.contains("emturbovid") -> {
-                emTurboExtractor.getVideos(hosterUrl)
-            }
-
-            else -> emptyList()
+    private fun getVideos(hosterUrl: String): List<Video> = when {
+        listOf("javplaya", "javclan").any { it in hosterUrl } -> {
+            streamWishExtractor.videosFromUrl(hosterUrl)
         }
+
+        hosterUrl.contains("streamtape") -> {
+            streamTapeExtractor.videoFromUrl(hosterUrl).let(::listOfNotNull)
+        }
+
+        listOf("dood", "ds2play").any { it in hosterUrl } -> {
+            doodExtractor.videosFromUrl(hosterUrl)
+        }
+
+        listOf("mixdrop", "mixdroop").any { it in hosterUrl } -> {
+            mixDropExtractor.videoFromUrl(hosterUrl)
+        }
+
+        hosterUrl.contains("maxstream") -> {
+            maxStreamExtractor.videoFromUrl(hosterUrl)
+        }
+
+        hosterUrl.contains("emturbovid") -> {
+            emTurboExtractor.getVideos(hosterUrl)
+        }
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -341,30 +338,25 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
         ).reversed()
     }
 
-    private fun getIDFromUrl(element: Elements): String? {
-        return element.attr("abs:href")
-            .toHttpUrlOrNull()
-            ?.pathSegments
-            ?.firstOrNull()
-            ?.toIntOrNull()
-            ?.toString()
-            ?.let { "/$it/" }
-    }
+    private fun getIDFromUrl(element: Elements): String? = element.attr("abs:href")
+        .toHttpUrlOrNull()
+        ?.pathSegments
+        ?.firstOrNull()
+        ?.toIntOrNull()
+        ?.toString()
+        ?.let { "/$it/" }
 
-    private fun String?.pageNumberFromUrlOrNull() =
-        this
-            ?.substringBeforeLast("/")
-            ?.toHttpUrlOrNull()
-            ?.pathSegments
-            ?.last()
-            ?.toIntOrNull()
+    private fun String?.pageNumberFromUrlOrNull() = this
+        ?.substringBeforeLast("/")
+        ?.toHttpUrlOrNull()
+        ?.pathSegments
+        ?.last()
+        ?.toIntOrNull()
 
-    private suspend fun Call.awaitIgnoreCode(code: Int): Response {
-        return await().also { response ->
-            if (!response.isSuccessful && response.code != code) {
-                response.close()
-                throw Exception("HTTP error ${response.code}")
-            }
+    private suspend fun Call.awaitIgnoreCode(code: Int): Response = await().also { response ->
+        if (!response.isSuccessful && response.code != code) {
+            response.close()
+            throw Exception("HTTP error ${response.code}")
         }
     }
 
@@ -395,7 +387,5 @@ class JavGuru : AnimeHttpSource(), ConfigurableAnimeSource {
         private val PREF_QUALITY_DEFAULT = PREF_QUALITY_VALUES.first()
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 }

@@ -27,7 +27,9 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NyaaTorrent(extName: String, private val extURL: String, private val extId: Int) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class NyaaTorrent(extName: String, private val extURL: String, private val extId: Int) :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = extName
 
@@ -41,10 +43,8 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
 
     override val supportsLatest = true
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", baseUrl)
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", baseUrl)
 
     // ============================== Shared ===============================
     private val animeSelector = "table.torrent-list tbody tr"
@@ -78,15 +78,13 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
     override fun latestUpdatesNextPageSelector(): String = animeNextPageSelector
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -106,8 +104,11 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
                     sortParam = availableSorts[filter.state?.index ?: 0].id
                     sortDirection = if (filter.state?.ascending == true) "asc" else "desc"
                 }
+
                 is FilterList -> filterParam = availableFilters[filter.state].id
+
                 is CategoriesList -> categoryParam = availableCategories[filter.state].id
+
                 else -> {}
             }
         }
@@ -185,10 +186,8 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
 
     private val validExtensions = setOf("mp4", "mov", "avi", "wmv", "mkv", "flv", "webm", "ogg", "mpeg", "mpg", "mts", "vob", "ts")
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
     private fun convertBytesToReadable(bytes: Long): String {
         val kilobytes = bytes / 1024.0
@@ -206,9 +205,7 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return listOf(Video(episode.url, episode.name, episode.url))
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name, episode.url))
 
     override fun videoListSelector() = throw Exception("Not used")
 
@@ -256,7 +253,9 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
         Sort("Downloads", "downloads"),
     )
 
-    private data class Filter(val name: String, val id: String) { override fun toString() = name }
+    private data class Filter(val name: String, val id: String) {
+        override fun toString() = name
+    }
     private class FilterList(availableFilters: Array<String>) : AnimeFilter.Select<String>("Filter", availableFilters)
     private val availableFilters = arrayOf(
         Filter("No filter", "0"),
@@ -264,7 +263,9 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
         Filter("Trusted only", "2"),
     )
 
-    private data class Category(val name: String, val id: String) { override fun toString() = name }
+    private data class Category(val name: String, val id: String) {
+        override fun toString() = name
+    }
     private class CategoriesList(availableCategories: Array<String>) : AnimeFilter.Select<String>("Category", availableCategories)
     private val availableCategories = if (extId == 1) {
         listOf(

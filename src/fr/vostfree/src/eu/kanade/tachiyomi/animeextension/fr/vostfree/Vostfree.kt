@@ -29,7 +29,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Vostfree :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Vostfree"
 
@@ -194,36 +196,37 @@ class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class TypeFilter : UriPartFilter(
-        "types",
-        arrayOf(
-            Pair("<pour sélectionner>", ""),
-            Pair("Animes VF", "animes-vf"),
-            Pair("Animes VOSTFR", "animes-vostfr"),
-            Pair("FILMS", "films-vf-vostfr"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "types",
+            arrayOf(
+                Pair("<pour sélectionner>", ""),
+                Pair("Animes VF", "animes-vf"),
+                Pair("Animes VOSTFR", "animes-vostfr"),
+                Pair("FILMS", "films-vf-vostfr"),
+            ),
+        )
 
-    private class GenreFilter : UriPartFilter(
-        "genre",
-        arrayOf(
-            Pair("<pour sélectionner>", ""),
-            Pair("Action", "Action"),
-            Pair("Comédie", "Comédie"),
-            Pair("Drame", "Drame"),
-            Pair("Surnaturel", "Surnaturel"),
-            Pair("Shonen", "Shonen"),
-            Pair("Romance", "Romance"),
-            Pair("Tranche de vie", "Tranche+de+vie"),
-            Pair("Fantasy", "Fantasy"),
-            Pair("Mystère", "Mystère"),
-            Pair("Psychologique", "Psychologique"),
-            Pair("Sci-Fi", "Sci-Fi"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "genre",
+            arrayOf(
+                Pair("<pour sélectionner>", ""),
+                Pair("Action", "Action"),
+                Pair("Comédie", "Comédie"),
+                Pair("Drame", "Drame"),
+                Pair("Surnaturel", "Surnaturel"),
+                Pair("Shonen", "Shonen"),
+                Pair("Romance", "Romance"),
+                Pair("Tranche de vie", "Tranche+de+vie"),
+                Pair("Fantasy", "Fantasy"),
+                Pair("Mystère", "Mystère"),
+                Pair("Psychologique", "Psychologique"),
+                Pair("Sci-Fi", "Sci-Fi"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

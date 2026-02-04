@@ -24,26 +24,20 @@ suspend fun OkHttpClient.get(
     url: String,
     headers: Headers = DEFAULT_HEADERS,
     cache: CacheControl = DEFAULT_CACHE_CONTROL,
-): Response {
-    return newCall(GET(url, headers, cache)).awaitSuccess()
-}
+): Response = newCall(GET(url, headers, cache)).awaitSuccess()
 
 suspend fun OkHttpClient.get(
     url: HttpUrl,
     headers: Headers = DEFAULT_HEADERS,
     cache: CacheControl = DEFAULT_CACHE_CONTROL,
-): Response {
-    return newCall(GET(url, headers, cache)).awaitSuccess()
-}
+): Response = newCall(GET(url, headers, cache)).awaitSuccess()
 
 suspend fun OkHttpClient.post(
     url: String,
     headers: Headers = DEFAULT_HEADERS,
     body: RequestBody = DEFAULT_BODY,
     cache: CacheControl = DEFAULT_CACHE_CONTROL,
-): Response {
-    return newCall(POST(url, headers, body, cache)).awaitSuccess()
-}
+): Response = newCall(POST(url, headers, body, cache)).awaitSuccess()
 
 /**
  * Empty [okhttp3] headers used by the source.

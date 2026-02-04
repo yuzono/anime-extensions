@@ -19,7 +19,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Rule34Video : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Rule34Video :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Rule34Video"
 
@@ -39,20 +41,18 @@ class Rule34Video : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) {
-            val uploaderId = preferences.getString(PREF_UPLOADER_ID_KEY, "") ?: ""
-            if (uploaderId.isNotBlank()) {
-                val url = "$baseUrl/members/$uploaderId/videos/?mode=async&function=get_block&block_id=list_videos_uploaded_videos&sort_by=&from_videos=$page"
-                Log.e("Rule34Video", "Loading popular videos from uploader ID: $uploaderId, page: $page, URL: $url")
-                GET(url)
-            } else {
-                Log.e("Rule34Video", "Uploader filter enabled but ID is blank, loading latest updates.")
-                GET("$baseUrl/latest-updates/$page/")
-            }
+    override fun popularAnimeRequest(page: Int): Request = if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) {
+        val uploaderId = preferences.getString(PREF_UPLOADER_ID_KEY, "") ?: ""
+        if (uploaderId.isNotBlank()) {
+            val url = "$baseUrl/members/$uploaderId/videos/?mode=async&function=get_block&block_id=list_videos_uploaded_videos&sort_by=&from_videos=$page"
+            Log.e("Rule34Video", "Loading popular videos from uploader ID: $uploaderId, page: $page, URL: $url")
+            GET(url)
         } else {
+            Log.e("Rule34Video", "Uploader filter enabled but ID is blank, loading latest updates.")
             GET("$baseUrl/latest-updates/$page/")
         }
+    } else {
+        GET("$baseUrl/latest-updates/$page/")
     }
 
     override fun popularAnimeSelector() = "div.item.thumb"
@@ -75,8 +75,7 @@ class Rule34Video : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    private inline fun <reified R> AnimeFilterList.getUriPart() =
-        (find { it is R } as? UriPartFilter)?.toUriPart() ?: ""
+    private inline fun <reified R> AnimeFilterList.getUriPart() = (find { it is R } as? UriPartFilter)?.toUriPart() ?: ""
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val orderFilter = filters.getUriPart<OrderFilter>()
@@ -172,14 +171,12 @@ class Rule34Video : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                url = anime.url
-                name = "Video"
-            },
-        )
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            url = anime.url
+            name = "Video"
+        },
+    )
 
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
 
@@ -304,34 +301,36 @@ class Rule34Video : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private class TagFilter : AnimeFilter.Text("Click \"reset\" without any text to load all A-Z tags.", "")
 
-    private class TagSearch(results: Array<Pair<String, String>>) : UriPartFilter(
-        "Tag Filter ",
-        results,
-    )
+    private class TagSearch(results: Array<Pair<String, String>>) :
+        UriPartFilter(
+            "Tag Filter ",
+            results,
+        )
 
-    private class CategoryBy : UriPartFilter(
-        "Category Filter ",
-        arrayOf(
-            Pair("All", ""),
-            Pair("Straight", "2109"),
-            Pair("Futa", "15"),
-            Pair("Gay", "192"),
-            Pair("Music", "4747"),
-            Pair("Iwara", "1821"),
-        ),
-    )
+    private class CategoryBy :
+        UriPartFilter(
+            "Category Filter ",
+            arrayOf(
+                Pair("All", ""),
+                Pair("Straight", "2109"),
+                Pair("Futa", "15"),
+                Pair("Gay", "192"),
+                Pair("Music", "4747"),
+                Pair("Iwara", "1821"),
+            ),
+        )
 
-    private class OrderFilter : UriPartFilter(
-        "Sort By ",
-        arrayOf(
-            Pair("Latest", "latest-updates"),
-            Pair("Most Viewed", "most-popular"),
-            Pair("Top Rated", "top-rated"),
-        ),
-    )
+    private class OrderFilter :
+        UriPartFilter(
+            "Sort By ",
+            arrayOf(
+                Pair("Latest", "latest-updates"),
+                Pair("Most Viewed", "most-popular"),
+                Pair("Top Rated", "top-rated"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

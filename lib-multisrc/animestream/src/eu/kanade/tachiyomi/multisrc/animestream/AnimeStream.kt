@@ -40,7 +40,8 @@ abstract class AnimeStream(
     override val lang: String,
     override val name: String,
     override val baseUrl: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
@@ -101,15 +102,13 @@ abstract class AnimeStream(
     override fun latestUpdatesNextPageSelector(): String? = searchAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByPathParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     protected open fun searchAnimeByPathParse(response: Response): AnimesPage {
@@ -138,12 +137,10 @@ abstract class AnimeStream(
 
     override fun searchAnimeSelector() = "div.listupd article a.tip"
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("abs:href"))
-            title = element.selectFirst("div.tt, div.ttl")!!.ownText()
-            thumbnail_url = element.selectFirst("img")?.getImageUrl()
-        }
+    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("abs:href"))
+        title = element.selectFirst("div.tt, div.ttl")!!.ownText()
+        thumbnail_url = element.selectFirst("img")?.getImageUrl()
     }
 
     override fun searchAnimeNextPageSelector(): String? = "div.pagination a.next, div.hpage > a.r"
@@ -211,23 +208,21 @@ abstract class AnimeStream(
         else -> "Order"
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (fetchFilters && AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                GenresFilter(genresFilterText),
-                SeasonFilter(seasonsFilterText),
-                StudioFilter(studioFilterText),
-                AnimeFilter.Separator(),
-                StatusFilter(statusFilterText),
-                TypeFilter(typeFilterText),
-                SubFilter(subFilterText),
-                OrderFilter(orderFilterText),
-            )
-        } else if (fetchFilters) {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        } else {
-            AnimeFilterList()
-        }
+    override fun getFilterList(): AnimeFilterList = if (fetchFilters && AnimeStreamFilters.filterInitialized()) {
+        AnimeFilterList(
+            GenresFilter(genresFilterText),
+            SeasonFilter(seasonsFilterText),
+            StudioFilter(studioFilterText),
+            AnimeFilter.Separator(),
+            StatusFilter(statusFilterText),
+            TypeFilter(typeFilterText),
+            SubFilter(subFilterText),
+            OrderFilter(orderFilterText),
+        )
+    } else if (fetchFilters) {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
+    } else {
+        AnimeFilterList()
     }
 
     // =========================== Anime Details ============================
@@ -251,34 +246,31 @@ abstract class AnimeStream(
         else -> "Alternative name(s): "
     }
 
-    protected open fun getAnimeDescription(document: Document) =
-        document.selectFirst(animeDescriptionSelector)?.text()
+    protected open fun getAnimeDescription(document: Document) = document.selectFirst(animeDescriptionSelector)?.text()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(document.location())
-            title = document.selectFirst(animeTitleSelector)!!.text()
-            thumbnail_url = document.selectFirst(animeThumbnailSelector)?.getImageUrl()
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(document.location())
+        title = document.selectFirst(animeTitleSelector)!!.text()
+        thumbnail_url = document.selectFirst(animeThumbnailSelector)?.getImageUrl()
 
-            val infos = document.selectFirst(animeDetailsSelector)!!
-            genre = infos.select(animeGenresSelector).eachText().joinToString()
+        val infos = document.selectFirst(animeDetailsSelector)!!
+        genre = infos.select(animeGenresSelector).eachText().joinToString()
 
-            status = parseStatus(infos.getInfo(animeStatusText))
-            artist = infos.getInfo(animeArtistText)
-            author = infos.getInfo(animeAuthorText)
+        status = parseStatus(infos.getInfo(animeStatusText))
+        artist = infos.getInfo(animeArtistText)
+        author = infos.getInfo(animeAuthorText)
 
-            description = buildString {
-                getAnimeDescription(document)?.also {
-                    append("$it\n\n")
-                }
+        description = buildString {
+            getAnimeDescription(document)?.also {
+                append("$it\n\n")
+            }
 
-                document.selectFirst(animeAltNameSelector)?.text()
-                    ?.takeIf(String::isNotBlank)
-                    ?.also { append("$animeAltNamePrefix$it\n") }
+            document.selectFirst(animeAltNameSelector)?.text()
+                ?.takeIf(String::isNotBlank)
+                ?.also { append("$animeAltNamePrefix$it\n") }
 
-                infos.select(animeAdditionalInfoSelector).eachText().forEach {
-                    append("$it\n")
-                }
+            infos.select(animeAdditionalInfoSelector).eachText().forEach {
+                append("$it\n")
             }
         }
     }
@@ -299,16 +291,14 @@ abstract class AnimeStream(
     @Suppress("unused_parameter")
     protected open fun getEpisodeName(element: Element, epNum: String) = "$episodePrefix $epNum"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            element.selectFirst(".epl-num")!!.text().let {
-                name = getEpisodeName(element, it)
-                episode_number = it.substringBefore(" ").toFloatOrNull() ?: 0F
-            }
-            element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
-            date_upload = element.selectFirst(".epl-date")?.text().toDate()
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        element.selectFirst(".epl-num")!!.text().let {
+            name = getEpisodeName(element, it)
+            episode_number = it.substringBefore(" ").toFloatOrNull() ?: 0F
         }
+        element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
+        date_upload = element.selectFirst(".epl-date")?.text().toDate()
     }
 
     // ============================ Video Links =============================
@@ -393,39 +383,31 @@ abstract class AnimeStream(
         ).reversed()
     }
 
-    protected open fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()?.lowercase()) {
-            "completed", "completo" -> SAnime.COMPLETED
-            "ongoing", "lançamento" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
+    protected open fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase()) {
+        "completed", "completo" -> SAnime.COMPLETED
+        "ongoing", "lançamento" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
+    }
+
+    protected open fun Element.getInfo(text: String): String? = selectFirst("span:contains($text)")
+        ?.run {
+            selectFirst("a")?.text() ?: ownText()
         }
-    }
 
-    protected open fun Element.getInfo(text: String): String? {
-        return selectFirst("span:contains($text)")
-            ?.run {
-                selectFirst("a")?.text() ?: ownText()
-            }
-    }
-
-    protected open fun String?.toDate(): Long {
-        return this?.let {
-            runCatching {
-                dateFormatter.parse(trim())?.time
-            }.getOrNull()
-        } ?: 0L
-    }
+    protected open fun String?.toDate(): Long = this?.let {
+        runCatching {
+            dateFormatter.parse(trim())?.time
+        }.getOrNull()
+    } ?: 0L
 
     /**
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
      */
-    protected open fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }.substringBefore("?resize")
-    }
+    protected open fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }.substringBefore("?resize")
 }

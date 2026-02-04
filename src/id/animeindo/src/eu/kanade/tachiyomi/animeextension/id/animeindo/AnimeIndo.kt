@@ -24,11 +24,12 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Element
 
-class AnimeIndo : AnimeStream(
-    "id",
-    "AnimeIndo",
-    "https://animeindo.skin",
-) {
+class AnimeIndo :
+    AnimeStream(
+        "id",
+        "AnimeIndo",
+        "https://animeindo.skin",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/browse?sort=view&page=$page")
@@ -61,29 +62,25 @@ class AnimeIndo : AnimeStream(
     // ============================== Filters ===============================
     override val filtersSelector = "div.filtersearch tbody > tr:not(:has(td.filter_title:contains(Search))) > td.filter_act"
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                OrderFilter(orderFilterText),
-                StatusFilter(statusFilterText),
-                TypeFilter(typeFilterText),
-                AnimeFilter.Separator(),
-                GenresFilter(genresFilterText),
-                SeasonFilter(seasonsFilterText),
-                StudioFilter(studioFilterText),
-            )
-        } else {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        }
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+        AnimeFilterList(
+            OrderFilter(orderFilterText),
+            StatusFilter(statusFilterText),
+            TypeFilter(typeFilterText),
+            AnimeFilter.Separator(),
+            GenresFilter(genresFilterText),
+            SeasonFilter(seasonsFilterText),
+            StudioFilter(studioFilterText),
+        )
+    } else {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
     }
 
     // =========================== Anime Details ============================
-    override fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()?.lowercase()) {
-            "finished airing" -> SAnime.COMPLETED
-            "currently airing" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    override fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase()) {
+        "finished airing" -> SAnime.COMPLETED
+        "currently airing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -105,25 +102,28 @@ class AnimeIndo : AnimeStream(
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return with(name) {
-            when {
-                contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
-                contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
-                contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
-                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
-                contains("gdrive") -> {
-                    val gdriveUrl = when {
-                        baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
-                        else -> url
-                    }
-                    gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
+    override fun getVideoList(url: String, name: String): List<Video> = with(name) {
+        when {
+            contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
+
+            contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
+
+            contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
+
+            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+
+            contains("gdrive") -> {
+                val gdriveUrl = when {
+                    baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
+                    else -> url
                 }
-                else -> {
-                    // just to detect video hosts easily
-                    Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
-                    emptyList()
-                }
+                gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
+            }
+
+            else -> {
+                // just to detect video hosts easily
+                Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
+                emptyList()
             }
         }
     }

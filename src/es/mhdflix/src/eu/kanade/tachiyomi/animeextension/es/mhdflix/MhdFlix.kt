@@ -28,7 +28,9 @@ import org.json.JSONArray
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
-open class MhdFlix : AnimeHttpSource(), ConfigurableAnimeSource {
+open class MhdFlix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MhdFlix"
 
@@ -79,16 +81,14 @@ open class MhdFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(animeList, nextPage)
     }
 
-    protected open fun Element.getImageUrl(): String? {
-        return if (hasAttr("srcset")) {
-            try {
-                fetchUrls(attr("abs:srcset")).maxOrNull()
-            } catch (_: Exception) {
-                attr("abs:src")
-            }
-        } else {
+    protected open fun Element.getImageUrl(): String? = if (hasAttr("srcset")) {
+        try {
+            fetchUrls(attr("abs:srcset")).maxOrNull()
+        } catch (_: Exception) {
             attr("abs:src")
         }
+    } else {
+        attr("abs:src")
     }
 
     override fun latestUpdatesRequest(page: Int) = popularAnimeRequest(page)
@@ -262,27 +262,35 @@ open class MhdFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             embedUrl.contains("vidhide") -> {
                 vidHideExtractor.videosFromUrl(url, videoNameGen = { "[$prefix] - VidHide: $it " })
             }
+
             embedUrl.contains("voe") -> {
                 voeExtractor.videosFromUrl(url, prefix = "[$prefix] - ")
             }
+
             embedUrl.contains("uqload") -> {
                 uqloadExtractor.videosFromUrl(url, prefix = "[$prefix] - ")
             }
+
             embedUrl.contains("streamtape") -> {
                 streamTapeExtractor.videosFromUrl(url, quality = "[$prefix] - StreamTape")
             }
+
             embedUrl.contains("dood") -> {
                 doodExtractor.videosFromUrl(url, quality = "[$prefix] - Doodstream")
             }
+
             embedUrl.contains("streamwish") -> {
                 streamWishExtractor.videosFromUrl(url, prefix = "[$prefix] - StreamWish")
             }
+
             embedUrl.contains("mixdrop") -> {
                 mixDropExtractor.videosFromUrl(url, lang = "[$prefix] - ")
             }
+
             embedUrl.contains("filelions") -> {
                 universalExtractor.videosFromUrl(url, headers, prefix = "[$prefix] - ")
             }
+
             else -> emptyList()
         }
     }

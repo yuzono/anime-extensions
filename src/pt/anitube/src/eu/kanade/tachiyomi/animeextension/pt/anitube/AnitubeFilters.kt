@@ -14,9 +14,7 @@ object AnitubeFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     class GenreFilter : QueryPartFilter("Gênero", AnitubeFiltersData.GENRES)
     class CharacterFilter : QueryPartFilter("Inicia com", AnitubeFiltersData.INITIAL_CHARS)
@@ -39,14 +37,12 @@ object AnitubeFilters {
         val initialChar: String = "todos",
     )
 
-    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
-        return FilterSearchParams(
-            filters.asQueryPart<GenreFilter>(),
-            filters.asQueryPart<SeasonFilter>(),
-            filters.asQueryPart<YearFilter>(),
-            filters.asQueryPart<CharacterFilter>(),
-        )
-    }
+    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams = FilterSearchParams(
+        filters.asQueryPart<GenreFilter>(),
+        filters.asQueryPart<SeasonFilter>(),
+        filters.asQueryPart<YearFilter>(),
+        filters.asQueryPart<CharacterFilter>(),
+    )
 
     private object AnitubeFiltersData {
 

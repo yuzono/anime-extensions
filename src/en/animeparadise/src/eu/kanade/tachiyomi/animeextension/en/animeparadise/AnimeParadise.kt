@@ -21,7 +21,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeParadise : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeParadise :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeParadise"
 
@@ -87,21 +89,21 @@ class AnimeParadise : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genre",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("Comedy", "/?genre=\"Comedy\""),
-            Pair("Drama", "/?genre=\"Drama\""),
-            Pair("Action", "/?genre=\"Action\""),
-            Pair("Fantasy", "/?genre=\"Fantasy\""),
-            Pair("Supernatural", "/?genre=\"Supernatural\""),
-            Pair("Latest Movie", "/?sort={\"startDate\": -1 }&type=MOVIE"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genre",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("Comedy", "/?genre=\"Comedy\""),
+                Pair("Drama", "/?genre=\"Drama\""),
+                Pair("Action", "/?genre=\"Action\""),
+                Pair("Fantasy", "/?genre=\"Fantasy\""),
+                Pair("Supernatural", "/?genre=\"Supernatural\""),
+                Pair("Latest Movie", "/?sort={\"startDate\": -1 }&type=MOVIE"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

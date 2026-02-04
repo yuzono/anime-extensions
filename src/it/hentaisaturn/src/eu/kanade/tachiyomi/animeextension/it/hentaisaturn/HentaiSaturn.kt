@@ -18,7 +18,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class HentaiSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class HentaiSaturn :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HentaiSaturn"
 
@@ -158,12 +160,10 @@ class HentaiSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private var filterSearch = false
 
-    override fun searchAnimeSelector(): String {
-        return if (filterSearch) {
-            "div.hentai-card-newhentai.main-hentai-card" // filter search
-        } else {
-            "div.item-archivio" // regular search
-        }
+    override fun searchAnimeSelector(): String = if (filterSearch) {
+        "div.hentai-card-newhentai.main-hentai-card" // filter search
+    } else {
+        "div.item-archivio" // regular search
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -195,12 +195,15 @@ class HentaiSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             description1 == null -> {
                 anime.description = description2
             }
+
             description2 == null -> {
                 anime.description = description1
             }
+
             description1.length > description2.length -> {
                 anime.description = description1
             }
+
             else -> {
                 anime.description = description2
             }
@@ -211,17 +214,17 @@ class HentaiSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("In corso") -> {
-                SAnime.ONGOING
-            }
-            statusString.contains("Finito") -> {
-                SAnime.COMPLETED
-            }
-            else -> {
-                SAnime.UNKNOWN
-            }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("In corso") -> {
+            SAnime.ONGOING
+        }
+
+        statusString.contains("Finito") -> {
+            SAnime.COMPLETED
+        }
+
+        else -> {
+            SAnime.UNKNOWN
         }
     }
 
@@ -403,6 +406,7 @@ class HentaiSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
+
                 else -> {}
             }
         }

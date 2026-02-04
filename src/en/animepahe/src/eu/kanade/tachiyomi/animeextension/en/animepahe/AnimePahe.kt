@@ -29,7 +29,9 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
-class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimePahe :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
 
@@ -50,17 +52,16 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
     override val supportsLatest = false
 
     // =========================== Anime Details ============================
+
     /**
      * This override is necessary because AnimePahe does not provide permanent
      * URLs to its animes, so we need to fetch the anime session every time.
      *
      * @see episodeListRequest
      */
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return anime.getId()
-            ?.let { GET("$baseUrl/a/$it") }
-            ?: GET("$baseUrl${anime.url}")
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = anime.getId()
+        ?.let { GET("$baseUrl/a/$it") }
+        ?: GET("$baseUrl${anime.url}")
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -231,6 +232,7 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
+
     /**
      * This override is necessary because AnimePahe does not provide permanent
      * URLs to its animes, so we need to fetch the anime session every time.
@@ -262,23 +264,21 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
             .reversed()
     }
 
-    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> {
-        return episodes.map { episode ->
-            SEpisode.create().apply {
-                date_upload = episode.createdAt.toDate()
-                val session = episode.session
-                setUrlWithoutDomain("/play/$animeSession/$session")
-                val epNum = episode.episodeNumber
-                episode_number = epNum
-                val epName = if (floor(epNum) == ceil(epNum)) {
-                    epNum.toInt().toString()
-                } else {
-                    epNum.toString()
-                }
-                name = "Episode $epName"
+    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
+        SEpisode.create().apply {
+            date_upload = episode.createdAt.toDate()
+            val session = episode.session
+            setUrlWithoutDomain("/play/$animeSession/$session")
+            val epNum = episode.episodeNumber
+            episode_number = epNum
+            val epName = if (floor(epNum) == ceil(epNum)) {
+                epNum.toInt().toString()
+            } else {
+                epNum.toString()
             }
-        }.toMutableList()
-    }
+            name = "Episode $epName"
+        }
+    }.toMutableList()
 
     private fun recursivePages(response: Response, animeSession: String): List<SEpisode> {
         val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
@@ -309,19 +309,17 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        return if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            val videoUrl = KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = baseUrl)
-            Video(
-                videoUrl,
-                quality,
-                videoUrl,
-                headers = Headers.headersOf("referer", "https://kwik.cx"),
-            )
-        } else {
-            val videoUrl = KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
-            Video(videoUrl, quality, videoUrl)
-        }
+    private fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
+        val videoUrl = KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = baseUrl)
+        Video(
+            videoUrl,
+            quality,
+            videoUrl,
+            headers = Headers.headersOf("referer", "https://kwik.cx"),
+        )
+    } else {
+        val videoUrl = KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
+        Video(videoUrl, quality, videoUrl)
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -428,6 +426,7 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
+
     /**
      * AnimePahe does not provide permanent URLs to its animes,
      * so we need to fetch the anime session every time.
@@ -438,12 +437,10 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
         return sessionId
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Currently Airing" -> SAnime.ONGOING
-            "Finished Airing" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Currently Airing" -> SAnime.ONGOING
+        "Finished Airing" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     private val newAnimeIdRegex by lazy { Regex("""/a/(\d+)""") }
@@ -452,11 +449,9 @@ class AnimePahe : ConfigurableAnimeSource, AnimeHttpSource() {
     private fun SAnime.getId() = newAnimeIdRegex.find(url)?.let { it.groupValues[1] }
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
 
-    private fun String.toDate(): Long {
-        return runCatching {
-            DATE_FORMATTER.parse(this)?.time ?: 0L
-        }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching {
+        DATE_FORMATTER.parse(this)?.time ?: 0L
+    }.getOrNull() ?: 0L
 
     companion object {
         private val DATE_FORMATTER by lazy {

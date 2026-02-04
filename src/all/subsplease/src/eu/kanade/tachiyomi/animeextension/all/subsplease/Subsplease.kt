@@ -26,7 +26,9 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Subsplease : ConfigurableAnimeSource, AnimeHttpSource() {
+class Subsplease :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Subsplease"
 
@@ -156,6 +158,7 @@ class Subsplease : ConfigurableAnimeSource, AnimeHttpSource() {
 
                 when (preferences.debridProvider) {
                     PREF_DEBRID_DEFAULT -> Video(videoUrl, quality, videoUrl)
+
                     else -> {
                         val debridUrl = debrid(videoUrl)
                         Video(debridUrl, quality, debridUrl)

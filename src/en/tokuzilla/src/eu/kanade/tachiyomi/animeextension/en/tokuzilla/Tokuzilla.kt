@@ -18,7 +18,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Tokuzilla : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Tokuzilla :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Tokuzilla"
 
@@ -78,26 +80,26 @@ class Tokuzilla : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genres",
-        arrayOf(
-            Pair("Any", ""),
-            Pair("Series", "/series"),
-            Pair("Movie", "/movie"),
-            Pair("Kamen Rider", "/kamen-rider"),
-            Pair("Super Sentai", "/super-sentai"),
-            Pair("Armor Hero", "/armor-hero"),
-            Pair("Garo", "/garo"),
-            Pair("Godzilla", "/godzilla"),
-            Pair("Metal Heroes", "/metal-heroes"),
-            Pair("Power Rangers", "/power-ranger"),
-            Pair("Ultraman", "/ultraman"),
-            Pair("Other", "/other"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genres",
+            arrayOf(
+                Pair("Any", ""),
+                Pair("Series", "/series"),
+                Pair("Movie", "/movie"),
+                Pair("Kamen Rider", "/kamen-rider"),
+                Pair("Super Sentai", "/super-sentai"),
+                Pair("Armor Hero", "/armor-hero"),
+                Pair("Garo", "/garo"),
+                Pair("Godzilla", "/godzilla"),
+                Pair("Metal Heroes", "/metal-heroes"),
+                Pair("Power Rangers", "/power-ranger"),
+                Pair("Ultraman", "/ultraman"),
+                Pair("Other", "/other"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

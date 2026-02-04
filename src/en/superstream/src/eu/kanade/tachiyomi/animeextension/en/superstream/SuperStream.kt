@@ -20,7 +20,9 @@ import uy.kohesive.injekt.injectLazy
 import java.util.Date
 
 @ExperimentalSerializationApi
-class SuperStream : ConfigurableAnimeSource, AnimeHttpSource() {
+class SuperStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "SuperStream"
 
@@ -218,16 +220,12 @@ class SuperStream : ConfigurableAnimeSource, AnimeHttpSource() {
         }.also(screen::addPreference)
     }
 
-    private fun LinkData.toJson(): String {
-        return json.encodeToString(this)
-    }
+    private fun LinkData.toJson(): String = json.encodeToString(this)
 
-    private fun getDateTime(s: Int?): Long {
-        return try {
-            Date(s!!.toLong() * 1000).time
-        } catch (e: Exception) {
-            0L
-        }
+    private fun getDateTime(s: Int?): Long = try {
+        Date(s!!.toLong() * 1000).time
+    } catch (e: Exception) {
+        0L
     }
 }
 

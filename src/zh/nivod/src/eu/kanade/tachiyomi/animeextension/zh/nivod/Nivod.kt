@@ -71,30 +71,24 @@ class Nivod : AnimeHttpSource() {
         }
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return parseAnimeList(response.asJsoup().selectFirst(".tl-layout:nth-of-type(1)")!!)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response.asJsoup().selectFirst(".tl-layout:nth-of-type(1)")!!)
 
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return parseAnimeList(response.asJsoup().selectFirst(".tl-layout:nth-of-type(2)")!!)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response.asJsoup().selectFirst(".tl-layout:nth-of-type(2)")!!)
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/class.html?channel=anime")
 
-    private fun parseAnimeList(element: Element): AnimesPage {
-        return AnimesPage(
-            element.select(".qy-mod-img.vertical").map {
-                SAnime.create().apply {
-                    url = it.select("a.qy-mod-link").attr("href")
-                    title = it.select(".title-wrap .main a").text()
-                    thumbnail_url = baseUrl + it.select("picture img").attr("src")
-                }
-            },
-            false,
-        )
-    }
+    private fun parseAnimeList(element: Element): AnimesPage = AnimesPage(
+        element.select(".qy-mod-img.vertical").map {
+            SAnime.create().apply {
+                url = it.select("a.qy-mod-link").attr("href")
+                title = it.select(".title-wrap .main a").text()
+                thumbnail_url = baseUrl + it.select("picture img").attr("src")
+            }
+        },
+        false,
+    )
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
@@ -132,16 +126,14 @@ class Nivod : AnimeHttpSource() {
         )
     }
 
-    private fun keywordSearch(page: Int, query: String): Request {
-        return GET(
-            "https://e.kortw.cc/vodsearch/-------------.html?keyword=${
-                URLEncoder.encode(
-                    query,
-                    "UTF-8",
-                )
-            }",
-        )
-    }
+    private fun keywordSearch(page: Int, query: String): Request = GET(
+        "https://e.kortw.cc/vodsearch/-------------.html?keyword=${
+            URLEncoder.encode(
+                query,
+                "UTF-8",
+            )
+        }",
+    )
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         if (query.isNotEmpty()) {
@@ -164,23 +156,19 @@ class Nivod : AnimeHttpSource() {
         return GET(filterUrl.build())
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            ChannelFilter(),
-            AnimeFilter.Header("详细筛选设置"),
-            generateGroupFilter(PREF_KEY_ANIME_FILTER, "动漫"),
-            generateGroupFilter(PREF_KEY_MOVIE_FILTER, "电影"),
-            generateGroupFilter(PREF_KEY_TV_FILTER, "电视剧"),
-            generateGroupFilter(PREF_KEY_SHOW_FILTER, "综艺"),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        ChannelFilter(),
+        AnimeFilter.Header("详细筛选设置"),
+        generateGroupFilter(PREF_KEY_ANIME_FILTER, "动漫"),
+        generateGroupFilter(PREF_KEY_MOVIE_FILTER, "电影"),
+        generateGroupFilter(PREF_KEY_TV_FILTER, "电视剧"),
+        generateGroupFilter(PREF_KEY_SHOW_FILTER, "综艺"),
+    )
 
     private fun generateGroupFilter(
         key: String,
         name: String,
-    ): AnimeFilter.Group<QueryFilter> {
-        return object : AnimeFilter.Group<QueryFilter>(name, generateFilters(key)) {}
-    }
+    ): AnimeFilter.Group<QueryFilter> = object : AnimeFilter.Group<QueryFilter>(name, generateFilters(key)) {}
 
     private fun generateFilters(key: String): List<QueryFilter> {
         val config = preferences.getString(key, null)
@@ -201,85 +189,83 @@ class Nivod : AnimeHttpSource() {
         preferences.edit().putString(key, json.encodeToString(config)).apply()
     }
 
-    private fun createDefaultFilterConfig(key: String): FilterConfig {
-        return when (key) {
-            PREF_KEY_TV_FILTER -> {
-                FilterConfig(
-                    regions = mapOf(
-                        "全部地区" to "",
-                        "大陆" to "cn",
-                        "台湾" to "tw",
-                        "日本" to "jp",
-                    ),
-                    types = mapOf(
-                        "全部类型" to "",
-                        "剧情" to "ju-qing",
-                        "动作" to "dong-zuo",
-                        "历史" to "li-shi",
-                        "历险" to "mao-xian",
-                    ),
-                    years = createDefaultYearMap(),
-                )
-            }
+    private fun createDefaultFilterConfig(key: String): FilterConfig = when (key) {
+        PREF_KEY_TV_FILTER -> {
+            FilterConfig(
+                regions = mapOf(
+                    "全部地区" to "",
+                    "大陆" to "cn",
+                    "台湾" to "tw",
+                    "日本" to "jp",
+                ),
+                types = mapOf(
+                    "全部类型" to "",
+                    "剧情" to "ju-qing",
+                    "动作" to "dong-zuo",
+                    "历史" to "li-shi",
+                    "历险" to "mao-xian",
+                ),
+                years = createDefaultYearMap(),
+            )
+        }
 
-            PREF_KEY_MOVIE_FILTER -> {
-                FilterConfig(
-                    regions = mapOf(
-                        "全部地区" to "",
-                        "大陆" to "cn",
-                        "台湾" to "tw",
-                        "日本" to "jp",
-                    ),
-                    types = mapOf(
-                        "全部类型" to "",
-                        "冒险" to "mao-xian",
-                        "剧情" to "ju-qing",
-                        "动作" to "dong-zuo",
-                    ),
-                    years = createDefaultYearMap(),
-                )
-            }
+        PREF_KEY_MOVIE_FILTER -> {
+            FilterConfig(
+                regions = mapOf(
+                    "全部地区" to "",
+                    "大陆" to "cn",
+                    "台湾" to "tw",
+                    "日本" to "jp",
+                ),
+                types = mapOf(
+                    "全部类型" to "",
+                    "冒险" to "mao-xian",
+                    "剧情" to "ju-qing",
+                    "动作" to "dong-zuo",
+                ),
+                years = createDefaultYearMap(),
+            )
+        }
 
-            PREF_KEY_SHOW_FILTER -> {
-                FilterConfig(
-                    regions = mapOf(
-                        "全部地区" to "",
-                        "大陆" to "cn",
-                        "韩国" to "kr",
-                        "欧美" to "west",
-                        "其他" to "other",
-                    ),
-                    types = mapOf(
-                        "全部类型" to "",
-                        "搞笑" to "gao-xiao",
-                        "音乐" to "yin-yue",
-                        "真人秀" to "zhen-ren-xiu",
-                        "脱口秀" to "tuo-kou-xiu",
-                    ),
-                    years = createDefaultYearMap(),
-                )
-            }
+        PREF_KEY_SHOW_FILTER -> {
+            FilterConfig(
+                regions = mapOf(
+                    "全部地区" to "",
+                    "大陆" to "cn",
+                    "韩国" to "kr",
+                    "欧美" to "west",
+                    "其他" to "other",
+                ),
+                types = mapOf(
+                    "全部类型" to "",
+                    "搞笑" to "gao-xiao",
+                    "音乐" to "yin-yue",
+                    "真人秀" to "zhen-ren-xiu",
+                    "脱口秀" to "tuo-kou-xiu",
+                ),
+                years = createDefaultYearMap(),
+            )
+        }
 
-            else -> {
-                FilterConfig(
-                    regions = mapOf(
-                        "全部地区" to "",
-                        "大陆" to "cn",
-                        "日本" to "jp",
-                        "欧美" to "west",
-                    ),
-                    types = mapOf(
-                        "全部类型" to "",
-                        "冒险" to "mao-xian",
-                        "动画电影" to "movie",
-                        "推理" to "tui-li",
-                        "校园" to "xiao-yuan",
-                        "治愈" to "zhi-yu",
-                        "泡面" to "pao-mian",
-                    ),
-                    years = createDefaultYearMap(),
-                )
-            }
+        else -> {
+            FilterConfig(
+                regions = mapOf(
+                    "全部地区" to "",
+                    "大陆" to "cn",
+                    "日本" to "jp",
+                    "欧美" to "west",
+                ),
+                types = mapOf(
+                    "全部类型" to "",
+                    "冒险" to "mao-xian",
+                    "动画电影" to "movie",
+                    "推理" to "tui-li",
+                    "校园" to "xiao-yuan",
+                    "治愈" to "zhi-yu",
+                    "泡面" to "pao-mian",
+                ),
+                years = createDefaultYearMap(),
+            )
         }
     }
 

@@ -28,7 +28,9 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class VerSeriesOnline :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "VerSeriesOnline"
 
@@ -40,13 +42,9 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val preferences by getPreferencesLazy()
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/series-online/page/$page", headers)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/series-online/page/$page", headers)
 
-    override fun popularAnimeSelector(): String {
-        return "div.short.gridder-list"
-    }
+    override fun popularAnimeSelector(): String = "div.short.gridder-list"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -57,45 +55,33 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    override fun popularAnimeNextPageSelector(): String {
-        return ".navigation a:last-of-type"
-    }
+    override fun popularAnimeNextPageSelector(): String = ".navigation a:last-of-type"
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/recherche?q=$id", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            val url = buildSearchUrl(query, page, filters)
-            client.newCall(GET(url, headers)).awaitSuccess().use { response ->
-                val document = response.asJsoup()
-                val animeList = document.select(searchAnimeSelector()).map { element ->
-                    searchAnimeFromElement(element)
-                }
-                val hasNextPage = searchAnimeNextPageSelector().let {
-                    document.select(it).isNotEmpty()
-                }
-
-                AnimesPage(animeList, hasNextPage)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/recherche?q=$id", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        val url = buildSearchUrl(query, page, filters)
+        client.newCall(GET(url, headers)).awaitSuccess().use { response ->
+            val document = response.asJsoup()
+            val animeList = document.select(searchAnimeSelector()).map { element ->
+                searchAnimeFromElement(element)
             }
+            val hasNextPage = searchAnimeNextPageSelector().let {
+                document.select(it).isNotEmpty()
+            }
+
+            AnimesPage(animeList, hasNextPage)
         }
     }
 
@@ -123,21 +109,13 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return GET("$baseUrl/recherche?q=$query&page=$page", headers)
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/recherche?q=$query&page=$page", headers)
 
-    override fun searchAnimeSelector(): String {
-        return popularAnimeSelector()
-    }
+    override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return popularAnimeFromElement(element)
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String {
-        return popularAnimeNextPageSelector()
-    }
+    override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
@@ -152,21 +130,13 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    override fun episodeListSelector(): String {
-        return "div.seasontab div.floats a.th-hover"
-    }
+    override fun episodeListSelector(): String = "div.seasontab div.floats a.th-hover"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
-    private fun seasonListSelector(): String {
-        return "div.floats a"
-    }
+    private fun seasonListSelector(): String = "div.floats a"
 
-    private fun seasonEpisodesSelector(): String {
-        return "#dle-content > article > div > div:nth-child(3) > div > div > a"
-    }
+    private fun seasonEpisodesSelector(): String = "#dle-content > article > div > div:nth-child(3) > div > div > a"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -300,13 +270,9 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListSelector() = ".undervideo .player-list li"
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException("Not used")
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException("Not used")
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException("Not used")
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException("Not used")
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         AnimeFilter.Header("La busqueda por texto ignora el filtro"),
@@ -314,34 +280,35 @@ class VerSeriesOnline : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         YearFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Drama", "drama"),
-            Pair("Comedia", "comedia"),
-            Pair("Animación", "animacion"),
-            Pair("Sci-Fi", "scifi"),
-            Pair("Fantasy", "fantasy"),
-            Pair("Action", "accion"),
-            Pair("Adventure", "aventura"),
-            Pair("Crimen", "crimen"),
-            Pair("Misterio", "misterio"),
-            Pair("Documental", "documental"),
-            Pair("Familia", "familia"),
-            Pair("Kids", "kids"),
-            Pair("Reality", "reality"),
-            Pair("War", "war"),
-            Pair("Politics", "politics"),
-        ),
-    )
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(Pair("<Seleccionar>", "")) + (2024 downTo 1950).map { Pair(it.toString(), it.toString()) }.toTypedArray(),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Drama", "drama"),
+                Pair("Comedia", "comedia"),
+                Pair("Animación", "animacion"),
+                Pair("Sci-Fi", "scifi"),
+                Pair("Fantasy", "fantasy"),
+                Pair("Action", "accion"),
+                Pair("Adventure", "aventura"),
+                Pair("Crimen", "crimen"),
+                Pair("Misterio", "misterio"),
+                Pair("Documental", "documental"),
+                Pair("Familia", "familia"),
+                Pair("Kids", "kids"),
+                Pair("Reality", "reality"),
+                Pair("War", "war"),
+                Pair("Politics", "politics"),
+            ),
+        )
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(Pair("<Seleccionar>", "")) + (2024 downTo 1950).map { Pair(it.toString(), it.toString()) }.toTypedArray(),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

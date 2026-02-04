@@ -31,7 +31,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeLatinoHD : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeLatinoHD :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeLatinoHD"
 
@@ -288,94 +290,94 @@ class AnimeLatinoHD : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Acción", "accion"),
-            Pair("Aliens", "aliens"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Aventura", "aventura"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Comedia", "comedia"),
-            Pair("Cyberpunk", "cyberpunk"),
-            Pair("Demonios", "demonios"),
-            Pair("Deportes", "deportes"),
-            Pair("Detectives", "detectives"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Escolar", "escolar"),
-            Pair("Espacio", "espacio"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Gore", "gore"),
-            Pair("Harem", "harem"),
-            Pair("Histórico", "historico"),
-            Pair("Horror", "horror"),
-            Pair("Josei", "josei"),
-            Pair("Juegos", "juegos"),
-            Pair("Kodomo", "kodomo"),
-            Pair("Magia", "magia"),
-            Pair("Maho Shoujo", "maho-shoujo"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Musica", "musica"),
-            Pair("Parodia", "parodia"),
-            Pair("Policial", "policial"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
-            Pair("Romance", "romance"),
-            Pair("Samurais", "samurais"),
-            Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo Ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Shounen Ai", "shounen-ai"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Soft Hentai", "soft-hentai"),
-            Pair("Super Poderes", "super-poderes"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Acción", "accion"),
+                Pair("Aliens", "aliens"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Aventura", "aventura"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"),
+                Pair("Cyberpunk", "cyberpunk"),
+                Pair("Demonios", "demonios"),
+                Pair("Deportes", "deportes"),
+                Pair("Detectives", "detectives"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Escolar", "escolar"),
+                Pair("Espacio", "espacio"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Gore", "gore"),
+                Pair("Harem", "harem"),
+                Pair("Histórico", "historico"),
+                Pair("Horror", "horror"),
+                Pair("Josei", "josei"),
+                Pair("Juegos", "juegos"),
+                Pair("Kodomo", "kodomo"),
+                Pair("Magia", "magia"),
+                Pair("Maho Shoujo", "maho-shoujo"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Musica", "musica"),
+                Pair("Parodia", "parodia"),
+                Pair("Policial", "policial"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
+                Pair("Romance", "romance"),
+                Pair("Samurais", "samurais"),
+                Pair("Seinen", "seinen"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo Ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("Shounen Ai", "shounen-ai"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Soft Hentai", "soft-hentai"),
+                Pair("Super Poderes", "super-poderes"),
+                Pair("Suspenso", "suspenso"),
+                Pair("Terror", "terror"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+            ),
+        )
 
-    private class StateFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Finalizado", "0"),
-            Pair("En emisión", "1"),
-        ),
-    )
+    private class StateFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("Finalizado", "0"),
+                Pair("En emisión", "1"),
+            ),
+        )
 
-    private class TypeFilter : UriPartFilter(
-        "Tipo",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Animes", "tv"),
-            Pair("Películas", "movie"),
-            Pair("Especiales", "special"),
-            Pair("OVAS", "ova"),
-            Pair("ONAS", "ona"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipo",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("Animes", "tv"),
+                Pair("Películas", "movie"),
+                Pair("Especiales", "special"),
+                Pair("OVAS", "ova"),
+                Pair("ONAS", "ona"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
     private fun externalOrInternalImg(url: String) = if (url.contains("https")) url else "$baseUrl/$url"
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("1") -> SAnime.ONGOING
-            statusString.contains("0") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("1") -> SAnime.ONGOING
+        statusString.contains("0") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

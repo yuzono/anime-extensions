@@ -30,7 +30,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Aniweek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Aniweek :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Aniweek"
 
@@ -111,60 +113,62 @@ class Aniweek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         OtherFilter(),
     )
 
-    private class AiringFilter : UriPartFilter(
-        "방영중",
-        arrayOf(
-            Pair("<선택하다>", ""),
-            Pair("전체", "bo_table=ing"),
-            Pair("일요일", "bo_table=ing&sca=일요일"),
-            Pair("월요일", "bo_table=ing&sca=월요일"),
-            Pair("화요일", "bo_table=ing&sca=화요일"),
-            Pair("수요일", "bo_table=ing&sca=수요일"),
-            Pair("목요일", "bo_table=ing&sca=목요일"),
-            Pair("금요일", "bo_table=ing&sca=금요일"),
-            Pair("토요일", "bo_table=ing&sca=토요일"),
-            Pair("기타", "bo_table=ing&sca=기타"),
-        ),
-    )
+    private class AiringFilter :
+        UriPartFilter(
+            "방영중",
+            arrayOf(
+                Pair("<선택하다>", ""),
+                Pair("전체", "bo_table=ing"),
+                Pair("일요일", "bo_table=ing&sca=일요일"),
+                Pair("월요일", "bo_table=ing&sca=월요일"),
+                Pair("화요일", "bo_table=ing&sca=화요일"),
+                Pair("수요일", "bo_table=ing&sca=수요일"),
+                Pair("목요일", "bo_table=ing&sca=목요일"),
+                Pair("금요일", "bo_table=ing&sca=금요일"),
+                Pair("토요일", "bo_table=ing&sca=토요일"),
+                Pair("기타", "bo_table=ing&sca=기타"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "종영",
-        arrayOf(
-            Pair("<선택하다>", ""),
-            Pair("전체", "bo_table=fin"),
-            Pair("2024", "bo_table=fin&sca=2024"),
-            Pair("2023", "bo_table=fin&sca=2023"),
-            Pair("2022", "bo_table=fin&sca=2022"),
-            Pair("2021", "bo_table=fin&sca=2021"),
-            Pair("2020", "bo_table=fin&sca=2020"),
-            Pair("2019", "bo_table=fin&sca=2019"),
-            Pair("2018", "bo_table=fin&sca=2018"),
-            Pair("2017", "bo_table=fin&sca=2017"),
-            Pair("2016", "bo_table=fin&sca=2016"),
-            Pair("2015", "bo_table=fin&sca=2015"),
-            Pair("2014", "bo_table=fin&sca=2014"),
-            Pair("2013", "bo_table=fin&sca=2013"),
-            Pair("2012", "bo_table=fin&sca=2012"),
-            Pair("2011", "bo_table=fin&sca=2011"),
-            Pair("기타", "bo_table=fin&sca=기타"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "종영",
+            arrayOf(
+                Pair("<선택하다>", ""),
+                Pair("전체", "bo_table=fin"),
+                Pair("2024", "bo_table=fin&sca=2024"),
+                Pair("2023", "bo_table=fin&sca=2023"),
+                Pair("2022", "bo_table=fin&sca=2022"),
+                Pair("2021", "bo_table=fin&sca=2021"),
+                Pair("2020", "bo_table=fin&sca=2020"),
+                Pair("2019", "bo_table=fin&sca=2019"),
+                Pair("2018", "bo_table=fin&sca=2018"),
+                Pair("2017", "bo_table=fin&sca=2017"),
+                Pair("2016", "bo_table=fin&sca=2016"),
+                Pair("2015", "bo_table=fin&sca=2015"),
+                Pair("2014", "bo_table=fin&sca=2014"),
+                Pair("2013", "bo_table=fin&sca=2013"),
+                Pair("2012", "bo_table=fin&sca=2012"),
+                Pair("2011", "bo_table=fin&sca=2011"),
+                Pair("기타", "bo_table=fin&sca=기타"),
+            ),
+        )
 
-    private class OtherFilter : UriPartFilter(
-        "다른",
-        arrayOf(
-            Pair("<선택하다>", ""),
-            Pair("극장판", "bo_table=theater"),
-            Pair("전체", "bo_table=s"),
-            Pair("방영중", "bo_table=s&sca=방영중"),
-            Pair("종영", "bo_table=s&sca=종영"),
-            Pair("극장판", "bo_table=s&sca=극장판"),
-            Pair("기타", "bo_table=s&sca=기타"),
-        ),
-    )
+    private class OtherFilter :
+        UriPartFilter(
+            "다른",
+            arrayOf(
+                Pair("<선택하다>", ""),
+                Pair("극장판", "bo_table=theater"),
+                Pair("전체", "bo_table=s"),
+                Pair("방영중", "bo_table=s&sca=방영중"),
+                Pair("종영", "bo_table=s&sca=종영"),
+                Pair("극장판", "bo_table=s&sca=극장판"),
+                Pair("기타", "bo_table=s&sca=기타"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -301,13 +305,11 @@ class Aniweek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 add("TE", "trailers")
             }.build()
 
-            fun genVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers {
-                return baseHeaders.newBuilder().apply {
-                    add("Accept", "*/*")
-                    add("Origin", "https://${iframeUrl.toHttpUrl().host}")
-                    add("Referer", "https://${iframeUrl.toHttpUrl().host}/")
-                }.build()
-            }
+            fun genVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers = baseHeaders.newBuilder().apply {
+                add("Accept", "*/*")
+                add("Origin", "https://${iframeUrl.toHttpUrl().host}")
+                add("Referer", "https://${iframeUrl.toHttpUrl().host}/")
+            }.build()
 
             playlistUtils.extractFromHls(
                 parsed.videoSource,
@@ -344,10 +346,8 @@ class Aniweek : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val videoSource: String,
     )
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
     companion object {
         private val DATE_FORMATTER by lazy {

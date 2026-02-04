@@ -17,7 +17,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Xvideos : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Xvideos :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Xvideos"
 
@@ -106,9 +108,7 @@ class Xvideos : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             else -> GET("$baseUrl/new/$page", headers)
         }
     }
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return popularAnimeFromElement(element)
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 

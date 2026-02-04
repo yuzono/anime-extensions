@@ -24,7 +24,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
+class VVVVID :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "VVVVID"
 
@@ -202,6 +204,7 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
                         filterCounter++
                     }
                 }
+
                 else -> {}
             }
         }
@@ -235,18 +238,19 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
         fun selectedValue(): String = vals[state].second
     }
 
-    private class PrimaryPageFilter(defaultOrder: String? = null) : SelectFilter(
-        "Seleziona la pagina principale",
-        arrayOf(
-            Pair("Anime", "anime"),
-            Pair("Film", "film"),
-            Pair("Serie TV", "series"),
-            Pair("Show", "show"),
-            Pair("Kids", "kids"),
-            // Pair("Sala VVVVID (Sperimentale)", "tvod"),
-        ),
-        defaultOrder,
-    )
+    private class PrimaryPageFilter(defaultOrder: String? = null) :
+        SelectFilter(
+            "Seleziona la pagina principale",
+            arrayOf(
+                Pair("Anime", "anime"),
+                Pair("Film", "film"),
+                Pair("Serie TV", "series"),
+                Pair("Show", "show"),
+                Pair("Kids", "kids"),
+                // Pair("Sala VVVVID (Sperimentale)", "tvod"),
+            ),
+            defaultOrder,
+        )
 
     override fun getFilterList(): AnimeFilterList {
         val filters = mutableListOf<AnimeFilter<*>>(
@@ -265,45 +269,42 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // Mutable filters
 
-    private class SubPageFilter(values: Array<Pair<String, String>>, defaultOrder: String? = null) : SelectFilter(
-        "Seleziona la sottopagina",
-        values,
-        defaultOrder,
-    )
+    private class SubPageFilter(values: Array<Pair<String, String>>, defaultOrder: String? = null) :
+        SelectFilter(
+            "Seleziona la sottopagina",
+            values,
+            defaultOrder,
+        )
 
     private var subPageList: Array<Pair<String, String>>? = null
 
-    private fun getSubPageList(): Array<Pair<String, String>> {
-        return subPageList ?: arrayOf(
-            Pair("Premere reset per aggiornare i filtri", ""),
-        )
-    }
-
-    private class GenreFilter(values: Array<Pair<String, String>>) : SelectFilter(
-        "Generi",
-        values,
+    private fun getSubPageList(): Array<Pair<String, String>> = subPageList ?: arrayOf(
+        Pair("Premere reset per aggiornare i filtri", ""),
     )
+
+    private class GenreFilter(values: Array<Pair<String, String>>) :
+        SelectFilter(
+            "Generi",
+            values,
+        )
 
     private var genreList: Array<Pair<String, String>>? = null
 
-    private fun getGenreList(): Array<Pair<String, String>> {
-        return genreList ?: arrayOf(
-            Pair("Premere reset per aggiornare i filtri", ""),
-        )
-    }
-
-    private class AZFilter(values: Array<Pair<String, String>>) : SelectFilter(
-        "A - Z",
-        values,
+    private fun getGenreList(): Array<Pair<String, String>> = genreList ?: arrayOf(
+        Pair("Premere reset per aggiornare i filtri", ""),
     )
+
+    private class AZFilter(values: Array<Pair<String, String>>) :
+        SelectFilter(
+            "A - Z",
+            values,
+        )
 
     private var azList: Array<Pair<String, String>>? = null
 
-    private fun getAZList(): Array<Pair<String, String>> {
-        return azList ?: arrayOf(
-            Pair("Premere reset per aggiornare i filtri", ""),
-        )
-    }
+    private fun getAZList(): Array<Pair<String, String>> = azList ?: arrayOf(
+        Pair("Premere reset per aggiornare i filtri", ""),
+    )
 
     // =========================== Anime Details ============================
 
@@ -473,18 +474,21 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
                 "In Evidenza" -> {
                     subPages.add(Pair(it.name, it.id.toString()))
                 }
+
                 "Popolari" -> {
                     if (setId == "Popolari") {
                         currentChannelId = it.id.toString()
                     }
                     subPages.add(Pair(it.name, it.id.toString()))
                 }
+
                 "Nuove uscite" -> {
                     if (setId == "Nuove") {
                         currentChannelId = it.id.toString()
                     }
                     subPages.add(Pair(it.name, it.id.toString()))
                 }
+
                 "Generi" -> {
                     genrePages.addAll(
                         it.category!!.map { t ->
@@ -492,6 +496,7 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
                         },
                     )
                 }
+
                 "A - Z" -> {
                     azPages.addAll(
                         it.filter!!.filter { s -> s[0].isLetter() }.map { t ->
@@ -541,9 +546,7 @@ class VVVVID : ConfigurableAnimeSource, AnimeHttpSource() {
             .joinToString("")
     }
 
-    private fun LinkData.toJsonString(): String {
-        return json.encodeToString(this)
-    }
+    private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

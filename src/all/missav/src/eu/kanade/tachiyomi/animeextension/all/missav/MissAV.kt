@@ -32,7 +32,9 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
-class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
+class MissAV :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MissAV"
 
@@ -49,19 +51,16 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         newHeaders()
     }
 
-    private fun newHeaders(): Headers {
-        return headers.newBuilder().apply {
-            set("Origin", baseUrl)
-            set("Referer", "$baseUrl/")
-        }.build()
-    }
+    private fun newHeaders(): Headers = headers.newBuilder().apply {
+        set("Origin", baseUrl)
+        set("Referer", "$baseUrl/")
+    }.build()
 
     private var playlistExtractor by LazyMutable {
         PlaylistUtils(client, docHeaders)
     }
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/en/today-hot?page=$page", docHeaders)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/en/today-hot?page=$page", docHeaders)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -81,8 +80,7 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(entries, hasNextPage)
     }
 
-    override fun latestUpdatesRequest(page: Int) =
-        GET("$baseUrl/en/new?page=$page", docHeaders)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/en/new?page=$page", docHeaders)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
@@ -172,17 +170,15 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         return data.flatMap { it.toAnimeList() }
     }
 
-    override fun String.stripKeywordForRelatedAnimes(): List<String> {
-        return replace(regexSpecialCharacters, " ")
-            .split(regexWhitespace)
-            .map {
-                // remove number only
-                it.replace(regexNumberOnly, "")
-                    .lowercase()
-            }
-            // exclude single character
-            .filter { it.length > 1 }
-    }
+    override fun String.stripKeywordForRelatedAnimes(): List<String> = replace(regexSpecialCharacters, " ")
+        .split(regexWhitespace)
+        .map {
+            // remove number only
+            it.replace(regexNumberOnly, "")
+                .lowercase()
+        }
+        // exclude single character
+        .filter { it.length > 1 }
 
     override fun getFilterList() = getFilters()
 
@@ -219,20 +215,17 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    private fun Element.getInfo(urlPart: String) =
-        select("div.text-secondary > a[href*=$urlPart]")
-            .eachText()
-            .joinToString()
-            .takeIf(String::isNotBlank)
+    private fun Element.getInfo(urlPart: String) = select("div.text-secondary > a[href*=$urlPart]")
+        .eachText()
+        .joinToString()
+        .takeIf(String::isNotBlank)
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                url = anime.url
-                name = "Episode"
-            },
-        )
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            url = anime.url
+            name = "Episode"
+        },
+    )
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -281,21 +274,16 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         JavCoverFetcher.addPreferenceToScreen(screen)
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
-    private inline fun <reified T> List<*>.firstInstanceOrNull(): T? =
-        filterIsInstance<T>().firstOrNull()
+    private inline fun <reified T> List<*>.firstInstanceOrNull(): T? = filterIsInstance<T>().firstOrNull()
 
-    private fun getUuid(): String {
-        return preferences.getString(PREF_UUID_KEY, null) ?: synchronized(this) {
-            // Double-check pattern to avoid generating UUID if another thread already did
-            preferences.getString(PREF_UUID_KEY, null) ?: run {
-                val uuid = MissAvApi.generateUUID()
-                preferences.edit().putString(PREF_UUID_KEY, uuid).apply()
-                uuid
-            }
+    private fun getUuid(): String = preferences.getString(PREF_UUID_KEY, null) ?: synchronized(this) {
+        // Double-check pattern to avoid generating UUID if another thread already did
+        preferences.getString(PREF_UUID_KEY, null) ?: run {
+            val uuid = MissAvApi.generateUUID()
+            preferences.edit().putString(PREF_UUID_KEY, uuid).apply()
+            uuid
         }
     }
 

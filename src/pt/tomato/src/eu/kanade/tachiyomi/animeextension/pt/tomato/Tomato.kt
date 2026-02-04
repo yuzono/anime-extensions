@@ -39,7 +39,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import kotlin.time.Duration.Companion.seconds
 
-class Tomato : ConfigurableAnimeSource, AnimeHttpSource() {
+class Tomato :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Tomato"
 
@@ -63,8 +65,7 @@ class Tomato : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/v2/animes/feed", headers = headers)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/v2/animes/feed", headers = headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseJson = response.parseAs<JsonObject>()
@@ -82,8 +83,7 @@ class Tomato : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) =
-        GET("$baseUrl/v2/animes/feed", headers = headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/v2/animes/feed", headers = headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val responseJson = response.parseAs<JsonObject>()
@@ -129,12 +129,10 @@ class Tomato : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(results, false)
     }
 
-    private fun SearchAnimeItemDto.toSAnime(): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain("$baseUrl/v2/anime/$id")
-            title = name
-            thumbnail_url = image
-        }
+    private fun SearchAnimeItemDto.toSAnime(): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain("$baseUrl/v2/anime/$id")
+        title = name
+        thumbnail_url = image
     }
 
     override fun getFilterList() = TomatoFilters.FILTER_LIST

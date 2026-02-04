@@ -20,7 +20,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Xnxx : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Xnxx :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Xnxx"
 

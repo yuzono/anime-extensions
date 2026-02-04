@@ -26,7 +26,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
+class Hanime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "hanime.tv"
 
@@ -60,8 +62,7 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
     private val popularRequestHeaders =
         Headers.headersOf("authority", "search.htv-services.com", "accept", "application/json, text/plain, */*", "content-type", "application/json;charset=UTF-8")
 
-    override fun popularAnimeRequest(page: Int): Request =
-        POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody("", page, AnimeFilterList()))
+    override fun popularAnimeRequest(page: Int): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody("", page, AnimeFilterList()))
 
     override fun popularAnimeParse(response: Response) = parseSearchJson(response)
 
@@ -90,21 +91,18 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private fun isNumber(num: String) = (num.toIntOrNull() != null)
 
-    private fun getTitle(title: String): String {
-        return if (title.contains(" Ep ")) {
-            title.split(" Ep ")[0].trim()
+    private fun getTitle(title: String): String = if (title.contains(" Ep ")) {
+        title.split(" Ep ")[0].trim()
+    } else {
+        if (isNumber(title.trim().split(" ").last())) {
+            val split = title.trim().split(" ")
+            split.slice(0..split.size - 2).joinToString(" ").trim()
         } else {
-            if (isNumber(title.trim().split(" ").last())) {
-                val split = title.trim().split(" ")
-                split.slice(0..split.size - 2).joinToString(" ").trim()
-            } else {
-                title.trim()
-            }
+            title.trim()
         }
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody(query, page, filters))
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody(query, page, filters))
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseSearchJson(response)
 
@@ -188,8 +186,7 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun latestSearchRequestBody(page: Int): RequestBody {
-        return """
+    private fun latestSearchRequestBody(page: Int): RequestBody = """
             {"search_text": "",
             "tags": [],
             "tags_mode":"AND",
@@ -198,8 +195,7 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
             "order_by": "published_at_unix",
             "ordering": "desc",
             "page": ${page - 1}}
-        """.trimIndent().toRequestBody("application/json".toMediaType())
-    }
+    """.trimIndent().toRequestBody("application/json".toMediaType())
 
     override fun latestUpdatesRequest(page: Int) = POST("https://search.htv-services.com/", popularRequestHeaders, latestSearchRequestBody(page))
 
@@ -245,9 +241,11 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
                         }
                     }
                 }
+
                 is TagInclusionMode -> {
                     tagsMode = filter.values[filter.state].uppercase(Locale.US)
                 }
+
                 is SortFilter -> {
                     if (filter.state != null) {
                         val query = sortableList[filter.state!!.index].second
@@ -259,6 +257,7 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
                         orderBy = query
                     }
                 }
+
                 is BrandList -> {
                     filter.state.forEach { brand ->
                         if (brand.state) {
@@ -270,6 +269,7 @@ class Hanime : ConfigurableAnimeSource, AnimeHttpSource() {
                         }
                     }
                 }
+
                 else -> {}
             }
         }

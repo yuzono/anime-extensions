@@ -22,7 +22,9 @@ import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 
-class EstrenosDoramas : ConfigurableAnimeSource, AnimeHttpSource() {
+class EstrenosDoramas :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "EstrenosDoramas"
 
@@ -107,7 +109,9 @@ class EstrenosDoramas : ConfigurableAnimeSource, AnimeHttpSource() {
             val title = it.select(".epl-title").text().trim()
             val epNumber = try {
                 """(\d+(\.\d+)?)""".toRegex().find(title)?.groupValues?.get(1)?.toFloat() ?: (idx + 1f)
-            } catch (_: Exception) { idx + 1f }
+            } catch (_: Exception) {
+                idx + 1f
+            }
 
             SEpisode.create().apply {
                 episode_number = epNumber
@@ -135,17 +139,15 @@ class EstrenosDoramas : ConfigurableAnimeSource, AnimeHttpSource() {
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return when {
-            arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
-            arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
-            arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-            arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> streamHideVidExtractor.videosFromUrl(url)
-            arrayOf("voe", "robertordercharacter", "donaldlineelse").any(url) -> voeExtractor.videosFromUrl(url)
-            arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers)
-            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
-            else -> emptyList()
-        }
+    private fun serverVideoResolver(url: String): List<Video> = when {
+        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
+        arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> streamHideVidExtractor.videosFromUrl(url)
+        arrayOf("voe", "robertordercharacter", "donaldlineelse").any(url) -> voeExtractor.videosFromUrl(url)
+        arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers)
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {

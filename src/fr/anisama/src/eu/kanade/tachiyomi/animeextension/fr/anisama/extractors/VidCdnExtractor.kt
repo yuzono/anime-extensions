@@ -31,6 +31,7 @@ class VidCdnExtractor(
         val httpUrl = url.toHttpUrl()
         val source = when {
             url.contains("embeds.html") -> Pair("sib2", "Sibnet")
+
             // their sendvid server is currently borken lmao
             // url.contains("embedsen.html") -> Pair("azz", "Sendvid")
             else -> return emptyList()

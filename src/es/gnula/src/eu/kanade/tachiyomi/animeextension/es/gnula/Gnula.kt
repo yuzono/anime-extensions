@@ -38,7 +38,9 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 
-class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Gnula :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Gnula"
 
@@ -159,7 +161,9 @@ class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url, prefix)
+
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url, prefix)
+
             embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
                 val vidHeaders = headers.newBuilder()
                     .add("Origin", "https://${url.toHttpUrl().host}")
@@ -167,8 +171,11 @@ class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     .build()
                 FilemoonExtractor(client).videosFromUrl(url, prefix = "$prefix Filemoon:", headers = vidHeaders)
             }
+
             embedUrl.contains("uqload") -> UqloadExtractor(client).videosFromUrl(url, prefix = prefix)
+
             embedUrl.contains("mp4upload") -> Mp4uploadExtractor(client).videosFromUrl(url, headers, prefix = prefix)
+
             embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("strwish") || embedUrl.contains("wish") -> {
                 val docHeaders = headers.newBuilder()
                     .add("Origin", "https://streamwish.to")
@@ -176,17 +183,26 @@ class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     .build()
                 StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
             }
+
             embedUrl.contains("doodstream") || embedUrl.contains("dood.") || embedUrl.contains("ds2play") || embedUrl.contains("doods.") -> {
                 val url2 = url.replace("https://doodstream.com/e/", "https://dood.to/e/")
                 listOf(DoodExtractor(client).videosFromUrl(url2, quality = prefix, redirect = false)).flatten()
             }
+
             embedUrl.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(url, prefix = prefix)
+
             embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers, prefix = prefix)
+
             embedUrl.contains("burstcloud") || embedUrl.contains("burst") -> BurstCloudExtractor(client).videoFromUrl(url, headers = headers, prefix = prefix)
+
             embedUrl.contains("fastream") -> FastreamExtractor(client, headers).videosFromUrl(url, prefix = "$prefix Fastream:")
+
             embedUrl.contains("upstream") -> UpstreamExtractor(client).videosFromUrl(url, prefix = prefix)
+
             embedUrl.contains("streamtape") || embedUrl.contains("stp") || embedUrl.contains("stape") -> listOf(StreamTapeExtractor(client).videoFromUrl(url, quality = "$prefix StreamTape")!!)
+
             embedUrl.contains("ahvsh") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+
             else -> UniversalExtractor(client).videosFromUrl(url, headers, prefix = prefix)
         }
     }
@@ -236,16 +252,14 @@ class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun List<Region>.toVideoList(lang: String): List<Video> {
-        return this.parallelCatchingFlatMapBlocking {
-            var url = ""
-            client.newCall(GET(it.result)).execute().asJsoup().select("script").map { sc ->
-                if (sc.data().contains("var url = '")) {
-                    url = sc.data().substringAfter("var url = '").substringBefore("';")
-                }
+    private fun List<Region>.toVideoList(lang: String): List<Video> = this.parallelCatchingFlatMapBlocking {
+        var url = ""
+        client.newCall(GET(it.result)).execute().asJsoup().select("script").map { sc ->
+            if (sc.data().contains("var url = '")) {
+                url = sc.data().substringAfter("var url = '").substringBefore("';")
             }
-            serverVideoResolver(url, lang)
         }
+        serverVideoResolver(url, lang)
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -253,46 +267,40 @@ class Gnula : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("Películas", "archives/movies/releases"),
-            Pair("Series", "archives/series/releases"),
-            Pair("Acción", "genres/accion"),
-            Pair("Animación", "genres/animacion"),
-            Pair("Crimen", "genres/crimen"),
-            Pair("Fámilia", "genres/familia"),
-            Pair("Misterio", "genres/misterio"),
-            Pair("Suspenso", "genres/suspenso"),
-            Pair("Aventura", "genres/aventura"),
-            Pair("Ciencia Ficción", "genres/ciencia-ficcion"),
-            Pair("Drama", "genres/drama"),
-            Pair("Fantasía", "genres/fantasia"),
-            Pair("Romance", "genres/romance"),
-            Pair("Terror", "genres/terror"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("Películas", "archives/movies/releases"),
+                Pair("Series", "archives/series/releases"),
+                Pair("Acción", "genres/accion"),
+                Pair("Animación", "genres/animacion"),
+                Pair("Crimen", "genres/crimen"),
+                Pair("Fámilia", "genres/familia"),
+                Pair("Misterio", "genres/misterio"),
+                Pair("Suspenso", "genres/suspenso"),
+                Pair("Aventura", "genres/aventura"),
+                Pair("Ciencia Ficción", "genres/ciencia-ficcion"),
+                Pair("Drama", "genres/drama"),
+                Pair("Fantasía", "genres/fantasia"),
+                Pair("Romance", "genres/romance"),
+                Pair("Terror", "genres/terror"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    private inline fun <reified T> String.parseTo(): T {
-        return json.decodeFromString<T>(this)
-    }
+    private inline fun <reified T> String.parseTo(): T = json.decodeFromString<T>(this)
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
-    private fun urlSolverByType(type: String, slug: String): String {
-        return when (type) {
-            "PaginatedMovie", "PaginatedGenre" -> "$baseUrl/movies/$slug"
-            "PaginatedSerie" -> "$baseUrl/series/$slug"
-            else -> ""
-        }
+    private fun urlSolverByType(type: String, slug: String): String = when (type) {
+        "PaginatedMovie", "PaginatedGenre" -> "$baseUrl/movies/$slug"
+        "PaginatedSerie" -> "$baseUrl/series/$slug"
+        else -> ""
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

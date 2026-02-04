@@ -21,7 +21,9 @@ import org.jsoup.nodes.Element
 import java.net.URI
 import java.net.URISyntaxException
 
-class Edytjedhgmdhm : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Edytjedhgmdhm :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "edytjedhgmdhm"
 
@@ -164,19 +166,19 @@ class Edytjedhgmdhm : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         SubPageFilter(),
     )
 
-    private class SubPageFilter : UriPartFilter(
-        "Select subpage",
-        arrayOf(
-            Pair("TVs", "/tvs/"),
-            Pair("Movies", "/movies/"),
-            Pair("Misc", "/misc/"),
-            Pair("K-drama", "/kdrama/"),
-            Pair("Asian drama", "/asiandrama/"),
-        ),
-    )
+    private class SubPageFilter :
+        UriPartFilter(
+            "Select subpage",
+            arrayOf(
+                Pair("TVs", "/tvs/"),
+                Pair("Movies", "/movies/"),
+                Pair("Misc", "/misc/"),
+                Pair("K-drama", "/kdrama/"),
+                Pair("Asian drama", "/asiandrama/"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -244,8 +246,7 @@ class Edytjedhgmdhm : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> =
-        listOf(Video(baseUrl + episode.url, "Video", baseUrl + episode.url))
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(baseUrl + episode.url, "Video", baseUrl + episode.url))
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
@@ -255,33 +256,29 @@ class Edytjedhgmdhm : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun formatBytes(bytes: Long): String {
-        return when {
-            bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-            bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-            bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-            bytes > 1 -> "$bytes bytes"
-            bytes == 1L -> "$bytes byte"
-            else -> ""
-        }
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
+        bytes > 1 -> "$bytes bytes"
+        bytes == 1L -> "$bytes byte"
+        else -> ""
     }
 
     // Same as the one in `AnimeHttpSource` but path, query, and fragment are replaced with it's
     // "raw" equivalent as to not decode url characters when it shouldn't
-    private fun getUrlWithoutDomain(orig: String): String {
-        return try {
-            val uri = URI(orig.replace(" ", "%20"))
-            var out = uri.rawPath
-            if (uri.query != null) {
-                out += "?" + uri.rawQuery
-            }
-            if (uri.fragment != null) {
-                out += "#" + uri.rawFragment
-            }
-            out
-        } catch (e: URISyntaxException) {
-            orig
+    private fun getUrlWithoutDomain(orig: String): String = try {
+        val uri = URI(orig.replace(" ", "%20"))
+        var out = uri.rawPath
+        if (uri.query != null) {
+            out += "?" + uri.rawQuery
         }
+        if (uri.fragment != null) {
+            out += "#" + uri.rawFragment
+        }
+        out
+    } catch (e: URISyntaxException) {
+        orig
     }
 
     private fun String.trimInfo(): String {
@@ -317,8 +314,7 @@ class Edytjedhgmdhm : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES.first()
     }
 
-    private fun getBaseUrlPref(): String =
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+    private fun getBaseUrlPref(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
 
     // ============================== Settings ==============================
 

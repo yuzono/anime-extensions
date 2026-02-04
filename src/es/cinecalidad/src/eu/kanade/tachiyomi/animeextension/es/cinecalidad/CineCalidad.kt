@@ -36,7 +36,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Calendar
 
-class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class CineCalidad :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "CineCalidad"
 
@@ -68,12 +70,10 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select("img").attr("alt")
-            thumbnail_url = element.select("img").attr("data-src")
-            setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select("img").attr("alt")
+        thumbnail_url = element.select("img").attr("data-src")
+        setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
     }
 
     override fun popularAnimeNextPageSelector(): String = ".nextpostslink"
@@ -129,7 +129,9 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return runCatching {
             when {
                 embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
+
                 embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
+
                 embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
                     val vidHeaders = headers.newBuilder()
                         .add("Origin", "https://${url.toHttpUrl().host}")
@@ -137,6 +139,7 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         .build()
                     FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:", headers = vidHeaders)
                 }
+
                 !embedUrl.contains("disable") && (embedUrl.contains("amazon") || embedUrl.contains("amz")) -> {
                     val body = client.newCall(GET(url)).execute().asJsoup()
                     return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
@@ -154,8 +157,11 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         emptyList()
                     }
                 }
+
                 embedUrl.contains("uqload") -> UqloadExtractor(client).videosFromUrl(url)
+
                 embedUrl.contains("mp4upload") -> Mp4uploadExtractor(client).videosFromUrl(url, headers)
+
                 embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("strwish") || embedUrl.contains("wish") || embedUrl.contains("wishfast") -> {
                     val docHeaders = headers.newBuilder()
                         .add("Origin", "https://streamwish.to")
@@ -163,17 +169,27 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         .build()
                     StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
                 }
+
                 embedUrl.contains("doodstream") || embedUrl.contains("dood.") || embedUrl.contains("ds2play") || embedUrl.contains("doods.") -> {
                     DoodExtractor(client).videosFromUrl(url.replace("https://doodstream.com/e/", "https://dood.to/e/"), "DoodStream")
                 }
+
                 embedUrl.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(url)
+
                 embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+
                 embedUrl.contains("burstcloud") || embedUrl.contains("burst") -> BurstCloudExtractor(client).videoFromUrl(url, headers = headers)
+
                 embedUrl.contains("fastream") -> FastreamExtractor(client, headers).videosFromUrl(url, prefix = "Fastream:")
+
                 embedUrl.contains("upstream") -> UpstreamExtractor(client).videosFromUrl(url)
+
                 embedUrl.contains("streamtape") || embedUrl.contains("stp") || embedUrl.contains("stape") -> listOf(StreamTapeExtractor(client).videoFromUrl(url, quality = "StreamTape")!!)
+
                 embedUrl.contains("ahvsh") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") || embedUrl.contains("vidhide") -> StreamHideVidExtractor(client, headers).videosFromUrl(url)
+
                 embedUrl.contains("goodstream") -> GoodStreamExtractor(client, headers).videosFromUrl(url, name = "GoodStream: ")
+
                 else -> UniversalExtractor(client).videosFromUrl(url, headers)
             }
         }.getOrNull() ?: emptyList()
@@ -208,38 +224,38 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Series", "ver-serie"),
-            Pair("Estrenos", "fecha-de-lanzamiento/"),
-            Pair("Destacadas", "#destacado"),
-            Pair("Acción", "genero-de-la-pelicula/accion"),
-            Pair("Animación", "genero-de-la-pelicula/animacion"),
-            Pair("Anime", "genero-de-la-pelicula/anime"),
-            Pair("Aventura", "genero-de-la-pelicula/aventura"),
-            Pair("Bélico", "genero-de-la-pelicula/belica"),
-            Pair("Ciencia ficción", "genero-de-la-pelicula/ciencia-ficcion"),
-            Pair("Crimen", "genero-de-la-pelicula/crimen"),
-            Pair("Comedia", "genero-de-la-pelicula/comedia"),
-            Pair("Documental", "genero-de-la-pelicula/documental"),
-            Pair("Drama", "genero-de-la-pelicula/drama"),
-            Pair("Familiar", "genero-de-la-pelicula/familia"),
-            Pair("Fantasía", "genero-de-la-pelicula/fantasia"),
-            Pair("Historia", "genero-de-la-pelicula/historia"),
-            Pair("Música", "genero-de-la-pelicula/musica"),
-            Pair("Misterio", "genero-de-la-pelicula/misterio"),
-            Pair("Terror", "genero-de-la-pelicula/terror"),
-            Pair("Suspenso", "genero-de-la-pelicula/suspense"),
-            Pair("Romance", "genero-de-la-pelicula/romance"),
-            Pair("Dc Comics", "genero-de-la-pelicula/peliculas-de-dc-comics-online-cinecalidad"),
-            Pair("Marvel", "genero-de-la-pelicula/universo-marvel"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Series", "ver-serie"),
+                Pair("Estrenos", "fecha-de-lanzamiento/"),
+                Pair("Destacadas", "#destacado"),
+                Pair("Acción", "genero-de-la-pelicula/accion"),
+                Pair("Animación", "genero-de-la-pelicula/animacion"),
+                Pair("Anime", "genero-de-la-pelicula/anime"),
+                Pair("Aventura", "genero-de-la-pelicula/aventura"),
+                Pair("Bélico", "genero-de-la-pelicula/belica"),
+                Pair("Ciencia ficción", "genero-de-la-pelicula/ciencia-ficcion"),
+                Pair("Crimen", "genero-de-la-pelicula/crimen"),
+                Pair("Comedia", "genero-de-la-pelicula/comedia"),
+                Pair("Documental", "genero-de-la-pelicula/documental"),
+                Pair("Drama", "genero-de-la-pelicula/drama"),
+                Pair("Familiar", "genero-de-la-pelicula/familia"),
+                Pair("Fantasía", "genero-de-la-pelicula/fantasia"),
+                Pair("Historia", "genero-de-la-pelicula/historia"),
+                Pair("Música", "genero-de-la-pelicula/musica"),
+                Pair("Misterio", "genero-de-la-pelicula/misterio"),
+                Pair("Terror", "genero-de-la-pelicula/terror"),
+                Pair("Suspenso", "genero-de-la-pelicula/suspense"),
+                Pair("Romance", "genero-de-la-pelicula/romance"),
+                Pair("Dc Comics", "genero-de-la-pelicula/peliculas-de-dc-comics-online-cinecalidad"),
+                Pair("Marvel", "genero-de-la-pelicula/universo-marvel"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -249,17 +265,15 @@ class CineCalidad : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            thumbnail_url = document.selectFirst(".single_left table img")?.attr("data-src")
-            description = document.select(".single_left table p").text().removeSurrounding("\"").substringBefore("Títulos:")
-            status = SAnime.UNKNOWN
-            document.select(".single_left table p > span").map { it.text() }.map { textContent ->
-                when {
-                    "Género" in textContent -> genre = textContent.replace("Género:", "").trim().split(", ").joinToString { it }
-                    "Creador" in textContent -> author = textContent.replace("Creador:", "").trim().split(", ").firstOrNull()
-                    "Elenco" in textContent -> artist = textContent.replace("Elenco:", "").trim().split(", ").firstOrNull()
-                }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        thumbnail_url = document.selectFirst(".single_left table img")?.attr("data-src")
+        description = document.select(".single_left table p").text().removeSurrounding("\"").substringBefore("Títulos:")
+        status = SAnime.UNKNOWN
+        document.select(".single_left table p > span").map { it.text() }.map { textContent ->
+            when {
+                "Género" in textContent -> genre = textContent.replace("Género:", "").trim().split(", ").joinToString { it }
+                "Creador" in textContent -> author = textContent.replace("Creador:", "").trim().split(", ").firstOrNull()
+                "Elenco" in textContent -> artist = textContent.replace("Elenco:", "").trim().split(", ").firstOrNull()
             }
         }
     }

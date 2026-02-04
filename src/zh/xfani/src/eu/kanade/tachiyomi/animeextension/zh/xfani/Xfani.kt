@@ -50,7 +50,9 @@ enum class FilterUpdateState {
     FAILED,
 }
 
-class Xfani : AnimeHttpSource(), ConfigurableAnimeSource {
+class Xfani :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String
         get() = "https://dm.xifanacg.com"
     override val lang: String
@@ -70,11 +72,9 @@ class Xfani : AnimeHttpSource(), ConfigurableAnimeSource {
             @SuppressLint("CustomX509TrustManager")
             object : X509TrustManager {
                 override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-                override fun checkClientTrusted(certs: Array<X509Certificate>, authType: String) =
-                    Unit
+                override fun checkClientTrusted(certs: Array<X509Certificate>, authType: String) = Unit
 
-                override fun checkServerTrusted(certs: Array<X509Certificate>, authType: String) =
-                    Unit
+                override fun checkServerTrusted(certs: Array<X509Certificate>, authType: String) = Unit
             }
 
         val insecureSocketFactory = SSLContext.getInstance("TLSv1.2").apply {
@@ -178,21 +178,17 @@ class Xfani : AnimeHttpSource(), ConfigurableAnimeSource {
         }.filter { it.quality.isNotEmpty() }.sortedByDescending { it.videoUrl != null }
     }
 
-    private fun Elements.findSourceOrNull(predicate: (name: String, url: String) -> Boolean): Pair<String, String>? {
-        return firstNotNullOfOrNull {
-            val name = it.selectFirst("span")?.text() ?: ""
-            val url = it.attr("href")
-            if (predicate(name, url)) {
-                name to url
-            } else {
-                null
-            }
+    private fun Elements.findSourceOrNull(predicate: (name: String, url: String) -> Boolean): Pair<String, String>? = firstNotNullOfOrNull {
+        val name = it.selectFirst("span")?.text() ?: ""
+        val url = it.attr("href")
+        if (predicate(name, url)) {
+            name to url
+        } else {
+            null
         }
     }
 
-    override fun videoUrlParse(response: Response): String {
-        return findVideoUrl(response.asJsoup())
-    }
+    override fun videoUrlParse(response: Response): String = findVideoUrl(response.asJsoup())
 
     private fun findVideoUrl(document: Document): String {
         val script = document.select("script:containsData(player_aaaa)").first()!!.data()
@@ -200,19 +196,13 @@ class Xfani : AnimeHttpSource(), ConfigurableAnimeSource {
         return info.jsonObject["url"]!!.jsonPrimitive.content
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return vodListToAnimePageList(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = vodListToAnimePageList(response)
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        searchAnimeRequest(page, "", AnimeFilterList())
+    override fun latestUpdatesRequest(page: Int): Request = searchAnimeRequest(page, "", AnimeFilterList())
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return vodListToAnimePageList(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = vodListToAnimePageList(response)
 
-    override fun popularAnimeRequest(page: Int): Request =
-        searchAnimeRequest(page, "", AnimeFilterList(SortFilter().apply { state = 1 }))
+    override fun popularAnimeRequest(page: Int): Request = searchAnimeRequest(page, "", AnimeFilterList(SortFilter().apply { state = 1 }))
 
     private fun vodListToAnimePageList(response: Response): AnimesPage {
         val vodResponse = json.decodeFromString<VodResponse>(response.body.string())
@@ -293,31 +283,29 @@ class Xfani : AnimeHttpSource(), ConfigurableAnimeSource {
         return block(tags.toTypedArray())
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            listOfNotNull(
-                AnimeFilter.Header("以下筛选对搜索结果无效"),
-                TypeFilter(),
-                preferences.createTagFilter(PREF_KEY_FILTER_CLASS) {
-                    if (it.isEmpty()) {
-                        ClassFilter()
-                    } else {
-                        ClassFilter(it)
-                    }
-                },
-                preferences.createTagFilter(PREF_KEY_FILTER_YEAR) {
-                    if (it.isEmpty()) {
-                        null
-                    } else {
-                        YearFilter(it)
-                    }
-                },
-                VersionFilter(),
-                LetterFilter(),
-                SortFilter(),
-            ),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        listOfNotNull(
+            AnimeFilter.Header("以下筛选对搜索结果无效"),
+            TypeFilter(),
+            preferences.createTagFilter(PREF_KEY_FILTER_CLASS) {
+                if (it.isEmpty()) {
+                    ClassFilter()
+                } else {
+                    ClassFilter(it)
+                }
+            },
+            preferences.createTagFilter(PREF_KEY_FILTER_YEAR) {
+                if (it.isEmpty()) {
+                    null
+                } else {
+                    YearFilter(it)
+                }
+            },
+            VersionFilter(),
+            LetterFilter(),
+            SortFilter(),
+        ),
+    )
 
     private fun doSearch(page: Int, query: String): Request {
         val url = baseUrl.toHttpUrl().newBuilder()

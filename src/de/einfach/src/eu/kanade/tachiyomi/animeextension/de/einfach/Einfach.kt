@@ -32,7 +32,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Einfach :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Einfach"
 
@@ -71,15 +73,13 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByPathParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByPathParse(response: Response): AnimesPage {
@@ -91,8 +91,7 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$baseUrl/page/$page/?s=$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/page/$page/?s=$query")
 
     override fun searchAnimeSelector() = popularAnimeSelector()
 
@@ -116,8 +115,7 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         description = info.selectFirst("div.entry-content > p")?.ownText()
     }
 
-    private fun Element.getInfo(label: String) =
-        selectFirst("li:has(b:contains($label)) > span.colspan")?.text()?.trim()
+    private fun Element.getInfo(label: String) = selectFirst("li:has(b:contains($label)) > span.colspan")?.text()?.trim()
 
     private fun parseStatus(status: String) = when (status) {
         "Ongoing" -> SAnime.ONGOING
@@ -138,8 +136,7 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return super.getEpisodeList(anime)
     }
 
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).reversed()
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
 
     override fun episodeListSelector() = "div.epsdlist > ul > li > a"
 
@@ -194,29 +191,23 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val vidozaExtractor by lazy { VidozaExtractor(client) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun getVideosFromUrl(name: String, url: String): List<Video> {
-        return when (name) {
-            "doodstream" -> doodExtractor.videosFromUrl(url)
-            "filelions" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
-            "filemoon" -> filemoonExtractor.videosFromUrl(url)
-            "lulustream" -> lulustreamExtractor.videosFromUrl(url, "LuLuStream")
-            "mixdrop" -> mixdropExtractor.videosFromUrl(url)
-            "streamtape" -> streamtapeExtractor.videosFromUrl(url)
-            "streamwish" -> streamwishExtractor.videosFromUrl(url)
-            "vidoza" -> vidozaExtractor.videosFromUrl(url)
-            "voe" -> voeExtractor.videosFromUrl(url)
-            "stream in hd" -> mystreamExtractor.videosFromUrl(url)
-            else -> emptyList()
-        }
+    private fun getVideosFromUrl(name: String, url: String): List<Video> = when (name) {
+        "doodstream" -> doodExtractor.videosFromUrl(url)
+        "filelions" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
+        "filemoon" -> filemoonExtractor.videosFromUrl(url)
+        "lulustream" -> lulustreamExtractor.videosFromUrl(url, "LuLuStream")
+        "mixdrop" -> mixdropExtractor.videosFromUrl(url)
+        "streamtape" -> streamtapeExtractor.videosFromUrl(url)
+        "streamwish" -> streamwishExtractor.videosFromUrl(url)
+        "vidoza" -> vidozaExtractor.videosFromUrl(url)
+        "voe" -> voeExtractor.videosFromUrl(url)
+        "stream in hd" -> mystreamExtractor.videosFromUrl(url)
+        else -> emptyList()
     }
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -251,10 +242,8 @@ class Einfach : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

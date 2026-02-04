@@ -20,9 +20,7 @@ enum class ExtraType {
     ;
 
     companion object {
-        fun fromString(value: String): ExtraType {
-            return ExtraType.entries.find { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
-        }
+        fun fromString(value: String): ExtraType = ExtraType.entries.find { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
     }
 }
 
@@ -33,9 +31,7 @@ object ExtraTypeSerializer : KSerializer<ExtraType> {
         encoder.encodeString(value.name)
     }
 
-    override fun deserialize(decoder: Decoder): ExtraType {
-        return ExtraType.fromString(decoder.decodeString())
-    }
+    override fun deserialize(decoder: Decoder): ExtraType = ExtraType.fromString(decoder.decodeString())
 }
 
 @Serializable
@@ -56,9 +52,7 @@ data class CatalogDto(
         val options: List<String>? = null,
     )
 
-    fun hasRequired(type: ExtraType): Boolean {
-        return extra.orEmpty().any {
-            it.type == type && it.isRequired == true
-        }
+    fun hasRequired(type: ExtraType): Boolean = extra.orEmpty().any {
+        it.type == type && it.isRequired == true
     }
 }

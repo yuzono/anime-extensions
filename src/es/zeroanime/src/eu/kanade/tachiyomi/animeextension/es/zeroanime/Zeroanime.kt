@@ -23,7 +23,9 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Zeroanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Zeroanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "zeroanime"
 
@@ -55,17 +57,13 @@ class Zeroanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search?q=&letra=&genero=ALL&years=ALL&estado=2&orden=desc&p=$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            url = element.select("a").attr("href")
-            title = element.select("div.title").text()
-            thumbnail_url = element.select("div.thumb img").attr("src")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        url = element.select("a").attr("href")
+        title = element.select("div.title").text()
+        thumbnail_url = element.select("div.thumb img").attr("src")
     }
 
-    override fun popularAnimeNextPageSelector(): String {
-        return "ul.pagination li.page-item:not(.active) a"
-    }
+    override fun popularAnimeNextPageSelector(): String = "ul.pagination li.page-item:not(.active) a"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -152,12 +150,15 @@ class Zeroanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 embedUrl.contains("streamtape") -> {
                     streamtapeExtractor.videosFromUrl(url).also { videoList.addAll(it) }
                 }
+
                 embedUrl.contains("filemoon") -> {
                     fileMoonExtractor.videosFromUrl(url).also { videoList.addAll(it) }
                 }
+
                 embedUrl.contains("mp4upload") -> {
                     mp4UploadExtractor.videosFromUrl(url, headers).also { videoList.addAll(it) }
                 }
+
                 embedUrl.contains("streamvid") -> {
                     StreamVidExtractor(client).videosFromUrl(url).also { videoList.addAll(it) }
                 }
@@ -206,22 +207,18 @@ class Zeroanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.select("h1.htitle").text()
-            description = document.select("div.vraven_text.single").text()
-            genre = document.select("div.single_data div.list a").joinToString { it.text() }
-            thumbnail_url = document.select("div.hentai_cover img").attr("abs:src")
-            status = parseStatus(document.select("div.data").text())
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.select("h1.htitle").text()
+        description = document.select("div.vraven_text.single").text()
+        genre = document.select("div.single_data div.list a").joinToString { it.text() }
+        thumbnail_url = document.select("div.hentai_cover img").attr("abs:src")
+        status = parseStatus(document.select("div.data").text())
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Emisión", ignoreCase = true) -> SAnime.ONGOING
-            statusString.contains("Finalizado", ignoreCase = true) -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Emisión", ignoreCase = true) -> SAnime.ONGOING
+        statusString.contains("Finalizado", ignoreCase = true) -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()

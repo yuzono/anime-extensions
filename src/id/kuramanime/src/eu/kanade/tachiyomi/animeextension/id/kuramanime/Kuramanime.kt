@@ -21,7 +21,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Kuramanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "Kuramanime"
 
     override val baseUrl = "https://v8.kuramanime.tel"
@@ -90,12 +92,10 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString) {
-            "Sedang Tayang" -> SAnime.ONGOING
-            "Selesai Tayang" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
+        "Sedang Tayang" -> SAnime.ONGOING
+        "Selesai Tayang" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -116,6 +116,7 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     .map(::episodeFromElement)
                     .reversed()
             }
+
             else -> { // More than 12 episodes
                 val (start, end) = limits.eachText().take(2).map {
                     it.filter(Char::isDigit).toInt()
@@ -200,11 +201,15 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 when {
                     // server == "filelions" && url != null -> streamtapeExtractor.videosFromUrl(url)
                     server == "filemoon" && url != null -> filemoonExtractor.videosFromUrl(url)
+
                     // mega.nz source
                     // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url)
                     server == "streamwish" && url != null -> streamWishExtractor.videosFromUrl(url)
+
                     server == "streamtape" && url != null -> streamtapeExtractor.videosFromUrl(url)
+
                     server == "vidguard" && url != null -> vidguardExtractor.videosFromUrl(url)
+
                     else -> {
                         playerDoc.select("video#player > source").map {
                             val src = it.attr("src")

@@ -24,7 +24,9 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.Calendar
 
-open class Cine24h : ConfigurableAnimeSource, AnimeHttpSource() {
+open class Cine24h :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Cine24h"
 
@@ -57,7 +59,9 @@ open class Cine24h : ConfigurableAnimeSource, AnimeHttpSource() {
             } else {
                 val statusText = document.select(".InfoList .AAIco-adjust").map { it.text() }
                     .find { "En Producción:" in it }?.substringAfter("En Producción:")?.trim()
-                status = when (statusText) { "Sí" -> SAnime.ONGOING else -> SAnime.COMPLETED }
+                status = when (statusText) {
+                    "Sí" -> SAnime.ONGOING else -> SAnime.COMPLETED
+                }
             }
         }
         return animeDetails
@@ -160,10 +164,15 @@ open class Cine24h : ConfigurableAnimeSource, AnimeHttpSource() {
                 val link = if (url.contains("emb.html")) "https://fastream.to/embed-${url.split("/").last()}.html" else url
                 FastreamExtractor(client, headers).videosFromUrl(link)
             }
+
             arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+
             arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url)
+
             arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> doodExtractor.videosFromUrl(url)
+
             arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
+
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     }
@@ -185,50 +194,48 @@ open class Cine24h : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Películas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Acción", "category/accion"),
-            Pair("Animación", "category/animacion"),
-            Pair("Anime", "category/anime"),
-            Pair("Aventura", "category/aventura"),
-            Pair("Bélica", "category/belica"),
-            Pair("Ciencia ficción", "category/ciencia-ficcion"),
-            Pair("Comedia", "category/comedia"),
-            Pair("Crimen", "category/crimen"),
-            Pair("Documental", "category/documental"),
-            Pair("Drama", "category/drama"),
-            Pair("Familia", "category/familia"),
-            Pair("Fantasía", "category/fantasia"),
-            Pair("Gerra", "category/gerra"),
-            Pair("Historia", "category/historia"),
-            Pair("Misterio", "category/misterio"),
-            Pair("Música", "category/musica"),
-            Pair("Navidad", "category/navidad"),
-            Pair("Película de TV", "category/pelicula-de-tv"),
-            Pair("Romance", "category/romance"),
-            Pair("Suspenso", "category/suspense"),
-            Pair("Terror", "category/terror"),
-            Pair("Western", "category/western"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Películas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Acción", "category/accion"),
+                Pair("Animación", "category/animacion"),
+                Pair("Anime", "category/anime"),
+                Pair("Aventura", "category/aventura"),
+                Pair("Bélica", "category/belica"),
+                Pair("Ciencia ficción", "category/ciencia-ficcion"),
+                Pair("Comedia", "category/comedia"),
+                Pair("Crimen", "category/crimen"),
+                Pair("Documental", "category/documental"),
+                Pair("Drama", "category/drama"),
+                Pair("Familia", "category/familia"),
+                Pair("Fantasía", "category/fantasia"),
+                Pair("Gerra", "category/gerra"),
+                Pair("Historia", "category/historia"),
+                Pair("Misterio", "category/misterio"),
+                Pair("Música", "category/musica"),
+                Pair("Navidad", "category/navidad"),
+                Pair("Película de TV", "category/pelicula-de-tv"),
+                Pair("Romance", "category/romance"),
+                Pair("Suspenso", "category/suspense"),
+                Pair("Terror", "category/terror"),
+                Pair("Western", "category/western"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     protected open fun org.jsoup.nodes.Element.isValidUrl(attrName: String): Boolean {

@@ -13,19 +13,20 @@ open class SelectFilter(
     fun selectedValue() = vals[state].second
 }
 
-class OrderByFilter : SelectFilter(
-    "Sort By",
-    arrayOf(
-        Pair("A-Z", "az"),
-        Pair("Z-A", "za"),
-        Pair("Recently Released", "recent"),
-        Pair("Oldest Releases", "old"),
-        Pair("Most Views", "views"),
-        Pair("Highest Rated", "rating"),
-        Pair("Recently Uploaded", "uploaded"),
-        Pair("Randomize", "random"),
-    ),
-)
+class OrderByFilter :
+    SelectFilter(
+        "Sort By",
+        arrayOf(
+            Pair("A-Z", "az"),
+            Pair("Z-A", "za"),
+            Pair("Recently Released", "recent"),
+            Pair("Oldest Releases", "old"),
+            Pair("Most Views", "views"),
+            Pair("Highest Rated", "rating"),
+            Pair("Recently Uploaded", "uploaded"),
+            Pair("Randomize", "random"),
+        ),
+    )
 
 class TriFilter(name: String, val value: String) : AnimeFilter.TriState(name)
 

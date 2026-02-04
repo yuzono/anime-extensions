@@ -32,20 +32,18 @@ class Azanimex : ParsedAnimeHttpSource() {
     }
     override fun popularAnimeSelector(): String = "li.wp-block-post"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("h2.wp-block-post-title a")?.attr("href") ?: "")
-            title =
-                element.selectFirst("h2.wp-block-post-title a")?.text()?.substringBefore("[") ?: ""
-            thumbnail_url =
-                element.selectFirst("figure.wp-block-post-featured-image img")?.attr("data-src")
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("h2.wp-block-post-title a")?.attr("href") ?: "")
+        title =
+            element.selectFirst("h2.wp-block-post-title a")?.text()?.substringBefore("[") ?: ""
+        thumbnail_url =
+            element.selectFirst("figure.wp-block-post-featured-image img")?.attr("data-src")
 
-            val genres = mutableListOf<String>()
-            element.select("div[class*=taxonomy-genero] a").forEach { genres.add(it.text()) }
-            element.select("div[class*=taxonomy-tipo] a")
-                .forEach { genres.add("Tipo: ${it.text()}") }
-            genre = genres.joinToString(", ")
-        }
+        val genres = mutableListOf<String>()
+        element.select("div[class*=taxonomy-genero] a").forEach { genres.add(it.text()) }
+        element.select("div[class*=taxonomy-tipo] a")
+            .forEach { genres.add("Tipo: ${it.text()}") }
+        genre = genres.joinToString(", ")
     }
 
     override fun popularAnimeNextPageSelector(): String = "a.page-numbers:not(.prev):not(.next)"
@@ -53,9 +51,7 @@ class Azanimex : ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = throw Exception("Not used")
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw Exception("Not used")
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw Exception("Not used")
 
     private fun getPathFromUrl(url: String): String {
         val cleanUrl = url.replace("https://", "").replace("http://", "")
@@ -128,48 +124,44 @@ class Azanimex : ParsedAnimeHttpSource() {
         return regex.find(filename)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
     }
 
-    private fun updateDomainInUrl(url: String): String {
-        return when {
-            url.contains("series-am") -> url.replace("series-am", "series-am2")
-            url.contains("series-nz") -> url.replace("series-nz", "series-nz2")
-            else -> url
-        }
+    private fun updateDomainInUrl(url: String): String = when {
+        url.contains("series-am") -> url.replace("series-am", "series-am2")
+        url.contains("series-nz") -> url.replace("series-nz", "series-nz2")
+        else -> url
     }
 
     // =========================== Anime Details ===========================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.select("span.post-info:contains(Título) + br").first()?.previousSibling()?.toString()?.trim() ?: ""
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.select("span.post-info:contains(Título) + br").first()?.previousSibling()?.toString()?.trim() ?: ""
 
-            val infoMap = document.select("span.post-info").associate { span ->
-                val label = span.text().trim()
-                val value = span.nextSibling()?.toString()?.trim() ?: ""
-                label to value
-            }
-
-            description = document.select("div.su-spoiler-content").first()?.text()?.trim() ?: ""
-
-            genre = infoMap["Géneros"]?.substringBefore(".")
-            author = infoMap["Estudio"]
-            status = when (infoMap["Episodios"]?.substringAfter("de ")?.trim()) {
-                infoMap["Episodios"]?.substringBefore(" de")?.trim() -> SAnime.COMPLETED
-                else -> SAnime.ONGOING
-            }
-
-            // Información adicional para la descripción
-            val additionalInfo = buildString {
-                appendLine("\n\nInformación:")
-                if (!infoMap["Año"].isNullOrBlank()) appendLine("• Año: ${infoMap["Año"]}")
-                if (!infoMap["Episodios"].isNullOrBlank()) appendLine("• Episodios: ${infoMap["Episodios"]}")
-                if (!infoMap["Duración"].isNullOrBlank()) appendLine("• Duración: ${infoMap["Duración"]}")
-                if (!infoMap["Fansub"].isNullOrBlank()) appendLine("• Fansub: ${infoMap["Fansub"]}")
-                if (!infoMap["Versión"].isNullOrBlank()) appendLine("• Versión: ${infoMap["Versión"]}")
-                if (!infoMap["Resolución"].isNullOrBlank()) appendLine("• Resolución: ${infoMap["Resolución"]}")
-                if (!infoMap["Formato"].isNullOrBlank()) appendLine("• Formato: ${infoMap["Formato"]}")
-            }
-
-            description += additionalInfo
+        val infoMap = document.select("span.post-info").associate { span ->
+            val label = span.text().trim()
+            val value = span.nextSibling()?.toString()?.trim() ?: ""
+            label to value
         }
+
+        description = document.select("div.su-spoiler-content").first()?.text()?.trim() ?: ""
+
+        genre = infoMap["Géneros"]?.substringBefore(".")
+        author = infoMap["Estudio"]
+        status = when (infoMap["Episodios"]?.substringAfter("de ")?.trim()) {
+            infoMap["Episodios"]?.substringBefore(" de")?.trim() -> SAnime.COMPLETED
+            else -> SAnime.ONGOING
+        }
+
+        // Información adicional para la descripción
+        val additionalInfo = buildString {
+            appendLine("\n\nInformación:")
+            if (!infoMap["Año"].isNullOrBlank()) appendLine("• Año: ${infoMap["Año"]}")
+            if (!infoMap["Episodios"].isNullOrBlank()) appendLine("• Episodios: ${infoMap["Episodios"]}")
+            if (!infoMap["Duración"].isNullOrBlank()) appendLine("• Duración: ${infoMap["Duración"]}")
+            if (!infoMap["Fansub"].isNullOrBlank()) appendLine("• Fansub: ${infoMap["Fansub"]}")
+            if (!infoMap["Versión"].isNullOrBlank()) appendLine("• Versión: ${infoMap["Versión"]}")
+            if (!infoMap["Resolución"].isNullOrBlank()) appendLine("• Resolución: ${infoMap["Resolución"]}")
+            if (!infoMap["Formato"].isNullOrBlank()) appendLine("• Formato: ${infoMap["Formato"]}")
+        }
+
+        description += additionalInfo
     }
 
     // =============================== Search ===============================
@@ -209,9 +201,7 @@ class Azanimex : ParsedAnimeHttpSource() {
     override fun videoListSelector() = throw Exception("Not used")
 
     override fun videoFromElement(element: Element) = throw Exception("Not used")
-    override fun videoUrlParse(document: Document): String {
-        throw Exception("Not used")
-    }
+    override fun videoUrlParse(document: Document): String = throw Exception("Not used")
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val videoUrl = episode.url
@@ -220,21 +210,13 @@ class Azanimex : ParsedAnimeHttpSource() {
     }
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
     companion object {
         const val PREFIX_SEARCH = "id:"

@@ -25,11 +25,12 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class MyKdrama : AnimeStream(
-    "fr",
-    "MyKdrama",
-    "https://mykdrama.co",
-) {
+class MyKdrama :
+    AnimeStream(
+        "fr",
+        "MyKdrama",
+        "https://mykdrama.co",
+    ) {
     override val animeListUrl = "$baseUrl/drama"
 
     override val dateFormatter by lazy {
@@ -58,19 +59,17 @@ class MyKdrama : AnimeStream(
     // ============================== Filters ===============================
     override val filtersSelector = "div.filter > ul"
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                GenresFilter("Genres"),
-                CountryFilter("Pays"),
-                AnimeFilter.Separator(),
-                StatusFilter("Status"),
-                TypeFilter("Type"),
-                OrderFilter("Ordre"),
-            )
-        } else {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        }
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+        AnimeFilterList(
+            GenresFilter("Genres"),
+            CountryFilter("Pays"),
+            AnimeFilter.Separator(),
+            StatusFilter("Status"),
+            TypeFilter("Type"),
+            OrderFilter("Ordre"),
+        )
+    } else {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
     }
 
     // ============================ Video Links =============================
@@ -98,14 +97,12 @@ class MyKdrama : AnimeStream(
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val vudeoExtractor by lazy { VudeoExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return when {
-            "ok.ru" in url -> okruExtractor.videosFromUrl(url)
-            "uqload" in url -> uqloadExtractor.videosFromUrl(url)
-            "dood" in url || "doodstream" in url -> doodExtractor.videosFromUrl(url)
-            "vudeo" in url -> vudeoExtractor.videosFromUrl(url)
-            else -> emptyList()
-        }
+    override fun getVideoList(url: String, name: String): List<Video> = when {
+        "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+        "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+        "dood" in url || "doodstream" in url -> doodExtractor.videosFromUrl(url)
+        "vudeo" in url -> vudeoExtractor.videosFromUrl(url)
+        else -> emptyList()
     }
 
     // ============================= Utilities ==============================

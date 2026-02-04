@@ -21,7 +21,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeVostFr : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeVostFr :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeVostFr"
 
@@ -57,18 +59,23 @@ class AnimeVostFr : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             query.isNotEmpty() ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("s", query)
+
             typeFilter.state != 0 ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("topic", typeFilter.toUriPart())
+
             genreFilter.state != 0 ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("genre", genreFilter.toUriPart())
+
             yearFilter.state != 0 ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("years", yearFilter.toUriPart())
+
             statusFilter.state != 0 ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("status", statusFilter.toUriPart())
+
             langFilter.state != 0 ->
                 urlBuilder =
                     urlBuilder.addQueryParameter("typesub", langFilter.toUriPart())
@@ -210,6 +217,7 @@ class AnimeVostFr : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         playlist.add(Video(videoUrl, quality, videoUrl, headers = headersVideo))
                     }
             }
+
             epLink.contains("cdopetimes.xyz") -> {
                 val extractor = CdopeExtractor(client)
                 playlist.addAll(
@@ -261,118 +269,120 @@ class AnimeVostFr : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         LangFilter(),
     )
 
-    private class TypeFilter : UriPartFilter(
-        "Type",
-        arrayOf(
-            Pair("-----", ""),
-            Pair("Anime", "anime"),
-            Pair("Cartoon", "cartoon"),
-            Pair("MOVIE", "movie"),
-            Pair("SERIES", "series"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Type",
+            arrayOf(
+                Pair("-----", ""),
+                Pair("Anime", "anime"),
+                Pair("Cartoon", "cartoon"),
+                Pair("MOVIE", "movie"),
+                Pair("SERIES", "series"),
+            ),
+        )
 
-    private class GenreFilter : UriPartFilterReverse(
-        "Genre",
-        arrayOf(
-            Pair("", "-----"),
-            Pair("action", "Action"),
-            Pair("adventure", "Adventure"),
-            Pair("animation", "Animation"),
-            Pair("martial-arts", "Arts martiaux"),
-            Pair("biography", "Biographie"),
-            Pair("comedy", "Comédie"),
-            Pair("crime", "Crime"),
-            Pair("demence", "Démence"),
-            Pair("demon", "Demons"),
-            Pair("documentaire", "Documentaire"),
-            Pair("drame", "Drama"),
-            Pair("ecchi", "Ecchi"),
-            Pair("enfants", "Enfants"),
-            Pair("espace", "Espace"),
-            Pair("famille", "Famille"),
-            Pair("fantasy", "Fantastique"),
-            Pair("game", "Game"),
-            Pair("harem", "Harem"),
-            Pair("historical", "Historique"),
-            Pair("horror", "Horreur"),
-            Pair("jeux", "Jeux"),
-            Pair("josei", "Josei"),
-            Pair("kids", "Kids"),
-            Pair("magic", "Magie"),
-            Pair("mecha", "Mecha"),
-            Pair("military", "Militaire"),
-            Pair("monster", "Monster"),
-            Pair("music", "Musique"),
-            Pair("mystere", "Mystère"),
-            Pair("parody", "Parodie"),
-            Pair("police", "Policier"),
-            Pair("psychological", "Psychologique"),
-            Pair("romance", "Romance"),
-            Pair("samurai", "Samurai"),
-            Pair("sci-fi", "Sci-Fi"),
-            Pair("school", "Scolaire"),
-            Pair("seinen", "Seinen"),
-            Pair("short", "Short"),
-            Pair("shoujo", "Shoujo"),
-            Pair("shoujo-ai", "Shoujo Ai"),
-            Pair("shounen", "Shounen"),
-            Pair("shounen-ai", "Shounen Ai"),
-            Pair("sport", "Sport"),
-            Pair("super-power", "Super Pouvoir"),
-            Pair("supernatural", "Surnaturel"),
-            Pair("suspense", "Suspense"),
-            Pair("thriller", "Thriller"),
-            Pair("silce-of-life", "Tranche de vie"),
-            Pair("vampire", "Vampire"),
-            Pair("cars", "Voitures"),
-            Pair("war", "War"),
-            Pair("western", "Western"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilterReverse(
+            "Genre",
+            arrayOf(
+                Pair("", "-----"),
+                Pair("action", "Action"),
+                Pair("adventure", "Adventure"),
+                Pair("animation", "Animation"),
+                Pair("martial-arts", "Arts martiaux"),
+                Pair("biography", "Biographie"),
+                Pair("comedy", "Comédie"),
+                Pair("crime", "Crime"),
+                Pair("demence", "Démence"),
+                Pair("demon", "Demons"),
+                Pair("documentaire", "Documentaire"),
+                Pair("drame", "Drama"),
+                Pair("ecchi", "Ecchi"),
+                Pair("enfants", "Enfants"),
+                Pair("espace", "Espace"),
+                Pair("famille", "Famille"),
+                Pair("fantasy", "Fantastique"),
+                Pair("game", "Game"),
+                Pair("harem", "Harem"),
+                Pair("historical", "Historique"),
+                Pair("horror", "Horreur"),
+                Pair("jeux", "Jeux"),
+                Pair("josei", "Josei"),
+                Pair("kids", "Kids"),
+                Pair("magic", "Magie"),
+                Pair("mecha", "Mecha"),
+                Pair("military", "Militaire"),
+                Pair("monster", "Monster"),
+                Pair("music", "Musique"),
+                Pair("mystere", "Mystère"),
+                Pair("parody", "Parodie"),
+                Pair("police", "Policier"),
+                Pair("psychological", "Psychologique"),
+                Pair("romance", "Romance"),
+                Pair("samurai", "Samurai"),
+                Pair("sci-fi", "Sci-Fi"),
+                Pair("school", "Scolaire"),
+                Pair("seinen", "Seinen"),
+                Pair("short", "Short"),
+                Pair("shoujo", "Shoujo"),
+                Pair("shoujo-ai", "Shoujo Ai"),
+                Pair("shounen", "Shounen"),
+                Pair("shounen-ai", "Shounen Ai"),
+                Pair("sport", "Sport"),
+                Pair("super-power", "Super Pouvoir"),
+                Pair("supernatural", "Surnaturel"),
+                Pair("suspense", "Suspense"),
+                Pair("thriller", "Thriller"),
+                Pair("silce-of-life", "Tranche de vie"),
+                Pair("vampire", "Vampire"),
+                Pair("cars", "Voitures"),
+                Pair("war", "War"),
+                Pair("western", "Western"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilterYears(
-        "Year",
-        Array(62) {
-            if (it == 0) {
-                "-----"
-            } else {
-                (2022 - (it - 1)).toString()
-            }
-        },
-    )
+    private class YearFilter :
+        UriPartFilterYears(
+            "Year",
+            Array(62) {
+                if (it == 0) {
+                    "-----"
+                } else {
+                    (2022 - (it - 1)).toString()
+                }
+            },
+        )
 
-    private class StatusFilter : UriPartFilter(
-        "Status",
-        arrayOf(
-            Pair("-----", ""),
-            Pair("Fin", "completed"),
-            Pair("En cours", "ongoing"),
-        ),
-    )
+    private class StatusFilter :
+        UriPartFilter(
+            "Status",
+            arrayOf(
+                Pair("-----", ""),
+                Pair("Fin", "completed"),
+                Pair("En cours", "ongoing"),
+            ),
+        )
 
-    private class LangFilter : UriPartFilter(
-        "La langue",
-        arrayOf(
-            Pair("-----", ""),
-            Pair("VO", "vo"),
-            Pair("Animé Vostfr", "vostfr"),
-            Pair("Animé VF", "vf"),
-        ),
-    )
+    private class LangFilter :
+        UriPartFilter(
+            "La langue",
+            arrayOf(
+                Pair("-----", ""),
+                Pair("VO", "vo"),
+                Pair("Animé Vostfr", "vostfr"),
+                Pair("Animé VF", "vf"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    private open class UriPartFilterReverse(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.second }.toTypedArray()) {
+    private open class UriPartFilterReverse(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.second }.toTypedArray()) {
         fun toUriPart() = vals[state].first
     }
 
-    private open class UriPartFilterYears(displayName: String, val years: Array<String>) :
-        AnimeFilter.Select<String>(displayName, years) {
+    private open class UriPartFilterYears(displayName: String, val years: Array<String>) : AnimeFilter.Select<String>(displayName, years) {
         fun toUriPart() = years[state]
     }
 
@@ -395,11 +405,9 @@ class AnimeVostFr : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         screen.addPreference(videoQualityPref)
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Fin" -> SAnime.COMPLETED
-            "En cours" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Fin" -> SAnime.COMPLETED
+        "En cours" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 }

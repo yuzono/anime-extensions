@@ -24,7 +24,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class HentaiZM :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HentaiZM"
 
@@ -62,11 +64,10 @@ class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/en-cok-izlenenler/page/$page", headers)
 
-    override fun popularAnimeParse(response: Response) =
-        super.popularAnimeParse(response).let { page ->
-            val animes = page.animes.distinctBy { it.url }
-            AnimesPage(animes, page.hasNextPage)
-        }
+    override fun popularAnimeParse(response: Response) = super.popularAnimeParse(response).let { page ->
+        val animes = page.animes.distinctBy { it.url }
+        AnimesPage(animes, page.hasNextPage)
+    }
 
     override fun popularAnimeSelector() = "div.moviefilm"
 
@@ -86,11 +87,10 @@ class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/yeni-eklenenler?c=${page - 1}", headers)
 
-    override fun latestUpdatesParse(response: Response) =
-        super.latestUpdatesParse(response).let { page ->
-            val animes = page.animes.distinctBy { it.url }
-            AnimesPage(animes, page.hasNextPage)
-        }
+    override fun latestUpdatesParse(response: Response) = super.latestUpdatesParse(response).let { page ->
+        val animes = page.animes.distinctBy { it.url }
+        AnimesPage(animes, page.hasNextPage)
+    }
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
@@ -99,15 +99,13 @@ class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     override fun latestUpdatesNextPageSelector() = "a[rel=next]:contains(Sonraki Sayfa)"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/hentai-detay/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/hentai-detay/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -119,9 +117,7 @@ class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return GET("$baseUrl/page/$page/?s=$query", headers)
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/page/$page/?s=$query", headers)
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
@@ -184,17 +180,11 @@ class HentaiZM : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         ).reversed()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

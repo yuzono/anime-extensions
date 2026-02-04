@@ -30,7 +30,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class Serienstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Serienstream :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Serienstream"
 
@@ -53,9 +55,7 @@ class Serienstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeNextPageSelector(): String? = null
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/beliebte-serien")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/beliebte-serien")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -245,12 +245,15 @@ class Serienstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             langkey.contains("${SConstants.KEY_GER_SUB}") -> {
                 return "Deutscher Sub"
             }
+
             langkey.contains("${SConstants.KEY_GER_DUB}") -> {
                 return "Deutscher Dub"
             }
+
             langkey.contains("${SConstants.KEY_ENG_SUB}") -> {
                 return "Englischer Sub"
             }
+
             else -> {
                 return null
             }

@@ -33,7 +33,9 @@ import java.util.Locale
 import java.util.concurrent.locks.ReentrantLock
 
 @Suppress("unused")
-class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
+class AniPlay :
+    AniListAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "AniPlay"
     override val lang = "en"
 
@@ -46,9 +48,7 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
 
     /* ================================= AniList configurations ================================= */
 
-    override fun mapAnimeDetailUrl(animeId: Int): String {
-        return "$baseUrl/anime/info/$animeId"
-    }
+    override fun mapAnimeDetailUrl(animeId: Int): String = "$baseUrl/anime/info/$animeId"
 
     override fun mapAnimeId(animeDetailUrl: String): Int {
         val httpUrl = animeDetailUrl.toHttpUrl()
@@ -201,7 +201,9 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
                 )
 
                 val builder = Uri.parse("$baseUrl/anime/watch/$animeId").buildUpon()
-                params.map { (k, v) -> builder.appendQueryParameter(k, v); }
+                params.map { (k, v) ->
+                    builder.appendQueryParameter(k, v)
+                }
                 val url = builder.build()
 
                 val headersWithAction =
@@ -303,6 +305,7 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
                         },
                     )
                 }
+
                 "Pahe" -> {
                     val url = "https://paheproxy.aniplaynow.live/proxy?url=${defaultSource.url}&headers={\"Referer\":\"https://kwik.si/\"}"
                     val headers = headers.newBuilder().apply {
@@ -312,6 +315,7 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
                     }.build()
                     return listOf(Video(url, "$serverName - Video - $typeName", url, headers, subtitles, listOf()))
                 }
+
                 else -> {
                     throw Exception("Unknown serverName: $serverName (${episodeData.source})")
                 }
@@ -343,13 +347,9 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
         )
     }
 
-    private fun extractEpisodeList(input: String): String? {
-        return extractList(input, '[', ']')
-    }
+    private fun extractEpisodeList(input: String): String? = extractList(input, '[', ']')
 
-    private fun extractSourcesList(input: String): String? {
-        return extractList(input, '{', '}')
-    }
+    private fun extractSourcesList(input: String): String? = extractList(input, '{', '}')
 
     private fun extractList(input: String, bracket1: Char, bracket2: Char): String? {
         val startMarker = "1:$bracket1"
@@ -522,12 +522,10 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /* =================================== AniPlay Utilities =================================== */
-    private fun parseEpisodeName(number: String, title: String?): String {
-        return if (title.isNullOrBlank()) {
-            "Episode $number"
-        } else {
-            "Episode $number: $title"
-        }
+    private fun parseEpisodeName(number: String, title: String?): String = if (title.isNullOrBlank()) {
+        "Episode $number"
+    } else {
+        "Episode $number: $title"
     }
     private fun getServerName(value: String): String {
         val index = PREF_SERVER_ENTRY_VALUES.indexOf(value)
@@ -546,11 +544,9 @@ class AniPlay : AniListAnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     @Synchronized
-    private fun parseDate(dateStr: String?): Long {
-        return dateStr?.let {
-            runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull()
-        } ?: 0L
-    }
+    private fun parseDate(dateStr: String?): Long = dateStr?.let {
+        runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull()
+    } ?: 0L
 
     companion object {
         private const val PREF_DOMAIN_KEY = "domain"

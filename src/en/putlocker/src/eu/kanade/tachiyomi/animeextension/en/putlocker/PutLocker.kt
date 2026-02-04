@@ -27,7 +27,9 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
 @ExperimentalSerializationApi
-class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class PutLocker :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "PutLocker"
 
@@ -47,27 +49,23 @@ class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/putlocker/")
 
-    override fun popularAnimeSelector(): String =
-        "div#tab-movie > div.ml-item, div#tab-tv-show > div.ml-item"
+    override fun popularAnimeSelector(): String = "div#tab-movie > div.ml-item, div#tab-tv-show > div.ml-item"
 
     override fun popularAnimeNextPageSelector(): String? = null
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(
-                element.select("div.mli-poster > a")
-                    .attr("abs:href"),
-            )
-            title = element.select("div.mli-info h3").text()
-            thumbnail_url = element.select("div.mli-poster > a > img")
-                .attr("abs:data-original")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(
+            element.select("div.mli-poster > a")
+                .attr("abs:href"),
+        )
+        title = element.select("div.mli-info h3").text()
+        thumbnail_url = element.select("div.mli-poster > a > img")
+            .attr("abs:data-original")
     }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/filter/$page?genre=all&country=all&types=all&year=all&sort=updated")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/filter/$page?genre=all&country=all&types=all&year=all&sort=updated")
 
     override fun latestUpdatesSelector(): String = "div.movies-list > div.ml-item"
 
@@ -77,15 +75,13 @@ class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return "[^A-Za-z0-9 ]".toRegex()
-            .replace(query, "")
-            .replace(" ", "+")
-            .lowercase()
-            .let {
-                GET("$baseUrl/movie/search/$it/$page/")
-            }
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = "[^A-Za-z0-9 ]".toRegex()
+        .replace(query, "")
+        .replace(" ", "+")
+        .lowercase()
+        .let {
+            GET("$baseUrl/movie/search/$it/$page/")
+        }
 
     override fun searchAnimeSelector(): String = latestUpdatesSelector()
 
@@ -117,8 +113,7 @@ class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request =
-        GET("$baseUrl${anime.url}/watching.html")
+    override fun episodeListRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}/watching.html")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
@@ -151,6 +146,7 @@ class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     },
                 )
             }
+
             else -> {
                 client.newCall(
                     GET("$baseUrl/ajax/movie/seasons/$mediaId"),
@@ -221,11 +217,10 @@ class PutLocker : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private fun EpLinks.toJson(): String = json.encodeToString(this)
 
-    private fun String.parseHtml(): Document =
-        json.decodeFromString<JsonObject>(this@parseHtml)["html"]!!
-            .jsonPrimitive.content.run {
-                Jsoup.parse(JSONUtil.unescape(this@run))
-            }
+    private fun String.parseHtml(): Document = json.decodeFromString<JsonObject>(this@parseHtml)["html"]!!
+        .jsonPrimitive.content.run {
+            Jsoup.parse(JSONUtil.unescape(this@run))
+        }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString("preferred_quality", null)

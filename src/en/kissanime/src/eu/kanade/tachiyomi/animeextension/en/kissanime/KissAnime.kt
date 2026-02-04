@@ -35,7 +35,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class KissAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class KissAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "kissanime.com.ru"
 
@@ -84,31 +86,27 @@ class KissAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .use(::searchAnimeParse)
     }
 
-    private fun searchAnimeRequest(page: Int, query: String, filters: KissAnimeFilters.FilterSearchParams): Request {
-        return when {
-            filters.subpage.isNotBlank() -> GET("$baseUrl/${filters.subpage}/?page=$page")
-            filters.schedule.isNotBlank() -> GET("$baseUrl/Schedule#${filters.schedule}")
-            else -> GET("$baseUrl/AdvanceSearch/?name=$query&status=${filters.status}&genre=${filters.genre}&page=$page", headers = headers)
-        }
+    private fun searchAnimeRequest(page: Int, query: String, filters: KissAnimeFilters.FilterSearchParams): Request = when {
+        filters.subpage.isNotBlank() -> GET("$baseUrl/${filters.subpage}/?page=$page")
+        filters.schedule.isNotBlank() -> GET("$baseUrl/Schedule#${filters.schedule}")
+        else -> GET("$baseUrl/AdvanceSearch/?name=$query&status=${filters.status}&genre=${filters.genre}&page=$page", headers = headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return if (response.request.url.encodedPath.startsWith("/Schedule")) {
-            val document = response.asJsoup()
-            val name = response.request.url.encodedFragment!!
+    override fun searchAnimeParse(response: Response): AnimesPage = if (response.request.url.encodedPath.startsWith("/Schedule")) {
+        val document = response.asJsoup()
+        val name = response.request.url.encodedFragment!!
 
-            val animeList = document.select("div.barContent > div.schedule_container > div.schedule_item:has(div.schedule_block_title:contains($name)) div.schedule_row > div.schedule_block").map {
-                SAnime.create().apply {
-                    title = it.selectFirst("h2 > a > span.jtitle")!!.text()
-                    thumbnail_url = it.selectFirst("img")!!.attr("src")
-                    setUrlWithoutDomain(it.selectFirst("a")!!.attr("href"))
-                }
+        val animeList = document.select("div.barContent > div.schedule_container > div.schedule_item:has(div.schedule_block_title:contains($name)) div.schedule_row > div.schedule_block").map {
+            SAnime.create().apply {
+                title = it.selectFirst("h2 > a > span.jtitle")!!.text()
+                thumbnail_url = it.selectFirst("img")!!.attr("src")
+                setUrlWithoutDomain(it.selectFirst("a")!!.attr("href"))
             }
-
-            AnimesPage(animeList, false)
-        } else {
-            super.searchAnimeParse(response)
         }
+
+        AnimesPage(animeList, false)
+    } else {
+        super.searchAnimeParse(response)
     }
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
@@ -209,16 +207,20 @@ class KissAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 url.contains("yourupload") -> {
                     YourUploadExtractor(client).videoFromUrl(url, headers = headers, name = server.name)
                 }
+
                 url.contains("mp4upload") -> {
                     Mp4uploadExtractor(client).videosFromUrl(url, headers, "(${server.name}) ")
                 }
+
                 url.contains("embed.vodstream.xyz") -> {
                     val referer = "$baseUrl/"
                     VodstreamExtractor(client).getVideosFromUrl(url, referer = referer, prefix = "${server.name} - ")
                 }
+
                 url.contains("dailymotion") -> {
                     DailymotionExtractor(client, headers).videosFromUrl(url, "${server.name} - ", baseUrl, server.password)
                 }
+
                 else -> null
             }.orEmpty()
         }
@@ -253,17 +255,13 @@ class KissAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val value: String,
     )
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString.trim()) {
-            "Ongoing" -> SAnime.ONGOING
-            "Completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString.trim()) {
+        "Ongoing" -> SAnime.ONGOING
+        "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     companion object {

@@ -47,7 +47,9 @@ import java.math.RoundingMode
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
 
-class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeKai :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeKai"
 
@@ -62,11 +64,9 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override var baseUrl: String
         by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
-            .add("Referer", "$baseUrl/")
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
+        .add("Referer", "$baseUrl/")
 
     private var docHeaders by LazyMutable {
         headersBuilder().build()
@@ -82,29 +82,23 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/trending?page=$page", docHeaders, cacheControl)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trending?page=$page", docHeaders, cacheControl)
 
     override fun popularAnimeSelector() = "div.aitem-wrapper div.aitem"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            element.selectFirst("a.poster")?.attr("href")?.let {
-                setUrlWithoutDomain(it)
-            }
-            title = element.selectFirst("a.title")?.getTitle() ?: ""
-            thumbnail_url = element.select("a.poster img").attr("data-src")
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        element.selectFirst("a.poster")?.attr("href")?.let {
+            setUrlWithoutDomain(it)
         }
+        title = element.selectFirst("a.title")?.getTitle() ?: ""
+        thumbnail_url = element.select("a.poster img").attr("data-src")
     }
 
     override fun popularAnimeNextPageSelector() = "nav > ul.pagination > li.active ~ li"
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
@@ -140,12 +134,10 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun relatedAnimeListSelector() = "div.aitem-col a.aitem"
 
-    override fun relatedAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            title = element.selectFirst("div.title")?.getTitle() ?: ""
-            thumbnail_url = element.getBackgroundImage()
-        }
+    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        title = element.selectFirst("div.title")?.getTitle() ?: ""
+        thumbnail_url = element.getBackgroundImage()
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
@@ -169,71 +161,71 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            thumbnail_url = document.select(".poster img").attr("src")
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        thumbnail_url = document.select(".poster img").attr("src")
 
-            // fancy score
-            val scorePosition = preferences.scorePosition
-            val fancyScore = when (scorePosition) {
-                SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("#anime-rating")?.attr("data-score"))
-                else -> ""
-            }
+        // fancy score
+        val scorePosition = preferences.scorePosition
+        val fancyScore = when (scorePosition) {
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("#anime-rating")?.attr("data-score"))
+            else -> ""
+        }
 
-            document.selectFirst("div#main-entity")?.let { info ->
-                val titles = info.selectFirst("h1.title")
-                    ?.also { title = it.getTitle() }
-                    ?.let {
-                        listOf(
-                            it.attr("title"),
-                            it.attr("data-jp"),
-                            it.ownText(),
-                        )
-                    } ?: emptyList()
-
-                val altTitles = (
-                    info.selectFirst(".al-title")?.text()?.split(";").orEmpty() +
-                        titles
+        document.selectFirst("div#main-entity")?.let { info ->
+            val titles = info.selectFirst("h1.title")
+                ?.also { title = it.getTitle() }
+                ?.let {
+                    listOf(
+                        it.attr("title"),
+                        it.attr("data-jp"),
+                        it.ownText(),
                     )
-                    .asSequence()
-                    .map { it.trim() }.filterNot { it.isBlank() }.distinctBy { it.lowercase() }
-                    .filterNot { it.lowercase() == title.lowercase() }.joinToString("; ")
-                val rating = info.selectFirst(".rating")?.text().orEmpty()
+                } ?: emptyList()
 
-                info.selectFirst("div.detail")?.let { detail ->
-                    author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
-                        ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
-                    status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
-                    genre = detail.getInfo("Genres:", isList = true)
+            val altTitles = (
+                info.selectFirst(".al-title")?.text()?.split(";").orEmpty() +
+                    titles
+                )
+                .asSequence()
+                .map { it.trim() }.filterNot { it.isBlank() }.distinctBy { it.lowercase() }
+                .filterNot { it.lowercase() == title.lowercase() }.joinToString("; ")
+            val rating = info.selectFirst(".rating")?.text().orEmpty()
 
-                    description = buildString {
-                        if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) {
-                            append(fancyScore)
-                            append("\n\n")
-                        }
+            info.selectFirst("div.detail")?.let { detail ->
+                author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
+                    ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
+                status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
+                genre = detail.getInfo("Genres:", isList = true)
 
-                        info.selectFirst(".desc")?.text()?.let { append(it + "\n") }
-                        detail.getInfo("Country:", full = true)?.run(::append)
-                        detail.getInfo("Premiered:", full = true)?.run(::append)
-                        detail.getInfo("Date aired:", full = true)?.run(::append)
-                        detail.getInfo("Broadcast:", full = true)?.run(::append)
-                        detail.getInfo("Duration:", full = true)?.run(::append)
-                        if (rating.isNotBlank()) append("\n**Rating:** $rating")
-                        detail.getInfo("MAL:", full = true)?.run(::append)
-                        if (altTitles.isNotBlank()) { append("\n**Alternative Title:** $altTitles") }
-                        detail.select("div div div:contains(Links:) a").forEach {
-                            append("\n[${it.text()}](${it.attr("href")})")
-                        }
-                        document.getCover()?.let { append("\n\n![Cover]($it)") }
+                description = buildString {
+                    if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) {
+                        append(fancyScore)
+                        append("\n\n")
+                    }
 
-                        if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
-                            if (isNotEmpty()) append("\n\n")
-                            append(fancyScore)
-                        }
+                    info.selectFirst(".desc")?.text()?.let { append(it + "\n") }
+                    detail.getInfo("Country:", full = true)?.run(::append)
+                    detail.getInfo("Premiered:", full = true)?.run(::append)
+                    detail.getInfo("Date aired:", full = true)?.run(::append)
+                    detail.getInfo("Broadcast:", full = true)?.run(::append)
+                    detail.getInfo("Duration:", full = true)?.run(::append)
+                    if (rating.isNotBlank()) append("\n**Rating:** $rating")
+                    detail.getInfo("MAL:", full = true)?.run(::append)
+                    if (altTitles.isNotBlank()) {
+                        append("\n**Alternative Title:** $altTitles")
+                    }
+                    detail.select("div div div:contains(Links:) a").forEach {
+                        append("\n[${it.text()}](${it.attr("href")})")
+                    }
+                    document.getCover()?.let { append("\n\n![Cover]($it)") }
+
+                    if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
+                        if (isNotEmpty()) append("\n\n")
+                        append(fancyScore)
                     }
                 }
-            } ?: throw IllegalStateException("Invalid anime details page format")
-        }
+            }
+        } ?: throw IllegalStateException("Invalid anime details page format")
     }
 
     private fun getFancyScore(score: String?): String {
@@ -275,9 +267,7 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
     private val coverSelector by lazy { "div.watch-section-bg" }
 
-    private fun Document.getCover(): String? {
-        return selectFirst(coverSelector)?.getBackgroundImage()
-    }
+    private fun Document.getCover(): String? = selectFirst(coverSelector)?.getBackgroundImage()
 
     private fun Element.getBackgroundImage(): String? {
         val style = attr("style")
@@ -421,22 +411,18 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return VideoData(iframe, name)
     }
 
-    private suspend fun extractVideo(server: VideoData): List<Video> {
-        return try {
-            megaUpExtractor.videosFromUrl(
-                server.iframe,
-                server.serverName,
-            )
-        } catch (e: Exception) {
-            Log.e("AnimeKai", "Error extracting videos for ${server.serverName}", e)
-            emptyList()
-        }
+    private suspend fun extractVideo(server: VideoData): List<Video> = try {
+        megaUpExtractor.videosFromUrl(
+            server.iframe,
+            server.serverName,
+        )
+    } catch (e: Exception) {
+        Log.e("AnimeKai", "Error extracting videos for ${server.serverName}", e)
+        emptyList()
     }
 
-    private suspend fun encDecEndpoints(enc: String): String {
-        return client.newCall(GET("https://enc-dec.app/api/enc-kai?text=$enc", docHeaders))
-            .awaitSuccess().body.string()
-    }
+    private suspend fun encDecEndpoints(enc: String): String = client.newCall(GET("https://enc-dec.app/api/enc-kai?text=$enc", docHeaders))
+        .awaitSuccess().body.string()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.prefQuality
@@ -452,12 +438,10 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         )
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Completed", "Finished Airing" -> SAnime.COMPLETED
-            "Releasing" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Completed", "Finished Airing" -> SAnime.COMPLETED
+        "Releasing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun Element.getTitle(): String {

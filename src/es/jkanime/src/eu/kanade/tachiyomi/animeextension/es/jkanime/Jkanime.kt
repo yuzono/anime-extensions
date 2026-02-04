@@ -40,7 +40,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
+class Jkanime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Jkanime"
 
@@ -141,28 +143,25 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return if (page == 1) {
-            GET(baseUrl, headers)
-        } else {
-            GET("$baseUrl/directorio?p=${page - 1}", headers)
-        }
+    override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
+        GET(baseUrl, headers)
+    } else {
+        GET("$baseUrl/directorio?p=${page - 1}", headers)
     }
 
     private fun homepageAnimesSelector(): String = "div.trending_div div.custom_thumb_home a"
 
-    private fun homepageAnimesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("a").attr("abs:href").trim('/'))
-            title = element.select("img").attr("alt")
-            thumbnail_url = element.select("img").attr("abs:src")
-        }
+    private fun homepageAnimesFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("a").attr("abs:href").trim('/'))
+        title = element.select("img").attr("alt")
+        thumbnail_url = element.select("img").attr("abs:src")
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val location = response.request.url.encodedPath
         return when {
             location.startsWith("/directorio") -> searchAnimeParse(response)
+
             else -> {
                 val document = response.asJsoup()
                 val animes = document.select(homepageAnimesSelector()).map(::homepageAnimesFromElement)
@@ -181,10 +180,12 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
                     addPathSegment("")
                     fragment(dayFilter.toValue())
                 }
+
                 query.isNotBlank() -> {
                     addPathSegment("buscar")
                     addPathSegment(query.replace(" ", "_"))
                 }
+
                 else -> {
                     addPathSegment("directorio")
                     addQueryParameter("p", page.toString())
@@ -415,20 +416,33 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
             when (matched) {
                 // "mega" -> emptyList() // Skip mega server
                 "okru" -> okruExtractor.videosFromUrl(url, lang)
+
                 "voe" -> voeExtractor.videosFromUrl(url, "$lang ")
+
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
+
                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
+
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "$lang ", headers = headers)
+
                 "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
+
                 // Removed StreamWish extractor because it is causing timeout errors and significantly increasing load times.
                 // "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" }) // Use UniversalExtractor
                 "doostream" -> doodExtractor.videosFromUrl(url.replace("d-s.io", "dsvplay.com"), "$lang ${name.ifBlank { "Doodstream" }}")
+
                 "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
+
                 "mediafire" -> jkanimeExtractor.getMediafireFromUrl(url, "$lang ")
+
                 "desuka" -> jkanimeExtractor.getDesukaFromUrl(url, "$lang ")
+
                 "nozomi" -> jkanimeExtractor.getNozomiFromUrl(url, "$lang ")
+
                 "desu" -> jkanimeExtractor.getDesuFromUrl(url, "$lang ")
+
                 "magi" -> jkanimeExtractor.getMagiFromUrl(url, "$lang ")
+
                 else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $name")
             }
         }
@@ -463,13 +477,11 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Por estrenar") -> SAnime.ONGOING
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Concluido") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Por estrenar") -> SAnime.ONGOING
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Concluido") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun getFilterList() = AnimeFilterList(

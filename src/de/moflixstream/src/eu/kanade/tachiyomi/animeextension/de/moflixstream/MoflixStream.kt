@@ -31,7 +31,9 @@ import okhttp3.Headers
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
+class MoflixStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Moflix-Stream"
 
@@ -107,6 +109,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
                     setUrlWithoutDomain(response.request.url.toString())
                 }.let(::listOf)
             }
+
             else -> {
                 val seasonsList = buildList {
                     addAll(seasons.data)
@@ -160,28 +163,32 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
         }.ifEmpty { throw Exception("No videos!") }
     }
 
-    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> {
-        return when {
-            name.contains("Streamtape") && selection.contains("stape") -> {
-                streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
-            }
-            name.contains("Streamvid") && selection.contains("svid") -> {
-                streamvidExtractor.videosFromUrl(url)
-            }
-            name.contains("Highstream") && selection.contains("hstream") -> {
-                streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
-            }
-            name.contains("VidGuard") && selection.contains("vidg") -> {
-                vidguardExtractor.videosFromUrl(url)
-            }
-            name.contains("Filelions") && selection.contains("flions") -> {
-                streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
-            }
-            name.contains("LuluStream") && selection.contains("lstream") -> {
-                luluExtractor.videosFromUrl(url, "LuluStream")
-            }
-            else -> emptyList()
+    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> = when {
+        name.contains("Streamtape") && selection.contains("stape") -> {
+            streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
         }
+
+        name.contains("Streamvid") && selection.contains("svid") -> {
+            streamvidExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Highstream") && selection.contains("hstream") -> {
+            streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
+        }
+
+        name.contains("VidGuard") && selection.contains("vidg") -> {
+            vidguardExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Filelions") && selection.contains("flions") -> {
+            streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
+        }
+
+        name.contains("LuluStream") && selection.contains("lstream") -> {
+            luluExtractor.videosFromUrl(url, "LuluStream")
+        }
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {

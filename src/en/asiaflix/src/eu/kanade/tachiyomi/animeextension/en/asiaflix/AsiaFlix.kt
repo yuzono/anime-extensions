@@ -39,7 +39,9 @@ import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 import kotlin.math.min
 
-class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
+class AsiaFlix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AsiaFlix"
 
@@ -93,12 +95,10 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
     // =============================== Search ===============================
     private lateinit var searchEntries: SearchDto
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (page == 1) {
-            super.getSearchAnime(page, query, filters)
-        } else {
-            paginatedSearchParse(page)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (page == 1) {
+        super.getSearchAnime(page, query, filters)
+    } else {
+        paginatedSearchParse(page)
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -130,13 +130,9 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         return "$baseUrl/show-details/$slug/${anime.url}"
     }
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET("$apiUrl/drama?id=${anime.url}", apiHeaders)
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/drama?id=${anime.url}", apiHeaders)
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        return response.parseAs<DetailsResponseDto>().toSAnime()
-    }
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<DetailsResponseDto>().toSAnime()
 
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime) = animeDetailsRequest(anime)
@@ -162,9 +158,7 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             .source
     }
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET(streamHead + episode.url, headers)
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET(streamHead + episode.url, headers)
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -184,16 +178,22 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
                 hostUrl.contains("dwish") -> {
                     streamWishExtractor.videosFromUrl(hostUrl)
                 }
+
                 hostUrl.contains("dood") -> {
                     doodStreamExtractor.videosFromUrl(hostUrl)
                 }
+
                 hostUrl.contains("streamtape") -> {
                     streamTapeExtractor.videoFromUrl(hostUrl).let(::listOfNotNull)
                 }
+
                 hostUrl.contains("mixdrop") -> {
                     mixDropExtractor.videoFromUrl(hostUrl)
                 }
-                else -> { emptyList() }
+
+                else -> {
+                    emptyList()
+                }
             }
         }.toMutableList()
 
@@ -256,8 +256,7 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================ Utilities =============================
 
-    private inline fun <reified T> JsonElement.parseAs(): T =
-        json.decodeFromJsonElement(this)
+    private inline fun <reified T> JsonElement.parseAs(): T = json.decodeFromJsonElement(this)
 
     companion object {
         private const val LIMIT = 20

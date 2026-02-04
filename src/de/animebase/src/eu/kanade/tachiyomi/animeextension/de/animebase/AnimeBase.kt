@@ -24,7 +24,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBase :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Base"
 
@@ -99,6 +101,7 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 val animes = doc.select(searchAnimeSelector()).map(::searchAnimeFromElement)
                 AnimesPage(animes, false)
             }
+
             else -> { // pages like filmlist or animelist
                 val animes = doc.select(popularAnimeSelector()).map(::popularAnimeFromElement)
                 val hasNext = doc.selectFirst(searchAnimeNextPageSelector()) != null
@@ -141,18 +144,16 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(selector: String) =
-        selectFirst("strong:contains($selector) + p")?.text()?.trim()
+    private fun Element.getInfo(selector: String) = selectFirst("strong:contains($selector) + p")?.text()?.trim()
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).sortedWith(
-            compareBy(
-                { it.name.startsWith("Film ") },
-                { it.name.startsWith("Special ") },
-                { it.episode_number },
-            ),
-        ).reversed()
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).sortedWith(
+        compareBy(
+            { it.name.startsWith("Film ") },
+            { it.name.startsWith("Special ") },
+            { it.episode_number },
+        ),
+    ).reversed()
 
     override fun episodeListSelector() = "div.tab-content > div > div.panel"
 

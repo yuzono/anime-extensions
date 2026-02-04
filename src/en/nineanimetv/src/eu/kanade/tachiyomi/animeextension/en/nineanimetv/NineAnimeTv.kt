@@ -12,46 +12,44 @@ import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class NineAnimeTv : ZoroTheme(
-    "en",
-    "9AnimeTV",
-    "https://9animetv.to",
-    hosterNames = listOf(
-        "DouVideo",
-        "Vidstreaming",
-        "Vidcloud",
-    ),
-) {
+class NineAnimeTv :
+    ZoroTheme(
+        "en",
+        "9AnimeTV",
+        "https://9animetv.to",
+        hosterNames = listOf(
+            "DouVideo",
+            "Vidstreaming",
+            "Vidcloud",
+        ),
+    ) {
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/recently-updated?page=$page", docHeaders)
 
     override fun popularAnimeNextPageSelector() = ".anime-pagination div.ap__-btn-next a:not(.disabled)"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        if (page == 1) {
-            GET("$baseUrl/home", docHeaders)
-        } else {
-            super.popularAnimeRequest(page - 1)
-        }
+    override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
+        GET("$baseUrl/home", docHeaders)
+    } else {
+        super.popularAnimeRequest(page - 1)
+    }
 
     private val topViewSelector = "#top-viewed-month li, #top-viewed-week li, #top-viewed-day li"
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
-        return client.newCall(popularAnimeRequest(page))
-            .awaitSuccess()
-            .use { response ->
-                if (page == 1) {
-                    val document = response.asJsoup()
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.newCall(popularAnimeRequest(page))
+        .awaitSuccess()
+        .use { response ->
+            if (page == 1) {
+                val document = response.asJsoup()
 
-                    val animes = document.select(topViewSelector).map { element ->
-                        popularAnimeFromElement(element)
-                    }
-
-                    AnimesPage(animes, true)
-                } else {
-                    popularAnimeParse(response)
+                val animes = document.select(topViewSelector).map { element ->
+                    popularAnimeFromElement(element)
                 }
+
+                AnimesPage(animes, true)
+            } else {
+                popularAnimeParse(response)
             }
-    }
+        }
 
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         thumbnail_url = document.selectFirst("div.anime-poster img")!!.attr("src")
@@ -93,10 +91,8 @@ class NineAnimeTv : ZoroTheme(
 
     private val rapidCloudExtractor by lazy { RapidCloudExtractor(client, headers, preferences) }
 
-    override fun extractVideo(server: VideoData): List<Video> {
-        return when (server.name) {
-            "DouVideo", "Vidstreaming", "Vidcloud" -> rapidCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
-            else -> emptyList()
-        }
+    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+        "DouVideo", "Vidstreaming", "Vidcloud" -> rapidCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
+        else -> emptyList()
     }
 }

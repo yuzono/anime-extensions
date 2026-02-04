@@ -29,15 +29,14 @@ inline fun AnimeHttpSource.getPreferences(
  * Lazily returns the [SharedPreferences] associated with current source id
  */
 inline fun AnimeHttpSource.getPreferencesLazy(
-    crossinline migration: SharedPreferences.() -> Unit = { }
+    crossinline migration: SharedPreferences.() -> Unit = { },
 ) = lazy { getPreferences(migration) }
 
 /**
  * Returns the [SharedPreferences] associated with passed source id
  */
 @Suppress("NOTHING_TO_INLINE")
-inline fun getPreferences(sourceId: Long): SharedPreferences =
-    Injekt.get<Application>().getSharedPreferences("source_$sourceId", 0x0000)
+inline fun getPreferences(sourceId: Long): SharedPreferences = Injekt.get<Application>().getSharedPreferences("source_$sourceId", 0x0000)
 
 // From https://al-e-shevelev.medium.com/mutable-lazy-in-kotlin-14233bed116d
 class LazyMutable<T>(
@@ -94,7 +93,8 @@ class PreferenceDelegate<T>(
          * The synchronized(this) is not necessary here and may actually cause performance issues.
          * The getValue method only performs read operations on SharedPreferences, which are already thread-safe in Android.
          */
-        return /* KMK --> synchronized(this) { KMK <-- */ try {
+        // KMK: return synchronized(this) { try {
+        return try {
             when (default) {
                 is String -> preferences.getString(key, default) as T
                 is Int -> preferences.getInt(key, default) as T
@@ -105,7 +105,9 @@ class PreferenceDelegate<T>(
                 null -> preferences.all[key] as T
                 else -> throw IllegalArgumentException("Unsupported type: ${default.javaClass}")
             }
-        } catch (_: ClassCastException) { default }
+        } catch (_: ClassCastException) {
+            default
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -137,8 +139,7 @@ class PreferenceDelegate<T>(
  * @param default Default value for preference, can be `null` for `String?` or `Set<String>?`.
  * Should be explicitly casted such as `null as String?`.
  */
-fun <T> SharedPreferences.delegate(key: String, default: T) =
-    PreferenceDelegate(this, key, default)
+fun <T> SharedPreferences.delegate(key: String, default: T) = PreferenceDelegate(this, key, default)
 
 private const val RESTART_MESSAGE = "Restart the app to apply the new setting."
 
@@ -173,56 +174,54 @@ fun PreferenceScreen.getEditTextPreference(
     enabled: Boolean = true,
     onChange: (Preference, String) -> Boolean = { _, _ -> true },
     onComplete: (String) -> Unit = {},
-): EditTextPreference {
-    return EditTextPreference(context).apply {
-        this.key = key
-        this.title = title
-        this.summary = summary
-        this.setDefaultValue(default)
-        this.dialogTitle = title
-        this.dialogMessage = dialogMessage
-        this.setEnabled(enabled)
+): EditTextPreference = EditTextPreference(context).apply {
+    this.key = key
+    this.title = title
+    this.summary = summary
+    this.setDefaultValue(default)
+    this.dialogTitle = title
+    this.dialogMessage = dialogMessage
+    this.setEnabled(enabled)
 
-        setOnBindEditTextListener { editText ->
-            if (inputType != null) {
-                editText.inputType = inputType
-            }
-
-            if (validate != null) {
-                editText.addTextChangedListener(
-                    object : TextWatcher {
-                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-
-                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-
-                        override fun afterTextChanged(editable: Editable?) {
-                            requireNotNull(editable)
-
-                            val text = editable.toString()
-                            val isValid = text.isBlank() || validate(text)
-
-                            editText.error = if (!isValid) validationMessage?.invoke(text) else null
-                            editText.rootView.findViewById<Button>(android.R.id.button1)
-                                ?.isEnabled = editText.error == null
-                        }
-                    },
-                )
-            }
+    setOnBindEditTextListener { editText ->
+        if (inputType != null) {
+            editText.inputType = inputType
         }
 
-        setOnPreferenceChangeListener { pref, newValue ->
-            val value = newValue as String
-            val isValid = onChange(pref, value)
-            if (isValid) {
-                if (restartRequired) {
-                    Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
-                }
+        if (validate != null) {
+            editText.addTextChangedListener(
+                object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
-                this.summary = getSummary(value)
-                onComplete(value)
-            }
-            isValid
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+
+                    override fun afterTextChanged(editable: Editable?) {
+                        requireNotNull(editable)
+
+                        val text = editable.toString()
+                        val isValid = text.isBlank() || validate(text)
+
+                        editText.error = if (!isValid) validationMessage?.invoke(text) else null
+                        editText.rootView.findViewById<Button>(android.R.id.button1)
+                            ?.isEnabled = editText.error == null
+                    }
+                },
+            )
         }
+    }
+
+    setOnPreferenceChangeListener { pref, newValue ->
+        val value = newValue as String
+        val isValid = onChange(pref, value)
+        if (isValid) {
+            if (restartRequired) {
+                Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
+            }
+
+            this.summary = getSummary(value)
+            onComplete(value)
+        }
+        isValid
     }
 }
 
@@ -300,27 +299,25 @@ fun PreferenceScreen.getListPreference(
     enabled: Boolean = true,
     onChange: (Preference, String) -> Boolean = { _, _ -> true },
     onComplete: (String) -> Unit = {},
-): ListPreference {
-    return ListPreference(context).apply {
-        this.key = key
-        this.title = title
-        this.summary = summary
-        this.entries = entries.toTypedArray()
-        this.entryValues = entryValues.toTypedArray()
+): ListPreference = ListPreference(context).apply {
+    this.key = key
+    this.title = title
+    this.summary = summary
+    this.entries = entries.toTypedArray()
+    this.entryValues = entryValues.toTypedArray()
 
-        setDefaultValue(default)
-        setEnabled(enabled)
-        setOnPreferenceChangeListener { pref, newValue ->
-            val value = newValue as String
-            val isValid = onChange(pref, value)
-            if (isValid) {
-                if (restartRequired) {
-                    Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
-                }
-                onComplete(value)
+    setDefaultValue(default)
+    setEnabled(enabled)
+    setOnPreferenceChangeListener { pref, newValue ->
+        val value = newValue as String
+        val isValid = onChange(pref, value)
+        if (isValid) {
+            if (restartRequired) {
+                Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
             }
-            isValid
+            onComplete(value)
         }
+        isValid
     }
 }
 
@@ -389,28 +386,26 @@ fun PreferenceScreen.getSetPreference(
     enabled: Boolean = true,
     onChange: (Preference, Set<String>) -> Boolean = { _, _ -> true },
     onComplete: (Set<String>) -> Unit = {},
-): MultiSelectListPreference {
-    return MultiSelectListPreference(context).apply {
-        this.key = key
-        this.title = title
-        this.summary = summary
-        this.entries = entries.toTypedArray()
-        this.entryValues = entryValues.toTypedArray()
-        setDefaultValue(default)
-        setEnabled(enabled)
+): MultiSelectListPreference = MultiSelectListPreference(context).apply {
+    this.key = key
+    this.title = title
+    this.summary = summary
+    this.entries = entries.toTypedArray()
+    this.entryValues = entryValues.toTypedArray()
+    setDefaultValue(default)
+    setEnabled(enabled)
 
-        setOnPreferenceChangeListener { pref, newValues ->
-            @Suppress("UNCHECKED_CAST")
-            val values = newValues as Set<String>
-            val isValid = onChange(pref, values)
-            if (isValid) {
-                if (restartRequired) {
-                    Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
-                }
-                onComplete(values)
+    setOnPreferenceChangeListener { pref, newValues ->
+        @Suppress("UNCHECKED_CAST")
+        val values = newValues as Set<String>
+        val isValid = onChange(pref, values)
+        if (isValid) {
+            if (restartRequired) {
+                Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
             }
-            isValid
+            onComplete(values)
         }
+        isValid
     }
 }
 
@@ -475,25 +470,23 @@ fun PreferenceScreen.getSwitchPreference(
     enabled: Boolean = true,
     onChange: (Preference, Boolean) -> Boolean = { _, _ -> true },
     onComplete: (Boolean) -> Unit = {},
-): SwitchPreferenceCompat {
-    return SwitchPreferenceCompat(context).apply {
-        this.key = key
-        this.title = title
-        this.summary = summary
-        setDefaultValue(default)
-        setEnabled(enabled)
+): SwitchPreferenceCompat = SwitchPreferenceCompat(context).apply {
+    this.key = key
+    this.title = title
+    this.summary = summary
+    setDefaultValue(default)
+    setEnabled(enabled)
 
-        setOnPreferenceChangeListener { pref, newValue ->
-            val value = newValue as Boolean
-            val isValid = onChange(pref, value)
-            if (isValid) {
-                if (restartRequired) {
-                    Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
-                }
-                onComplete(value)
+    setOnPreferenceChangeListener { pref, newValue ->
+        val value = newValue as Boolean
+        val isValid = onChange(pref, value)
+        if (isValid) {
+            if (restartRequired) {
+                Toast.makeText(context, RESTART_MESSAGE, Toast.LENGTH_LONG).show()
             }
-            isValid
+            onComplete(value)
         }
+        isValid
     }
 }
 
