@@ -163,12 +163,6 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
          *
          */
         return masterPlaylist.substringAfter(PLAYLIST_SEPARATOR).split(PLAYLIST_SEPARATOR).mapNotNull { stream ->
-            val codec = CODECS_REGEX.find(stream)?.groupValues?.get(1)
-            if (!codec.isNullOrBlank()) {
-                // FIXME: Why skip mp4a?
-                if (codec.startsWith("mp4a")) return@mapNotNull null
-            }
-
             val resolution = RESOLUTION_REGEX.find(stream)
                 ?.groupValues?.get(1)
                 ?.let { resolution ->
