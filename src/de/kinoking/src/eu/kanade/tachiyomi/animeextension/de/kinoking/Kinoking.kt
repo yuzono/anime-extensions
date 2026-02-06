@@ -13,11 +13,12 @@ import okhttp3.FormBody
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Kinoking : DooPlay(
-    "de",
-    "Kinoking",
-    "https://kinoking.cc",
-) {
+class Kinoking :
+    DooPlay(
+        "de",
+        "Kinoking",
+        "https://kinoking.cc",
+    ) {
     companion object {
         private const val PREF_HOSTER_KEY = "preferred_hoster"
         private const val PREF_HOSTER_TITLE = "Standard-Hoster"
@@ -44,13 +45,12 @@ class Kinoking : DooPlay(
     // ============================== Episodes ==============================
     // Little workaround to show season episode names like the original extension
     // TODO: Create a "getEpisodeName(element, seasonName)" function in DooPlay class
-    override fun episodeFromElement(element: Element, seasonName: String) =
-        super.episodeFromElement(element, seasonName).apply {
-            val substring = name.substringBefore(" -")
-            val newString = substring.replace("Season", "Staffel")
-                .replace("x", "Folge")
-            name = name.replace("$substring -", "$newString :")
-        }
+    override fun episodeFromElement(element: Element, seasonName: String) = super.episodeFromElement(element, seasonName).apply {
+        val substring = name.substringBefore(" -")
+        val newString = substring.replace("Season", "Staffel")
+            .replace("x", "Folge")
+        name = name.replace("$substring -", "$newString :")
+    }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -84,22 +84,23 @@ class Kinoking : DooPlay(
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun getPlayerVideos(link: String, element: Element, hosterSelection: Set<String>): List<Video> {
-        return when {
-            link.contains("https://dood") && hosterSelection.contains("dood") -> {
-                val quality = "Doodstream"
-                val redirect = !link.contains("https://doodstream")
-                doodExtractor.videosFromUrl(link, quality, redirect)
-            }
-            link.contains("https://voe.sx") && hosterSelection.contains("voe") -> {
-                voeExtractor.videosFromUrl(link)
-            }
-            link.contains("filehosted") && hosterSelection.contains("filehosted") -> {
-                listOf(Video(link, "Filehosted", link))
-            }
-            else -> null
-        }.orEmpty()
-    }
+    private fun getPlayerVideos(link: String, element: Element, hosterSelection: Set<String>): List<Video> = when {
+        link.contains("https://dood") && hosterSelection.contains("dood") -> {
+            val quality = "Doodstream"
+            val redirect = !link.contains("https://doodstream")
+            doodExtractor.videosFromUrl(link, quality, redirect)
+        }
+
+        link.contains("https://voe.sx") && hosterSelection.contains("voe") -> {
+            voeExtractor.videosFromUrl(link)
+        }
+
+        link.contains("filehosted") && hosterSelection.contains("filehosted") -> {
+            listOf(Video(link, "Filehosted", link))
+        }
+
+        else -> null
+    }.orEmpty()
 
     // ============================== Settings ==============================
     @Suppress("UNCHECKED_CAST")

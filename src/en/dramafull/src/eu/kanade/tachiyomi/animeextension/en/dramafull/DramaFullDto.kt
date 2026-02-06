@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.dramafull
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import extensions.utils.UrlUtils
+import keiyoushi.utils.UrlUtils
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -23,12 +23,10 @@ data class DramaDto(
     @SerialName("image")
     val thumbnail: String?,
 ) {
-    fun toSAnime(baseUrl: String): SAnime {
-        return SAnime.create().apply {
-            url = "/film/$slug"
-            title = name
-            thumbnail_url = thumbnail?.let { UrlUtils.fixUrl(it, baseUrl) }
-        }
+    fun toSAnime(baseUrl: String): SAnime = SAnime.create().apply {
+        url = "/film/$slug"
+        title = name
+        thumbnail_url = thumbnail?.let { UrlUtils.fixUrl(it, baseUrl) }
     }
 }
 

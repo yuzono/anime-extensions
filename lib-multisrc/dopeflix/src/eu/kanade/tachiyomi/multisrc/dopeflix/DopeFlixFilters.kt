@@ -19,35 +19,31 @@ object DopeFlixFilters {
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .joinToString("-") { it.ifBlank { "all" } }
-    }
+    ): String = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .joinToString("-") { it.ifBlank { "all" } }
 
     class TypeFilter : QueryPartFilter("Type", DopeFlixFiltersData.TYPES)
     class QualityFilter : QueryPartFilter("Quality", DopeFlixFiltersData.QUALITIES)
     class ReleaseYearFilter : QueryPartFilter("Released at", DopeFlixFiltersData.YEARS)
 
-    class GenresFilter : CheckBoxFilterList(
-        "Genres",
-        DopeFlixFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
-    class CountriesFilter : CheckBoxFilterList(
-        "Countries",
-        DopeFlixFiltersData.COUNTRIES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Genres",
+            DopeFlixFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
+    class CountriesFilter :
+        CheckBoxFilterList(
+            "Countries",
+            DopeFlixFiltersData.COUNTRIES.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TypeFilter(),

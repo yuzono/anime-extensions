@@ -35,11 +35,12 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class SoloLatino : DooPlay(
-    "es",
-    "SoloLatino",
-    "https://sololatino.net",
-) {
+class SoloLatino :
+    DooPlay(
+        "es",
+        "SoloLatino",
+        "https://sololatino.net",
+    ) {
     private val json by lazy { Json { ignoreUnknownKeys = true } }
 
     // ============================== Popular ===============================
@@ -53,14 +54,12 @@ class SoloLatino : DooPlay(
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            val img = element.selectFirst("img")!!
-            val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
-            setUrlWithoutDomain(url)
-            title = img.attr("alt")
-            thumbnail_url = img.attr("data-srcset")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        val img = element.selectFirst("img")!!
+        val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
+        setUrlWithoutDomain(url)
+        title = img.attr("alt")
+        thumbnail_url = img.attr("data-srcset")
     }
 
     override fun popularAnimeNextPageSelector(): String = "div.pagMovidy a"
@@ -91,21 +90,19 @@ class SoloLatino : DooPlay(
 
     override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
-    override fun episodeFromElement(element: Element, seasonName: String): SEpisode {
-        return SEpisode.create().apply {
-            val epNum = element.selectFirst("div.numerando")?.text()
-                ?.trim()
-                ?.let { episodeNumberRegex.find(it)?.groupValues?.last() } ?: "0"
+    override fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
+        val epNum = element.selectFirst("div.numerando")?.text()
+            ?.trim()
+            ?.let { episodeNumberRegex.find(it)?.groupValues?.last() } ?: "0"
 
-            val href = element.selectFirst("a[href]")!!.attr("href")
-            val episodeName = element.selectFirst("div.epst")?.text() ?: "Sin título"
+        val href = element.selectFirst("a[href]")!!.attr("href")
+        val episodeName = element.selectFirst("div.epst")?.text() ?: "Sin título"
 
-            episode_number = epNum.toFloatOrNull() ?: 0F
-            date_upload = element.selectFirst("span.date")?.text()?.toDate() ?: 0L
+        episode_number = epNum.toFloatOrNull() ?: 0F
+        date_upload = element.selectFirst("span.date")?.text()?.toDate() ?: 0L
 
-            name = "T$seasonName - Episodio $epNum: $episodeName"
-            setUrlWithoutDomain(href)
-        }
+        name = "T$seasonName - Episodio $epNum: $episodeName"
+        setUrlWithoutDomain(href)
     }
 
     override fun videoListSelector() = "li.dooplay_player_option"
@@ -135,11 +132,9 @@ class SoloLatino : DooPlay(
         }
     }
 
-    private fun extractVideosSafely(link: String, languageCode: String): List<Video> {
-        return runCatching {
-            extractVideos(link, languageCode)
-        }.onFailure { it.printStackTrace() }.getOrDefault(emptyList())
-    }
+    private fun extractVideosSafely(link: String, languageCode: String): List<Video> = runCatching {
+        extractVideos(link, languageCode)
+    }.onFailure { it.printStackTrace() }.getOrDefault(emptyList())
 
     private suspend fun getLinks(after: (List<Pair<String, String>>) -> Unit, onError: (Throwable) -> Unit, path: String) {
         try {
@@ -171,22 +166,20 @@ class SoloLatino : DooPlay(
         }
     }
 
-    private fun processLinkPage(matchResult: MatchResult, path: String): List<Pair<String, String>> {
-        return try {
-            val postParams = mapOf(
-                "action" to "doo_player_ajax",
-                "post" to (matchResult.groups[2]?.value ?: ""),
-                "nume" to (matchResult.groups[3]?.value ?: ""),
-                "type" to (matchResult.groups[1]?.value ?: ""),
-            )
-            val presp = httpPost("$baseUrl/wp-admin/admin-ajax.php", postParams, path)
-            val iframeUrl = getFirstMatch("""<iframe class='[^']+' src='([^']+)""".toRegex(), presp)
-            val bData = httpGet(iframeUrl)
+    private fun processLinkPage(matchResult: MatchResult, path: String): List<Pair<String, String>> = try {
+        val postParams = mapOf(
+            "action" to "doo_player_ajax",
+            "post" to (matchResult.groups[2]?.value ?: ""),
+            "nume" to (matchResult.groups[3]?.value ?: ""),
+            "type" to (matchResult.groups[1]?.value ?: ""),
+        )
+        val presp = httpPost("$baseUrl/wp-admin/admin-ajax.php", postParams, path)
+        val iframeUrl = getFirstMatch("""<iframe class='[^']+' src='([^']+)""".toRegex(), presp)
+        val bData = httpGet(iframeUrl)
 
-            parseLinks(bData)
-        } catch (e: Exception) {
-            emptyList()
-        }
+        parseLinks(bData)
+    } catch (e: Exception) {
+        emptyList()
     }
 
     private fun handleEmptyLinks(result: String, links: MutableList<Pair<String, String>>) {
@@ -233,13 +226,9 @@ class SoloLatino : DooPlay(
         }
     }
 
-    private fun httpGet(url: String): String {
-        return httpRequest(url, "GET")
-    }
+    private fun httpGet(url: String): String = httpRequest(url, "GET")
 
-    private fun httpPost(url: String, params: Map<String, String>, referer: String): String {
-        return httpRequest(url, "POST", params, referer)
-    }
+    private fun httpPost(url: String, params: Map<String, String>, referer: String): String = httpRequest(url, "POST", params, referer)
 
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -279,9 +268,7 @@ class SoloLatino : DooPlay(
         "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
     )
 
-    private fun getFirstMatch(regex: Regex, input: String): String {
-        return regex.find(input)?.groupValues?.get(1) ?: ""
-    }
+    private fun getFirstMatch(regex: Regex, input: String): String = regex.find(input)?.groupValues?.get(1) ?: ""
 
     private fun parseLinks(htmlContent: String): List<Pair<String, String>> {
         val links = mutableListOf<Pair<String, String>>()
@@ -335,9 +322,7 @@ class SoloLatino : DooPlay(
         return links.ifEmpty { null }
     }
 
-    private fun extractPlayerLink(onclickAttr: String, pattern: String): String? {
-        return pattern.toRegex().find(onclickAttr)?.groupValues?.get(1)
-    }
+    private fun extractPlayerLink(onclickAttr: String, pattern: String): String? = pattern.toRegex().find(onclickAttr)?.groupValues?.get(1)
 
     // ============================== Filters ===============================
     override val fetchGenres = false
@@ -361,8 +346,11 @@ class SoloLatino : DooPlay(
                     else -> "/genres/${params.genre}"
                 }
             }
+
             params.platform.isNotBlank() -> "/network/${params.platform}"
+
             params.year.isNotBlank() -> "/year/${params.year}"
+
             else -> buildString {
                 append(
                     when {
@@ -479,14 +467,12 @@ class SoloLatino : DooPlay(
 
     // ============================= Utilities ==============================
 
-    override fun String.toDate(): Long {
-        return try {
-            val dateFormat = SimpleDateFormat("MMM. dd, yyyy", Locale.ENGLISH)
-            val date = dateFormat.parse(this)
-            date?.time ?: 0L
-        } catch (e: Exception) {
-            0L
-        }
+    override fun String.toDate(): Long = try {
+        val dateFormat = SimpleDateFormat("MMM. dd, yyyy", Locale.ENGLISH)
+        val date = dateFormat.parse(this)
+        date?.time ?: 0L
+    } catch (e: Exception) {
+        0L
     }
 
     override fun List<Video>.sort(): List<Video> {

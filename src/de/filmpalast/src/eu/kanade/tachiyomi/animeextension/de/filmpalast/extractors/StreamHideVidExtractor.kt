@@ -24,6 +24,7 @@ class StreamHideVidExtractor(private val client: OkHttpClient) {
             val subUrl = when {
                 !urlPart.startsWith("https:") ->
                     playlistUrl.substringBeforeLast("/") + "/$urlPart"
+
                 else -> urlPart
             }
             Track(subUrl, it.groupValues[1])

@@ -17,14 +17,16 @@ import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Calendar
 
-class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AsiaLiveAction :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AsiaLiveAction"
 
@@ -90,27 +92,25 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun episodeListSelector() = "#ep-list div.TPTblCn span a, #ep-list div.TPTblCn .accordion"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return if (element.attr("class").contains("accordion")) {
-            val epNum = getNumberFromEpsString(element.select("label span").text())
-            SEpisode.create().apply {
-                name = element.select("label span").text().trim()
-                episode_number = when {
-                    epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                    else -> 1F
-                }
-                setUrlWithoutDomain(element.selectFirst("ul li a")?.attr("abs:href")!!)
+    override fun episodeFromElement(element: Element): SEpisode = if (element.attr("class").contains("accordion")) {
+        val epNum = getNumberFromEpsString(element.select("label span").text())
+        SEpisode.create().apply {
+            name = element.select("label span").text().trim()
+            episode_number = when {
+                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+                else -> 1F
             }
-        } else {
-            val epNum = getNumberFromEpsString(element.select("div.flex-grow-1 p").text())
-            SEpisode.create().apply {
-                setUrlWithoutDomain(element.attr("abs:href"))
-                episode_number = when {
-                    epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                    else -> 1F
-                }
-                name = element.select("div.flex-grow-1 p").text().trim()
+            setUrlWithoutDomain(element.selectFirst("ul li a")?.attr("abs:href")!!)
+        }
+    } else {
+        val epNum = getNumberFromEpsString(element.select("div.flex-grow-1 p").text())
+        SEpisode.create().apply {
+            setUrlWithoutDomain(element.attr("abs:href"))
+            episode_number = when {
+                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+                else -> 1F
             }
+            name = element.select("div.flex-grow-1 p").text().trim()
         }
     }
 
@@ -140,11 +140,17 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private fun serverVideoResolver(url: String): List<Video> {
         return when {
             arrayOf("vk").any(url) -> vkExtractor.videosFromUrl(url)
+
             arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
+
             arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+
             arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+
             arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
+
             arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
             !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
                 val body = client.newCall(GET(url)).execute().asJsoup()
                 return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
@@ -162,6 +168,7 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     emptyList()
                 }
             }
+
             else -> emptyList()
         }
     }
@@ -200,35 +207,35 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", "all"),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Comedia", "comedia"),
-            Pair("Drama", "drama"),
-            Pair("Deporte", "deporte"),
-            Pair("Erótico", "erotico"),
-            Pair("Escolar", "escolar"),
-            Pair("Extraterrestres", "extraterrestres"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Histórico", "historico"),
-            Pair("Horror", "horror"),
-            Pair("Lucha", "lucha"),
-            Pair("Misterio", "misterio"),
-            Pair("Música", "musica"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Romance", "romance"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Yaoi / BL", "yaoi-bl"),
-            Pair("Yuri / GL", "yuri-gl"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", "all"),
+                Pair("Acción", "accion"),
+                Pair("Aventura", "aventura"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"),
+                Pair("Drama", "drama"),
+                Pair("Deporte", "deporte"),
+                Pair("Erótico", "erotico"),
+                Pair("Escolar", "escolar"),
+                Pair("Extraterrestres", "extraterrestres"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Histórico", "historico"),
+                Pair("Horror", "horror"),
+                Pair("Lucha", "lucha"),
+                Pair("Misterio", "misterio"),
+                Pair("Música", "musica"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Romance", "romance"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Yaoi / BL", "yaoi-bl"),
+                Pair("Yuri / GL", "yuri-gl"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

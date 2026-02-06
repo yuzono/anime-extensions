@@ -150,7 +150,9 @@ data class SingleShowResponse(
                     append("\n").append(intl["quality"]).append(": $quality")
                     runtime?.let { append(" - ").append(intl["run_time"]).append(": ${it}m") }
                     release_date?.let { append("\n").append(intl["release_date"]).append(": $it") }
-                    if (parsedStatus == SAnime.UNKNOWN) { append("\n").append(intl["status"]).append(": ${this@ShowObject.status}") }
+                    if (parsedStatus == SAnime.UNKNOWN) {
+                        append("\n").append(intl["status"]).append(": ${this@ShowObject.status}")
+                    }
                     age?.let { append("\n").append(intl["rating"]).append(": $it+") }
                     main_actors.joinToString { it.name }
                         .let { if (it.isNotBlank()) append("\n\n").append(intl["cast"]).append(": $it\n") }

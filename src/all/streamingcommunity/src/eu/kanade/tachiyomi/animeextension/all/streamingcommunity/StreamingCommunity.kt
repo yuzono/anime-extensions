@@ -26,11 +26,11 @@ import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.LazyMutable
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -46,7 +46,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 
-class StreamingCommunity(override val lang: String, private val showType: String) : ConfigurableAnimeSource, AnimeHttpSource() {
+class StreamingCommunity(override val lang: String, private val showType: String) :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "StreamingUnity (${showType.replaceFirstChar { it.uppercaseChar() }})"
 
@@ -133,13 +135,13 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return when (page) {
-            1 -> GET("$apiUrl/browse/top10?lang=$lang&type=$showType", apiHeaders)
-            2 -> GET("$apiUrl/browse/trending?lang=$lang&type=$showType", apiHeaders)
-            else ->
-                GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=views&type=$showType", apiHeaders)
-        }
+    override fun popularAnimeRequest(page: Int): Request = when (page) {
+        1 -> GET("$apiUrl/browse/top10?lang=$lang&type=$showType", apiHeaders)
+
+        2 -> GET("$apiUrl/browse/trending?lang=$lang&type=$showType", apiHeaders)
+
+        else ->
+            GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=views&type=$showType", apiHeaders)
     }
 
     private var imageCdn = "https://cdn.${baseUrl.toHttpUrl().host}/images/"
@@ -165,16 +167,15 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return when (page) {
-            in 1..2 -> if (showType == "movie") {
-                GET("$apiUrl/browse/latest?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
-            } else {
-                GET("$apiUrl/browse/new-episodes?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
-            }
-            else ->
-                GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=created_at&type=$showType", apiHeaders)
+    override fun latestUpdatesRequest(page: Int): Request = when (page) {
+        in 1..2 -> if (showType == "movie") {
+            GET("$apiUrl/browse/latest?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
+        } else {
+            GET("$apiUrl/browse/new-episodes?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
         }
+
+        else ->
+            GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=created_at&type=$showType", apiHeaders)
     }
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
@@ -334,10 +335,13 @@ class StreamingCommunity(override val lang: String, private val showType: String
             val episodeIntl = intl["episode"]
 
             // Concurrently fetch episode data for all seasons
-            val allSeasonEpisodes = runBlocking { // Bridge to coroutine world
-                coroutineScope { // Create a scope for structured concurrency
+            val allSeasonEpisodes = runBlocking {
+                // Bridge to coroutine world
+                coroutineScope {
+                    // Create a scope for structured concurrency
                     data.title.seasons.map { season ->
-                        async { // Launch each season fetch asynchronously
+                        async {
+                            // Launch each season fetch asynchronously
                             val episodes = if (season.id == data.loadedSeason.id) {
                                 data.loadedSeason.episodes
                             } else {
@@ -393,6 +397,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val url = episode.url
         return when {
             url.startsWith("https://") -> vixCloudExtractor(url)
+
             else -> {
                 val iframeUrl = client.newCall(
                     GET("$baseUrl/iframe/$url", headers),
@@ -444,15 +449,13 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // ============================= Utilities ==============================
 
-    private fun Response.getData(): String {
-        return if (headers["content-type"]?.contains("application/json") == true) {
-            body.string()
-        } else {
-            asJsoup().selectFirst("div#app[data-page]")
-                ?.attr("data-page")
-                ?.replace("&quot;", "\"")
-                ?: error("Failed to extract data-page")
-        }
+    private fun Response.getData(): String = if (headers["content-type"]?.contains("application/json") == true) {
+        body.string()
+    } else {
+        asJsoup().selectFirst("div#app[data-page]")
+            ?.attr("data-page")
+            ?.replace("&quot;", "\"")
+            ?: error("Failed to extract data-page")
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -490,25 +493,19 @@ class StreamingCommunity(override val lang: String, private val showType: String
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
         }
 
-        internal fun parseStatus(statusString: String?): Int {
-            return when (statusString) {
-                "Ended" -> SAnime.COMPLETED
-                "Released" -> SAnime.COMPLETED
-                "Returning Series" -> SAnime.ONGOING
-                "Canceled" -> SAnime.CANCELLED
-                else -> SAnime.UNKNOWN
-            }
+        internal fun parseStatus(statusString: String?): Int = when (statusString) {
+            "Ended" -> SAnime.COMPLETED
+            "Released" -> SAnime.COMPLETED
+            "Returning Series" -> SAnime.ONGOING
+            "Canceled" -> SAnime.CANCELLED
+            else -> SAnime.UNKNOWN
         }
 
-        private fun parseDateTime(dateStr: String): Long {
-            return runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
-                .getOrNull() ?: 0L
-        }
+        private fun parseDateTime(dateStr: String): Long = runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
+            .getOrNull() ?: 0L
 
-        private fun parseDate(dateStr: String): Long {
-            return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-                .getOrNull() ?: 0L
-        }
+        private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+            .getOrNull() ?: 0L
     }
 
     // ============================== Settings ==============================

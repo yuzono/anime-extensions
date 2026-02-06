@@ -22,7 +22,7 @@ import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -37,7 +37,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class LegionAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "LegionAnime"
 
@@ -59,7 +61,11 @@ class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val jsonResponse = json.decodeFromString<JsonObject>(document.body().text())["response"]!!.jsonObject
         val anime = jsonResponse["anime"]!!.jsonObject
         val studioId = anime["studios"]!!.jsonPrimitive.content.split(",")
-        val studio = try { studioId.map { id -> STUDIOS_MAP.filter { it.value == id.toInt() }.keys.first() } } catch (e: Exception) { emptyList() }
+        val studio = try {
+            studioId.map { id -> STUDIOS_MAP.filter { it.value == id.toInt() }.keys.first() }
+        } catch (e: Exception) {
+            emptyList()
+        }
         val malid = anime["mal_id"]!!.jsonPrimitive.content
         var thumb: String? = null
 
@@ -262,85 +268,95 @@ class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return videoList.filter { it.url.contains("http") }
     }
 
-    private fun parseExtractors(url: String, server: String): List<Video> {
-        return when {
-            url.contains("streamwish") -> StreamWishExtractor(client, headers).videosFromUrl(url, prefix = "StreamWish")
-            url.contains("mediafire") -> {
-                val video = MediaFireExtractor(client).getVideoFromUrl(url, server)
-                if (video != null) {
-                    listOf(video)
-                } else {
-                    emptyList()
-                }
+    private fun parseExtractors(url: String, server: String): List<Video> = when {
+        url.contains("streamwish") -> StreamWishExtractor(client, headers).videosFromUrl(url, prefix = "StreamWish")
+
+        url.contains("mediafire") -> {
+            val video = MediaFireExtractor(client).getVideoFromUrl(url, server)
+            if (video != null) {
+                listOf(video)
+            } else {
+                emptyList()
             }
-            url.contains("streamtape") -> {
-                val video = StreamTapeExtractor(client).videoFromUrl(url, server)
-                if (video != null) {
-                    listOf(video)
-                } else {
-                    emptyList()
-                }
-            }
-            url.contains("jkanime") -> {
-                val video = JkanimeExtractor(client).getDesuFromUrl(url)
-                if (video != null) {
-                    listOf(video)
-                } else {
-                    emptyList()
-                }
-            }
-            url.contains("/stream/amz.php?") -> {
-                try {
-                    val video = JkanimeExtractor(client).amazonExtractor(url)
-                    if (video.isNotBlank()) {
-                        listOf(Video(video, server, video))
-                    } else {
-                        emptyList()
-                    }
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
-            url.contains("yourupload") -> {
-                YourUploadExtractor(client).videoFromUrl(url, headers)
-            }
-            url.contains("mp4upload") -> {
-                Mp4uploadExtractor(client).videosFromUrl(url, headers)
-            }
-            url.contains("dood") -> {
-                try {
-                    val video = DoodExtractor(client).videoFromUrl(url)
-                    if (video != null) {
-                        listOf(video)
-                    } else {
-                        emptyList()
-                    }
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
-            url.contains("ok.ru") -> {
-                OkruExtractor(client).videosFromUrl(url)
-            }
-            url.contains("flvvideo") && (url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
-                if (url.contains("http")) {
-                    listOf(Video(url, "VideoFLV", url))
-                } else {
-                    emptyList()
-                }
-            }
-            url.contains("cdnlat4animecen") && (url.endsWith(".class") || url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
-                if (url.contains("http")) {
-                    listOf(Video(url, "AnimeCen", url))
-                } else {
-                    emptyList()
-                }
-            }
-            url.contains("uqload") -> {
-                UqloadExtractor(client).videosFromUrl(url)
-            }
-            else -> emptyList()
         }
+
+        url.contains("streamtape") -> {
+            val video = StreamTapeExtractor(client).videoFromUrl(url, server)
+            if (video != null) {
+                listOf(video)
+            } else {
+                emptyList()
+            }
+        }
+
+        url.contains("jkanime") -> {
+            val video = JkanimeExtractor(client).getDesuFromUrl(url)
+            if (video != null) {
+                listOf(video)
+            } else {
+                emptyList()
+            }
+        }
+
+        url.contains("/stream/amz.php?") -> {
+            try {
+                val video = JkanimeExtractor(client).amazonExtractor(url)
+                if (video.isNotBlank()) {
+                    listOf(Video(video, server, video))
+                } else {
+                    emptyList()
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        url.contains("yourupload") -> {
+            YourUploadExtractor(client).videoFromUrl(url, headers)
+        }
+
+        url.contains("mp4upload") -> {
+            Mp4uploadExtractor(client).videosFromUrl(url, headers)
+        }
+
+        url.contains("dood") -> {
+            try {
+                val video = DoodExtractor(client).videoFromUrl(url)
+                if (video != null) {
+                    listOf(video)
+                } else {
+                    emptyList()
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        url.contains("ok.ru") -> {
+            OkruExtractor(client).videosFromUrl(url)
+        }
+
+        url.contains("flvvideo") && (url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
+            if (url.contains("http")) {
+                listOf(Video(url, "VideoFLV", url))
+            } else {
+                emptyList()
+            }
+        }
+
+        url.contains("cdnlat4animecen") && (url.endsWith(".class") || url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
+            if (url.contains("http")) {
+                listOf(Video(url, "AnimeCen", url))
+            } else {
+                emptyList()
+            }
+        }
+
+        url.contains("uqload") -> {
+            UqloadExtractor(client).videosFromUrl(url)
+        }
+
+        else -> emptyList()
     }
 
     /* --FilterStuff-- */
@@ -353,32 +369,34 @@ class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ExcludeTagFilter("Excluir Genero", checkboxesFrom(GENRES)),
     )
 
-    private class StateFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Emision", "1"),
-            Pair("Finalizado", "2"),
-            Pair("Proximamente", "3"),
-        ),
-    )
+    private class StateFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Emision", "1"),
+                Pair("Finalizado", "2"),
+                Pair("Proximamente", "3"),
+            ),
+        )
 
-    private class OrderByFilter : UriPartFilter(
-        "Ordenar Por",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Fecha (Menor a Mayor)", "0"),
-            Pair("Recientemente vistos por otros", "1"),
-            Pair("Fecha (Mayor a Menor)", "2"),
-            Pair("A-Z", "3"),
-            Pair("Más Visitado", "4"),
-            Pair("Z-A", "5"),
-            Pair("Mejor Calificación", "6"),
-            Pair("Peor Calificación", "7"),
-            Pair("Últimos Agregados en app", "8"),
-            Pair("Primeros Agregados en app", "9"),
-        ),
-    )
+    private class OrderByFilter :
+        UriPartFilter(
+            "Ordenar Por",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Fecha (Menor a Mayor)", "0"),
+                Pair("Recientemente vistos por otros", "1"),
+                Pair("Fecha (Mayor a Menor)", "2"),
+                Pair("A-Z", "3"),
+                Pair("Más Visitado", "4"),
+                Pair("Z-A", "5"),
+                Pair("Mejor Calificación", "6"),
+                Pair("Peor Calificación", "7"),
+                Pair("Últimos Agregados en app", "8"),
+                Pair("Primeros Agregados en app", "9"),
+            ),
+        )
 
     class TagCheckBox(tag: String) : AnimeFilter.CheckBox(tag, false)
     private fun checkboxesFrom(tagArray: Map<String, Int>): List<TagCheckBox> = tagArray.map { TagCheckBox(it.key) }
@@ -386,8 +404,7 @@ class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     class StudioFilter(name: String, checkBoxes: List<TagCheckBox>) : AnimeFilter.Group<TagCheckBox>(name, checkBoxes)
     class ExcludeTagFilter(name: String, checkBoxes: List<TagCheckBox>) : AnimeFilter.Group<TagCheckBox>(name, checkBoxes)
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -432,10 +449,8 @@ class LegionAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return sortIfContains(quality)
     }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
     companion object {
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH)

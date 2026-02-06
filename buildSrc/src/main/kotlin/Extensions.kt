@@ -7,49 +7,58 @@ var ExtensionAware.baseVersionCode: Int
     get() = extra.get("baseVersionCode") as Int
     set(value) = extra.set("baseVersionCode", value)
 
-fun Project.getDependents(): Set<Project> {
-    val dependentProjects = mutableSetOf<Project>()
+private var reverseDependencyCache: Map<String, Set<Project>>? = null
 
-    rootProject.allprojects.forEach { project ->
-        try {
-            project.configurations.forEach { configuration ->
+fun Project.getDependents(): Set<Project> {
+    if (reverseDependencyCache == null) {
+        reverseDependencyCache = rootProject.allprojects
+            .flatMap { p ->
                 try {
-                    // Only check resolvable configurations that can have dependencies
-                    if (configuration.isCanBeResolved) {
-                        configuration.dependencies.forEach { dependency ->
-                            if (dependency is ProjectDependency && dependency.path == path) {
-                                dependentProjects.add(project)
-                            }
+                    p.configurations.flatMap { config ->
+                        try {
+                            // Only check resolvable configurations that can have dependencies
+                            if (!config.isCanBeResolved) return@flatMap emptyList()
+                            config.dependencies
+                                .filterIsInstance<ProjectDependency>()
+                                .map { dep -> dep.path to p }
+                        } catch (_: Exception) {
+                            // Skip configurations that can't be resolved or accessed
+                            emptyList()
                         }
                     }
-                } catch (e: Exception) {
-                    // Skip configurations that can't be resolved or accessed
+                } catch (_: Exception) {
+                    // Skip projects that can't be processed
+                    emptyList()
                 }
             }
-        } catch (e: Exception) {
-            // Skip projects that can't be processed
-        }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, projects) -> projects.toSet() }
     }
 
-    return dependentProjects
+    return reverseDependencyCache?.get(path).orEmpty()
 }
 
-fun Project.printDependentExtensions() {
+fun Project.printDependentExtensions() =
     printDependentExtensions(mutableSetOf())
-}
 
 private fun Project.printDependentExtensions(visited: MutableSet<String>) {
-    if (path in visited) return
-    visited.add(path)
+    if (!visited.add(this.path)) return
 
     getDependents().forEach { project ->
         when {
-            project.path.startsWith(":src:") ->
+            project.path.startsWith(":src:") -> {
                 println(project.path)
-            project.path.startsWith(":lib-multisrc:") ->
-                project.getDependents().forEach { println(it.path) }
-            project.path.startsWith(":lib:") ->
+            }
+
+            project.path.startsWith(":lib-multisrc:") -> {
+                project.getDependents().forEach {
+                    if (visited.add(it.path)) println(it.path)
+                }
+            }
+
+            project.path.startsWith(":lib:") -> {
                 project.printDependentExtensions(visited)
+            }
         }
     }
 }

@@ -15,11 +15,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class VoirCartoon : DooPlay(
-    "fr",
-    "VoirCartoon",
-    "https://voircartoon.com",
-) {
+class VoirCartoon :
+    DooPlay(
+        "fr",
+        "VoirCartoon",
+        "https://voircartoon.com",
+    ) {
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendance/page/$page/", headers)
 
@@ -31,23 +32,22 @@ class VoirCartoon : DooPlay(
     override val supportsLatest = false
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return when {
-            query.isBlank() -> {
-                val params = VoirCartoonFilters.getSearchParameters(filters)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = when {
+        query.isBlank() -> {
+            val params = VoirCartoonFilters.getSearchParameters(filters)
 
-                val httpUrl = "$baseUrl/filter/page/$page/".toHttpUrl().newBuilder()
-                    .addIfNotBlank("type", params.type)
-                    .addIfNotBlank("genre", params.genre)
-                    .addIfNotBlank("dtyear", params.year)
-                    .addIfNotBlank("status", params.status)
-                    .addIfNotBlank("post_tag", params.age)
-                    .build()
+            val httpUrl = "$baseUrl/filter/page/$page/".toHttpUrl().newBuilder()
+                .addIfNotBlank("type", params.type)
+                .addIfNotBlank("genre", params.genre)
+                .addIfNotBlank("dtyear", params.year)
+                .addIfNotBlank("status", params.status)
+                .addIfNotBlank("post_tag", params.age)
+                .build()
 
-                GET(httpUrl.toString(), headers)
-            }
-            else -> GET("$baseUrl/page/$page/?s=$query", headers)
+            GET(httpUrl.toString(), headers)
         }
+
+        else -> GET("$baseUrl/page/$page/?s=$query", headers)
     }
 
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
@@ -58,20 +58,17 @@ class VoirCartoon : DooPlay(
     override fun getFilterList() = VoirCartoonFilters.FILTER_LIST
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document) =
-        super.animeDetailsParse(document).apply {
-            val statusText = document.selectFirst("div.mvic-info p:contains(Status:) > a[rel]")
-                ?.text()
-                .orEmpty()
-            status = parseStatus(statusText)
-        }
+    override fun animeDetailsParse(document: Document) = super.animeDetailsParse(document).apply {
+        val statusText = document.selectFirst("div.mvic-info p:contains(Status:) > a[rel]")
+            ?.text()
+            .orEmpty()
+        status = parseStatus(statusText)
+    }
 
-    private fun parseStatus(status: String): Int {
-        return when (status) {
-            "Ongoing" -> SAnime.ONGOING
-            "Completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(status: String): Int = when (status) {
+        "Ongoing" -> SAnime.ONGOING
+        "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================

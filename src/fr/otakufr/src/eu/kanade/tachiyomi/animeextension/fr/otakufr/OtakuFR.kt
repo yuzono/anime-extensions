@@ -20,7 +20,7 @@ import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -29,7 +29,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class OtakuFR : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class OtakuFR :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "OtakuFR"
 
@@ -167,19 +169,25 @@ class OtakuFR : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return serversList.parallelCatchingFlatMapBlocking(::getHosterVideos)
     }
 
-    private fun getHosterVideos(host: String): List<Video> {
-        return when {
-            host.startsWith("https://doo") || host.contains("d0000d")
-            -> doodExtractor.videosFromUrl(host, quality = "Doodstream")
-            host.contains("streamwish") -> streamwishExtractor.videosFromUrl(host)
-            host.contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(host)
-            host.contains("vadbam") -> vidbmExtractor.videosFromUrl(host)
-            host.contains("sendvid.com") -> sendvidExtractor.videosFromUrl(host)
-            host.contains("ok.ru") -> okruExtractor.videosFromUrl(host)
-            host.contains("upstream") -> upstreamExtractor.videosFromUrl(host)
-            host.startsWith("https://voe") -> voeExtractor.videosFromUrl(host)
-            else -> emptyList()
-        }
+    private fun getHosterVideos(host: String): List<Video> = when {
+        host.startsWith("https://doo") || host.contains("d0000d")
+        -> doodExtractor.videosFromUrl(host, quality = "Doodstream")
+
+        host.contains("streamwish") -> streamwishExtractor.videosFromUrl(host)
+
+        host.contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(host)
+
+        host.contains("vadbam") -> vidbmExtractor.videosFromUrl(host)
+
+        host.contains("sendvid.com") -> sendvidExtractor.videosFromUrl(host)
+
+        host.contains("ok.ru") -> okruExtractor.videosFromUrl(host)
+
+        host.contains("upstream") -> upstreamExtractor.videosFromUrl(host)
+
+        host.startsWith("https://voe") -> voeExtractor.videosFromUrl(host)
+
+        else -> emptyList()
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -190,21 +198,17 @@ class OtakuFR : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun String.addPage(page: Int): String {
-        return if (page == 1) {
-            this
-        } else {
-            this.toHttpUrl().newBuilder().apply {
-                addPathSegment("page")
-                addPathSegment(page.toString())
-            }.build().toString()
-        }
+    private fun String.addPage(page: Int): String = if (page == 1) {
+        this
+    } else {
+        this.toHttpUrl().newBuilder().apply {
+            addPathSegment("page")
+            addPathSegment(page.toString())
+        }.build().toString()
     }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -219,12 +223,10 @@ class OtakuFR : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "En cours" -> SAnime.ONGOING
-            "Terminé" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "En cours" -> SAnime.ONGOING
+        "Terminé" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     companion object {
@@ -296,65 +298,66 @@ class OtakuFR : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // copy($("div.dropdown-menu > a.dropdown-item").map((i,el) => `Pair("${$(el).text().trim()}", "${$(el).attr('href').trim().slice(18)}")`).get().join(',\n'))
     // on /
-    private class GenreFilter : UriPartFilter(
-        "Genres",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("Action", "/genre/action/"),
-            Pair("Aventure", "/genre/aventure/"),
-            Pair("Comedie", "/genre/comedie/"),
-            Pair("Crime", "/genre/crime/"),
-            Pair("Démons", "/genre/demons/"),
-            Pair("Drame", "/genre/drame/"),
-            Pair("Ecchi", "/genre/ecchi/"),
-            Pair("Espace", "/genre/espace/"),
-            Pair("Fantastique", "/genre/fantastique/"),
-            Pair("Gore", "/genre/gore/"),
-            Pair("Harem", "/genre/harem/"),
-            Pair("Historique", "/genre/historique/"),
-            Pair("Horreur", "/genre/horreur/"),
-            Pair("Isekai", "/genre/isekai/"),
-            Pair("Jeux", "/genre/jeu/"),
-            Pair("L'école", "/genre/lecole/"),
-            Pair("Magical girls", "/genre/magical-girls/"),
-            Pair("Magie", "/genre/magie/"),
-            Pair("Martial Arts", "/genre/martial-arts/"),
-            Pair("Mecha", "/genre/mecha/"),
-            Pair("Militaire", "/genre/militaire/"),
-            Pair("Musique", "/genre/musique/"),
-            Pair("Mysterieux", "/genre/mysterieux/"),
-            Pair("Parodie", "/genre/Parodie/"),
-            Pair("Police", "/genre/police/"),
-            Pair("Psychologique", "/genre/psychologique/"),
-            Pair("Romance", "/genre/romance/"),
-            Pair("Samurai", "/genre/samurai/"),
-            Pair("Sci-Fi", "/genre/sci-fi/"),
-            Pair("Seinen", "/genre/seinen/"),
-            Pair("Shoujo", "/genre/shoujo/"),
-            Pair("Shoujo Ai", "/genre/shoujo-ai/"),
-            Pair("Shounen", "/genre/shounen/"),
-            Pair("Shounen Ai", "/genre/shounen-ai/"),
-            Pair("Sport", "/genre/sport/"),
-            Pair("Super Power", "/genre/super-power/"),
-            Pair("Surnaturel", "/genre/surnaturel/"),
-            Pair("Suspense", "/genre/suspense/"),
-            Pair("Thriller", "/genre/thriller/"),
-            Pair("Tranche de vie", "/genre/tranche-de-vie/"),
-            Pair("Vampire", "/genre/vampire/"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genres",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("Action", "/genre/action/"),
+                Pair("Aventure", "/genre/aventure/"),
+                Pair("Comedie", "/genre/comedie/"),
+                Pair("Crime", "/genre/crime/"),
+                Pair("Démons", "/genre/demons/"),
+                Pair("Drame", "/genre/drame/"),
+                Pair("Ecchi", "/genre/ecchi/"),
+                Pair("Espace", "/genre/espace/"),
+                Pair("Fantastique", "/genre/fantastique/"),
+                Pair("Gore", "/genre/gore/"),
+                Pair("Harem", "/genre/harem/"),
+                Pair("Historique", "/genre/historique/"),
+                Pair("Horreur", "/genre/horreur/"),
+                Pair("Isekai", "/genre/isekai/"),
+                Pair("Jeux", "/genre/jeu/"),
+                Pair("L'école", "/genre/lecole/"),
+                Pair("Magical girls", "/genre/magical-girls/"),
+                Pair("Magie", "/genre/magie/"),
+                Pair("Martial Arts", "/genre/martial-arts/"),
+                Pair("Mecha", "/genre/mecha/"),
+                Pair("Militaire", "/genre/militaire/"),
+                Pair("Musique", "/genre/musique/"),
+                Pair("Mysterieux", "/genre/mysterieux/"),
+                Pair("Parodie", "/genre/Parodie/"),
+                Pair("Police", "/genre/police/"),
+                Pair("Psychologique", "/genre/psychologique/"),
+                Pair("Romance", "/genre/romance/"),
+                Pair("Samurai", "/genre/samurai/"),
+                Pair("Sci-Fi", "/genre/sci-fi/"),
+                Pair("Seinen", "/genre/seinen/"),
+                Pair("Shoujo", "/genre/shoujo/"),
+                Pair("Shoujo Ai", "/genre/shoujo-ai/"),
+                Pair("Shounen", "/genre/shounen/"),
+                Pair("Shounen Ai", "/genre/shounen-ai/"),
+                Pair("Sport", "/genre/sport/"),
+                Pair("Super Power", "/genre/super-power/"),
+                Pair("Surnaturel", "/genre/surnaturel/"),
+                Pair("Suspense", "/genre/suspense/"),
+                Pair("Thriller", "/genre/thriller/"),
+                Pair("Tranche de vie", "/genre/tranche-de-vie/"),
+                Pair("Vampire", "/genre/vampire/"),
+            ),
+        )
 
-    private class SubPageFilter : UriPartFilter(
-        "Sup-page",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("Terminé", "/termine/"),
-            Pair("Film", "/film/"),
-        ),
-    )
+    private class SubPageFilter :
+        UriPartFilter(
+            "Sup-page",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("Terminé", "/termine/"),
+                Pair("Film", "/film/"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 }

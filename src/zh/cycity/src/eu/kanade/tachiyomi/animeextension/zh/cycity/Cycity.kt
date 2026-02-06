@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -24,7 +24,9 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.Calendar
 
-class Cycity : AnimeHttpSource(), ConfigurableAnimeSource {
+class Cycity :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl = "https://www.cycani.org"
     override val name = "次元城动漫"
     override val lang = "zh"
@@ -69,12 +71,12 @@ class Cycity : AnimeHttpSource(), ConfigurableAnimeSource {
      * }
      */
     private fun decrypt(url: String, k1: String, k2: String): String {
-        val MD5 = MessageDigest.getInstance("MD5")
+        val md5 = MessageDigest.getInstance("MD5")
         val prefix = CharArray(k2.length)
         k1.indices.forEach { prefix[k1[it] - '0'] = k2[it] }
         val txt = "${prefix.joinToString("")}YLwJVbXw77pk2eOrAnFdBo2c3mWkLtodMni2wk81GCnP94ZltW"
-        val a = MD5.digest(txt.toByteArray()).joinToString("") { "%02x".format(it) }
-        val ivBytes = a.substring(0, 16).toByteArray(Charsets.UTF_8)
+        val a = md5.digest(txt.toByteArray()).joinToString("") { "%02x".format(it) }
+        val ivBytes = a.take(16).toByteArray(Charsets.UTF_8)
         val keyBytes = a.substring(16).toByteArray(Charsets.UTF_8)
         return CryptoAES.decrypt(url, keyBytes, ivBytes)
     }

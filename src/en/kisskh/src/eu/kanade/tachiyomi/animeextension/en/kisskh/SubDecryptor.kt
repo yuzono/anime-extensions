@@ -88,14 +88,12 @@ class SubDecryptor(private val client: OkHttpClient, private val headers: Header
         return String(cipher.doFinal(encryptedBytes), Charsets.UTF_8)
     }
 
-    private fun IntArray.toByteArray(): ByteArray {
-        return ByteArray(size * 4).also { bytes ->
-            forEachIndexed { index, value ->
-                bytes[index * 4] = (value shr 24).toByte()
-                bytes[index * 4 + 1] = (value shr 16).toByte()
-                bytes[index * 4 + 2] = (value shr 8).toByte()
-                bytes[index * 4 + 3] = value.toByte()
-            }
+    private fun IntArray.toByteArray(): ByteArray = ByteArray(size * 4).also { bytes ->
+        forEachIndexed { index, value ->
+            bytes[index * 4] = (value shr 24).toByte()
+            bytes[index * 4 + 1] = (value shr 16).toByte()
+            bytes[index * 4 + 2] = (value shr 8).toByte()
+            bytes[index * 4 + 3] = value.toByte()
         }
     }
 }

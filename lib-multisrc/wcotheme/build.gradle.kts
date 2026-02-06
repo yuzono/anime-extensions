@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-    api(project(":lib:playlist-utils"))
+    api(project(":lib:playlistutils"))
 }
 
 baseVersionCode = 2

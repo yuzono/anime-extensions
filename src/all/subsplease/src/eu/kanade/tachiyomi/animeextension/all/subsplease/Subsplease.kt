@@ -11,11 +11,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
-import extensions.utils.tryParse
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -26,7 +26,9 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Subsplease : ConfigurableAnimeSource, AnimeHttpSource() {
+class Subsplease :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Subsplease"
 
@@ -156,6 +158,7 @@ class Subsplease : ConfigurableAnimeSource, AnimeHttpSource() {
 
                 when (preferences.debridProvider) {
                     PREF_DEBRID_DEFAULT -> Video(videoUrl, quality, videoUrl)
+
                     else -> {
                         val debridUrl = debrid(videoUrl)
                         Video(debridUrl, quality, debridUrl)

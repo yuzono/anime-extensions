@@ -5,5 +5,5 @@ plugins {
 baseVersionCode = 21
 
 dependencies {
-    api(project(":lib:dopeflix-extractor"))
+    api(project(":lib:dopeflixextractor"))
 }

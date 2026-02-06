@@ -21,12 +21,14 @@ import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Hentaitk : ConfigurableAnimeSource, AnimeHttpSource() {
+class Hentaitk :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HentaiTk"
 
@@ -144,24 +146,32 @@ class Hentaitk : ConfigurableAnimeSource, AnimeHttpSource() {
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru")
             -> okruExtractor.videosFromUrl(url)
+
             embedUrl.contains("filelions") || embedUrl.contains("lion")
             -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
             embedUrl.contains("wishembed") || embedUrl.contains("streamwish") ||
                 embedUrl.contains("strwish") || embedUrl.contains("wish")
             -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
                 embedUrl.contains("guccihide") || embedUrl.contains("streamvid")
             -> streamHideVidExtractor.videosFromUrl(url)
+
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
+
             embedUrl.contains("yourupload") || embedUrl.contains("upload")
             -> yourUploadExtractor.videoFromUrl(url, headers = headers)
+
             embedUrl.contains("doodstream") || embedUrl.contains("dood.") ||
                 embedUrl.contains("d000d") || embedUrl.contains("d0000d") ||
                 embedUrl.contains("ds2play") || embedUrl.contains("doods")
             -> doodExtractor.videosFromUrl(url)
+
             embedUrl.contains("streamtape") || embedUrl.contains("stp") ||
                 embedUrl.contains("stape")
             -> streamTapeExtractor.videosFromUrl(url, quality = "StreamTape")
+
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     }
@@ -198,126 +208,127 @@ class Hentaitk : ConfigurableAnimeSource, AnimeHttpSource() {
         TagFilter(),
     )
 
-    private class TypeFilter : UriPartFilter(
-        "Tipo",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Hentais", "hentais/"),
-            Pair("Audio Latino", "hentai-audio-latino/"),
-            Pair("3D", "3d/"),
-            Pair("JAV", "jav/"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipo",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Hentais", "hentais/"),
+                Pair("Audio Latino", "hentai-audio-latino/"),
+                Pair("3D", "3d/"),
+                Pair("JAV", "jav/"),
+            ),
+        )
 
-    private class TagFilter : UriPartFilter(
-        "Tags",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("3P", "video_tag/3p/"),
-            Pair("4HR+", "video_tag/4hr/"),
-            Pair("4P", "video_tag/4p/"),
-            Pair("Abuse", "video_tag/abuse/"),
-            Pair("Accion", "video_tag/accion/"),
-            Pair("Affair", "video_tag/affair/"),
-            Pair("Amateur", "video_tag/amateur/"),
-            Pair("Anal", "video_tag/anal/"),
-            Pair("Aventura", "video_tag/aventura/"),
-            Pair("Bakunyuu", "video_tag/bakunyuu/"),
-            Pair("BBW", "video_tag/bbw/"),
-            Pair("Beautiful Girl", "video_tag/beautiful-girl/"),
-            Pair("Best", "video_tag/best/"),
-            Pair("Bestiality", "video_tag/bestiality/"),
-            Pair("Big Tits", "video_tag/big-tits/"),
-            Pair("Blow", "video_tag/blow/"),
-            Pair("Bondage", "video_tag/bondage/"),
-            Pair("Breasts", "video_tag/breasts/"),
-            Pair("Bukkake", "video_tag/bukkake/"),
-            Pair("Busty Fetish", "video_tag/busty-fetish/"),
-            Pair("Butt", "video_tag/butt/"),
-            Pair("Chantaje", "video_tag/chantaje/"),
-            Pair("colegio", "video_tag/colegio/"),
-            Pair("Comedia", "video_tag/comedia/"),
-            Pair("Cosplay", "video_tag/cosplay/"),
-            Pair("Cowgirl", "video_tag/cowgirl/"),
-            Pair("Creampie", "video_tag/creampie/"),
-            Pair("Cuckold", "video_tag/cuckold/"),
-            Pair("Debut Production", "video_tag/debut-production/"),
-            Pair("Deep Throating", "video_tag/deep-throating/"),
-            Pair("Degeneracion Mental", "video_tag/degeneracion-mental/"),
-            Pair("Digital Mosaic", "video_tag/digital-mosaic/"),
-            Pair("Dirty Words", "video_tag/dirty-words/"),
-            Pair("Documentary", "video_tag/documentary/"),
-            Pair("Drama", "video_tag/drama/"),
-            Pair("Entertainer", "video_tag/entertainer/"),
-            Pair("Escolar", "video_tag/escolar/"),
-            Pair("Facials", "video_tag/facials/"),
-            Pair("Female College Student", "video_tag/female-college-student/"),
-            Pair("Futanari", "video_tag/futanari/"),
-            Pair("Gal", "video_tag/gal/"),
-            Pair("Game Character", "video_tag/game-character/"),
-            Pair("Gangbang", "video_tag/gangbang/"),
-            Pair("Handjob", "video_tag/handjob/"),
-            Pair("Hardcore", "video_tag/hardcore/"),
-            Pair("Harem", "video_tag/harem/"),
-            Pair("Hot Spring", "video_tag/hot-spring/"),
-            Pair("Huge Butt", "video_tag/huge-butt/"),
-            Pair("Humiliation", "video_tag/humiliation/"),
-            Pair("Incest", "video_tag/incest/"),
-            Pair("Incesto", "video_tag/incesto/"),
-            Pair("Juguetes sexuales", "video_tag/juguetes-sexuales/"),
-            Pair("Kimomen", "video_tag/kimomen/"),
-            Pair("Kiss", "video_tag/kiss/"),
-            Pair("Loli", "video_tag/loli/"),
-            Pair("Lolicon", "video_tag/lolicon/"),
-            Pair("Lotion", "video_tag/lotion/"),
-            Pair("Maid", "video_tag/maid/"),
-            Pair("Married Woman", "video_tag/married-woman/"),
-            Pair("Masturbation", "video_tag/masturbation/"),
-            Pair("Mature Woman", "video_tag/mature-woman/"),
-            Pair("Milf", "video_tag/milf/"),
-            Pair("Milfs", "video_tag/milfs/"),
-            Pair("Misterio", "video_tag/misterio/"),
-            Pair("Nakadashi", "video_tag/nakadashi/"),
-            Pair("Nasty", "video_tag/nasty/"),
-            Pair("Netorare", "video_tag/netorare/"),
-            Pair("Ninfomana", "video_tag/ninfomana/"),
-            Pair("OL", "video_tag/ol/"),
-            Pair("Older Sister", "video_tag/older-sister/"),
-            Pair("Omnibus", "video_tag/omnibus/"),
-            Pair("Oppai", "video_tag/oppai/"),
-            Pair("Orgía", "video_tag/orgia/"),
-            Pair("Original Collaboration", "video_tag/original-collaboration/"),
-            Pair("Other Fetish", "video_tag/other-fetish/"),
-            Pair("POV", "video_tag/pov/"),
-            Pair("Promiscuity", "video_tag/promiscuity/"),
-            Pair("Prostitutes", "video_tag/prostitutes/"),
-            Pair("publico", "video_tag/publico/"),
-            Pair("Risky Mosaic", "video_tag/risky-mosaic/"),
-            Pair("Romance", "video_tag/romance/"),
-            Pair("School Girls", "video_tag/school-girls/"),
-            Pair("Shaved", "video_tag/shaved/"),
-            Pair("Shotacon", "video_tag/shotacon/"),
-            Pair("Sister", "video_tag/sister/"),
-            Pair("Slender", "video_tag/slender/"),
-            Pair("Slut", "video_tag/slut/"),
-            Pair("Solowork", "video_tag/solowork/"),
-            Pair("Squirting", "video_tag/squirting/"),
-            Pair("Subjectivity", "video_tag/subjectivity/"),
-            Pair("Sumision", "video_tag/sumision/"),
-            Pair("Sweat", "video_tag/sweat/"),
-            Pair("Tentáculos", "video_tag/tentaculos/"),
-            Pair("Titty Fuck", "video_tag/titty-fuck/"),
-            Pair("Toy", "video_tag/toy/"),
-            Pair("Trio", "video_tag/trio/"),
-            Pair("Uniform", "video_tag/uniform/"),
-            Pair("Violacion", "video_tag/violacion/"),
-            Pair("Virgen", "video_tag/virgen/"),
-            Pair("Yuri", "video_tag/yuri/"),
-        ),
-    )
+    private class TagFilter :
+        UriPartFilter(
+            "Tags",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("3P", "video_tag/3p/"),
+                Pair("4HR+", "video_tag/4hr/"),
+                Pair("4P", "video_tag/4p/"),
+                Pair("Abuse", "video_tag/abuse/"),
+                Pair("Accion", "video_tag/accion/"),
+                Pair("Affair", "video_tag/affair/"),
+                Pair("Amateur", "video_tag/amateur/"),
+                Pair("Anal", "video_tag/anal/"),
+                Pair("Aventura", "video_tag/aventura/"),
+                Pair("Bakunyuu", "video_tag/bakunyuu/"),
+                Pair("BBW", "video_tag/bbw/"),
+                Pair("Beautiful Girl", "video_tag/beautiful-girl/"),
+                Pair("Best", "video_tag/best/"),
+                Pair("Bestiality", "video_tag/bestiality/"),
+                Pair("Big Tits", "video_tag/big-tits/"),
+                Pair("Blow", "video_tag/blow/"),
+                Pair("Bondage", "video_tag/bondage/"),
+                Pair("Breasts", "video_tag/breasts/"),
+                Pair("Bukkake", "video_tag/bukkake/"),
+                Pair("Busty Fetish", "video_tag/busty-fetish/"),
+                Pair("Butt", "video_tag/butt/"),
+                Pair("Chantaje", "video_tag/chantaje/"),
+                Pair("colegio", "video_tag/colegio/"),
+                Pair("Comedia", "video_tag/comedia/"),
+                Pair("Cosplay", "video_tag/cosplay/"),
+                Pair("Cowgirl", "video_tag/cowgirl/"),
+                Pair("Creampie", "video_tag/creampie/"),
+                Pair("Cuckold", "video_tag/cuckold/"),
+                Pair("Debut Production", "video_tag/debut-production/"),
+                Pair("Deep Throating", "video_tag/deep-throating/"),
+                Pair("Degeneracion Mental", "video_tag/degeneracion-mental/"),
+                Pair("Digital Mosaic", "video_tag/digital-mosaic/"),
+                Pair("Dirty Words", "video_tag/dirty-words/"),
+                Pair("Documentary", "video_tag/documentary/"),
+                Pair("Drama", "video_tag/drama/"),
+                Pair("Entertainer", "video_tag/entertainer/"),
+                Pair("Escolar", "video_tag/escolar/"),
+                Pair("Facials", "video_tag/facials/"),
+                Pair("Female College Student", "video_tag/female-college-student/"),
+                Pair("Futanari", "video_tag/futanari/"),
+                Pair("Gal", "video_tag/gal/"),
+                Pair("Game Character", "video_tag/game-character/"),
+                Pair("Gangbang", "video_tag/gangbang/"),
+                Pair("Handjob", "video_tag/handjob/"),
+                Pair("Hardcore", "video_tag/hardcore/"),
+                Pair("Harem", "video_tag/harem/"),
+                Pair("Hot Spring", "video_tag/hot-spring/"),
+                Pair("Huge Butt", "video_tag/huge-butt/"),
+                Pair("Humiliation", "video_tag/humiliation/"),
+                Pair("Incest", "video_tag/incest/"),
+                Pair("Incesto", "video_tag/incesto/"),
+                Pair("Juguetes sexuales", "video_tag/juguetes-sexuales/"),
+                Pair("Kimomen", "video_tag/kimomen/"),
+                Pair("Kiss", "video_tag/kiss/"),
+                Pair("Loli", "video_tag/loli/"),
+                Pair("Lolicon", "video_tag/lolicon/"),
+                Pair("Lotion", "video_tag/lotion/"),
+                Pair("Maid", "video_tag/maid/"),
+                Pair("Married Woman", "video_tag/married-woman/"),
+                Pair("Masturbation", "video_tag/masturbation/"),
+                Pair("Mature Woman", "video_tag/mature-woman/"),
+                Pair("Milf", "video_tag/milf/"),
+                Pair("Milfs", "video_tag/milfs/"),
+                Pair("Misterio", "video_tag/misterio/"),
+                Pair("Nakadashi", "video_tag/nakadashi/"),
+                Pair("Nasty", "video_tag/nasty/"),
+                Pair("Netorare", "video_tag/netorare/"),
+                Pair("Ninfomana", "video_tag/ninfomana/"),
+                Pair("OL", "video_tag/ol/"),
+                Pair("Older Sister", "video_tag/older-sister/"),
+                Pair("Omnibus", "video_tag/omnibus/"),
+                Pair("Oppai", "video_tag/oppai/"),
+                Pair("Orgía", "video_tag/orgia/"),
+                Pair("Original Collaboration", "video_tag/original-collaboration/"),
+                Pair("Other Fetish", "video_tag/other-fetish/"),
+                Pair("POV", "video_tag/pov/"),
+                Pair("Promiscuity", "video_tag/promiscuity/"),
+                Pair("Prostitutes", "video_tag/prostitutes/"),
+                Pair("publico", "video_tag/publico/"),
+                Pair("Risky Mosaic", "video_tag/risky-mosaic/"),
+                Pair("Romance", "video_tag/romance/"),
+                Pair("School Girls", "video_tag/school-girls/"),
+                Pair("Shaved", "video_tag/shaved/"),
+                Pair("Shotacon", "video_tag/shotacon/"),
+                Pair("Sister", "video_tag/sister/"),
+                Pair("Slender", "video_tag/slender/"),
+                Pair("Slut", "video_tag/slut/"),
+                Pair("Solowork", "video_tag/solowork/"),
+                Pair("Squirting", "video_tag/squirting/"),
+                Pair("Subjectivity", "video_tag/subjectivity/"),
+                Pair("Sumision", "video_tag/sumision/"),
+                Pair("Sweat", "video_tag/sweat/"),
+                Pair("Tentáculos", "video_tag/tentaculos/"),
+                Pair("Titty Fuck", "video_tag/titty-fuck/"),
+                Pair("Toy", "video_tag/toy/"),
+                Pair("Trio", "video_tag/trio/"),
+                Pair("Uniform", "video_tag/uniform/"),
+                Pair("Violacion", "video_tag/violacion/"),
+                Pair("Virgen", "video_tag/virgen/"),
+                Pair("Yuri", "video_tag/yuri/"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

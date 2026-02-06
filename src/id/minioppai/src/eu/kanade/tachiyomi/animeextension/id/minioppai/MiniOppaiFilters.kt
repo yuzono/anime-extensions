@@ -5,24 +5,18 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.CheckBoxFilte
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.QueryPartFilter
 
 object MiniOppaiFilters {
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .filter(String::isNotBlank)
-            .joinToString("&") { "$name[]=$it" }
-    }
+    ): String = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .filter(String::isNotBlank)
+        .joinToString("&") { "$name[]=$it" }
 
     class OrderFilter : QueryPartFilter("Order", MiniOppaiFiltersData.ORDER_LIST)
 

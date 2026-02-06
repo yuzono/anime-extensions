@@ -24,7 +24,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -34,7 +34,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class AniSama :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniSama"
 
@@ -83,13 +85,11 @@ class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // =============================== Search ===============================
     override fun getFilterList() = aniSamaFilters.getFilterList()
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -158,13 +158,11 @@ class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return document.select(episodeListSelector()).parallelMapBlocking(::episodeFromElement).reversed()
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            episode_number = element.attr("data-number").toFloat()
-            name = element.attr("title")
-            val id = element.attr("href").substringAfterLast("=")
-            url = "/ajax/episode/servers?episodeId=$id"
-        }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        episode_number = element.attr("data-number").toFloat()
+        name = element.attr("title")
+        val id = element.attr("href").substringAfterLast("=")
+        url = "/ajax/episode/servers?episodeId=$id"
     }
 
     // ============================ Video Links =============================

@@ -11,8 +11,7 @@ class CoverProviders(private val client: OkHttpClient, private val headers: Head
             GET("https://api.jikan.moe/v4/anime/$malId/pictures", headers),
         ).execute().parseAs<MALPicturesDto>()
 
-        return picturesResponse.data.mapNotNull {
-                imgs ->
+        return picturesResponse.data.mapNotNull { imgs ->
             imgs.jpg.let { it.largeImageUrl ?: it.imageUrl ?: it.smallImageUrl }
         }
     }

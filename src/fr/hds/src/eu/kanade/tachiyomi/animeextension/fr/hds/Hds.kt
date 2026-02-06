@@ -15,11 +15,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 
-class Hds : DooPlay(
-    "fr",
-    "HDS",
-    "https://on1.hds.quest",
-) {
+class Hds :
+    DooPlay(
+        "fr",
+        "HDS",
+        "https://on1.hds.quest",
+    ) {
 
     private val json: Json by injectLazy()
 

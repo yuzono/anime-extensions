@@ -20,14 +20,16 @@ import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
+class Docchi :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Docchi"
 
@@ -45,8 +47,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}")
+    override fun popularAnimeRequest(page: Int) = GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val animeArray: List<ApiList> = json.decodeFromString(response.body.string())
@@ -64,15 +65,13 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}&sort=DESC")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}&sort=DESC")
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseApiUrl/v1/series/related/$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseApiUrl/v1/series/related/$query")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val animeArray: List<ApiSearch> = json.decodeFromString(response.body.string())
@@ -87,8 +86,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
     }
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request =
-        GET("$baseApiUrl/v1/episodes/count/${anime.url.substringAfterLast("/")}")
+    override fun episodeListRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/episodes/count/${anime.url.substringAfterLast("/")}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodeList: List<EpisodeList> = json.decodeFromString(response.body.string())
@@ -104,8 +102,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request =
-        GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
 
     override fun animeDetailsParse(response: Response): SAnime {
         val animeDetail: ApiDetail = json.decodeFromString(response.body.string())

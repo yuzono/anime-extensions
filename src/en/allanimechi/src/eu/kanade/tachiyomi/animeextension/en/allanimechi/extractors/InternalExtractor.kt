@@ -126,13 +126,11 @@ class InternalExtractor(private val client: OkHttpClient, private val apiHeaders
 
     // ============================= Utilities ==============================
 
-    private fun getHostName(host: String, fallback: String): String {
-        return host.toHttpUrlOrNull()?.host?.split(".")?.let {
-            it.getOrNull(it.size - 2)?.replaceFirstChar { c ->
-                if (c.isLowerCase()) c.titlecase(Locale.ROOT) else c.toString()
-            }
-        } ?: fallback
-    }
+    private fun getHostName(host: String, fallback: String): String = host.toHttpUrlOrNull()?.host?.split(".")?.let {
+        it.getOrNull(it.size - 2)?.replaceFirstChar { c ->
+            if (c.isLowerCase()) c.titlecase(Locale.ROOT) else c.toString()
+        }
+    } ?: fallback
 
     @Serializable
     data class VideoData(
@@ -148,7 +146,5 @@ class InternalExtractor(private val client: OkHttpClient, private val apiHeaders
         )
     }
 
-    private fun String.decodeBase64(): String {
-        return String(Base64.decode(this, Base64.DEFAULT))
-    }
+    private fun String.decodeBase64(): String = String(Base64.decode(this, Base64.DEFAULT))
 }

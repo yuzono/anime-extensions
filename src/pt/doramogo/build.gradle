@@ -7,9 +7,9 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(":lib:googledrive-extractor"))
-    implementation(project(":lib:okru-extractor"))
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(':lib:dailymotionextractor'))
+    implementation(project(":lib:googledriveextractor"))
+    implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:playlistutils"))
     implementation(libs.jsunpacker)
 }

@@ -9,5 +9,5 @@ apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(":lib-multisrc:anilist"))
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
 }

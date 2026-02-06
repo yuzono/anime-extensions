@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapNotNullBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -29,7 +29,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class OtakuDesu :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "OtakuDesu"
 
@@ -42,57 +44,49 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            val info = document.selectFirst("div.infozingle")!!
-            title = info.getInfo("Judul") ?: ""
-            genre = info.getInfo("Genre")
-            status = parseStatus(info.getInfo("Status"))
-            artist = info.getInfo("Studio")
-            author = info.getInfo("Produser")
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        val info = document.selectFirst("div.infozingle")!!
+        title = info.getInfo("Judul") ?: ""
+        genre = info.getInfo("Genre")
+        status = parseStatus(info.getInfo("Status"))
+        artist = info.getInfo("Studio")
+        author = info.getInfo("Produser")
 
-            description = buildString {
-                info.getInfo("Japanese", false)?.also { append("$it\n") }
-                info.getInfo("Skor", false)?.also { append("$it\n") }
-                info.getInfo("Total Episode", false)?.also { append("$it\n") }
-                append("\n\nSynopsis:\n")
-                document.select("div.sinopc > p").eachText().forEach { append("$it\n\n") }
-            }
+        description = buildString {
+            info.getInfo("Japanese", false)?.also { append("$it\n") }
+            info.getInfo("Skor", false)?.also { append("$it\n") }
+            info.getInfo("Total Episode", false)?.also { append("$it\n") }
+            append("\n\nSynopsis:\n")
+            document.select("div.sinopc > p").eachText().forEach { append("$it\n\n") }
         }
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString) {
-            "Ongoing" -> SAnime.ONGOING
-            "Completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
+        "Ongoing" -> SAnime.ONGOING
+        "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
     private val nameRegex by lazy { ".+?(?=Episode)|\\sSubtitle.+".toRegex() }
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            val link = element.selectFirst("span > a")!!
-            val text = link.text()
-            episode_number = text.substringAfter("Episode ")
-                .substringBefore(" ")
-                .toFloatOrNull() ?: 1F
-            setUrlWithoutDomain(link.attr("href"))
-            name = text.replace(nameRegex, "")
-            date_upload = element.selectFirst("span.zeebr")?.text().toDate()
-        }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        val link = element.selectFirst("span > a")!!
+        val text = link.text()
+        episode_number = text.substringAfter("Episode ")
+            .substringBefore(" ")
+            .toFloatOrNull() ?: 1F
+        setUrlWithoutDomain(link.attr("href"))
+        name = text.replace(nameRegex, "")
+        date_upload = element.selectFirst("span.zeebr")?.text().toDate()
     }
 
     override fun episodeListSelector() = "#venkonten > div.venser > div:nth-child(8) > ul > li"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            thumbnail_url = element.selectFirst("img")!!.attr("src")
-            title = element.selectFirst("h2")!!.text()
-        }
+    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        thumbnail_url = element.selectFirst("img")!!.attr("src")
+        title = element.selectFirst("h2")!!.text()
     }
 
     override fun latestUpdatesNextPageSelector() = "a.next.page-numbers"
@@ -110,21 +104,20 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // =============================== Search ===============================
     override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    private fun searchAnimeFromElement(element: Element, ui: String): SAnime {
-        return SAnime.create().apply {
-            when (ui) {
-                "search" -> {
-                    val link = element.selectFirst("h2 > a")!!
-                    setUrlWithoutDomain(link.attr("href"))
-                    title = link.text().replace(" Subtitle Indonesia", "")
-                    thumbnail_url = element.selectFirst("img")!!.attr("src")
-                }
-                else -> {
-                    val link = element.selectFirst(".col-anime-title > a")!!
-                    setUrlWithoutDomain(link.attr("href"))
-                    title = link.text()
-                    thumbnail_url = element.selectFirst(".col-anime-cover > img")!!.attr("src")
-                }
+    private fun searchAnimeFromElement(element: Element, ui: String): SAnime = SAnime.create().apply {
+        when (ui) {
+            "search" -> {
+                val link = element.selectFirst("h2 > a")!!
+                setUrlWithoutDomain(link.attr("href"))
+                title = link.text().replace(" Subtitle Indonesia", "")
+                thumbnail_url = element.selectFirst("img")!!.attr("src")
+            }
+
+            else -> {
+                val link = element.selectFirst(".col-anime-title > a")!!
+                setUrlWithoutDomain(link.attr("href"))
+                title = link.text()
+                thumbnail_url = element.selectFirst(".col-anime-cover > img")!!.attr("src")
             }
         }
     }
@@ -221,39 +214,42 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
 
-    private fun getVideosFromEmbed(quality: String, link: String): List<Video> {
-        return when {
-            "filelions" in link -> {
-                filelionsExtractor.videosFromUrl(link, videoNameGen = { "FileLions - $it" })
-            }
-            "yourupload" in link -> {
-                val id = link.substringAfter("id=").substringBefore("&")
-                val url = "https://yourupload.com/embed/$id"
-                yourUploadExtractor.videoFromUrl(url, headers, "YourUpload - $quality")
-            }
-            "desustream" in link -> {
-                client.newCall(GET(link, headers)).execute().let {
-                    val doc = it.asJsoup()
-                    val script = doc.selectFirst("script:containsData(sources)")!!.data()
-                    val videoUrl = script.substringAfter("sources:[{")
-                        .substringAfter("file':'")
-                        .substringBefore("'")
-                    listOf(Video(videoUrl, "DesuStream - $quality", videoUrl, headers))
-                }
-            }
-            "mp4upload" in link -> {
-                client.newCall(GET(link, headers)).execute().let {
-                    val doc = it.asJsoup()
-                    val script = doc.selectFirst("script:containsData(player.src)")!!.data()
-                    val videoUrl = script.substringAfter("src: \"").substringBefore('"')
-                    listOf(Video(videoUrl, "Mp4upload - $quality", videoUrl, headers))
-                }
-            }
-            "vidhide" in link -> {
-                streamHideVidExtractor.videosFromUrl(link)
-            }
-            else -> emptyList()
+    private fun getVideosFromEmbed(quality: String, link: String): List<Video> = when {
+        "filelions" in link -> {
+            filelionsExtractor.videosFromUrl(link, videoNameGen = { "FileLions - $it" })
         }
+
+        "yourupload" in link -> {
+            val id = link.substringAfter("id=").substringBefore("&")
+            val url = "https://yourupload.com/embed/$id"
+            yourUploadExtractor.videoFromUrl(url, headers, "YourUpload - $quality")
+        }
+
+        "desustream" in link -> {
+            client.newCall(GET(link, headers)).execute().let {
+                val doc = it.asJsoup()
+                val script = doc.selectFirst("script:containsData(sources)")!!.data()
+                val videoUrl = script.substringAfter("sources:[{")
+                    .substringAfter("file':'")
+                    .substringBefore("'")
+                listOf(Video(videoUrl, "DesuStream - $quality", videoUrl, headers))
+            }
+        }
+
+        "mp4upload" in link -> {
+            client.newCall(GET(link, headers)).execute().let {
+                val doc = it.asJsoup()
+                val script = doc.selectFirst("script:containsData(player.src)")!!.data()
+                val videoUrl = script.substringAfter("src: \"").substringBefore('"')
+                listOf(Video(videoUrl, "Mp4upload - $quality", videoUrl, headers))
+            }
+        }
+
+        "vidhide" in link -> {
+            streamHideVidExtractor.videosFromUrl(link)
+        }
+
+        else -> emptyList()
     }
 
     private fun getNonce(action: String): String {
@@ -274,51 +270,51 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genres",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("Action", "action"),
-            Pair("Adventure", "adventure"),
-            Pair("Comedy", "comedy"),
-            Pair("Demons", "demons"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Fantasy", "fantasy"),
-            Pair("Game", "game"),
-            Pair("Harem", "harem"),
-            Pair("Historical", "historical"),
-            Pair("Horror", "horror"),
-            Pair("Josei", "josei"),
-            Pair("Magic", "magic"),
-            Pair("Martial Arts", "martial-arts"),
-            Pair("Mecha", "mecha"),
-            Pair("Military", "military"),
-            Pair("Music", "music"),
-            Pair("Mystery", "mystery"),
-            Pair("Psychological", "psychological"),
-            Pair("Parody", "parody"),
-            Pair("Police", "police"),
-            Pair("Romance", "romance"),
-            Pair("Samurai", "samurai"),
-            Pair("School", "school"),
-            Pair("Sci-Fi", "sci-fi"),
-            Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo Ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Slice of Life", "slice-of-life"),
-            Pair("Sports", "sports"),
-            Pair("Space", "space"),
-            Pair("Super Power", "super-power"),
-            Pair("Supernatural", "supernatural"),
-            Pair("Thriller", "thriller"),
-            Pair("Vampire", "vampire"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genres",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("Action", "action"),
+                Pair("Adventure", "adventure"),
+                Pair("Comedy", "comedy"),
+                Pair("Demons", "demons"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Fantasy", "fantasy"),
+                Pair("Game", "game"),
+                Pair("Harem", "harem"),
+                Pair("Historical", "historical"),
+                Pair("Horror", "horror"),
+                Pair("Josei", "josei"),
+                Pair("Magic", "magic"),
+                Pair("Martial Arts", "martial-arts"),
+                Pair("Mecha", "mecha"),
+                Pair("Military", "military"),
+                Pair("Music", "music"),
+                Pair("Mystery", "mystery"),
+                Pair("Psychological", "psychological"),
+                Pair("Parody", "parody"),
+                Pair("Police", "police"),
+                Pair("Romance", "romance"),
+                Pair("Samurai", "samurai"),
+                Pair("School", "school"),
+                Pair("Sci-Fi", "sci-fi"),
+                Pair("Seinen", "seinen"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo Ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("Slice of Life", "slice-of-life"),
+                Pair("Sports", "sports"),
+                Pair("Space", "space"),
+                Pair("Super Power", "super-power"),
+                Pair("Supernatural", "supernatural"),
+                Pair("Thriller", "thriller"),
+                Pair("Vampire", "vampire"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -342,20 +338,16 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun Element.getInfo(info: String, cut: Boolean = true): String? {
-        return selectFirst("p > span:has(b:contains($info))")?.text()
-            ?.let {
-                when {
-                    cut -> it.substringAfter(":")
-                    else -> it
-                }.trim()
-            }
-    }
+    private fun Element.getInfo(info: String, cut: Boolean = true): String? = selectFirst("p > span:has(b:contains($info))")?.text()
+        ?.let {
+            when {
+                cut -> it.substringAfter(":")
+                else -> it
+            }.trim()
+        }
 
-    private fun String?.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -364,9 +356,7 @@ class OtakuDesu : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         )
     }
 
-    private fun String.b64Decode(): String {
-        return String(Base64.decode(this, Base64.DEFAULT))
-    }
+    private fun String.b64Decode(): String = String(Base64.decode(this, Base64.DEFAULT))
 
     companion object {
         private val DATE_FORMATTER by lazy {

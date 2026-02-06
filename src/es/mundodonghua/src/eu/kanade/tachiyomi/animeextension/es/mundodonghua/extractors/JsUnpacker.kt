@@ -27,9 +27,7 @@ object JsUnpacker {
      *
      * @return whether the [scriptBlock] contains packed code or not.
      */
-    fun detect(scriptBlock: String): Boolean {
-        return scriptBlock.contains(PACKED_REGEX)
-    }
+    fun detect(scriptBlock: String): Boolean = scriptBlock.contains(PACKED_REGEX)
 
     /**
      * Check if scripts are packed.
@@ -38,13 +36,11 @@ object JsUnpacker {
      *
      * @return the packed scripts passed in [scriptBlock].
      */
-    fun detect(vararg scriptBlock: String): List<String> {
-        return scriptBlock.mapNotNull {
-            if (it.contains(PACKED_REGEX)) {
-                it
-            } else {
-                null
-            }
+    fun detect(vararg scriptBlock: String): List<String> = scriptBlock.mapNotNull {
+        if (it.contains(PACKED_REGEX)) {
+            it
+        } else {
+            null
         }
     }
 
@@ -55,9 +51,7 @@ object JsUnpacker {
      *
      * @return the packed scripts passed in [scriptBlocks].
      */
-    fun detect(scriptBlocks: Collection<String>): List<String> {
-        return detect(*scriptBlocks.toTypedArray())
-    }
+    fun detect(scriptBlocks: Collection<String>): List<String> = detect(*scriptBlocks.toTypedArray())
 
     /**
      * Unpack the passed [scriptBlock].
@@ -67,12 +61,10 @@ object JsUnpacker {
      *
      * @return unpacked code in a list or an empty list if non is packed.
      */
-    fun unpack(scriptBlock: String): Sequence<String> {
-        return if (!detect(scriptBlock)) {
-            emptySequence()
-        } else {
-            unpacking(scriptBlock)
-        }
+    fun unpack(scriptBlock: String): Sequence<String> = if (!detect(scriptBlock)) {
+        emptySequence()
+    } else {
+        unpacking(scriptBlock)
     }
 
     /**
@@ -115,9 +107,7 @@ object JsUnpacker {
      *
      * @return unpacked code in a flat list or an empty list if non is packed.
      */
-    fun unpack(scriptBlocks: Collection<String>): List<String> {
-        return unpack(*scriptBlocks.toTypedArray())
-    }
+    fun unpack(scriptBlocks: Collection<String>): List<String> = unpack(*scriptBlocks.toTypedArray())
 
     /**
      * Unpacking functionality.
@@ -163,22 +153,20 @@ object JsUnpacker {
             else -> 52
         }
 
-        fun unbase(value: String): Int {
-            return if (base in 2..36) {
-                value.toIntOrNull(base) ?: 0
-            } else {
-                val dict = ALPHABET[selector]?.toCharArray()?.mapIndexed { index, c ->
-                    c to index
-                }?.toMap()
-                var returnVal = 0
+        fun unbase(value: String): Int = if (base in 2..36) {
+            value.toIntOrNull(base) ?: 0
+        } else {
+            val dict = ALPHABET[selector]?.toCharArray()?.mapIndexed { index, c ->
+                c to index
+            }?.toMap()
+            var returnVal = 0
 
-                val valArray = value.toCharArray().reversed()
-                for (i in valArray.indices) {
-                    val cipher = valArray[i]
-                    returnVal += (base.toFloat().pow(i) * (dict?.get(cipher) ?: 0)).toInt()
-                }
-                returnVal
+            val valArray = value.toCharArray().reversed()
+            for (i in valArray.indices) {
+                val cipher = valArray[i]
+                returnVal += (base.toFloat().pow(i) * (dict?.get(cipher) ?: 0)).toInt()
             }
+            returnVal
         }
 
         companion object {

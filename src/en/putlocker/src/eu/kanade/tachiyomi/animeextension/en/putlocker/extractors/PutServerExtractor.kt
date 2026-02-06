@@ -92,23 +92,21 @@ class PutServerExtractor(private val client: OkHttpClient) {
         return client.newCall(GET(vidUrl, referer)).execute().body.string()
     }
 
-    private fun extractVideoLinks(source: VidSource, vidReferer: String, subsList: List<Track>, serverId: String): List<Video> {
-        return if (source.file.endsWith(".m3u8")) {
-            playlistUtils.extractFromHls(
+    private fun extractVideoLinks(source: VidSource, vidReferer: String, subsList: List<Track>, serverId: String): List<Video> = if (source.file.endsWith(".m3u8")) {
+        playlistUtils.extractFromHls(
+            source.file,
+            vidReferer,
+            videoNameGen = { q -> "$serverId - $q" },
+            subtitleList = subsList,
+        )
+    } else {
+        listOf(
+            Video(
                 source.file,
-                vidReferer,
-                videoNameGen = { q -> "$serverId - $q" },
-                subtitleList = subsList,
-            )
-        } else {
-            listOf(
-                Video(
-                    source.file,
-                    "$serverId (${source.type})",
-                    source.file,
-                    subtitleTracks = subsList,
-                ),
-            )
-        }
+                "$serverId (${source.type})",
+                source.file,
+                subtitleTracks = subsList,
+            ),
+        )
     }
 }

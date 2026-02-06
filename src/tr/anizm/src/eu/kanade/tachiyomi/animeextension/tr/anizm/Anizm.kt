@@ -30,7 +30,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
@@ -41,7 +41,9 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import uy.kohesive.injekt.injectLazy
 
-class Anizm : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class Anizm :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anizm"
 
@@ -93,32 +95,30 @@ class Anizm : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun getFilterList(): AnimeFilterList = AnizmFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        val params = AnizmFilters.getSearchParameters(filters).apply {
+            animeName = query
+        }
+        val filtered = animeList.applyFilterParams(params)
+        val results = filtered.chunked(30).toList()
+        val hasNextPage = results.size > page
+        val currentPage = if (results.size == 0) {
+            emptyList<SAnime>()
         } else {
-            val params = AnizmFilters.getSearchParameters(filters).apply {
-                animeName = query
-            }
-            val filtered = animeList.applyFilterParams(params)
-            val results = filtered.chunked(30).toList()
-            val hasNextPage = results.size > page
-            val currentPage = if (results.size == 0) {
-                emptyList<SAnime>()
-            } else {
-                results.get(page - 1).map {
-                    SAnime.create().apply {
-                        title = it.title
-                        url = "/" + it.slug
-                        thumbnail_url = baseUrl + "/storage/pcovers/" + it.thumbnail
-                    }
+            results.get(page - 1).map {
+                SAnime.create().apply {
+                    title = it.title
+                    url = "/" + it.slug
+                    thumbnail_url = baseUrl + "/storage/pcovers/" + it.thumbnail
                 }
             }
-            AnimesPage(currentPage, hasNextPage)
         }
+        AnimesPage(currentPage, hasNextPage)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -130,21 +130,13 @@ class Anizm : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
 
-    override fun searchAnimeSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeSelector(): String = throw UnsupportedOperationException()
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun searchAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -251,35 +243,41 @@ class Anizm : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         return when {
             "filemoon.sx" in url -> filemoonExtractor.videosFromUrl(url, headers = headers)
+
             "sendvid.com" in url -> sendvidExtractor.videosFromUrl(url)
+
             "video.sibnet" in url -> sibnetExtractor.videosFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers)
+
             "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
+
             "dood" in url -> doodExtractor.videoFromUrl(url)?.let(::listOf)
+
             "drive.google" in url -> {
                 val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
                 gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
             }
+
             "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+
             "voe.sx" in url -> voeExtractor.videosFromUrl(url)
+
             "anizmplayer.com" in url -> aincradExtractor.videosFromUrl(url)
+
             else -> null
         } ?: emptyList()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -360,11 +358,10 @@ class Anizm : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         ).reversed()
     }
 
-    private fun String.fixedFansubName(): String =
-        substringBefore("- BD")
-            .substringBefore("Fansub")
-            .substringBefore("Bağımsız")
-            .trim()
+    private fun String.fixedFansubName(): String = substringBefore("- BD")
+        .substringBefore("Fansub")
+        .substringBefore("Bağımsız")
+        .trim()
 
     private fun Elements.filterSubs(): List<Element> {
         val allFansubs = PREF_FANSUB_SELECTION_ENTRIES

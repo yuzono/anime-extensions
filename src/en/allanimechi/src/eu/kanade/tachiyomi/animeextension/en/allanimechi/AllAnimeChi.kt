@@ -24,7 +24,7 @@ import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -42,7 +42,9 @@ import org.jsoup.Jsoup
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
+class AllAnimeChi :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AllAnimeChi"
 
@@ -234,9 +236,7 @@ class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, apiHeaders)
     }
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return "data:text/plain,This%20extension%20does%20not%20have%20a%20website."
-    }
+    override fun getAnimeUrl(anime: SAnime): String = "data:text/plain,This%20extension%20does%20not%20have%20a%20website."
 
     override fun animeDetailsParse(response: Response): SAnime {
         val show = response.parseAs<DetailsResult>().data.show
@@ -346,13 +346,11 @@ class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
         )
     }
 
-    private fun getVideoFromServer(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> {
-        return when (server.type) {
-            "player" -> getFromPlayer(server, useHosterName)
-            "internal" -> internalExtractor.videosFromServer(server, useHosterName, removeRaw = preferences.removeRaw)
-            "external" -> getFromExternal(server, useHosterName)
-            else -> emptyList()
-        }
+    private fun getVideoFromServer(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> = when (server.type) {
+        "player" -> getFromPlayer(server, useHosterName)
+        "internal" -> internalExtractor.videosFromServer(server, useHosterName, removeRaw = preferences.removeRaw)
+        "external" -> getFromExternal(server, useHosterName)
+        else -> emptyList()
     }
 
     private fun getFromPlayer(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> {
@@ -405,21 +403,15 @@ class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun getHostName(host: String, fallback: String): String {
-        return host.toHttpUrlOrNull()?.host?.split(".")?.let {
-            it.getOrNull(it.size - 2)?.replaceFirstChar { c ->
-                if (c.isLowerCase()) c.titlecase(Locale.ROOT) else c.toString()
-            }
-        } ?: fallback
-    }
+    private fun getHostName(host: String, fallback: String): String = host.toHttpUrlOrNull()?.host?.split(".")?.let {
+        it.getOrNull(it.size - 2)?.replaceFirstChar { c ->
+            if (c.isLowerCase()) c.titlecase(Locale.ROOT) else c.toString()
+        }
+    } ?: fallback
 
-    private fun String.decodeBase64(): String {
-        return String(Base64.decode(this, Base64.DEFAULT))
-    }
+    private fun String.decodeBase64(): String = String(Base64.decode(this, Base64.DEFAULT))
 
-    private fun JsonObject.encode(): String {
-        return json.encodeToString(this)
-    }
+    private fun JsonObject.encode(): String = json.encodeToString(this)
 
     data class Server(
         val sourceUrl: String,
@@ -428,9 +420,7 @@ class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
         val type: String,
     )
 
-    fun Set<String>.contains(element: String, ignoreCase: Boolean): Boolean {
-        return this.any { it.equals(element, ignoreCase = ignoreCase) }
-    }
+    fun Set<String>.contains(element: String, ignoreCase: Boolean): Boolean = this.any { it.equals(element, ignoreCase = ignoreCase) }
 
     private fun prioritySort(pList: List<Pair<Video, Float>>): List<Video> {
         val prefServer = preferences.prefServer
@@ -446,13 +436,11 @@ class AllAnimeChi : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed().map { t -> t.first }
     }
 
-    private fun parseStatus(string: String?): Int {
-        return when (string) {
-            "Releasing" -> SAnime.ONGOING
-            "Finished" -> SAnime.COMPLETED
-            "Not Yet Released" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(string: String?): Int = when (string) {
+        "Releasing" -> SAnime.ONGOING
+        "Finished" -> SAnime.COMPLETED
+        "Not Yet Released" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     companion object {

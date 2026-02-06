@@ -10,9 +10,9 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:streamlare-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamlareextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:streamwishextractor'))
 }

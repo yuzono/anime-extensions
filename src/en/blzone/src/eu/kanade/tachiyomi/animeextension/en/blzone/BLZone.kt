@@ -17,7 +17,7 @@ import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -29,7 +29,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.nio.charset.StandardCharsets
 
-class BLZone : AnimeHttpSource(), ConfigurableAnimeSource {
+class BLZone :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "BLZone"
     override val baseUrl = "https://blzone.net"
@@ -47,17 +49,17 @@ class BLZone : AnimeHttpSource(), ConfigurableAnimeSource {
     // ---- FILTERS ----
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(TypeFilter())
 
-    private class TypeFilter : UriPartFilter(
-        "Type",
-        arrayOf(
-            Pair("Both", ""),
-            Pair("Anime", "anime"),
-            Pair("Drama", "dorama"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Type",
+            arrayOf(
+                Pair("Both", ""),
+                Pair("Anime", "anime"),
+                Pair("Drama", "dorama"),
+            ),
+        )
 
-    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
         fun isEmpty() = vals[state].second == ""
         fun isDefault() = state == 0
@@ -114,9 +116,7 @@ class BLZone : AnimeHttpSource(), ConfigurableAnimeSource {
 
     private fun latestAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
-    private fun hasNextPage(document: Document): Boolean {
-        return document.selectFirst(".pagination .next:not(.disabled)") != null
-    }
+    private fun hasNextPage(document: Document): Boolean = document.selectFirst(".pagination .next:not(.disabled)") != null
 
     // ---- SEARCH ----
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -234,14 +234,12 @@ class BLZone : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return when {
-            url.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, "FileMoon")
-            url.contains("streamtape") -> streamtapeExtractor.videosFromUrl(url, "StreamTape")
-            url.contains("mixdrop") -> mixDropExtractor.videosFromUrl(url, "MixDrop")
-            url.contains("vgembed") -> vidGuardExtractor.videosFromUrl(url, "VidGuard")
-            else -> emptyList()
-        }
+    private fun serverVideoResolver(url: String): List<Video> = when {
+        url.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, "FileMoon")
+        url.contains("streamtape") -> streamtapeExtractor.videosFromUrl(url, "StreamTape")
+        url.contains("mixdrop") -> mixDropExtractor.videosFromUrl(url, "MixDrop")
+        url.contains("vgembed") -> vidGuardExtractor.videosFromUrl(url, "VidGuard")
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {

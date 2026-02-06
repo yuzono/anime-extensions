@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -26,7 +26,9 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimesDigital :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animes Digital"
 
@@ -64,15 +66,13 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // =============================== Search ===============================
     override fun getFilterList() = AnimesDigitalFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/a/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/a/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -120,16 +120,14 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun searchAnimeFromElement(element: Element) = latestUpdatesFromElement(element)
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return runCatching {
-            val data = response.parseAs<SearchResponseDto>()
-            val animes = data.results.map(Jsoup::parseBodyFragment)
-                .mapNotNull { it.selectFirst(searchAnimeSelector()) }
-                .map(::searchAnimeFromElement)
-            val hasNext = data.total_page > data.page
-            AnimesPage(animes, hasNext)
-        }.getOrElse { AnimesPage(emptyList(), false) }
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = runCatching {
+        val data = response.parseAs<SearchResponseDto>()
+        val animes = data.results.map(Jsoup::parseBodyFragment)
+            .mapNotNull { it.selectFirst(searchAnimeSelector()) }
+            .map(::searchAnimeFromElement)
+        val hasNext = data.total_page > data.page
+        AnimesPage(animes, hasNext)
+    }.getOrElse { AnimesPage(emptyList(), false) }
 
     @Serializable
     data class SearchResponseDto(
@@ -138,9 +136,7 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val total_page: Int,
     )
 
-    override fun searchAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -216,20 +212,21 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val protectorExtractor by lazy { ProtectorExtractor(client) }
 
-    private fun videosFromElement(element: Element): List<Video> {
-        return when (element.tagName()) {
-            "iframe" -> {
-                val url = element.absUrl("data-lazy-src").ifEmpty { element.absUrl("src") }
+    private fun videosFromElement(element: Element): List<Video> = when (element.tagName()) {
+        "iframe" -> {
+            val url = element.absUrl("data-lazy-src").ifEmpty { element.absUrl("src") }
 
-                client.newCall(GET(url, headers)).execute()
-                    .asJsoup()
-                    .select(videoListSelector())
-                    .flatMap(::videosFromElement)
-            }
-            "script" -> ScriptExtractor.videosFromScript(element.data(), headers)
-            "a" -> protectorExtractor.videosFromUrl(element.attr("href"))
-            else -> emptyList()
+            client.newCall(GET(url, headers)).execute()
+                .asJsoup()
+                .select(videoListSelector())
+                .flatMap(::videosFromElement)
         }
+
+        "script" -> ScriptExtractor.videosFromScript(element.data(), headers)
+
+        "a" -> protectorExtractor.videosFromUrl(element.attr("href"))
+
+        else -> emptyList()
     }
 
     private val scriptSelectors = listOf("eval", "player.src", "this.src", "sources:")
@@ -237,13 +234,9 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListSelector() = "iframe, $scriptSelectors"
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -271,20 +264,16 @@ class AnimesDigital : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun getRealDoc(document: Document): Document {
-        return document.selectFirst("div.subitem > a:contains(menu)")?.let { link ->
-            client.newCall(GET(link.attr("href")))
-                .execute()
-                .asJsoup()
-        } ?: document
-    }
+    private fun getRealDoc(document: Document): Document = document.selectFirst("div.subitem > a:contains(menu)")?.let { link ->
+        client.newCall(GET(link.attr("href")))
+            .execute()
+            .asJsoup()
+    } ?: document
 
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("div.info:has(span:containsOwn($key))")?.run {
-            ownText()
-                .trim()
-                .takeUnless { it.isBlank() || it == "?" }
-        }
+    private fun Element.getInfo(key: String): String? = selectFirst("div.info:has(span:containsOwn($key))")?.run {
+        ownText()
+            .trim()
+            .takeUnless { it.isBlank() || it == "?" }
     }
 
     companion object {

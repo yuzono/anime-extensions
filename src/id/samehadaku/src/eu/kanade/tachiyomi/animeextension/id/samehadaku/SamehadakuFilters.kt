@@ -14,44 +14,37 @@ object SamehadakuFilters {
         fun toQueryPart(name: String) = "&$name=${vals[state].second}"
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
-            }.joinToString("&$name[]=").let {
-                if (it.isBlank()) {
-                    ""
-                } else {
-                    "&$name[]=$it"
-                }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }.joinToString("&$name[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&$name[]=$it"
+            }
+        }
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genre",
-        FiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genre",
+            FiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
     class TypeFilter : QueryPartFilter("Type", FiltersData.TYPE)
 

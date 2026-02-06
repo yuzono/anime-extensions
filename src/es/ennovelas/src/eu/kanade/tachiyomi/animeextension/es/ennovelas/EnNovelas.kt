@@ -22,7 +22,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,7 +33,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.concurrent.TimeUnit
 
-class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class EnNovelas :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "EnNovelas"
 
@@ -117,9 +119,7 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -239,15 +239,13 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/search/$id", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/search/$id", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -269,7 +267,6 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             genreFilter.state != 0 -> GET("$baseUrl/${genreFilter.toUriPart()}/page/$page/")
             yearFilter.state != 0 -> GET("$baseUrl/${yearFilter.toUriPart()}/page/$page/")
             typeFilter.state != 0 -> GET("$baseUrl/${typeFilter.toUriPart()}/page/$page/")
-
             else -> popularAnimeRequest(page)
         }
     }
@@ -293,12 +290,10 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Continuous") -> SAnime.ONGOING
-            statusString.contains("Finished") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Continuous") -> SAnime.ONGOING
+        statusString.contains("Finished") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -308,52 +303,54 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         TypeFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Categorías",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Novelas Mexicanas", "genre/novelas-mexicanas"),
-            Pair("Novelas Colombianas", "genre/novelas-colombianas"),
-            Pair("Series Y Novelas Turcas", "genre/series-y-novelas-turcas"),
-            Pair("Novelas Brasileñas", "genre/novelas-brasilenas"),
-            Pair("Novelas Americanas", "genre/novelas-americanas"),
-            Pair("Novelas Españolas", "genre/novelas-espanolas"),
-            Pair("Novelas Chilenas", "genre/telenovelas-chilenas"),
-            Pair("Novelas Peruanas", "genre/novelas-peruanas"),
-            Pair("Novelas Venezolanas", "genre/novelas-venezolanas"),
-            Pair("Novelas Reino Unido", "genre/novelas-reino-unido"),
-            Pair("Novelas Argentinas", "genre/novelas-argentinas"),
-            Pair("Novelas Filipinas", "genre/novelas-filipinas"),
-            Pair("Novelas Indias", "genre/novelas-indias"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Categorías",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Novelas Mexicanas", "genre/novelas-mexicanas"),
+                Pair("Novelas Colombianas", "genre/novelas-colombianas"),
+                Pair("Series Y Novelas Turcas", "genre/series-y-novelas-turcas"),
+                Pair("Novelas Brasileñas", "genre/novelas-brasilenas"),
+                Pair("Novelas Americanas", "genre/novelas-americanas"),
+                Pair("Novelas Españolas", "genre/novelas-espanolas"),
+                Pair("Novelas Chilenas", "genre/telenovelas-chilenas"),
+                Pair("Novelas Peruanas", "genre/novelas-peruanas"),
+                Pair("Novelas Venezolanas", "genre/novelas-venezolanas"),
+                Pair("Novelas Reino Unido", "genre/novelas-reino-unido"),
+                Pair("Novelas Argentinas", "genre/novelas-argentinas"),
+                Pair("Novelas Filipinas", "genre/novelas-filipinas"),
+                Pair("Novelas Indias", "genre/novelas-indias"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "Años",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("2024", "years/2024"),
-            Pair("2023", "years/2023"),
-            Pair("2022", "years/2022"),
-            Pair("2021", "years/2021"),
-            Pair("2020", "years/2020"),
-            Pair("2019", "years/2019"),
-            Pair("2018", "years/2018"),
-            Pair("2017", "years/2017"),
-            Pair("2016", "years/2016"),
-            Pair("2015", "years/2015"),
-        ),
-    )
-    private class TypeFilter : UriPartFilter(
-        "Tipo",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Peliculas", "movies"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Años",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("2024", "years/2024"),
+                Pair("2023", "years/2023"),
+                Pair("2022", "years/2022"),
+                Pair("2021", "years/2021"),
+                Pair("2020", "years/2020"),
+                Pair("2019", "years/2019"),
+                Pair("2018", "years/2018"),
+                Pair("2017", "years/2017"),
+                Pair("2016", "years/2016"),
+                Pair("2015", "years/2015"),
+            ),
+        )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipo",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Peliculas", "movies"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

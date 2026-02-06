@@ -17,11 +17,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesBr : DooPlay(
-    "pt-BR",
-    "Animes BR",
-    "https://animesbr.tv",
-) {
+class AnimesBr :
+    DooPlay(
+        "pt-BR",
+        "Animes BR",
+        "https://animesbr.tv",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"
@@ -38,12 +39,10 @@ class AnimesBr : DooPlay(
     // =========================== Anime Details ============================
     override val additionalInfoSelector = "div.wp-content"
 
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector p")
-            .first { !it.text().contains("Todos os Episódios") }
-            ?.let { it.text() + "\n" }
-            ?: ""
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector p")
+        .first { !it.text().contains("Todos os Episódios") }
+        ?.let { it.text() + "\n" }
+        ?: ""
 
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
@@ -103,7 +102,6 @@ class AnimesBr : DooPlay(
             "4youmovies" in url -> fourNimesExtractor.videosFromUrl(url, "$name - ")
             "vidmoly" in url -> vidMolyExtractor.videosFromUrl(url, "$name - ")
             "/embed/" in url -> ruplayExtractor.videosFromUrl(url, "$name - ")
-
             else -> emptyList()
         }
     }

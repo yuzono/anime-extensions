@@ -14,12 +14,20 @@ object JSONUtil {
 
             val escapedChar = when (ch) {
                 '\b' -> "\\b"
-                '\u000C' -> "\\f" // '\u000C' == '\f', Kotlin doesnt support \f
+
+                '\u000C' -> "\\f"
+
+                // '\u000C' == '\f', Kotlin doesnt support \f
                 '\n' -> "\\n"
+
                 '\r' -> "\\r"
+
                 '\t' -> "\\t"
+
                 '\\' -> "\\\\"
+
                 '"' -> "\\\""
+
                 else -> {
                     if (charInt > 127) {
                         String.format("\\u%04x", charInt)
@@ -47,12 +55,20 @@ object JSONUtil {
                 index++
 
                 val unescaped = when (ch) {
-                    '\\', '/', '"', '\'' -> ch // "
+                    '\\', '/', '"', '\'' -> ch
+
+                    // "
                     'b' -> '\b'
-                    'f' -> '\u000C' // '\f' in java
+
+                    'f' -> '\u000C'
+
+                    // '\f' in java
                     'n' -> '\n'
+
                     'r' -> '\r'
+
                     't' -> '\t'
+
                     'u' -> {
                         if (index + 4 > input.length) {
                             throw RuntimeException("Not enough unicode digits!")
@@ -63,6 +79,7 @@ object JSONUtil {
                         }
                         hex.toInt(16).toChar()
                     }
+
                     else -> throw RuntimeException("Illegal escape sequence: \\" + ch)
                 }
                 builder.append(unescaped)

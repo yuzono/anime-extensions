@@ -10,22 +10,21 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class DarkMahou : AnimeStream(
-    "pt-BR",
-    "DarkMahou (Torrent)",
-    "https://darkmahou.org",
-) {
+class DarkMahou :
+    AnimeStream(
+        "pt-BR",
+        "DarkMahou (Torrent)",
+        "https://darkmahou.org",
+    ) {
     override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
 
     override val animeListUrl = "$baseUrl/animes"
 
     // =============================== Search ===============================
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("abs:href"))
-            title = element.selectFirst("div.tt span.ntitle")!!.ownText()
-            thumbnail_url = element.selectFirst("img")?.getImageUrl()
-        }
+    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("abs:href"))
+        title = element.selectFirst("div.tt span.ntitle")!!.ownText()
+        thumbnail_url = element.selectFirst("img")?.getImageUrl()
     }
 
     // ============================== Filters ===============================
@@ -36,23 +35,19 @@ class DarkMahou : AnimeStream(
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.mctnx div.soraddl"
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response).reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            element.selectFirst(".sorattl h3")!!.text().let {
-                name = it
-                episode_number = it.substringAfterLast(" ").toFloatOrNull() ?: 0F
-                setUrlWithoutDomain(
-                    element.ownerDocument()!!.location()
-                        .toHttpUrl()
-                        .newBuilder()
-                        .fragment(it)
-                        .toString(),
-                )
-            }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        element.selectFirst(".sorattl h3")!!.text().let {
+            name = it
+            episode_number = it.substringAfterLast(" ").toFloatOrNull() ?: 0F
+            setUrlWithoutDomain(
+                element.ownerDocument()!!.location()
+                    .toHttpUrl()
+                    .newBuilder()
+                    .fragment(it)
+                    .toString(),
+            )
         }
     }
 

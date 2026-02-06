@@ -7,8 +7,8 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:streamhidevid-extractor'))
-    implementation(project(':lib:vidguard-extractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidguardextractor'))
 }

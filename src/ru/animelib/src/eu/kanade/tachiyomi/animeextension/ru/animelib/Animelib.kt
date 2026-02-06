@@ -23,8 +23,8 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelFlatMap
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.UrlUtils
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -34,7 +34,9 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
+class Animelib :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animelib"
 
@@ -224,13 +226,11 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // =============================== Video List ===============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .awaitSuccess()
-            .use { response ->
-                videoListParseAsync(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .awaitSuccess()
+        .use { response ->
+            videoListParseAsync(response)
+        }
 
     private suspend fun videoListParseAsync(response: Response): List<Video> {
         val episodeData = response.parseAs<EpisodeVideoData>()
@@ -509,24 +509,24 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
         return videoList
     }
 
-    private fun bestQuality(videoInfo: VideoInfo): Int {
-        return when (videoInfo.player.lowercase()) {
-            "animelib" -> videoInfo.video?.quality?.maxBy { it.quality }?.quality ?: 0
-            "kodik" -> 720
-            else -> 0
-        }
+    private fun bestQuality(videoInfo: VideoInfo): Int = when (videoInfo.player.lowercase()) {
+        "animelib" -> videoInfo.video?.quality?.maxBy { it.quality }?.quality ?: 0
+        "kodik" -> 720
+        else -> 0
     }
 
     // =============================== Converters ===============================
-    private fun convertStatus(status: Int): Int {
-        return when (status) {
-            1 -> SAnime.ONGOING
-            2 -> SAnime.COMPLETED
-            4 -> SAnime.ON_HIATUS
-            5 -> SAnime.CANCELLED
-            else -> {
-                SAnime.UNKNOWN
-            }
+    private fun convertStatus(status: Int): Int = when (status) {
+        1 -> SAnime.ONGOING
+
+        2 -> SAnime.COMPLETED
+
+        4 -> SAnime.ON_HIATUS
+
+        5 -> SAnime.CANCELLED
+
+        else -> {
+            SAnime.UNKNOWN
         }
     }
 

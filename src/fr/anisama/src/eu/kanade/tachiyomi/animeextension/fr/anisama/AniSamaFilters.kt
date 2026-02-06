@@ -17,12 +17,15 @@ class AniSamaFilters(
 
     private lateinit var filterList: AnimeFilterList
 
-    interface QueryParameterFilter { fun toQueryParameter(): Pair<String, String?> }
+    interface QueryParameterFilter {
+        fun toQueryParameter(): Pair<String, String?>
+    }
 
     private class Checkbox(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     private class CheckboxList(name: String, private val paramName: String, private val pairs: List<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { Checkbox(it.first) }), QueryParameterFilter {
+        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { Checkbox(it.first) }),
+        QueryParameterFilter {
         override fun toQueryParameter() = Pair(
             paramName,
             state.asSequence()
@@ -34,18 +37,17 @@ class AniSamaFilters(
     }
 
     private class Select(name: String, private val paramName: String, private val pairs: List<Pair<String, String>>) :
-        AnimeFilter.Select<String>(name, pairs.map { it.first }.toTypedArray()), QueryParameterFilter {
+        AnimeFilter.Select<String>(name, pairs.map { it.first }.toTypedArray()),
+        QueryParameterFilter {
         override fun toQueryParameter() = Pair(paramName, pairs[state].second)
     }
 
-    fun getFilterList(): AnimeFilterList {
-        return if (error) {
-            AnimeFilterList(AnimeFilter.Header("Erreur lors de la récupération des filtres."))
-        } else if (this::filterList.isInitialized) {
-            filterList
-        } else {
-            AnimeFilterList(AnimeFilter.Header("Utilise \"Réinitialiser\" pour charger les filtres."))
-        }
+    fun getFilterList(): AnimeFilterList = if (error) {
+        AnimeFilterList(AnimeFilter.Header("Erreur lors de la récupération des filtres."))
+    } else if (this::filterList.isInitialized) {
+        filterList
+    } else {
+        AnimeFilterList(AnimeFilter.Header("Utilise \"Réinitialiser\" pour charger les filtres."))
     }
 
     fun fetchFilters() {
@@ -60,10 +62,9 @@ class AniSamaFilters(
         }
     }
 
-    private fun Elements.parseFilterValues(name: String): List<Pair<String, String>> =
-        select(".item:has(.btn:contains($name)) li").map {
-            Pair(it.text(), it.select("input").attr("value"))
-        }
+    private fun Elements.parseFilterValues(name: String): List<Pair<String, String>> = select(".item:has(.btn:contains($name)) li").map {
+        Pair(it.text(), it.select("input").attr("value"))
+    }
 
     private fun filtersParse(document: Document): AnimeFilterList {
         val form = document.select(".block_area-filter")

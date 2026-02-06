@@ -26,7 +26,7 @@ import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -38,7 +38,9 @@ import uy.kohesive.injekt.injectLazy
 import java.io.UnsupportedEncodingException
 import java.net.URLEncoder
 
-class AnimeMovil : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeMovil :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeMovil"
 
@@ -145,7 +147,9 @@ class AnimeMovil : ConfigurableAnimeSource, AnimeHttpSource() {
             val token = try {
                 response.headers.first { it.first == "set-cookie" && it.second.startsWith("csrftoken") }
                     .second.substringAfter("=").substringBefore(";").replace("%3D", "=")
-            } catch (_: Exception) { "" }
+            } catch (_: Exception) {
+                ""
+            }
             seasons.reversed().map {
                 val sid = it.attr("data-sid")
                 val t = it.attr("data-t")
@@ -234,46 +238,59 @@ class AnimeMovil : ConfigurableAnimeSource, AnimeHttpSource() {
                 embedUrl.contains("voe") -> {
                     VoeExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
                     FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:").also(videoList::addAll)
                 }
+
                 embedUrl.contains("uqload") -> {
                     UqloadExtractor(client).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("mp4upload") -> {
                     val newHeaders = headers.newBuilder().add("referer", "https://re.animepelix.net/").build()
                     Mp4uploadExtractor(client).videosFromUrl(url, newHeaders).also(videoList::addAll)
                 }
+
                 embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("wish") -> {
                     val docHeaders = headers.newBuilder()
                         .add("Referer", "$baseUrl/")
                         .build()
                     StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" }).also(videoList::addAll)
                 }
+
                 embedUrl.contains("doodstream") || embedUrl.contains("dood.") -> {
                     DoodExtractor(client).videosFromUrl(url, "DoodStream").also(videoList::addAll)
                 }
+
                 embedUrl.contains("streamlare") -> {
                     StreamlareExtractor(client).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("yourupload") -> {
                     YourUploadExtractor(client).videoFromUrl(url, headers = headers).also(videoList::addAll)
                 }
+
                 embedUrl.contains("burstcloud") || embedUrl.contains("burst") -> {
                     BurstCloudExtractor(client).videoFromUrl(url, headers = headers).also(videoList::addAll)
                 }
+
                 embedUrl.contains("fastream") -> {
                     FastreamExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("upstream") -> {
                     UpstreamExtractor(client).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("streamtape") -> {
                     StreamTapeExtractor(client).videosFromUrl(url).also(videoList::addAll)
                 }
+
                 embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
                     StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" }).also(videoList::addAll)
                 }
+
                 else -> {
                     UniversalExtractor(client).videosFromUrl(url, headers).also(videoList::addAll)
                 }
@@ -304,107 +321,110 @@ class AnimeMovil : ConfigurableAnimeSource, AnimeHttpSource() {
         LanguageFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Acción", "1"),
-            Pair("Escolares", "2"),
-            Pair("Romance", "3"),
-            Pair("Shoujo", "4"),
-            Pair("Comedia", "5"),
-            Pair("Drama", "6"),
-            Pair("Seinen", "7"),
-            Pair("Deportes", "8"),
-            Pair("Shounen", "9"),
-            Pair("Recuentos de la vida", "10"),
-            Pair("Ecchi", "11"),
-            Pair("Sobrenatural", "12"),
-            Pair("Fantasía", "13"),
-            Pair("Magia", "14"),
-            Pair("Superpoderes", "15"),
-            Pair("Demencia", "16"),
-            Pair("Misterio", "17"),
-            Pair("Psicológico", "18"),
-            Pair("Suspenso", "19"),
-            Pair("Ciencia Ficción", "20"),
-            Pair("Mecha", "21"),
-            Pair("Militar", "22"),
-            Pair("Aventuras", "23"),
-            Pair("Historico", "24"),
-            Pair("Infantil", "25"),
-            Pair("Artes Marciales", "26"),
-            Pair("Terror", "27"),
-            Pair("Harem", "28"),
-            Pair("Josei", "29"),
-            Pair("Parodia", "30"),
-            Pair("Policía", "31"),
-            Pair("Juegos", "32"),
-            Pair("Carreras", "33"),
-            Pair("Samurai", "34"),
-            Pair("Espacial", "35"),
-            Pair("Música", "36"),
-            Pair("Yuri", "37"),
-            Pair("Demonios", "38"),
-            Pair("Vampiros", "39"),
-            Pair("Yaoi", "40"),
-            Pair("Humor Negro", "41"),
-            Pair("Crimen", "42"),
-            Pair("Hentai", "43"),
-            Pair("Youtuber", "44"),
-            Pair("MaiNess Random", "45"),
-            Pair("Donghua", "46"),
-            Pair("Horror", "47"),
-            Pair("Sin Censura", "48"),
-            Pair("Gore", "49"),
-            Pair("Live Action", "50"),
-            Pair("Isekai", "51"),
-            Pair("Gourmet", "52"),
-            Pair("spokon", "53"),
-            Pair("Zombies", "54"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Acción", "1"),
+                Pair("Escolares", "2"),
+                Pair("Romance", "3"),
+                Pair("Shoujo", "4"),
+                Pair("Comedia", "5"),
+                Pair("Drama", "6"),
+                Pair("Seinen", "7"),
+                Pair("Deportes", "8"),
+                Pair("Shounen", "9"),
+                Pair("Recuentos de la vida", "10"),
+                Pair("Ecchi", "11"),
+                Pair("Sobrenatural", "12"),
+                Pair("Fantasía", "13"),
+                Pair("Magia", "14"),
+                Pair("Superpoderes", "15"),
+                Pair("Demencia", "16"),
+                Pair("Misterio", "17"),
+                Pair("Psicológico", "18"),
+                Pair("Suspenso", "19"),
+                Pair("Ciencia Ficción", "20"),
+                Pair("Mecha", "21"),
+                Pair("Militar", "22"),
+                Pair("Aventuras", "23"),
+                Pair("Historico", "24"),
+                Pair("Infantil", "25"),
+                Pair("Artes Marciales", "26"),
+                Pair("Terror", "27"),
+                Pair("Harem", "28"),
+                Pair("Josei", "29"),
+                Pair("Parodia", "30"),
+                Pair("Policía", "31"),
+                Pair("Juegos", "32"),
+                Pair("Carreras", "33"),
+                Pair("Samurai", "34"),
+                Pair("Espacial", "35"),
+                Pair("Música", "36"),
+                Pair("Yuri", "37"),
+                Pair("Demonios", "38"),
+                Pair("Vampiros", "39"),
+                Pair("Yaoi", "40"),
+                Pair("Humor Negro", "41"),
+                Pair("Crimen", "42"),
+                Pair("Hentai", "43"),
+                Pair("Youtuber", "44"),
+                Pair("MaiNess Random", "45"),
+                Pair("Donghua", "46"),
+                Pair("Horror", "47"),
+                Pair("Sin Censura", "48"),
+                Pair("Gore", "49"),
+                Pair("Live Action", "50"),
+                Pair("Isekai", "51"),
+                Pair("Gourmet", "52"),
+                Pair("spokon", "53"),
+                Pair("Zombies", "54"),
+            ),
+        )
 
-    private class TypeFilter : UriPartFilter(
-        "Tipos",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("TV", "1"),
-            Pair("Película", "2"),
-            Pair("OVA", "3"),
-            Pair("Especial", "4"),
-            Pair("Serie", "9"),
-            Pair("Dorama", "11"),
-            Pair("Corto", "14"),
-            Pair("Donghua", "15"),
-            Pair("ONA", "16"),
-            Pair("Live Action", "17"),
-            Pair("Manhwa", "18"),
-            Pair("Teatral", "19"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipos",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("TV", "1"),
+                Pair("Película", "2"),
+                Pair("OVA", "3"),
+                Pair("Especial", "4"),
+                Pair("Serie", "9"),
+                Pair("Dorama", "11"),
+                Pair("Corto", "14"),
+                Pair("Donghua", "15"),
+                Pair("ONA", "16"),
+                Pair("Live Action", "17"),
+                Pair("Manhwa", "18"),
+                Pair("Teatral", "19"),
+            ),
+        )
 
-    private class StatusFilter : UriPartFilter(
-        "Estados",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Finalizado", "1"),
-            Pair("En emision", "2"),
-            Pair("Proximamente", "3"),
-        ),
-    )
+    private class StatusFilter :
+        UriPartFilter(
+            "Estados",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Finalizado", "1"),
+                Pair("En emision", "2"),
+                Pair("Proximamente", "3"),
+            ),
+        )
 
-    private class LanguageFilter : UriPartFilter(
-        "Idioma",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Japonés", "1"),
-            Pair("Latino", "2"),
-        ),
-    )
+    private class LanguageFilter :
+        UriPartFilter(
+            "Idioma",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Japonés", "1"),
+                Pair("Latino", "2"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -456,12 +476,10 @@ class AnimeMovil : ConfigurableAnimeSource, AnimeHttpSource() {
         val url: String,
     )
 
-    private fun urlEncodeUTF8(s: String?): String? {
-        return try {
-            URLEncoder.encode(s, "UTF-8")
-        } catch (e: UnsupportedEncodingException) {
-            throw UnsupportedOperationException()
-        }
+    private fun urlEncodeUTF8(s: String?): String? = try {
+        URLEncoder.encode(s, "UTF-8")
+    } catch (e: UnsupportedEncodingException) {
+        throw UnsupportedOperationException()
     }
 
     private fun urlEncodeUTF8(map: Map<*, *>): String? {

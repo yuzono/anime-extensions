@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -24,7 +24,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 
-class Pandrama : ConfigurableAnimeSource, AnimeHttpSource() {
+class Pandrama :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Pandrama"
 

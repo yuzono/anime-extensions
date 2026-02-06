@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.float
@@ -28,7 +28,9 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 
-class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
+class Movie4k :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Movie4k"
 
@@ -47,8 +49,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
         ignoreUnknownKeys = true
     }
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$apiUrl/data/browse/?lang=2&keyword=&year=&rating=&votes=&genre=&country=&cast=&directors=&type=movies&order_by=trending&page=$page", headers = Headers.headersOf("if-none-match", ""))
+    override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/data/browse/?lang=2&keyword=&year=&rating=&votes=&genre=&country=&cast=&directors=&type=movies&order_by=trending&page=$page", headers = Headers.headersOf("if-none-match", ""))
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -77,9 +78,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // episodes
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET(apiUrl + anime.url, headers = Headers.headersOf("if-none-match", ""))
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET(apiUrl + anime.url, headers = Headers.headersOf("if-none-match", ""))
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val responseString = response.body.string()
@@ -159,7 +158,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
                             }
                         }
 
-                        link.contains("//streamcrypt.net") || link.contains("//streamz") && hosterSelection?.contains("streamz") == true -> {
+                        link.contains("//streamcrypt.net") || (link.contains("//streamz") && hosterSelection?.contains("streamz") == true) -> {
                             if (!link.contains("https:")) {
                                 if (link.contains("//streamcrypt.net")) {
                                     val url = "https:$link"
@@ -214,7 +213,8 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
 
                         link.contains("//voe.sx") || link.contains("//launchreliantcleaverriver") ||
                             link.contains("//fraudclatterflyingcar") ||
-                            link.contains("//uptodatefinishconferenceroom") || link.contains("//realfinanceblogcenter") && hosterSelection?.contains("voe") == true -> {
+                            link.contains("//uptodatefinishconferenceroom") ||
+                            (link.contains("//realfinanceblogcenter") && hosterSelection?.contains("voe") == true) -> {
                             videoList.addAll(VoeExtractor(client, headers).videosFromUrl(if (link.contains("https:")) link else "https:$link"))
                         }
                     }
@@ -242,7 +242,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
                         }
                     }
 
-                    link.contains("//streamcrypt.net") || link.contains("https://streamz") && hosterSelection?.contains("streamz") == true -> {
+                    link.contains("//streamcrypt.net") || (link.contains("https://streamz") && hosterSelection?.contains("streamz") == true) -> {
                         if (!link.contains("https:")) {
                             if (link.contains("//streamcrypt.net")) {
                                 val url = "https:$link"
@@ -297,7 +297,8 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
 
                     link.contains("//voe.sx") || link.contains("//launchreliantcleaverriver") ||
                         link.contains("//fraudclatterflyingcar") ||
-                        link.contains("//uptodatefinishconferenceroom") || link.contains("//realfinanceblogcenter") && hosterSelection?.contains("voe") == true -> {
+                        link.contains("//uptodatefinishconferenceroom") ||
+                        (link.contains("//realfinanceblogcenter") && hosterSelection?.contains("voe") == true) -> {
                         videoList.addAll(VoeExtractor(client, headers).videosFromUrl(if (link.contains("https:")) link else "https:$link"))
                     }
                 }
@@ -326,8 +327,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // Search
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$apiUrl/data/browse/?lang=2&keyword=$query&year=&rating=&votes=&genre=&country=&cast=&directors=&type=&order_by=&page=$page", headers = Headers.headersOf("if-none-match", ""))
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$apiUrl/data/browse/?lang=2&keyword=$query&year=&rating=&votes=&genre=&country=&cast=&directors=&type=&order_by=&page=$page", headers = Headers.headersOf("if-none-match", ""))
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -366,9 +366,7 @@ class Movie4k : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // Details
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET(apiUrl + anime.url, headers = Headers.headersOf("if-modified-since", ""))
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(apiUrl + anime.url, headers = Headers.headersOf("if-modified-since", ""))
 
     override fun animeDetailsParse(response: Response): SAnime {
         val responseString = response.body.string()

@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapNotNullBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -23,7 +23,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
+class Oploverz :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name: String = "Oploverz"
     override val baseUrl: String = "https://oploverz.media"
     override val lang: String = "id"
@@ -33,19 +35,15 @@ class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/anime-list/page/$page/?order=popular")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/anime-list/page/$page/?order=popular")
 
-    override fun popularAnimeParse(response: Response): AnimesPage =
-        getAnimeParse(response, "div.relat > article")
+    override fun popularAnimeParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/anime-list/page/$page/?order=latest")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/anime-list/page/$page/?order=latest")
 
-    override fun latestUpdatesParse(response: Response): AnimesPage =
-        getAnimeParse(response, "div.relat > article")
+    override fun latestUpdatesParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
 
     // =============================== Search ===============================
 
@@ -54,8 +52,7 @@ class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET("$baseUrl/anime-list/page/$page/?title=$query${params.filter}", headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage =
-        getAnimeParse(response, "div.relat > article")
+    override fun searchAnimeParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
 
     // ============================== Filters ===============================
 
@@ -116,20 +113,16 @@ class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
         return sortedWith(compareByDescending { it.quality.contains(quality) })
     }
 
-    private fun String?.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
+        .getOrNull() ?: 0L
 
-    private fun Element.getInfo(info: String, cut: Boolean = true): String {
-        return selectFirst("span:has(b:contains($info))")!!.text()
-            .let {
-                when {
-                    cut -> it.substringAfter(" ")
-                    else -> it
-                }.trim()
-            }
-    }
+    private fun Element.getInfo(info: String, cut: Boolean = true): String = selectFirst("span:has(b:contains($info))")!!.text()
+        .let {
+            when {
+                cut -> it.substringAfter(" ")
+                else -> it
+            }.trim()
+        }
 
     private fun getAnimeParse(response: Response, query: String): AnimesPage {
         val doc = response.asJsoup()
@@ -151,12 +144,10 @@ class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animes, hasNextPage)
     }
 
-    private fun parseStatus(status: String?): Int {
-        return when (status?.trim()?.lowercase()) {
-            "completed" -> SAnime.COMPLETED
-            "ongoing" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
+        "completed" -> SAnime.COMPLETED
+        "ongoing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun getEmbedLinks(url: String, element: Element): Pair<String, String> {
@@ -171,29 +162,27 @@ class Oploverz : ConfigurableAnimeSource, AnimeHttpSource() {
             .let { Pair(it.asJsoup().selectFirst(".playeriframe")!!.attr("src"), "") }
     }
 
-    private fun getVideosFromEmbed(link: String): List<Video> {
-        return when {
-            "blogger" in link -> {
-                client.newCall(GET(link)).execute().body.string().let {
-                    val json = JSONObject(it.substringAfter("= ").substringBefore("<"))
-                    val streams = json.getJSONArray("streams")
-                    val videoList = mutableListOf<Video>()
-                    for (i in 0 until streams.length()) {
-                        val stream = streams.getJSONObject(i)
-                        val url = stream.getString("play_url")
-                        val quality = when (stream.getString("format_id")) {
-                            "18" -> "Google - 360p"
-                            "22" -> "Google - 720p"
-                            else -> "Unknown Resolution"
-                        }
-                        videoList.add(Video(url, quality, url))
+    private fun getVideosFromEmbed(link: String): List<Video> = when {
+        "blogger" in link -> {
+            client.newCall(GET(link)).execute().body.string().let {
+                val json = JSONObject(it.substringAfter("= ").substringBefore("<"))
+                val streams = json.getJSONArray("streams")
+                val videoList = mutableListOf<Video>()
+                for (i in 0 until streams.length()) {
+                    val stream = streams.getJSONObject(i)
+                    val url = stream.getString("play_url")
+                    val quality = when (stream.getString("format_id")) {
+                        "18" -> "Google - 360p"
+                        "22" -> "Google - 720p"
+                        else -> "Unknown Resolution"
                     }
-                    videoList
+                    videoList.add(Video(url, quality, url))
                 }
+                videoList
             }
-
-            else -> emptyList()
         }
+
+        else -> emptyList()
     }
 
     // ============================== Settings ==============================

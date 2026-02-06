@@ -9,8 +9,8 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:dailymotion-extractor"))
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:streamvid-extractor"))
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:dailymotionextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:streamvidextractor"))
+    implementation(project(":lib:playlistutils"))
 }

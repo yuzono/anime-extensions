@@ -15,7 +15,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -30,7 +30,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class UHDMovies :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "UHD Movies"
 
@@ -52,6 +54,7 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                                         preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
                                     }
                                 }
+
                                 else -> baseUrl
                             }
                         }
@@ -80,8 +83,7 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .replace("Download", "").trim()
     }
 
-    override fun popularAnimeNextPageSelector(): String =
-        "div#content  > nav.gridlove-pagination > a.next"
+    override fun popularAnimeNextPageSelector(): String = "div#content  > nav.gridlove-pagination > a.next"
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
@@ -116,8 +118,7 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime) = GET(currentBaseUrl + anime.url, headers)
 
-    private fun Regex.firstValue(text: String) =
-        find(text)?.groupValues?.get(1)?.let { Pair(text, it) }
+    private fun Regex.firstValue(text: String) = find(text)?.groupValues?.get(1)?.let { Pair(text, it) }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
@@ -229,6 +230,7 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         } ?: emptyList()
                     }
                 }
+
                 else -> videos
             }
         }
@@ -254,7 +256,9 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         } else if (url.contains("r?key=")) {
             /* everything under control */
             client.newCall(GET(url)).execute()
-        } else { return null }
+        } else {
+            return null
+        }
 
         val path = mediaResponse.body.string().substringAfter("replace(\"").substringBefore("\"")
 
@@ -263,10 +267,8 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return "https://" + mediaResponse.request.url.host + path
     }
 
-    private fun extractVideo(url: String, quality: String): List<Video> {
-        return (1..3).toList().flatMap { type ->
-            extractWorkerLinks(url, quality, type)
-        }
+    private fun extractVideo(url: String, quality: String): List<Video> = (1..3).toList().flatMap { type ->
+        extractWorkerLinks(url, quality, type)
     }
 
     private fun extractWorkerLinks(mediaUrl: String, quality: String, type: Int): List<Video> {
@@ -419,16 +421,13 @@ class UHDMovies : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     @Serializable
     data class DriveLeechDirect(val url: String? = null)
 
-    private fun EpLinks.toJson(): String {
-        return json.encodeToString(this)
-    }
+    private fun EpLinks.toJson(): String = json.encodeToString(this)
 
-    private fun getDomainPrefSummary(): String =
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
-            """$it
+    private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
+        """$it
                 |For any change to be applied App restart is required.
-            """.trimMargin()
-        }
+        """.trimMargin()
+    }
 
     companion object {
         private val SIZE_REGEX = "\\[((?:.(?!\\[))+)][ ]*\\$".toRegex(RegexOption.IGNORE_CASE)

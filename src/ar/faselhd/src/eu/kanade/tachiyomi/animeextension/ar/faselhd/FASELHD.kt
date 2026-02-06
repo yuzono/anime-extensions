@@ -15,10 +15,10 @@ import eu.kanade.tachiyomi.lib.synchrony.Deobfuscator
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -26,7 +26,9 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FASELHD : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class FASELHD :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "فاصل اعلاني"
 
@@ -41,10 +43,8 @@ class FASELHD : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", baseUrl)
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", baseUrl)
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div#postList div.col-xl-2 a"
@@ -116,15 +116,13 @@ class FASELHD : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val videoRegex by lazy { Regex("""(https?:)?//[^"]+\.m3u8""") }
     private val onClickRegex by lazy { Regex("""['"](https?://[^'"]+)['"]""") }
 
-    override fun videoListParse(response: Response): List<Video> {
-        return response.asJsoup().select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
-            val url = onClickRegex.find(element.attr("onclick"))?.groupValues?.get(1) ?: ""
-            val doc = client.newCall(GET(url, headers)).execute().asJsoup()
-            val script = doc.selectFirst("script:containsData(video), script:containsData(mainPlayer)")?.data()
-                ?.let(Deobfuscator::deobfuscateScript) ?: ""
-            val playlist = videoRegex.find(script)?.value
-            playlist?.let { playlistUtils.extractFromHls(it) } ?: emptyList()
-        }
+    override fun videoListParse(response: Response): List<Video> = response.asJsoup().select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
+        val url = onClickRegex.find(element.attr("onclick"))?.groupValues?.get(1) ?: ""
+        val doc = client.newCall(GET(url, headers)).execute().asJsoup()
+        val script = doc.selectFirst("script:containsData(video), script:containsData(mainPlayer)")?.data()
+            ?.let(Deobfuscator::deobfuscateScript) ?: ""
+        val playlist = videoRegex.find(script)?.value
+        playlist?.let { playlistUtils.extractFromHls(it) } ?: emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -192,11 +190,9 @@ class FASELHD : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "مستمر" -> SAnime.ONGOING
-            else -> SAnime.COMPLETED
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "مستمر" -> SAnime.ONGOING
+        else -> SAnime.COMPLETED
     }
 
     // =============================== Latest ===============================
@@ -224,53 +220,54 @@ class FASELHD : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         CategoryFilter(),
         GenreFilter(),
     )
-    private class SectionFilter : PairFilter(
-        "اقسام الموقع",
-        arrayOf(
-            Pair("اختر", "none"),
-            Pair("جميع الافلام", "all-movies"),
-            Pair("افلام اجنبي", "movies"),
-            Pair("افلام مدبلجة", "dubbed-movies"),
-            Pair("افلام هندي", "hindi"),
-            Pair("افلام اسيوي", "asian-movies"),
-            Pair("افلام انمي", "anime-movies"),
-            Pair("الافلام الاعلي تصويتا", "movies_top_votes"),
-            Pair("الافلام الاعلي مشاهدة", "movies_top_views"),
-            Pair("الافلام الاعلي تقييما IMDB", "movies_top_imdb"),
-            Pair("جميع المسلسلات", "series"),
-            Pair("مسلسلات الأنمي", "anime"),
-            Pair("المسلسلات الاعلي تقييما IMDB", "series_top_imdb"),
-            Pair("المسلسلات القصيرة", "short_series"),
-            Pair("المسلسلات الاسيوية", "asian-series"),
-            Pair("المسلسلات الاعلي مشاهدة", "series_top_views"),
-            Pair("المسلسلات الاسيوية الاعلي مشاهدة", "asian_top_views"),
-            Pair("الانمي الاعلي مشاهدة", "anime_top_views"),
-            Pair("البرامج التليفزيونية", "tvshows"),
-            Pair("البرامج التليفزيونية الاعلي مشاهدة", "tvshows_top_views"),
-        ),
-    )
-    private class CategoryFilter : PairFilter(
-        "النوع",
-        arrayOf(
-            Pair("اختر", "none"),
-            Pair("افلام", "movies-cats"),
-            Pair("مسلسلات", "series_genres"),
-            Pair("انمى", "anime-cats"),
-        ),
-    )
-    private class GenreFilter : SingleFilter(
-        "التصنيف",
-        arrayOf(
-            "Action", "Adventure", "Animation", "Western", "Sport", "Short", "Documentary", "Fantasy", "Sci-fi", "Romance", "Comedy", "Family", "Drama", "Thriller", "Crime", "Horror", "Biography",
-        ).sortedArray(),
-    )
+    private class SectionFilter :
+        PairFilter(
+            "اقسام الموقع",
+            arrayOf(
+                Pair("اختر", "none"),
+                Pair("جميع الافلام", "all-movies"),
+                Pair("افلام اجنبي", "movies"),
+                Pair("افلام مدبلجة", "dubbed-movies"),
+                Pair("افلام هندي", "hindi"),
+                Pair("افلام اسيوي", "asian-movies"),
+                Pair("افلام انمي", "anime-movies"),
+                Pair("الافلام الاعلي تصويتا", "movies_top_votes"),
+                Pair("الافلام الاعلي مشاهدة", "movies_top_views"),
+                Pair("الافلام الاعلي تقييما IMDB", "movies_top_imdb"),
+                Pair("جميع المسلسلات", "series"),
+                Pair("مسلسلات الأنمي", "anime"),
+                Pair("المسلسلات الاعلي تقييما IMDB", "series_top_imdb"),
+                Pair("المسلسلات القصيرة", "short_series"),
+                Pair("المسلسلات الاسيوية", "asian-series"),
+                Pair("المسلسلات الاعلي مشاهدة", "series_top_views"),
+                Pair("المسلسلات الاسيوية الاعلي مشاهدة", "asian_top_views"),
+                Pair("الانمي الاعلي مشاهدة", "anime_top_views"),
+                Pair("البرامج التليفزيونية", "tvshows"),
+                Pair("البرامج التليفزيونية الاعلي مشاهدة", "tvshows_top_views"),
+            ),
+        )
+    private class CategoryFilter :
+        PairFilter(
+            "النوع",
+            arrayOf(
+                Pair("اختر", "none"),
+                Pair("افلام", "movies-cats"),
+                Pair("مسلسلات", "series_genres"),
+                Pair("انمى", "anime-cats"),
+            ),
+        )
+    private class GenreFilter :
+        SingleFilter(
+            "التصنيف",
+            arrayOf(
+                "Action", "Adventure", "Animation", "Western", "Sport", "Short", "Documentary", "Fantasy", "Sci-fi", "Romance", "Comedy", "Family", "Drama", "Thriller", "Crime", "Horror", "Biography",
+            ).sortedArray(),
+        )
 
-    open class SingleFilter(displayName: String, private val vals: Array<String>) :
-        AnimeFilter.Select<String>(displayName, vals) {
+    open class SingleFilter(displayName: String, private val vals: Array<String>) : AnimeFilter.Select<String>(displayName, vals) {
         fun toUriPart() = vals[state]
     }
-    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

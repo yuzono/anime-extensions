@@ -12,7 +12,7 @@ import org.jsoup.Connection
 import org.jsoup.Jsoup
 import uy.kohesive.injekt.injectLazy
 
-class ProteaExtractor() {
+class ProteaExtractor {
     private val json: Json by injectLazy()
     fun videosFromUrl(url: String, qualityPrefix: String = "Protea", headers: Headers): List<Video> {
         val videoList = mutableListOf<Video>()

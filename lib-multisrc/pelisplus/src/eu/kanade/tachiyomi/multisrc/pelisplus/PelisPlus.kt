@@ -24,14 +24,16 @@ import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import kotlin.getValue
 
-abstract class PelisPlus() : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+abstract class PelisPlus :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val lang = "es"
 
@@ -66,8 +68,11 @@ abstract class PelisPlus() : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
             when (matched) {
                 "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+
                 "okru" -> okruExtractor.videosFromUrl(url, prefix)
+
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
                 "amazon" -> {
                     val body = client.newCall(GET(url)).execute().asJsoup()
                     return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
@@ -85,19 +90,33 @@ abstract class PelisPlus() : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         emptyList()
                     }
                 }
+
                 "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+
                 "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+
                 "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
+
                 "streamlare" -> streamlareExtractor.videosFromUrl(url, prefix)
+
                 "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
                 "burstcloud" -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
                 "fastream" -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
                 "upstream" -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
                 "streamsilk" -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
+
                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
                 "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix VidHide:$it" })
+
                 "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
                 else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
             }
         }.getOrNull() ?: emptyList()
@@ -179,13 +198,11 @@ abstract class PelisPlus() : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return REGEX_LINK.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
-    fun String.getLang(): String {
-        return when {
-            arrayOf("0", "lat").any(this) -> "[LAT]"
-            arrayOf("1", "cast").any(this) -> "[CAST]"
-            arrayOf("2", "eng", "sub").any(this) -> "[SUB]"
-            else -> ""
-        }
+    fun String.getLang(): String = when {
+        arrayOf("0", "lat").any(this) -> "[LAT]"
+        arrayOf("1", "cast").any(this) -> "[CAST]"
+        arrayOf("2", "eng", "sub").any(this) -> "[SUB]"
+        else -> ""
     }
 
     private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }

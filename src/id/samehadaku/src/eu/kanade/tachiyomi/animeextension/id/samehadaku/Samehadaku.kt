@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapNotNullBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -23,7 +23,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Samehadaku : ConfigurableAnimeSource, AnimeHttpSource() {
+class Samehadaku :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name: String = "Samehadaku"
     override val baseUrl: String = "https://samehadaku.email"
     override val lang: String = "id"
@@ -33,19 +35,15 @@ class Samehadaku : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/daftar-anime-2/page/$page/?order=popular")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/daftar-anime-2/page/$page/?order=popular")
 
-    override fun popularAnimeParse(response: Response): AnimesPage =
-        getAnimeParse(response.asJsoup(), "div.relat > article")
+    override fun popularAnimeParse(response: Response): AnimesPage = getAnimeParse(response.asJsoup(), "div.relat > article")
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/daftar-anime-2/page/$page/?order=latest")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/daftar-anime-2/page/$page/?order=latest")
 
-    override fun latestUpdatesParse(response: Response): AnimesPage =
-        getAnimeParse(response.asJsoup(), "div.relat > article")
+    override fun latestUpdatesParse(response: Response): AnimesPage = getAnimeParse(response.asJsoup(), "div.relat > article")
 
     // =============================== Search ===============================
 
@@ -123,20 +121,16 @@ class Samehadaku : ConfigurableAnimeSource, AnimeHttpSource() {
         return sortedWith(compareByDescending { it.quality.contains(quality) })
     }
 
-    private fun String?.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
+        .getOrNull() ?: 0L
 
-    private fun Element.getInfo(info: String, cut: Boolean = true): String {
-        return selectFirst("span:has(b:contains($info))")!!.text()
-            .let {
-                when {
-                    cut -> it.substringAfter(" ")
-                    else -> it
-                }.trim()
-            }
-    }
+    private fun Element.getInfo(info: String, cut: Boolean = true): String = selectFirst("span:has(b:contains($info))")!!.text()
+        .let {
+            when {
+                cut -> it.substringAfter(" ")
+                else -> it
+            }.trim()
+        }
 
     private fun getAnimeParse(document: Document, query: String): AnimesPage {
         val animes = document.select(query).map {
@@ -157,12 +151,10 @@ class Samehadaku : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animes, hasNextPage)
     }
 
-    private fun parseStatus(status: String?): Int {
-        return when (status?.trim()?.lowercase()) {
-            "completed" -> SAnime.COMPLETED
-            "ongoing" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
+        "completed" -> SAnime.COMPLETED
+        "ongoing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun getEmbedLinks(url: String, element: Element): Pair<String, String> {

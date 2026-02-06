@@ -23,11 +23,12 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Q1N : DooPlay(
-    "pt-BR",
-    "Q1N",
-    "https://q1n.net",
-) {
+class Q1N :
+    DooPlay(
+        "pt-BR",
+        "Q1N",
+        "https://q1n.net",
+    ) {
 
     private val tag by lazy { javaClass.simpleName }
 
@@ -106,13 +107,11 @@ class Q1N : DooPlay(
     }
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .execute()
-            .use { response ->
-                videoListParseSuspend(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .execute()
+        .use { response ->
+            videoListParseSuspend(response)
+        }
 
     override fun videoListParse(response: Response) = throw UnsupportedOperationException()
     private suspend fun videoListParseSuspend(response: Response): List<Video> {
@@ -197,10 +196,8 @@ class Q1N : DooPlay(
     }
 
     @Suppress("SameParameterValue")
-    private fun Element.tryGetAttr(vararg attributeKeys: String): String? {
-        return attributeKeys.firstOrNull { hasAttr(it) }
-            ?.let { attr(it) }
-    }
+    private fun Element.tryGetAttr(vararg attributeKeys: String): String? = attributeKeys.firstOrNull { hasAttr(it) }
+        ?.let { attr(it) }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!

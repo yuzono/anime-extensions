@@ -14,8 +14,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.addListPreference
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -29,7 +29,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-abstract class WcoTheme : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+abstract class WcoTheme :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val lang = "en"
 
@@ -63,12 +65,10 @@ abstract class WcoTheme : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun latestUpdatesSelector(): String = "div.recent-release:contains(Recent Releases) + div > ul > li"
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-            title = element.text()
-            thumbnail_url = element.select("img[src]").attr("abs:src")
-        }
+    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
+        title = element.text()
+        thumbnail_url = element.select("img[src]").attr("abs:src")
     }
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -256,49 +256,47 @@ abstract class WcoTheme : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return iframeParse(iframeUrl)
     }
 
-    open fun iframeParse(iframeLink: String): List<Video> {
-        return if (iframeLink.contains("embed.wcostream")) {
-            // Dub or Hard-sub
-            val iframeSoup = client.newCall(GET(iframeLink, headers))
-                .execute().asJsoup()
+    open fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
+        // Dub or Hard-sub
+        val iframeSoup = client.newCall(GET(iframeLink, headers))
+            .execute().asJsoup()
 
-            val getVideoLinkScript =
-                iframeSoup.selectFirst("script:containsData(getJSON)")!!.data()
-            val getVideoLink =
-                getVideoLinkScript.substringAfter("\$.getJSON(\"").substringBefore("\"")
+        val getVideoLinkScript =
+            iframeSoup.selectFirst("script:containsData(getJSON)")!!.data()
+        val getVideoLink =
+            getVideoLinkScript.substringAfter("\$.getJSON(\"").substringBefore("\"")
 
-            val iframeDomain = "https://" + iframeLink.toHttpUrl().host
-            val requestUrl = iframeDomain + getVideoLink
+        val iframeDomain = "https://" + iframeLink.toHttpUrl().host
+        val requestUrl = iframeDomain + getVideoLink
 
-            val requestHeaders = headersBuilder()
-                .add("X-Requested-With", "XMLHttpRequest")
-                .set("Referer", requestUrl)
-                .set("Origin", iframeDomain)
-                .build()
+        val requestHeaders = headersBuilder()
+            .add("X-Requested-With", "XMLHttpRequest")
+            .set("Referer", requestUrl)
+            .set("Origin", iframeDomain)
+            .build()
 
-            val videoData = client.newCall(GET(requestUrl, requestHeaders)).execute()
-                .parseAs<VideoResponseDto>()
+        val videoData = client.newCall(GET(requestUrl, requestHeaders)).execute()
+            .parseAs<VideoResponseDto>()
 
-            videoData.videos
-        } else if (iframeLink.contains("vhs.watchanimesub")) {
-            // Premium videos with high quality, soft-sub and audio tracks
-            val body = client.newCall(GET(iframeLink, headers))
-                .execute().body.string()
+        videoData.videos
+    } else if (iframeLink.contains("vhs.watchanimesub")) {
+        // Premium videos with high quality, soft-sub and audio tracks
+        val body = client.newCall(GET(iframeLink, headers))
+            .execute().body.string()
 
-            val matchResult = Regex("""getRedirectedUrl\("(https://[\w-/.]+/index\.m3u8)"""").find(body)
-            if (matchResult != null) {
-                val playlistUrl = matchResult.groupValues[1]
-                playlistUtils.extractFromHls(
-                    playlistUrl = playlistUrl,
-                    referer = "$iframeLink/",
-                    videoNameGen = { quality -> "Premium - $quality" },
-                )
-            } else {
-                emptyList()
-            }
+        val matchResult = Regex("""getRedirectedUrl\("(https://[\w-/.]+/index\.m3u8)"""").find(body)
+        if (matchResult != null) {
+            val playlistUrl = matchResult.groupValues[1]
+            playlistUtils.extractFromHls(
+                playlistUrl = playlistUrl,
+                referer = "$iframeLink/",
+                videoNameGen = { quality -> "Premium - $quality" },
+            )
         } else {
             emptyList()
         }
+    } else {
+        emptyList()
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()

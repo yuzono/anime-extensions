@@ -11,26 +11,19 @@ open class PairSelectFilter(
         get() = options[state].second
 }
 
-class TypeFilter(options: List<Pair<String, String>> = DEFAULT_TYPES) :
-    PairSelectFilter("类型", options, "cid")
+class TypeFilter(options: List<Pair<String, String>> = DEFAULT_TYPES) : PairSelectFilter("类型", options, "cid")
 
-class RegionFilter(options: List<Pair<String, String>> = DEFAULT_REGIONS) :
-    PairSelectFilter("地区", options, "region")
+class RegionFilter(options: List<Pair<String, String>> = DEFAULT_REGIONS) : PairSelectFilter("地区", options, "region")
 
-class LangFilter(options: List<Pair<String, String>> = DEFAULT_LANG) :
-    PairSelectFilter("语言", options, "language")
+class LangFilter(options: List<Pair<String, String>> = DEFAULT_LANG) : PairSelectFilter("语言", options, "language")
 
-class YearFilter(options: List<Pair<String, String>> = DEFAULT_YEAR) :
-    PairSelectFilter("年份", options, "year")
+class YearFilter(options: List<Pair<String, String>> = DEFAULT_YEAR) : PairSelectFilter("年份", options, "year")
 
-class QualityFilter(options: List<Pair<String, String>> = DEFAULT_QUALITY) :
-    PairSelectFilter("画质", options, "vipResource")
+class QualityFilter(options: List<Pair<String, String>> = DEFAULT_QUALITY) : PairSelectFilter("画质", options, "vipResource")
 
-class StatusFilter(options: List<Pair<String, String>> = DEFAULT_STATUS) :
-    PairSelectFilter("状态", options, "isserial")
+class StatusFilter(options: List<Pair<String, String>> = DEFAULT_STATUS) : PairSelectFilter("状态", options, "isserial")
 
-class SortFilter(private val options: List<Pair<String, String>> = DEFAULT_SORT) :
-    AnimeFilter.Sort("排序", options.map { it.first }.toTypedArray(), Selection(0, false)) {
+class SortFilter(private val options: List<Pair<String, String>> = DEFAULT_SORT) : AnimeFilter.Sort("排序", options.map { it.first }.toTypedArray(), Selection(0, false)) {
     val desc
         get() = if (state?.ascending == true) {
             0

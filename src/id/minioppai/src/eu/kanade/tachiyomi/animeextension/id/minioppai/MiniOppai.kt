@@ -15,11 +15,12 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class MiniOppai : AnimeStream(
-    "id",
-    "MiniOppai",
-    "https://minioppai.org",
-) {
+class MiniOppai :
+    AnimeStream(
+        "id",
+        "MiniOppai",
+        "https://minioppai.org",
+    ) {
     override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
 
     override val animeListUrl = "$baseUrl/advanced-search"
@@ -37,20 +38,18 @@ class MiniOppai : AnimeStream(
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.epsdlist > ul > li > a"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            element.selectFirst(".epl-num")!!.text().let {
-                val num = it.substringAfterLast(" ")
-                episode_number = num.toFloatOrNull() ?: 0F
-                name = when {
-                    it.contains("OVA", true) -> "OVA $num"
-                    else -> "Episode $num"
-                }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        element.selectFirst(".epl-num")!!.text().let {
+            val num = it.substringAfterLast(" ")
+            episode_number = num.toFloatOrNull() ?: 0F
+            name = when {
+                it.contains("OVA", true) -> "OVA $num"
+                else -> "Episode $num"
             }
-            element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
-            date_upload = element.selectFirst(".epl-date")?.text().toDate()
         }
+        element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
+        date_upload = element.selectFirst(".epl-date")?.text().toDate()
     }
 
     // ============================ Video Links =============================
@@ -65,15 +64,16 @@ class MiniOppai : AnimeStream(
                 }
                 GdrivePlayerExtractor(client).videosFromUrl(playerUrl, name, headers)
             }
+
             "paistream.my.id" in url ->
                 MiniOppaiExtractor(client).videosFromUrl(url, headers)
+
             else -> emptyList()
         }
     }
 
     // =========================== Anime Details ============================
-    override fun getAnimeDescription(document: Document) =
-        document.select("div.entry-content > p").eachText().joinToString("\n")
+    override fun getAnimeDescription(document: Document) = document.select("div.entry-content > p").eachText().joinToString("\n")
 
     override fun animeDetailsParse(document: Document) = super.animeDetailsParse(document).apply {
         title = title.substringBefore("Episode").substringBefore(" OVA ")
@@ -82,12 +82,10 @@ class MiniOppai : AnimeStream(
     // =============================== Search ===============================
     override fun searchAnimeSelector() = "div.latest article a.tip"
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            title = element.selectFirst("h2.entry-title")!!.ownText()
-            thumbnail_url = element.selectFirst("img")!!.getImageUrl()
-        }
+    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        title = element.selectFirst("h2.entry-title")!!.ownText()
+        thumbnail_url = element.selectFirst("img")!!.getImageUrl()
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -117,9 +115,7 @@ class MiniOppai : AnimeStream(
     override fun getFilterList() = MiniOppaiFilters.FILTER_LIST
 
     // ============================= Utilities ==============================
-    override fun Element.getInfo(text: String): String? {
-        return selectFirst("li:has(b:contains($text))")
-            ?.selectFirst("span.colspan")
-            ?.text()
-    }
+    override fun Element.getInfo(text: String): String? = selectFirst("li:has(b:contains($text))")
+        ?.selectFirst("span.colspan")
+        ?.text()
 }

@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -32,7 +32,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Wbijam :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Wbijam"
 
@@ -60,12 +62,10 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeNextPageSelector(): String? = null
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            url = element.selectFirst("a")!!.attr("href")
-            thumbnail_url = ""
-            title = element.selectFirst("a")!!.text()
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        url = element.selectFirst("a")!!.attr("href")
+        thumbnail_url = ""
+        title = element.selectFirst("a")!!.text()
     }
 
     // =============================== Latest ===============================
@@ -86,13 +86,11 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage {
-        return client.newCall(searchAnimeRequest(page, query, filters))
-            .awaitSuccess()
-            .let { response ->
-                searchAnimeParse(response, query)
-            }
-    }
+    ): AnimesPage = client.newCall(searchAnimeRequest(page, query, filters))
+        .awaitSuccess()
+        .let { response ->
+            searchAnimeParse(response, query)
+        }
 
     private fun searchAnimeParse(response: Response, query: String): AnimesPage {
         val document = response.asJsoup()
@@ -122,9 +120,7 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET(anime.url, headers = headers)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET(anime.url, headers = headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -250,18 +246,23 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 serverUrl.contains("mp4upload") -> {
                     Mp4uploadExtractor(client).videosFromUrl(serverUrl, headers)
                 }
+
                 serverUrl.contains("cda.pl") -> {
                     CdaPlExtractor(client).getVideosFromUrl(serverUrl, headers)
                 }
+
                 serverUrl.contains("sibnet.ru") -> {
                     SibnetExtractor(client).videosFromUrl(serverUrl)
                 }
+
                 serverUrl.contains("vk.com") -> {
                     VkExtractor(client).getVideosFromUrl(serverUrl, headers)
                 }
+
                 serverUrl.contains("dailymotion") -> {
                     DailymotionExtractor(client, headers).videosFromUrl(serverUrl)
                 }
+
                 else -> null
             }.orEmpty()
         }
@@ -277,9 +278,7 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun EpisodeType.toJsonString(): String {
-        return json.encodeToString(this)
-    }
+    private fun EpisodeType.toJsonString(): String = json.encodeToString(this)
 
     @Serializable
     data class EpisodeType(
@@ -299,10 +298,8 @@ class Wbijam : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val videoQualityPref = ListPreference(screen.context).apply {

@@ -14,10 +14,10 @@ from typing import NoReturn
 
 EXTENSION_REGEX = re.compile(r"^src/(?P<lang>\w+)/(?P<extension>\w+)")
 MULTISRC_LIB_REGEX = re.compile(r"^lib-multisrc/(?P<multisrc>\w+)")
-LIB_REGEX = re.compile(r"^lib/(?P<lib>[\w-]+)")
+LIB_REGEX = re.compile(r"^lib/(?P<lib>\w+)")
 MODULE_REGEX = re.compile(r"^:src:(?P<lang>\w+):(?P<extension>\w+)$")
 CORE_FILES_REGEX = re.compile(
-    r"^(buildSrc/|core/|gradle/|build\.gradle\.kts|common\.gradle|gradle\.properties|settings\.gradle\.kts|utils/)"
+    r"^(buildSrc/|core/|gradle/|build\.gradle\.kts|common\.gradle|gradle\.properties|settings\.gradle\.kts|.github/scripts)"
 )
 
 def run_command(command: str) -> str:
@@ -28,7 +28,13 @@ def run_command(command: str) -> str:
     return result.stdout.strip()
 
 def get_module_list(ref: str) -> tuple[list[str], list[str]]:
-    changed_files = run_command(f"git diff --name-only {ref}").splitlines()
+    diff_output = run_command(f"git diff --name-status {ref}").splitlines()
+
+    changed_files = [
+        file
+        for line in diff_output
+        for file in line.split("\t", 2)[1:]
+    ]
 
     modules = set()
     libs = set()
@@ -38,6 +44,7 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
     for file in map(lambda x: Path(x).as_posix(), changed_files):
         if CORE_FILES_REGEX.search(file):
             core_files_changed = True
+            break
         elif match := EXTENSION_REGEX.search(file):
             lang = match.group("lang")
             extension = match.group("extension")

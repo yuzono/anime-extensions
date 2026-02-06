@@ -11,11 +11,12 @@ import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
 import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
-class AnimeXin : AnimeStream(
-    "all",
-    "AnimeXin",
-    "https://animexin.dev",
-) {
+class AnimeXin :
+    AnimeStream(
+        "all",
+        "AnimeXin",
+        "https://animexin.dev",
+    ) {
     override val id = 4620219025406449669
 
     // ============================ Video Links =============================
@@ -30,8 +31,11 @@ class AnimeXin : AnimeStream(
         val prefix = "$name - "
         return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix)
+
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
+
             url.contains("https://dood") -> doodExtractor.videosFromUrl(url, name)
+
             url.contains("gdriveplayer") -> {
                 val gdriveHeaders = headersBuilder()
                     .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -39,8 +43,11 @@ class AnimeXin : AnimeStream(
                     .build()
                 gdrivePlayerExtractor.videosFromUrl(url, name, gdriveHeaders)
             }
+
             url.contains("youtube.com") -> youTubeExtractor.videosFromUrl(url, prefix)
+
             url.contains("vidstreaming") -> vidstreamingExtractor.videosFromUrl(url, prefix)
+
             else -> emptyList()
         }
     }

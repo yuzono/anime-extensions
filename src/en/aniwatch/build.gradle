@@ -9,5 +9,5 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    api(project(":lib:megacloud-extractor"))
+    api(project(":lib:megacloudextractor"))
 }

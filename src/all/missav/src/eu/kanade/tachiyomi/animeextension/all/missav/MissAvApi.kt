@@ -40,11 +40,9 @@ object MissAvApi {
         return "$API_URL$signedPath"
     }
 
-    fun searchData(query: String): String {
-        return kotlinx.serialization.json.buildJsonObject {
-            addRequestParams(scenario = "search", searchQuery = query)
-        }.toString()
-    }
+    fun searchData(query: String): String = kotlinx.serialization.json.buildJsonObject {
+        addRequestParams(scenario = "search", searchQuery = query)
+    }.toString()
 
     val recommData
         get() = """{"count":$RESULT_COUNT,"cascadeCreate":true}"""
@@ -90,21 +88,19 @@ object MissAvApi {
         put("cascadeCreate", true)
     }
 
-    private fun generateHMACSignature(data: String, @Suppress("SameParameterValue") key: String): String {
-        return try {
-            val secretKeySpec = SecretKeySpec(key.toByteArray(StandardCharsets.UTF_8), "HmacSHA1")
-            val mac = Mac.getInstance("HmacSHA1")
-            mac.init(secretKeySpec)
+    private fun generateHMACSignature(data: String, @Suppress("SameParameterValue") key: String): String = try {
+        val secretKeySpec = SecretKeySpec(key.toByteArray(StandardCharsets.UTF_8), "HmacSHA1")
+        val mac = Mac.getInstance("HmacSHA1")
+        mac.init(secretKeySpec)
 
-            val hashBytes = mac.doFinal(data.toByteArray(StandardCharsets.UTF_8))
-            val hexString = hashBytes.joinToString("") { "%02x".format(it) }
+        val hashBytes = mac.doFinal(data.toByteArray(StandardCharsets.UTF_8))
+        val hexString = hashBytes.joinToString("") { "%02x".format(it) }
 
-            "$data&frontend_sign=$hexString"
-        } catch (e: Exception) {
-            Log.e("MissAvApi", "HMAC signature generation failed", e)
-            // Fallback to original path if signing fails
-            data
-        }
+        "$data&frontend_sign=$hexString"
+    } catch (e: Exception) {
+        Log.e("MissAvApi", "HMAC signature generation failed", e)
+        // Fallback to original path if signing fails
+        data
     }
 
     const val RESULT_COUNT = 24

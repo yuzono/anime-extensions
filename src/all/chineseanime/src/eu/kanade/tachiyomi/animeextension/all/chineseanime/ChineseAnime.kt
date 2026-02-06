@@ -9,11 +9,12 @@ import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
 import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
-class ChineseAnime : AnimeStream(
-    "all",
-    "ChineseAnime",
-    "https://www.chineseanime.vip",
-) {
+class ChineseAnime :
+    AnimeStream(
+        "all",
+        "ChineseAnime",
+        "https://www.chineseanime.vip",
+    ) {
 
     // =============================== Search ===============================
     override fun searchAnimeNextPageSelector() = "div.mrgn > a.r"

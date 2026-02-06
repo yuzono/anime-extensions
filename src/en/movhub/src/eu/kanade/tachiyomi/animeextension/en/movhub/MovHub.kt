@@ -13,12 +13,12 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelMapNotNull
-import extensions.utils.LazyMutable
-import extensions.utils.addListPreference
-import extensions.utils.addSetPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferences
-import extensions.utils.parseAs
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferences
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -30,7 +30,9 @@ import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class MovHub : AnimeHttpSource(), ConfigurableAnimeSource {
+class MovHub :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MovHub"
 
@@ -154,9 +156,8 @@ class MovHub : AnimeHttpSource(), ConfigurableAnimeSource {
             val type = if (isMovie) "Movie" else "TV Show"
             append("**Type:** $type\n")
 
-            fun getInfo(label: String): String? =
-                document.selectFirst("ul.mics li:contains($label:)")
-                    ?.text()?.substringAfter(":")?.trim()
+            fun getInfo(label: String): String? = document.selectFirst("ul.mics li:contains($label:)")
+                ?.text()?.substringAfter(":")?.trim()
 
             getInfo("Country")?.let { append("**Country:** $it\n") }
             getInfo("Released")?.let { append("**Released:** $it\n") }
@@ -240,24 +241,21 @@ class MovHub : AnimeHttpSource(), ConfigurableAnimeSource {
             }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> =
-        throw UnsupportedOperationException("Not used.")
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used.")
 
-    private fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode =
-        SEpisode.create().apply {
-            val epNum = element.attr("num")
-            url = "$animeUrl#${element.attr("eid")}"
-            episode_number = epNum.toFloatOrNull() ?: 0F
-            name = "S$seasonNum E$epNum: ${element.selectFirst("span:not(.num)")?.text()?.trim()}"
-            date_upload = parseDate(element.attr("title"))
-        }
+    private fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode = SEpisode.create().apply {
+        val epNum = element.attr("num")
+        url = "$animeUrl#${element.attr("eid")}"
+        episode_number = epNum.toFloatOrNull() ?: 0F
+        name = "S$seasonNum E$epNum: ${element.selectFirst("span:not(.num)")?.text()?.trim()}"
+        date_upload = parseDate(element.attr("title"))
+    }
 
-    private fun movieEpisodeFromElement(element: Element, animeUrl: String): SEpisode =
-        SEpisode.create().apply {
-            url = "$animeUrl#${element.attr("eid")}"
-            episode_number = 1F
-            name = element.selectFirst("span")?.text()?.trim() ?: "Movie"
-        }
+    private fun movieEpisodeFromElement(element: Element, animeUrl: String): SEpisode = SEpisode.create().apply {
+        url = "$animeUrl#${element.attr("eid")}"
+        episode_number = 1F
+        name = element.selectFirst("span")?.text()?.trim() ?: "Movie"
+    }
 
     // ============================ Video Links =============================
 
@@ -302,22 +300,17 @@ class MovHub : AnimeHttpSource(), ConfigurableAnimeSource {
         .add("X-Requested-With", "XMLHttpRequest")
         .build()
 
-    private suspend fun encrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<ResultResponse>(json = json).result
-            }
-    }
+    private suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<ResultResponse>(json = json).result
+        }
 
-    private suspend fun decrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<DecryptedIframeResponse>(json = json).result.url
-            }
-    }
+    private suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<DecryptedIframeResponse>(json = json).result.url
+        }
 
-    private fun parseDate(dateStr: String): Long =
-        runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.qualityPref

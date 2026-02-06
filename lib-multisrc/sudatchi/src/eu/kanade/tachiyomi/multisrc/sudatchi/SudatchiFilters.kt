@@ -6,12 +6,15 @@ import java.util.Calendar
 
 object SudatchiFilters {
 
-    interface QueryParameterFilter { fun toQueryParameter(): Pair<String, String?> }
+    interface QueryParameterFilter {
+        fun toQueryParameter(): Pair<String, String?>
+    }
 
     private class Checkbox(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     private class CheckboxList(name: String, private val paramName: String, private val pairs: List<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { Checkbox(it.first) }), QueryParameterFilter {
+        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { Checkbox(it.first) }),
+        QueryParameterFilter {
         override fun toQueryParameter() = Pair(
             paramName,
             state.asSequence()
@@ -23,7 +26,8 @@ object SudatchiFilters {
     }
 
     private class SelectList(name: String, private val paramName: String, private val pairs: List<Pair<String, String>>, state: Int = 0) :
-        AnimeFilter.Select<String>(name, pairs.map { it.first }.toTypedArray(), state = state), QueryParameterFilter {
+        AnimeFilter.Select<String>(name, pairs.map { it.first }.toTypedArray(), state = state),
+        QueryParameterFilter {
         override fun toQueryParameter() = Pair(
             paramName,
             pairs[state].second.takeUnless { it.isBlank() },
@@ -49,17 +53,13 @@ object SudatchiFilters {
         )
     }
 
-    fun getPopularFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            SelectList("Sort", "sort", sortList.toPairList(), 0),
-        )
-    }
+    fun getPopularFilterList(): AnimeFilterList = AnimeFilterList(
+        SelectList("Sort", "sort", sortList.toPairList(), 0),
+    )
 
-    fun getTrendingFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            SelectList("Sort", "sort", sortList.toPairList(), 2),
-        )
-    }
+    fun getTrendingFilterList(): AnimeFilterList = AnimeFilterList(
+        SelectList("Sort", "sort", sortList.toPairList(), 2),
+    )
 
     private fun List<FilterItemDto>.toPairList() = map { Pair(it.name, it.id) }
 

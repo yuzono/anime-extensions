@@ -23,26 +23,26 @@ class MovembedExtractor(private val client: OkHttpClient, private val headers: H
             }
     }
 
-    private fun extractVideosFromIframe(iframeUrl: String): List<Video> {
-        return when {
-            MIXDROP_DOMAINS.any { iframeUrl.contains(it) } -> {
-                val url = iframeUrl.toHttpUrl()
-                val subtitleList = url.queryParameter("sub1")?.let { t ->
-                    listOf(Track(t, url.queryParameter("sub1_label") ?: "English"))
-                } ?: emptyList()
+    private fun extractVideosFromIframe(iframeUrl: String): List<Video> = when {
+        MIXDROP_DOMAINS.any { iframeUrl.contains(it) } -> {
+            val url = iframeUrl.toHttpUrl()
+            val subtitleList = url.queryParameter("sub1")?.let { t ->
+                listOf(Track(t, url.queryParameter("sub1_label") ?: "English"))
+            } ?: emptyList()
 
-                MixDropExtractor(client).videoFromUrl(iframeUrl, prefix = "(movembed) - ", externalSubs = subtitleList)
-            }
-            iframeUrl.startsWith("https://doo") -> {
-                val url = iframeUrl.toHttpUrl()
-                val subtitleList = url.queryParameter("c1_file")?.let { t ->
-                    listOf(Track(t, url.queryParameter("c1_label") ?: "English"))
-                } ?: emptyList()
-
-                DoodExtractor(client).videoFromUrl(iframeUrl, "(movembed)", externalSubs = subtitleList)?.let(::listOf) ?: emptyList()
-            }
-            else -> emptyList()
+            MixDropExtractor(client).videoFromUrl(iframeUrl, prefix = "(movembed) - ", externalSubs = subtitleList)
         }
+
+        iframeUrl.startsWith("https://doo") -> {
+            val url = iframeUrl.toHttpUrl()
+            val subtitleList = url.queryParameter("c1_file")?.let { t ->
+                listOf(Track(t, url.queryParameter("c1_label") ?: "English"))
+            } ?: emptyList()
+
+            DoodExtractor(client).videoFromUrl(iframeUrl, "(movembed)", externalSubs = subtitleList)?.let(::listOf) ?: emptyList()
+        }
+
+        else -> emptyList()
     }
 
     companion object {

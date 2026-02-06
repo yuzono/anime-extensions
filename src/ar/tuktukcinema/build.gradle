@@ -7,11 +7,11 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:megamax-multiserver'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:mixdrop-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:vidbom-extractor'))
-    implementation(project(':lib:vidland-extractor'))
+    implementation(project(':lib:megamaxmultiserver'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:vidbomextractor'))
+    implementation(project(':lib:vidlandextractor'))
     implementation(project(":lib:i18n"))
 }

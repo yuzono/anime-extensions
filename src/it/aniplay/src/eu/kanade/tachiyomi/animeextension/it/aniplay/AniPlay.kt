@@ -20,7 +20,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -28,7 +28,9 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AniPlay : ConfigurableAnimeSource, AnimeHttpSource() {
+class AniPlay :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniPlay"
 
@@ -47,8 +49,7 @@ class AniPlay : ConfigurableAnimeSource, AnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) =
-        GET("$API_URL/advancedSearch?sort=7&page=$page&origin=,,,,,,", headers)
+    override fun popularAnimeRequest(page: Int) = GET("$API_URL/advancedSearch?sort=7&page=$page&origin=,,,,,,", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val parsed = response.parseAs<PopularResponseDto>()
@@ -68,15 +69,13 @@ class AniPlay : ConfigurableAnimeSource, AnimeHttpSource() {
     // =============================== Search ===============================
     override fun getFilterList() = AniPlayFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/series/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/series/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -209,8 +208,7 @@ class AniPlay : ConfigurableAnimeSource, AnimeHttpSource() {
         "\"${it.groupValues[1]}\":${it.groupValues[2]}"
     }
 
-    private fun Response.getPageScript() =
-        asJsoup().selectFirst("script:containsData(const data = )")!!.data()
+    private fun Response.getPageScript() = asJsoup().selectFirst("script:containsData(const data = )")!!.data()
 
     private fun String?.toDate(): Long {
         if (this == null) return 0L

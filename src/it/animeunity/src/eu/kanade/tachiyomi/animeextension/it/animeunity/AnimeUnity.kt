@@ -15,7 +15,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -189,23 +189,22 @@ class AnimeUnity :
     private fun searchAnimeParse(
         response: Response,
         page: Int,
-    ): AnimesPage =
-        if (response.request.method == "POST") {
-            val data = response.parseAs<SearchResponse>()
+    ): AnimesPage = if (response.request.method == "POST") {
+        val data = response.parseAs<SearchResponse>()
 
-            val animeList =
-                data.records.map {
-                    SAnime.create().apply {
-                        title = it.title_eng
-                        thumbnail_url = it.imageurl
-                        url = "${it.id}-${it.slug}"
-                    }
+        val animeList =
+            data.records.map {
+                SAnime.create().apply {
+                    title = it.title_eng
+                    thumbnail_url = it.imageurl
+                    url = "${it.id}-${it.slug}"
                 }
+            }
 
-            AnimesPage(animeList, data.tot - page * 30 >= 30 && data.tot > 30)
-        } else {
-            popularAnimeParse(response)
-        }
+        AnimesPage(animeList, data.tot - page * 30 >= 30 && data.tot > 30)
+    } else {
+        popularAnimeParse(response)
+    }
 
     override fun getFilterList(): AnimeFilterList = AnimeUnityFilters.FILTER_LIST
 
@@ -409,12 +408,11 @@ class AnimeUnity :
 
     // ============================= Utilities ==============================
 
-    private fun parseStatus(statusString: String): Int =
-        when (statusString) {
-            "In Corso" -> SAnime.ONGOING
-            "Terminato" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "In Corso" -> SAnime.ONGOING
+        "Terminato" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
+    }
 
     private fun addFromApi(
         start: Int,
@@ -448,12 +446,11 @@ class AnimeUnity :
             }
     }
 
-    private fun String.falseIfEmpty(): String =
-        if (this.isEmpty()) {
-            "false"
-        } else {
-            "\"${this}\""
-        }
+    private fun String.falseIfEmpty(): String = if (this.isEmpty()) {
+        "false"
+    } else {
+        "\"${this}\""
+    }
 
     @SuppressLint("SimpleDateFormat")
     private fun parseDate(date: String): Long {

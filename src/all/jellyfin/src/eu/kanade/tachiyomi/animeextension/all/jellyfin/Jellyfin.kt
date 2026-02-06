@@ -24,19 +24,19 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.util.parallelFlatMap
-import extensions.utils.LazyMutable
-import extensions.utils.Source
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.addSetPreference
-import extensions.utils.addSwitchPreference
-import extensions.utils.delegate
-import extensions.utils.get
-import extensions.utils.getListPreference
-import extensions.utils.parseAs
-import extensions.utils.post
-import extensions.utils.toJsonBody
-import extensions.utils.toRequestBody
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.Source
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.get
+import keiyoushi.utils.getListPreference
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
+import keiyoushi.utils.toJsonBody
+import keiyoushi.utils.toRequestBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +63,9 @@ import java.security.MessageDigest
 import java.util.UUID
 
 @Suppress("SpellCheckingInspection")
-class Jellyfin(private val suffix: String) : Source(), UnmeteredSource {
+class Jellyfin(private val suffix: String) :
+    Source(),
+    UnmeteredSource {
     override val migration: SharedPreferences.() -> Unit = {
         val quality = getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         Constants.QUALITY_MIGRATION_MAP[quality]?.let {
@@ -190,6 +192,7 @@ class Jellyfin(private val suffix: String) : Source(), UnmeteredSource {
             items.items.parallelFlatMap { series ->
                 when (series.type) {
                     ItemType.Movie -> listOf(series.toSAnime(baseUrl, preferences.userId))
+
                     else -> withContext(Dispatchers.IO) {
                         // Get seasons for series
                         val seasonsUrl = getItemsUrl(1).newBuilder().apply {
@@ -467,14 +470,12 @@ class Jellyfin(private val suffix: String) : Source(), UnmeteredSource {
         return videoList
     }
 
-    override fun List<Video>.sort(): List<Video> {
-        return sortedWith(
-            compareBy(
-                { it.url.equals(preferences.quality, true) },
-                { it.url.toLongOrNull() },
-            ),
-        ).reversed()
-    }
+    override fun List<Video>.sort(): List<Video> = sortedWith(
+        compareBy(
+            { it.url.equals(preferences.quality, true) },
+            { it.url.toLongOrNull() },
+        ),
+    ).reversed()
 
     // =============================== Login ================================
 
@@ -542,35 +543,31 @@ class Jellyfin(private val suffix: String) : Source(), UnmeteredSource {
 
     // ============================= Utilities ==============================
 
-    private fun getItemsUrl(startIndex: Int): HttpUrl {
-        return baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("Users")
-            addPathSegment(preferences.userId)
-            addPathSegment("Items")
-            addQueryParameter("StartIndex", startIndex.toString())
-            addQueryParameter("Limit", SEASONS_FETCH_LIMIT.toString())
-            addQueryParameter("Recursive", "true")
-            addQueryParameter("SortBy", "SortName")
-            addQueryParameter("SortOrder", "Ascending")
-            addQueryParameter(
-                "IncludeItemTypes",
-                listOf(
-                    ItemType.Movie,
-                    ItemType.Season,
-                    ItemType.BoxSet,
-                ).joinToString(",") { it.name },
-            )
-            addQueryParameter("ImageTypeLimit", "1")
-            addQueryParameter("ParentId", preferences.selectedLibrary)
-            addQueryParameter("EnableImageTypes", "Primary")
-        }.build()
-    }
+    private fun getItemsUrl(startIndex: Int): HttpUrl = baseUrl.toHttpUrl().newBuilder().apply {
+        addPathSegment("Users")
+        addPathSegment(preferences.userId)
+        addPathSegment("Items")
+        addQueryParameter("StartIndex", startIndex.toString())
+        addQueryParameter("Limit", SEASONS_FETCH_LIMIT.toString())
+        addQueryParameter("Recursive", "true")
+        addQueryParameter("SortBy", "SortName")
+        addQueryParameter("SortOrder", "Ascending")
+        addQueryParameter(
+            "IncludeItemTypes",
+            listOf(
+                ItemType.Movie,
+                ItemType.Season,
+                ItemType.BoxSet,
+            ).joinToString(",") { it.name },
+        )
+        addQueryParameter("ImageTypeLimit", "1")
+        addQueryParameter("ParentId", preferences.selectedLibrary)
+        addQueryParameter("EnableImageTypes", "Primary")
+    }.build()
 
-    private fun getAnimeList(itemList: ItemListDto): List<SAnime> {
-        return itemList
-            .items
-            .map { it.toSAnime(baseUrl, preferences.userId) }
-    }
+    private fun getAnimeList(itemList: ItemListDto): List<SAnime> = itemList
+        .items
+        .map { it.toSAnime(baseUrl, preferences.userId) }
 
     private fun checkPreferences() {
         if (preferences.selectedLibrary.isBlank()) {

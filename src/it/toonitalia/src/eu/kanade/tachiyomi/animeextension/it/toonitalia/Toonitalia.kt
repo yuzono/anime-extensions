@@ -16,14 +16,16 @@ import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Toonitalia :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Toonitalia"
 
@@ -75,18 +77,16 @@ class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return AnimesPage(animes, hasNextPage)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotBlank()) {
-            GET("$baseUrl/page/$page/?s=$query", headers = headers)
-        } else {
-            val url = "$baseUrl".toHttpUrl().newBuilder().apply {
-                filters.filterIsInstance<IndexFilter>()
-                    .firstOrNull()
-                    ?.also { addPathSegment(it.toUriPart()) }
-            }
-            val newUrl = url.toString() + "/?lcp_page0=$page#lcp_instance_0"
-            GET(newUrl, headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
+        GET("$baseUrl/page/$page/?s=$query", headers = headers)
+    } else {
+        val url = "$baseUrl".toHttpUrl().newBuilder().apply {
+            filters.filterIsInstance<IndexFilter>()
+                .firstOrNull()
+                ?.also { addPathSegment(it.toUriPart()) }
         }
+        val newUrl = url.toString() + "/?lcp_page0=$page#lcp_instance_0"
+        GET(newUrl, headers)
     }
 
     override fun searchAnimeSelector() = popularAnimeSelector()
@@ -102,9 +102,8 @@ class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    override fun searchAnimeNextPageSelector() =
-        "nav.navigation div.nav-previous, " + // Normal search
-            "ul.lcp_paginator > li > a.lcp_nextlink" // Index search
+    override fun searchAnimeNextPageSelector() = "nav.navigation div.nav-previous, " + // Normal search
+        "ul.lcp_paginator > li > a.lcp_nextlink" // Index search
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -189,16 +188,19 @@ class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val maxStreamExtractor by lazy { MaxStreamExtractor(client, headers) }
 
-    private fun extractVideos(url: String): List<Video> =
-        when {
-            "https://voe.sx" in url -> voeExtractor.videosFromUrl(url)
-            "https://streamtape" in url -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf)
-            "https://maxstream" in url -> maxStreamExtractor.videosFromUrl(url)
-            "https://streamz" in url || "streamz.cc" in url -> {
-                streamZExtractor.videoFromUrl(url, "StreamZ")?.let(::listOf)
-            }
-            else -> null
-        } ?: emptyList()
+    private fun extractVideos(url: String): List<Video> = when {
+        "https://voe.sx" in url -> voeExtractor.videosFromUrl(url)
+
+        "https://streamtape" in url -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf)
+
+        "https://maxstream" in url -> maxStreamExtractor.videosFromUrl(url)
+
+        "https://streamz" in url || "streamz.cc" in url -> {
+            streamZExtractor.videoFromUrl(url, "StreamZ")?.let(::listOf)
+        }
+
+        else -> null
+    } ?: emptyList()
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
@@ -221,8 +223,7 @@ class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         Pair("Lista Film Anime", "lista-film-anime"),
     )
 
-    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -279,7 +280,7 @@ class Toonitalia : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .map { it.groupValues[1] }
             .toList()
             .forEach { link ->
-                if (link.contains("https://maxstream.video") || link.contains("https://uprot.net") || link.contains("https://streamtape") || link.contains("https://voe") && link != url) {
+                if (link.contains("https://maxstream.video") || link.contains("https://uprot.net") || link.contains("https://streamtape") || (link.contains("https://voe") && link != url)) {
                     return link
                 }
             }

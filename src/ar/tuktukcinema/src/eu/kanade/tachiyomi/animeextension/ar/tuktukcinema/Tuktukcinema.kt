@@ -21,10 +21,10 @@ import eu.kanade.tachiyomi.lib.vidlandextractor.VidLandExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -34,7 +34,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Locale
 
-class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Tuktukcinema :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "توك توك سينما"
 
@@ -47,10 +49,8 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override val supportsLatest = true
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", "$baseUrl/")
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
 
     private val intl = Intl(
         language = Locale.getDefault().language,
@@ -64,12 +64,10 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/main/", headers)
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select("a").attr("title").let { editTitle(it, details = true) }
-            thumbnail_url = element.selectFirst("img")?.getImageUrl()
-            setUrlWithoutDomain(element.select("a").attr("abs:href"))
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select("a").attr("title").let { editTitle(it, details = true) }
+        thumbnail_url = element.selectFirst("img")?.getImageUrl()
+        setUrlWithoutDomain(element.select("a").attr("abs:href"))
     }
 
     override fun popularAnimeNextPageSelector(): String = "div.pagination ul.page-numbers li a.next"
@@ -91,7 +89,9 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             seasonsDOM.reversed().flatMap { season ->
                 val seasonText = season.select("h3").text()
                 val seasonUrl = season.selectFirst("a")?.attr("abs:href") ?: return@flatMap emptyList()
-                val seasonDoc = if (selectedSeason == seasonText) { document } else {
+                val seasonDoc = if (selectedSeason == seasonText) {
+                    document
+                } else {
                     client.newCall(GET(seasonUrl)).execute().asJsoup()
                 }
                 val seasonNum = if (seasonsDOM.size == 1) "1" else seasonText.filter { it.isDigit() }.ifEmpty { "0" }
@@ -108,8 +108,7 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    override fun episodeFromElement(element: Element): SEpisode =
-        throw UnsupportedOperationException()
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
 
@@ -134,43 +133,41 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         url: String,
         server: String,
         customQuality: String? = null,
-    ): List<Video> {
-        return when {
-            "iframe" in url -> {
-                megaMax.extractUrls(url).parallelCatchingFlatMapBlocking {
-                    extractVideos(it.url, it.name, it.quality)
-                }
+    ): List<Video> = when {
+        "iframe" in url -> {
+            megaMax.extractUrls(url).parallelCatchingFlatMapBlocking {
+                extractVideos(it.url, it.name, it.quality)
             }
-
-            "mixdrop" in server -> {
-                mixDropExtractor.videosFromUrl(url, "Ar", customQuality?.let { "$it " } ?: "")
-            }
-
-            "dood" in server -> {
-                doodExtractor.videosFromUrl(url, customQuality)
-            }
-
-            "lulustream" in server -> {
-                streamWishExtractor.videosFromUrl(url, server.replaceFirstChar(Char::titlecase))
-            }
-
-            "krakenfiles" in server -> {
-                val page = client.newCall(GET(url, headers)).execute().asJsoup()
-                page.select("source").map {
-                    Video(it.attr("src"), "Kraken" + customQuality?.let { q -> ": $q" }.orEmpty(), it.attr("src"))
-                }
-            }
-
-            "earnvids" in server -> {
-                vidLandExtractor.videosFromUrl(url)
-            }
-
-            "Vidbom" in server || "Vidshare" in server || "Govid" in server -> {
-                vidBomExtractor.videosFromUrl(url, headers)
-            }
-
-            else -> emptyList()
         }
+
+        "mixdrop" in server -> {
+            mixDropExtractor.videosFromUrl(url, "Ar", customQuality?.let { "$it " } ?: "")
+        }
+
+        "dood" in server -> {
+            doodExtractor.videosFromUrl(url, customQuality)
+        }
+
+        "lulustream" in server -> {
+            streamWishExtractor.videosFromUrl(url, server.replaceFirstChar(Char::titlecase))
+        }
+
+        "krakenfiles" in server -> {
+            val page = client.newCall(GET(url, headers)).execute().asJsoup()
+            page.select("source").map {
+                Video(it.attr("src"), "Kraken" + customQuality?.let { q -> ": $q" }.orEmpty(), it.attr("src"))
+            }
+        }
+
+        "earnvids" in server -> {
+            vidLandExtractor.videosFromUrl(url)
+        }
+
+        "Vidbom" in server || "Vidshare" in server || "Govid" in server -> {
+            vidBomExtractor.videosFromUrl(url, headers)
+        }
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -187,43 +184,41 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // =============================== Search ===============================
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotBlank()) {
-            GET("$baseUrl/?s=$query&page=$page", headers)
-        } else {
-            val filterList = if (filters.isEmpty()) getFilterList() else filters
-            val sectionFilter = filterList.filterIsInstance<SectionFilter>().first()
-            val genreFilter = filterList.filterIsInstance<GenreFilter>().first()
-            val advancedSection = filterList.filterIsInstance<AdvancedSection>().first()
-            val advancedGenre = filterList.filterIsInstance<AdvancedGenre>().first()
-            val advancedRating = filterList.filterIsInstance<AdvancedRating>().first()
-            val url = baseUrl.toHttpUrl().newBuilder().apply {
-                if (advancedSection.state != 0 || advancedGenre.state != 0 || advancedRating.state != 0) {
-                    addPathSegments("filtering/")
-                    if (advancedSection.state != 0) {
-                        addQueryParameter("category", advancedSection.toUriPart())
-                    }
-                    if (advancedGenre.state != 0) {
-                        addQueryParameter("genre", advancedGenre.toUriPart())
-                    }
-                    if (advancedRating.state != 0) {
-                        addQueryParameter("mpaa", advancedRating.toUriPart())
-                    }
-                    addQueryParameter("pagenum", page.toString())
-                } else {
-                    if (sectionFilter.state != 0) {
-                        addPathSegments(sectionFilter.toUriPart())
-                    } else if (genreFilter.state != 0) {
-                        addPathSegment("genre")
-                        addPathSegment(genreFilter.toUriPart())
-                    } else {
-                        throw Exception(intl["please_choose_filters"])
-                    }
-                    addQueryParameter("page", page.toString())
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
+        GET("$baseUrl/?s=$query&page=$page", headers)
+    } else {
+        val filterList = if (filters.isEmpty()) getFilterList() else filters
+        val sectionFilter = filterList.filterIsInstance<SectionFilter>().first()
+        val genreFilter = filterList.filterIsInstance<GenreFilter>().first()
+        val advancedSection = filterList.filterIsInstance<AdvancedSection>().first()
+        val advancedGenre = filterList.filterIsInstance<AdvancedGenre>().first()
+        val advancedRating = filterList.filterIsInstance<AdvancedRating>().first()
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            if (advancedSection.state != 0 || advancedGenre.state != 0 || advancedRating.state != 0) {
+                addPathSegments("filtering/")
+                if (advancedSection.state != 0) {
+                    addQueryParameter("category", advancedSection.toUriPart())
                 }
+                if (advancedGenre.state != 0) {
+                    addQueryParameter("genre", advancedGenre.toUriPart())
+                }
+                if (advancedRating.state != 0) {
+                    addQueryParameter("mpaa", advancedRating.toUriPart())
+                }
+                addQueryParameter("pagenum", page.toString())
+            } else {
+                if (sectionFilter.state != 0) {
+                    addPathSegments(sectionFilter.toUriPart())
+                } else if (genreFilter.state != 0) {
+                    addPathSegment("genre")
+                    addPathSegment(genreFilter.toUriPart())
+                } else {
+                    throw Exception(intl["please_choose_filters"])
+                }
+                addQueryParameter("page", page.toString())
             }
-            GET(url.toString(), headers)
         }
+        GET(url.toString(), headers)
     }
 
     override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
@@ -231,17 +226,15 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            genre = document.select("div.catssection li a")
-                .mapNotNull { it.text().takeIf(String::isNotBlank)?.translateGenre()?.trim() }
-                .joinToString()
-            title = document.select("h1.post-title").text().let(::editTitle)
-            author = document.select("ul.RightTaxContent li:contains(دولة) a").text()
-            description = document.select("div.story").text().trim()
-            status = SAnime.COMPLETED
-            thumbnail_url = document.selectFirst("div.left div.image img")?.getImageUrl()
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        genre = document.select("div.catssection li a")
+            .mapNotNull { it.text().takeIf(String::isNotBlank)?.translateGenre()?.trim() }
+            .joinToString()
+        title = document.select("h1.post-title").text().let(::editTitle)
+        author = document.select("ul.RightTaxContent li:contains(دولة) a").text()
+        description = document.select("div.story").text().trim()
+        status = SAnime.COMPLETED
+        thumbnail_url = document.selectFirst("div.left div.image img")?.getImageUrl()
     }
 
     private fun editTitle(title: String, details: Boolean = false): String {
@@ -320,18 +313,14 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         )
     }
 
-    private fun String.translateGenre(): String {
-        return genreTranslations[this] ?: this
-    }
+    private fun String.translateGenre(): String = genreTranslations[this] ?: this
 
     // =============================== Latest ===============================
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/recent/page/$page/", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/recent/page/$page/", headers)
 
-    override fun latestUpdatesFromElement(element: Element): SAnime =
-        popularAnimeFromElement(element)
+    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun latestUpdatesNextPageSelector(): String = popularAnimeNextPageSelector()
 
@@ -349,131 +338,133 @@ class Tuktukcinema : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         AdvancedRating(intl),
     )
 
-    private class SectionFilter(intl: Intl) : PairFilter(
-        intl["section"],
-        arrayOf(
-            Pair(intl["choose"], ""),
-            Pair(intl["All_Movies"], "category/movies-2/"),
-            Pair(intl["Netflix_Movies"], "channel/film-netflix-1/"),
-            Pair(intl["Foreign_Movies"], "category/movies-2/افلام-اجنبي/"),
-            Pair(intl["Indian_Movies"], "category/movies-2/افلام-هندى/"),
-            Pair(intl["Asian_Movies"], "category/movies-2/افلام-اسيوي/"),
-            Pair(intl["Anime_Movies"], "category/anime-6/افلام-انمي/"),
-            Pair(intl["Turkish_Movies"], "category/movies-2/افلام-تركي/"),
-            Pair(intl["Dubbed_Movies"], "category/movies-2/افلام-مدبلجة/"),
-            Pair(intl["Latest_Foreign_Series"], "sercat/مسلسلات-اجنبي/"),
-            Pair(intl["Latest_Turkish_Series"], "sercat/مسلسلات-تركي/"),
-            Pair(intl["Latest_Asian_Series"], "sercat/مسلسلات-أسيوي/"),
-            Pair(intl["Netflix_Series"], "channel/series-netflix-2/"),
-            Pair(intl["Latest_Anime"], "sercat/قائمة-الانمي/"),
-            Pair(intl["Latest_TV_Shows"], "sercat/برامج-تلفزيونية/"),
-            Pair(intl["Latest_Indian_Series"], "sercat/مسلسلات-هندي/"),
-        ),
-    )
+    private class SectionFilter(intl: Intl) :
+        PairFilter(
+            intl["section"],
+            arrayOf(
+                Pair(intl["choose"], ""),
+                Pair(intl["All_Movies"], "category/movies-2/"),
+                Pair(intl["Netflix_Movies"], "channel/film-netflix-1/"),
+                Pair(intl["Foreign_Movies"], "category/movies-2/افلام-اجنبي/"),
+                Pair(intl["Indian_Movies"], "category/movies-2/افلام-هندى/"),
+                Pair(intl["Asian_Movies"], "category/movies-2/افلام-اسيوي/"),
+                Pair(intl["Anime_Movies"], "category/anime-6/افلام-انمي/"),
+                Pair(intl["Turkish_Movies"], "category/movies-2/افلام-تركي/"),
+                Pair(intl["Dubbed_Movies"], "category/movies-2/افلام-مدبلجة/"),
+                Pair(intl["Latest_Foreign_Series"], "sercat/مسلسلات-اجنبي/"),
+                Pair(intl["Latest_Turkish_Series"], "sercat/مسلسلات-تركي/"),
+                Pair(intl["Latest_Asian_Series"], "sercat/مسلسلات-أسيوي/"),
+                Pair(intl["Netflix_Series"], "channel/series-netflix-2/"),
+                Pair(intl["Latest_Anime"], "sercat/قائمة-الانمي/"),
+                Pair(intl["Latest_TV_Shows"], "sercat/برامج-تلفزيونية/"),
+                Pair(intl["Latest_Indian_Series"], "sercat/مسلسلات-هندي/"),
+            ),
+        )
 
-    private class GenreFilter(intl: Intl) : PairFilter(
-        intl["genre"],
-        arrayOf(
-            Pair(intl["choose"], ""),
-            Pair(intl["Action"], "اكشن"),
-            Pair(intl["Adventure"], "مغامرة"),
-            Pair(intl["Animation"], "كرتون"),
-            Pair(intl["Fantasy"], "فانتازيا"),
-            Pair(intl["Sci-Fi"], "خيال-علمي"),
-            Pair(intl["Romance"], "رومانسي"),
-            Pair(intl["Comedy"], "كوميدي"),
-            Pair(intl["Family"], "عائلي"),
-            Pair(intl["Drama"], "دراما"),
-            Pair(intl["Thriller"], "اثارة"),
-            Pair(intl["Mystery"], "غموض"),
-            Pair(intl["Crime"], "جريمة"),
-            Pair(intl["Horror"], "رعب"),
-            Pair(intl["Historical"], "تاريخي"),
-            Pair(intl["Documentary"], "وثائقي"),
-        ),
-    )
+    private class GenreFilter(intl: Intl) :
+        PairFilter(
+            intl["genre"],
+            arrayOf(
+                Pair(intl["choose"], ""),
+                Pair(intl["Action"], "اكشن"),
+                Pair(intl["Adventure"], "مغامرة"),
+                Pair(intl["Animation"], "كرتون"),
+                Pair(intl["Fantasy"], "فانتازيا"),
+                Pair(intl["Sci-Fi"], "خيال-علمي"),
+                Pair(intl["Romance"], "رومانسي"),
+                Pair(intl["Comedy"], "كوميدي"),
+                Pair(intl["Family"], "عائلي"),
+                Pair(intl["Drama"], "دراما"),
+                Pair(intl["Thriller"], "اثارة"),
+                Pair(intl["Mystery"], "غموض"),
+                Pair(intl["Crime"], "جريمة"),
+                Pair(intl["Horror"], "رعب"),
+                Pair(intl["Historical"], "تاريخي"),
+                Pair(intl["Documentary"], "وثائقي"),
+            ),
+        )
 
-    private class AdvancedSection(intl: Intl) : PairFilter(
-        intl["section"],
-        arrayOf(
-            Pair(intl["all"], ""),
-            Pair(intl["Foreign_Episodes"], "221258"),
-            Pair(intl["Anime_Episodes"], "221271"),
-            Pair(intl["Asian_Episodes"], "225978"),
-            Pair(intl["Foreign_Movies"], "3"),
-            Pair(intl["Turkish_Episodes"], "221316"),
-            Pair(intl["Indian_Movies"], "5"),
-            Pair(intl["TV_Shows"], "238759"),
-            Pair(intl["Asian_Movies"], "6"),
-            Pair(intl["Indian_Episodes"], "283152"),
-            Pair(intl["Anime_Movies"], "8"),
-            Pair(intl["Turkish_Movies"], "7"),
-            Pair(intl["Dubbed_Movies"], "1521566"),
-            Pair(intl["Wrestling_Shows"], "1277168"),
-            Pair(intl["Movies"], "2"),
-            Pair(intl["Anime"], "225979"),
-        ),
-    )
+    private class AdvancedSection(intl: Intl) :
+        PairFilter(
+            intl["section"],
+            arrayOf(
+                Pair(intl["all"], ""),
+                Pair(intl["Foreign_Episodes"], "221258"),
+                Pair(intl["Anime_Episodes"], "221271"),
+                Pair(intl["Asian_Episodes"], "225978"),
+                Pair(intl["Foreign_Movies"], "3"),
+                Pair(intl["Turkish_Episodes"], "221316"),
+                Pair(intl["Indian_Movies"], "5"),
+                Pair(intl["TV_Shows"], "238759"),
+                Pair(intl["Asian_Movies"], "6"),
+                Pair(intl["Indian_Episodes"], "283152"),
+                Pair(intl["Anime_Movies"], "8"),
+                Pair(intl["Turkish_Movies"], "7"),
+                Pair(intl["Dubbed_Movies"], "1521566"),
+                Pair(intl["Wrestling_Shows"], "1277168"),
+                Pair(intl["Movies"], "2"),
+                Pair(intl["Anime"], "225979"),
+            ),
+        )
 
-    private class AdvancedGenre(intl: Intl) : PairFilter(
-        intl["genre"],
-        arrayOf(
-            Pair(intl["all"], ""),
-            Pair(intl["Drama"], "24"),
-            Pair(intl["Comedy"], "180"),
-            Pair(intl["Action"], "49"),
-            Pair(intl["Crime"], "50"),
-            Pair(intl["Romance"], "26"),
-            Pair(intl["Thriller"], "51"),
-            Pair(intl["Adventure"], "293186"),
-            Pair(intl["Anime"], "244998"),
-            Pair(intl["Mystery"], "25"),
-            Pair(intl["Fantasy"], "308"),
-            Pair(intl["Sci-Fi"], "273"),
-            Pair(intl["Horror"], "272"),
-            Pair(intl["Historical"], "534"),
-            Pair(intl["Documentary"], "97467"),
-            Pair(intl["Family"], "731"),
-        ),
-    )
+    private class AdvancedGenre(intl: Intl) :
+        PairFilter(
+            intl["genre"],
+            arrayOf(
+                Pair(intl["all"], ""),
+                Pair(intl["Drama"], "24"),
+                Pair(intl["Comedy"], "180"),
+                Pair(intl["Action"], "49"),
+                Pair(intl["Crime"], "50"),
+                Pair(intl["Romance"], "26"),
+                Pair(intl["Thriller"], "51"),
+                Pair(intl["Adventure"], "293186"),
+                Pair(intl["Anime"], "244998"),
+                Pair(intl["Mystery"], "25"),
+                Pair(intl["Fantasy"], "308"),
+                Pair(intl["Sci-Fi"], "273"),
+                Pair(intl["Horror"], "272"),
+                Pair(intl["Historical"], "534"),
+                Pair(intl["Documentary"], "97467"),
+                Pair(intl["Family"], "731"),
+            ),
+        )
 
-    private class AdvancedRating(intl: Intl) : PairFilter(
-        intl["age_rating_filter"],
-        arrayOf(
-            Pair(intl["all"], ""),
-            Pair(intl["above_14"], "240378"),
-            Pair(intl["above_17"], "240244"),
-            Pair(intl["not_children"], "240660"),
-            Pair(intl["tv_13"], "294376"),
-            Pair(intl["adult_only"], "240192"),
-            Pair(intl["above_7"], "241926"),
-            Pair(intl["parent_13"], "293269"),
-            Pair(intl["tv_all_ages"], "297197"),
-            Pair(intl["all_ages"], "240447"),
-            Pair(intl["above_13"], "240363"),
-            Pair(intl["under_6"], "241023"),
-            Pair("PG-13 - Teens 13 or older", "1530745"),
-            Pair("N/A", "1530272"),
-            Pair("R - 17+ (violence & profanity)", "1529057"),
-            Pair("G - All Ages", "1531434"),
-        ),
-    )
+    private class AdvancedRating(intl: Intl) :
+        PairFilter(
+            intl["age_rating_filter"],
+            arrayOf(
+                Pair(intl["all"], ""),
+                Pair(intl["above_14"], "240378"),
+                Pair(intl["above_17"], "240244"),
+                Pair(intl["not_children"], "240660"),
+                Pair(intl["tv_13"], "294376"),
+                Pair(intl["adult_only"], "240192"),
+                Pair(intl["above_7"], "241926"),
+                Pair(intl["parent_13"], "293269"),
+                Pair(intl["tv_all_ages"], "297197"),
+                Pair(intl["all_ages"], "240447"),
+                Pair(intl["above_13"], "240363"),
+                Pair(intl["under_6"], "241023"),
+                Pair("PG-13 - Teens 13 or older", "1530745"),
+                Pair("N/A", "1530272"),
+                Pair("R - 17+ (violence & profanity)", "1529057"),
+                Pair("G - All Ages", "1531434"),
+            ),
+        )
 
-    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }
-            .substringBefore("?")
-            .takeIf(String::isNotBlank)
+    private fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
     }
+        .substringBefore("?")
+        .takeIf(String::isNotBlank)
 
     // =============================== Settings ===============================
     private var SharedPreferences.customDomain by preferences.delegate(PREF_DOMAIN_CUSTOM_KEY, "")

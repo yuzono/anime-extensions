@@ -40,7 +40,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -56,7 +56,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class TurkAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class TurkAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Türk Anime TV"
 
@@ -107,52 +109,49 @@ class TurkAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun getFilterList(): AnimeFilterList = TurkAnimeFilters.FILTER_LIST
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        throw UnsupportedOperationException()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = throw UnsupportedOperationException()
 
     private fun searchAnimeRequest(
         page: Int,
         query: String,
         filters: TurkAnimeFilters.FilterSearchParams,
-    ): Request {
-        return if (query.isBlank()) {
-            POST(
-                "$baseUrl/ajax/animeler?sayfa=$page",
-                xmlHeader,
-                FormBody.Builder().apply {
-                    filters.type.takeLast(3).forEach {
-                        add("tip[]", it)
-                    }
-                    filters.genre.takeLast(3).forEach {
-                        add("tur[]", it)
-                    }
-                    filters.year.takeLast(2).forEach {
-                        add("yil[]", it)
-                    }
-                    filters.point.takeLast(2).forEach {
-                        add("puan[]", it)
-                    }
-                    filters.like.takeLast(2).forEach {
-                        add("begeni[]", it)
-                    }
-                    filters.producer.takeLast(3).forEach {
-                        add("yapimci[]", it)
-                    }
-                    filters.studio.takeLast(3).forEach {
-                        add("studyo[]", it)
-                    }
-                    add("listele", filters.list)
-                    add("sezon", filters.season)
-                    add("sirala", filters.sort)
-                }.build(),
-            )
-        } else {
-            POST(
-                "$baseUrl/arama?sayfa=$page",
-                headers,
-                FormBody.Builder().add("arama", query).build(),
-            )
-        }
+    ): Request = if (query.isBlank()) {
+        POST(
+            "$baseUrl/ajax/animeler?sayfa=$page",
+            xmlHeader,
+            FormBody.Builder().apply {
+                filters.type.takeLast(3).forEach {
+                    add("tip[]", it)
+                }
+                filters.genre.takeLast(3).forEach {
+                    add("tur[]", it)
+                }
+                filters.year.takeLast(2).forEach {
+                    add("yil[]", it)
+                }
+                filters.point.takeLast(2).forEach {
+                    add("puan[]", it)
+                }
+                filters.like.takeLast(2).forEach {
+                    add("begeni[]", it)
+                }
+                filters.producer.takeLast(3).forEach {
+                    add("yapimci[]", it)
+                }
+                filters.studio.takeLast(3).forEach {
+                    add("studyo[]", it)
+                }
+                add("listele", filters.list)
+                add("sezon", filters.season)
+                add("sirala", filters.sort)
+            }.build(),
+        )
+    } else {
+        POST(
+            "$baseUrl/arama?sayfa=$page",
+            headers,
+            FormBody.Builder().add("arama", query).build(),
+        )
     }
 
     override suspend fun getSearchAnime(
@@ -239,8 +238,7 @@ class TurkAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> =
-        super.episodeListParse(response).reversed()
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -318,35 +316,45 @@ class TurkAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 "ALUCARD(BETA)" -> {
                     AlucardExtractor(client, json, baseUrl).extractVideos(hosterLink, subber)
                 }
+
                 "DOODSTREAM" -> {
                     DoodExtractor(client).videosFromUrl(hosterLink, "$subber:")
                 }
+
                 "EMBEDGRAM" -> {
                     EmbedgramExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "FILEMOON" -> {
                     FilemoonExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ", headers = headers)
                 }
+
                 "GDRIVE" -> {
                     Regex("""[\w-]{28,}""").find(hosterLink)?.groupValues?.get(0)?.let {
                         GoogleDriveExtractor(client, headers).videosFromUrl("https://drive.google.com/uc?id=$it", "$subber: Gdrive")
                     }
                 }
+
                 "MAIL" -> {
                     MailRuExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "MP4UPLOAD" -> {
                     Mp4uploadExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
                 }
+
                 "MVIDOO" -> {
                     MVidooExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "ODNOKLASSNIKI" -> {
                     OkruExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "SENDVID" -> {
                     SendvidExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "SIBNET" -> {
                     SibnetExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
@@ -354,25 +362,32 @@ class TurkAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 "STREAMVID" -> {
                     StreamVidExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
                 }
+
                 "UQLOAD" -> {
                     UqloadExtractor(client).videosFromUrl(hosterLink, "$subber:")
                 }
+
                 "VK" -> {
                     val vkUrl = "https://vk.com" + hosterLink.substringAfter("vk.com")
                     VkExtractor(client, headers).videosFromUrl(vkUrl, prefix = "$subber: ")
                 }
+
                 "VOE" -> {
                     VoeExtractor(client, headers).videosFromUrl(hosterLink, "($subber) ")
                 }
+
                 "VTUBE" -> {
                     VTubeExtractor(client, headers).videosFromUrl(hosterLink, baseUrl, prefix = "$subber: ")
                 }
+
                 "VUDEA" -> {
                     VudeoExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 "WOLFSTREAM" -> {
                     WolfstreamExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
                 }
+
                 else -> null
             }
         }.getOrNull() ?: emptyList()

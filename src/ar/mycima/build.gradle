@@ -7,8 +7,8 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:uqload-extractor'))
-    implementation(project(':lib:vidbom-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:okru-extractor'))
+    implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:vidbomextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:okruextractor'))
 }

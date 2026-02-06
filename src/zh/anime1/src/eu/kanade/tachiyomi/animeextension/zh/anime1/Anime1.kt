@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.contentOrNull
@@ -35,7 +35,9 @@ import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Anime1 : AnimeHttpSource(), ConfigurableAnimeSource {
+class Anime1 :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String
         get() = "https://anime1.me"
     override val lang: String
@@ -59,17 +61,15 @@ class Anime1 : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun animeDetailsParse(response: Response) = throw UnsupportedOperationException()
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        return if (bangumiEnable) {
-            BangumiScraper.fetchDetail(
-                client,
-                ZhTwConverterUtil.toSimple(anime.title.removeSuffixMark()),
-                fetchType = bangumiFetchType,
-            )
-        } else {
-            anime.thumbnail_url = FIX_COVER
-            anime
-        }
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = if (bangumiEnable) {
+        BangumiScraper.fetchDetail(
+            client,
+            ZhTwConverterUtil.toSimple(anime.title.removeSuffixMark()),
+            fetchType = bangumiFetchType,
+        )
+    } else {
+        anime.thumbnail_url = FIX_COVER
+        anime
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -153,9 +153,7 @@ class Anime1 : AnimeHttpSource(), ConfigurableAnimeSource {
         )
     }
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
-        return getLatestUpdates(page)
-    }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = getLatestUpdates(page)
 
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
     override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
@@ -234,13 +232,9 @@ class Anime1 : AnimeHttpSource(), ConfigurableAnimeSource {
             }
         }
 
-    private fun JsonArray.getContent(index: Int): String? {
-        return getOrNull(index)?.jsonPrimitive?.contentOrNull
-    }
+    private fun JsonArray.getContent(index: Int): String? = getOrNull(index)?.jsonPrimitive?.contentOrNull
 
-    private fun String.removeSuffixMark(): String {
-        return removeBracket("(", ")").removeBracket("[", "]").trim()
-    }
+    private fun String.removeSuffixMark(): String = removeBracket("(", ")").removeBracket("[", "]").trim()
 
     private fun String.removeBracket(start: String, end: String): String {
         val seasonStart = indexOf(start)

@@ -13,11 +13,12 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class JetAnime : DooPlay(
-    "fr",
-    "JetAnime",
-    "https://ssl.jetanimes.com",
-) {
+class JetAnime :
+    DooPlay(
+        "fr",
+        "JetAnime",
+        "https://ssl.jetanimes.com",
+    ) {
 
     // ============================== Popular ===============================
 
@@ -29,15 +30,13 @@ class JetAnime : DooPlay(
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            val img = element.selectFirst("img")!!
-            val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
-            val slug = url.substringAfter("/episodes/")
-            setUrlWithoutDomain("/serie/${slug.substringBeforeLast("-episode").substringBeforeLast("-saison")}")
-            title = img.attr("alt")
-            thumbnail_url = img.getImageUrl()
-        }
+    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
+        val img = element.selectFirst("img")!!
+        val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
+        val slug = url.substringAfter("/episodes/")
+        setUrlWithoutDomain("/serie/${slug.substringBeforeLast("-episode").substringBeforeLast("-saison")}")
+        title = img.attr("alt")
+        thumbnail_url = img.getImageUrl()
     }
 
     override fun latestUpdatesNextPageSelector(): String = "div.pagination > span.current + a"
@@ -53,10 +52,12 @@ class JetAnime : DooPlay(
                 document.select(searchSelector())
                     .map(::searchAnimeFromElement)
             }
+
             "/annee/" in url -> { // Search by year
                 document.select(searchYearSelector())
                     .map(::popularAnimeFromElement)
             }
+
             else -> { // Search by some kind of filter, like genres or popularity.
                 document.select(searchAnimeSelector())
                     .map(::popularAnimeFromElement)
@@ -84,38 +85,40 @@ class JetAnime : DooPlay(
         YearFilter(),
     )
 
-    private class SubPageFilter : UriPartFilter(
-        "Sub-page",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("FILMS Animes", "/films"),
-            Pair("SERIES Animes", "/serie"),
+    private class SubPageFilter :
+        UriPartFilter(
+            "Sub-page",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("FILMS Animes", "/films"),
+                Pair("SERIES Animes", "/serie"),
 
-        ),
-    )
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "Year",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("2024", "/annee/2024"),
-            Pair("2023", "/annee/2023"),
-            Pair("2022", "/annee/2022"),
-            Pair("2021", "/annee/2021"),
-            Pair("2020", "/annee/2020"),
-            Pair("2019", "/annee/2019"),
-            Pair("2018", "/annee/2018"),
-            Pair("2017", "/annee/2017"),
-            Pair("2016", "/annee/2016"),
-            Pair("2015", "/annee/2015"),
-            Pair("2014", "/annee/2014"),
-            Pair("2013", "/annee/2013"),
-            Pair("2012", "/annee/2012"),
-            Pair("2011", "/annee/2011"),
-            Pair("2010", "/annee/2010"),
-            Pair("2009", "/annee/2009"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Year",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("2024", "/annee/2024"),
+                Pair("2023", "/annee/2023"),
+                Pair("2022", "/annee/2022"),
+                Pair("2021", "/annee/2021"),
+                Pair("2020", "/annee/2020"),
+                Pair("2019", "/annee/2019"),
+                Pair("2018", "/annee/2018"),
+                Pair("2017", "/annee/2017"),
+                Pair("2016", "/annee/2016"),
+                Pair("2015", "/annee/2015"),
+                Pair("2014", "/annee/2014"),
+                Pair("2013", "/annee/2013"),
+                Pair("2012", "/annee/2012"),
+                Pair("2011", "/annee/2011"),
+                Pair("2010", "/annee/2010"),
+                Pair("2009", "/annee/2009"),
+            ),
+        )
 
     // ============================ Video Links =============================
 
@@ -156,12 +159,10 @@ class JetAnime : DooPlay(
             .replace("\\", "")
     }
 
-    private fun getPlayerVideos(url: String, name: String): List<Video> {
-        return when {
-            url.contains("https://sentinel") -> SentinelExtractor(client).videoFromUrl(url, name)
-            url.contains("https://hdsplay") -> HdsplayExtractor(client).videoFromUrl(url, name)
-            else -> emptyList()
-        }
+    private fun getPlayerVideos(url: String, name: String): List<Video> = when {
+        url.contains("https://sentinel") -> SentinelExtractor(client).videoFromUrl(url, name)
+        url.contains("https://hdsplay") -> HdsplayExtractor(client).videoFromUrl(url, name)
+        else -> emptyList()
     }
 
     // ============================== Settings ==============================

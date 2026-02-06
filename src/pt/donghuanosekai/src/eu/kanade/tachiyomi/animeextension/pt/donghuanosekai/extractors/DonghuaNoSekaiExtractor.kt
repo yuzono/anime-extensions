@@ -25,6 +25,7 @@ class DonghuaNoSekaiExtractor(
                 val url = source.attr("src")
                 listOf(Video(url, "$playerName - $quality", url, headers))
             }
+
             else -> {
                 val iframeUrl = iframe.attr("src")
                 when {
@@ -36,36 +37,36 @@ class DonghuaNoSekaiExtractor(
                         val quality = url.substringAfter("_").substringBefore("_")
                         listOf(Video(url, "$playerName - $quality", url, headers))
                     }
+
                     else -> getVideosFromIframeUrl(iframeUrl, playerName)
                 }
             }
         }
     }
 
-    private fun getVideosFromIframeUrl(iframeUrl: String, playerName: String): List<Video> {
-        return when {
-            iframeUrl.contains("playerB.php") -> {
-                client.newCall(GET(iframeUrl, headers)).execute().body.string()
-                    .substringAfter("sources:")
-                    .substringBefore("]")
-                    .split("{")
-                    .drop(1)
-                    .map { line ->
-                        val url = line.substringAfter("file: \"").substringBefore('"')
-                        val quality = line.substringAfter("label: \"")
-                            .substringBefore('"')
-                            .run {
-                                when (this) {
-                                    "SD" -> "480p"
-                                    "HD" -> "720p"
-                                    "FHD", "FULLHD" -> "1080p"
-                                    else -> this
-                                }
+    private fun getVideosFromIframeUrl(iframeUrl: String, playerName: String): List<Video> = when {
+        iframeUrl.contains("playerB.php") -> {
+            client.newCall(GET(iframeUrl, headers)).execute().body.string()
+                .substringAfter("sources:")
+                .substringBefore("]")
+                .split("{")
+                .drop(1)
+                .map { line ->
+                    val url = line.substringAfter("file: \"").substringBefore('"')
+                    val quality = line.substringAfter("label: \"")
+                        .substringBefore('"')
+                        .run {
+                            when (this) {
+                                "SD" -> "480p"
+                                "HD" -> "720p"
+                                "FHD", "FULLHD" -> "1080p"
+                                else -> this
                             }
-                        Video(url, "$playerName - $quality", url, headers)
-                    }
-            }
-            else -> emptyList()
+                        }
+                    Video(url, "$playerName - $quality", url, headers)
+                }
         }
+
+        else -> emptyList()
     }
 }

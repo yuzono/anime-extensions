@@ -79,6 +79,7 @@ class RapidShareExtractor(
                         subtitleList = subLangSelect(subtitleList, preferredLang),
                     )
                 }
+
                 else -> emptyList()
             }
         }
@@ -107,7 +108,5 @@ class RapidShareExtractor(
      * Puts the preferred language subtitle first in the list.
      * The player will likely default to the first subtitle.
      */
-    private fun subLangSelect(tracks: List<Track>, language: String): List<Track> {
-        return tracks.sortedByDescending { it.lang.contains(language, true) }
-    }
+    private fun subLangSelect(tracks: List<Track>, language: String): List<Track> = tracks.sortedByDescending { it.lang.contains(language, true) }
 }

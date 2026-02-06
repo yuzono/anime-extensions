@@ -23,11 +23,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeOnlineNinja : DooPlay(
-    "es",
-    "AnimeOnline.Ninja",
-    "https://ww3.animeonline.ninja",
-) {
+class AnimeOnlineNinja :
+    DooPlay(
+        "es",
+        "AnimeOnline.Ninja",
+        "https://ww3.animeonline.ninja",
+    ) {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
             network.client.newBuilder()
@@ -56,8 +57,11 @@ class AnimeOnlineNinja : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             params.language.isNotBlank() -> "/genero/${params.language}"
+
             params.year.isNotBlank() -> "/release/${params.year}"
+
             params.movie.isNotBlank() -> {
                 if (params.movie == "pelicula") {
                     "/pelicula"
@@ -65,6 +69,7 @@ class AnimeOnlineNinja : DooPlay(
                     "/genero/${params.movie}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {
@@ -147,11 +152,17 @@ class AnimeOnlineNinja : DooPlay(
             val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in lang.lowercase() } }?.first
             return when (matched) {
                 "saidochesto" -> extractFromMulti(url)
+
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, "$lang Filemoon:", headers)
+
                 "doodstream" -> doodExtractor.videosFromUrl(url, "$lang DoodStream", false)
+
                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, "$lang StreamTape")
+
                 "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
+
                 "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = lang)
+
                 "wolfstream" -> {
                     client.newCall(GET(url, headers)).execute()
                         .asJsoup()
@@ -162,9 +173,13 @@ class AnimeOnlineNinja : DooPlay(
                             listOf(Video(videoUrl, "$lang WolfStream", videoUrl, headers = headers))
                         }
                 }
+
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$lang ")
+
                 "vidhide" -> vidHideExtractor.videosFromUrl(url) { "$lang VidHide:$it" }
+
                 "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" })
+
                 else -> null
             } ?: emptyList()
         } catch (e: Exception) {
@@ -204,6 +219,7 @@ class AnimeOnlineNinja : DooPlay(
                         .substringAfter("OD_", "")
                         .substringBefore(" ")
                 }
+
                 else -> prefLang
             }
             extractVideos(hosterUrl, lang)
@@ -225,11 +241,9 @@ class AnimeOnlineNinja : DooPlay(
     }
 
     // =========================== Anime Details ============================
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector div.wp-content p")
-            .eachText()
-            .joinToString("\n")
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector div.wp-content p")
+        .eachText()
+        .joinToString("\n")
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 

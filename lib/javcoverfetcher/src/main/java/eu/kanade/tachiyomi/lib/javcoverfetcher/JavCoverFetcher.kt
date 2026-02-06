@@ -7,8 +7,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.addSwitchPreference
-import extensions.utils.commonEmptyHeaders
+import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.commonEmptyHeaders
 import okhttp3.FormBody
 import okhttp3.Request
 import uy.kohesive.injekt.Injekt

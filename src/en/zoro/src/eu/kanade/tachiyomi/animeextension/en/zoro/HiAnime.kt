@@ -10,10 +10,10 @@ import eu.kanade.tachiyomi.lib.megacloudextractor.MegaCloudExtractor
 import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.multisrc.zorotheme.ZoroTheme
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.LazyMutable
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getEditTextPreference
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getEditTextPreference
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.jsoup.nodes.Element
@@ -44,29 +44,25 @@ class HiAnime :
         docHeaders,
     )
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return super.popularAnimeFromElement(element).apply {
-            url = url.substringBefore("?")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = super.popularAnimeFromElement(element).apply {
+        url = url.substringBefore("?")
     }
 
-    override fun extractVideo(server: VideoData): List<Video> {
-        return when (server.name) {
-            "StreamTape" -> {
-                streamtapeExtractor.videoFromUrl(
-                    server.link,
-                    "Streamtape - ${server.type}",
-                )?.let(::listOf) ?: emptyList()
-            }
-
-            "HD-1", "HD-2", "HD-3" -> megaCloudExtractor.getVideosFromUrl(
+    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+        "StreamTape" -> {
+            streamtapeExtractor.videoFromUrl(
                 server.link,
-                server.type,
-                server.name,
-            )
-
-            else -> emptyList()
+                "Streamtape - ${server.type}",
+            )?.let(::listOf) ?: emptyList()
         }
+
+        "HD-1", "HD-2", "HD-3" -> megaCloudExtractor.getVideosFromUrl(
+            server.link,
+            server.type,
+            server.name,
+        )
+
+        else -> emptyList()
     }
 
     private val SharedPreferences.preferredDomain by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)

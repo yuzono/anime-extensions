@@ -26,39 +26,29 @@ abstract class AniListAnimeHttpSource : AnimeHttpSource() {
 
     abstract fun mapAnimeId(animeDetailUrl: String): Int
 
-    open fun getPreferredTitleLanguage(): TitleLanguage {
-        return TitleLanguage.ROMAJI
-    }
+    open fun getPreferredTitleLanguage(): TitleLanguage = TitleLanguage.ROMAJI
 
     /* ===================================== Popular Anime ===================================== */
-    override fun popularAnimeRequest(page: Int): Request {
-        return buildAnimeListRequest(
-            query = ANIME_LIST_QUERY,
-            variables = AnimeListVariables(
-                page = page,
-                sort = AnimeListVariables.MediaSort.TRENDING_DESC,
-            ),
-        )
-    }
+    override fun popularAnimeRequest(page: Int): Request = buildAnimeListRequest(
+        query = ANIME_LIST_QUERY,
+        variables = AnimeListVariables(
+            page = page,
+            sort = AnimeListVariables.MediaSort.TRENDING_DESC,
+        ),
+    )
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return parseAnimeListResponse(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeListResponse(response)
 
     /* ===================================== Latest Anime ===================================== */
-    override fun latestUpdatesRequest(page: Int): Request {
-        return buildAnimeListRequest(
-            query = LATEST_ANIME_LIST_QUERY,
-            variables = AnimeListVariables(
-                page = page,
-                sort = AnimeListVariables.MediaSort.START_DATE_DESC,
-            ),
-        )
-    }
+    override fun latestUpdatesRequest(page: Int): Request = buildAnimeListRequest(
+        query = LATEST_ANIME_LIST_QUERY,
+        variables = AnimeListVariables(
+            page = page,
+            sort = AnimeListVariables.MediaSort.START_DATE_DESC,
+        ),
+    )
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return parseAnimeListResponse(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeListResponse(response)
 
     /* ===================================== Search Anime ===================================== */
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -106,21 +96,17 @@ abstract class AniListAnimeHttpSource : AnimeHttpSource() {
         return buildRequest(query = SORT_QUERY, variables = variables)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return parseAnimeListResponse(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimeListResponse(response)
 
     // ============================== Filters ===============================
 
     override fun getFilterList(): AnimeFilterList = AniListFilters.FILTER_LIST
 
     /* ===================================== Anime Details ===================================== */
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return buildRequest(
-            query = ANIME_DETAILS_QUERY,
-            variables = json.encodeToString(AnimeDetailsVariables(mapAnimeId(anime.url))),
-        )
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = buildRequest(
+        query = ANIME_DETAILS_QUERY,
+        variables = json.encodeToString(AnimeDetailsVariables(mapAnimeId(anime.url))),
+    )
 
     override fun animeDetailsParse(response: Response): SAnime {
         val media = response.parseAs<AniListAnimeDetailsResponse>().data.media
@@ -128,17 +114,13 @@ abstract class AniListAnimeHttpSource : AnimeHttpSource() {
         return media.toSAnime()
     }
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = anime.url
 
     /* ==================================== AniList Utility ==================================== */
     private fun buildAnimeListRequest(
         query: String,
         variables: AnimeListVariables,
-    ): Request {
-        return buildRequest(query, json.encodeToString(variables))
-    }
+    ): Request = buildRequest(query, json.encodeToString(variables))
 
     private fun buildRequest(query: String, variables: String): Request {
         val requestBody = FormBody.Builder()
@@ -195,12 +177,10 @@ abstract class AniListAnimeHttpSource : AnimeHttpSource() {
         }
     }
 
-    private fun parseTitle(title: AniListMedia.Title): String {
-        return when (getPreferredTitleLanguage()) {
-            TitleLanguage.ROMAJI -> title.romaji
-            TitleLanguage.ENGLISH -> title.english ?: title.romaji
-            TitleLanguage.NATIVE -> title.native ?: title.romaji
-        }
+    private fun parseTitle(title: AniListMedia.Title): String = when (getPreferredTitleLanguage()) {
+        TitleLanguage.ROMAJI -> title.romaji
+        TitleLanguage.ENGLISH -> title.english ?: title.romaji
+        TitleLanguage.NATIVE -> title.native ?: title.romaji
     }
 
     enum class TitleLanguage {

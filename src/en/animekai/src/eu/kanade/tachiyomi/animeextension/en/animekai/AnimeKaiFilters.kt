@@ -62,9 +62,7 @@ object AnimeKaiFilters {
     }
     class TriFilterVal(name: String) : TriState(name)
 
-    inline fun <reified R> AnimeFilterList.getFirstOrNull(): R? {
-        return this.filterIsInstance<R>().firstOrNull()
-    }
+    inline fun <reified R> AnimeFilterList.getFirstOrNull(): R? = this.filterIsInstance<R>().firstOrNull()
 
     internal class TypesFilter : CheckBoxFilterList("Types", "type", AnimeKaiFiltersData.TYPES)
     internal class GenresFilter : TriStateFilterList("Genres", "genre", AnimeKaiFiltersData.GENRES)

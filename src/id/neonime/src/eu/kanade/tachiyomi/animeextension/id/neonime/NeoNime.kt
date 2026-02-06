@@ -18,7 +18,7 @@ import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -28,7 +28,9 @@ import org.jsoup.select.Elements
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class NeoNime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String = "https://neonime.ink"
     override val lang: String = "id"
     override val name: String = "NeoNime"
@@ -42,12 +44,10 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return runCatching { pattern.parse(Str)?.time }
             .getOrNull() ?: 0L
     }
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.toLowerCase(Locale.US).contains("ongoing") -> SAnime.ONGOING
-            statusString.toLowerCase(Locale.US).contains("completed") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.lowercase(Locale.US).contains("ongoing") -> SAnime.ONGOING
+        statusString.lowercase(Locale.US).contains("completed") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     private fun getAnimeFromAnimeElement(element: Element): SAnime {
@@ -84,9 +84,7 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     // Popular
     override fun popularAnimeFromElement(element: Element): SAnime = getAnimeFromAnimeElement(element)
@@ -216,15 +214,19 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 hosterSelection.contains("linkbox") && link.contains("linkbox.to") -> {
                     videoList.addAll(LinkBoxExtractor(client).videosFromUrl(link, it.text()))
                 }
+
                 hosterSelection.contains("okru") && link.contains("ok.ru") -> {
                     videoList.addAll(OkruExtractor(client).videosFromUrl(link))
                 }
+
                 hosterSelection.contains("yourupload") && link.contains("blogger.com") -> {
                     videoList.addAll(BloggerExtractor(client).videosFromUrl(link, headers, it.text()))
                 }
+
                 hosterSelection.contains("linkbox") && link.contains("yourupload.com") -> {
                     videoList.addAll(YourUploadExtractor(client).videoFromUrl(link, headers, it.text(), "Original - "))
                 }
+
                 hosterSelection.contains("gdriveplayer") && link.contains("neonime.fun") -> {
                     val headers = Headers.headersOf(
                         "Accept",
