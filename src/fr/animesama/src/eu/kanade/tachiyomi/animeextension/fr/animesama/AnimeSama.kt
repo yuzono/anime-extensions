@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
 import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
+import eu.kanade.tachiyomi.animeextension.fr.animesama.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
@@ -30,8 +31,9 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     override val name = "Anime-Sama"
 
     // Domain info at: https://anime-sama.pw
-    override val baseUrl = "https://anime-sama.si"
-
+    override val baseUrl: String
+        get() = preferences.getString(PREF_URL_KEY, PREF_URL_DEFAULT)!!
+    
     override val lang = "fr"
 
     override val supportsLatest = true
@@ -113,6 +115,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val sendvidExtractor by lazy { SendvidExtractor(client, headers) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val playerUrls = json.decodeFromString<List<List<String>>>(episode.url)
@@ -124,6 +127,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
                         contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
                         contains("vk.") -> vkExtractor.videosFromUrl(playerUrl, prefix)
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
+                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl.replace(".to", ".biz"), prefix) // .to doesn't work, and it's .biz that's used on the site
                         else -> emptyList()
                     }
                 }
@@ -141,8 +145,8 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
         return this.sortedWith(
             compareBy(
                 { it.quality.contains(voices, true) },
-                { it.quality.contains(quality) },
                 { it.quality.contains(player, true) },
+                { it.quality.contains(quality) },
             ),
         ).reversed()
     }
@@ -225,6 +229,23 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = PREF_URL_KEY
+            title = PREF_URL_TITLE
+            summary = PREF_URL_SUMMARY
+            setDefaultValue(PREF_URL_DEFAULT)
+            dialogTitle = PREF_URL_TITLE
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = preferences.edit().putString(PREF_URL_KEY, newValue as String).commit()
+                    res
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
+            }
+        }.also(screen::addPreference)
+
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = "Preferred quality"
@@ -256,6 +277,11 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     companion object {
         const val PREFIX_SEARCH = "id:"
 
+        private const val PREF_URL_KEY = "base_url_pref"
+        private const val PREF_URL_TITLE = "URL de base"
+        private const val PREF_URL_DEFAULT = "https://anime-sama.tv"
+        private const val PREF_URL_SUMMARY = "Pour changer le domaine de l'extension. Voir https://anime-sama.pw"
+
         private val voicesMap = mapOf(
             "Préférer VOSTFR" to "vostfr",
             "Préférer VF" to "vf",
@@ -274,6 +300,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
             "Sendvid" to "sendvid",
             "Sibnet" to "sibnet",
             "VK" to "vk",
+            "VidMoly" to "vidmoly",
         )
         private val PLAYERS = playersMap.keys.toTypedArray()
         private val PLAYERS_VALUES = playersMap.values.toTypedArray()
