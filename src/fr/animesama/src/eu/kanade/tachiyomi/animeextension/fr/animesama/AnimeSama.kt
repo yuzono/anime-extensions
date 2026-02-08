@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.fr.animesama
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import app.cash.quickjs.QuickJs
+import eu.kanade.tachiyomi.animeextension.fr.animesama.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -13,7 +14,6 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
 import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
-import eu.kanade.tachiyomi.animeextension.fr.animesama.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
