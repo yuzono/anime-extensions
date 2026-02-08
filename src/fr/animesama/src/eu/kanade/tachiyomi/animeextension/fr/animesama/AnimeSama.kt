@@ -33,7 +33,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     // Domain info at: https://anime-sama.pw
     override val baseUrl: String
         get() = preferences.getString(PREF_URL_KEY, PREF_URL_DEFAULT)!!
-    
+
     override val lang = "fr"
 
     override val supportsLatest = true
