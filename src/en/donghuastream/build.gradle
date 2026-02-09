@@ -10,6 +10,5 @@ apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(':lib:playlist-utils'))
     implementation(project(':lib:okru-extractor'))
 }

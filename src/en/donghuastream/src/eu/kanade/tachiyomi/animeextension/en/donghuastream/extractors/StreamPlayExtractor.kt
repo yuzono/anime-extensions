@@ -3,11 +3,11 @@ package eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors
 import android.util.MalformedJsonException
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
+import extensions.utils.UrlUtils
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -117,7 +117,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                 } ?: emptyList()
 
                 return apiResponse.sources.flatMap { source ->
-                    val sourceUrl = source.file.replace("^//".toRegex(), "https://")
+                    val sourceUrl = UrlUtils.fixUrl(source.file)
                     if (source.type == "hls") {
                         playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
                     } else {
