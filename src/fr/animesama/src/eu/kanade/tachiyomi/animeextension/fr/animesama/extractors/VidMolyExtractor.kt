@@ -3,22 +3,24 @@ package eu.kanade.tachiyomi.animeextension.fr.animesama.extractors
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 
 class VidMolyExtractor(private val client: OkHttpClient, private val headers: Headers) {
-
-    private val baseUrl = "https://vidmoly.to"
 
     private val playerRegex = Regex("""player\.setup\(\s*\{([\s\S]*?)\}\s*\);""")
     private val fileRegex = Regex("""file\s*:\s*["'](.*?)["']""")
     private val hlsResolutionRegex = Regex("""RESOLUTION=\d+x(\d+)""")
 
     fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
+        val host = url.toHttpUrl().run {
+            "$scheme://$host"
+        }
         val videoList = mutableListOf<Video>()
 
         val commonHeaders = headers.newBuilder()
-            .set("Referer", "$baseUrl/")
-            .set("Origin", baseUrl)
+            .set("Referer", "$host/")
+            .set("Origin", host)
             .build()
 
         runCatching {
@@ -47,7 +49,7 @@ class VidMolyExtractor(private val client: OkHttpClient, private val headers: He
                     return listOf(Video(playlistUrl, "${prefix}VidMoly - Default", playlistUrl, headers = headers))
                 }
 
-                content.split("#EXT-X-STREAM-INF").drop(1).mapNotNull { variant ->
+                content.split("#EXT-X-STREAM-INF").drop(1).map { variant ->
                     val quality = hlsResolutionRegex.find(variant)?.groupValues?.get(1)?.let { "${it}p" } ?: "Unknown"
                     val videoUrl = variant.substringAfter("\n").substringBefore("\n").trim().let {
                         if (it.startsWith("http")) it else playlistUrl.substringBeforeLast("/") + "/" + it
