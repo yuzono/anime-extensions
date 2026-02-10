@@ -13,12 +13,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-open class VeoHentai : ConfigurableAnimeSource, AnimeHttpSource() {
+open class VeoHentai :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "VeoHentai"
 
@@ -151,69 +153,67 @@ open class VeoHentai : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("3D", "genero/3d"),
-            Pair("Ahegao", "genero/ahegao"),
-            Pair("Anal", "genero/anal"),
-            Pair("Bondage", "genero/bondage"),
-            Pair("Casadas", "genero/casadas"),
-            Pair("Censurado", "genero/censurado"),
-            Pair("Chikan", "genero/chikan"),
-            Pair("Corridas", "genero/corridas"),
-            Pair("Ecchi", "genero/ecchi"),
-            Pair("Enfermeras", "genero/enfermeras"),
-            Pair("Escolares", "genero/hentai-escolares"),
-            Pair("Fantasia", "genero/fantasia"),
-            Pair("Futanari", "genero/futanari"),
-            Pair("Gore", "genero/gore"),
-            Pair("Hardcore", "genero/hardcore"),
-            Pair("Harem", "genero/harem"),
-            Pair("Incesto", "genero/incesto"),
-            Pair("Josei", "genero/josei"),
-            Pair("Juegos Sexuales", "genero/juegos-sexuales"),
-            Pair("Lesbiana", "genero/lesbiana"),
-            Pair("Lolicon", "genero/lolicon"),
-            Pair("Maids", "genero/maids"),
-            Pair("Manga", "genero/manga"),
-            Pair("Masturbación", "genero/masturbacion"),
-            Pair("Milfs", "genero/milfs"),
-            Pair("Netorare", "genero/netorare"),
-            Pair("Ninfomania", "genero/ninfomania"),
-            Pair("Ninjas", "genero/ninjas"),
-            Pair("Orgias", "genero/orgias"),
-            Pair("Romance", "genero/romance"),
-            Pair("Sexo oral", "genero/sexo-oral"),
-            Pair("Shota", "genero/shota"),
-            Pair("Sin Censura", "genero/hentai-sin-censura"),
-            Pair("Softcore", "genero/softcore"),
-            Pair("Succubus", "genero/succubus"),
-            Pair("Teacher", "genero/teacher"),
-            Pair("Tentaculos", "genero/tentaculos"),
-            Pair("Tetonas", "genero/tetonas"),
-            Pair("Vanilla", "genero/vanilla"),
-            Pair("Violacion", "genero/violacion"),
-            Pair("Virgenes", "genero/virgenes"),
-            Pair("Yaoi", "genero/yaoi"),
-            Pair("Yuri", "genero/yuri"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("3D", "genero/3d"),
+                Pair("Ahegao", "genero/ahegao"),
+                Pair("Anal", "genero/anal"),
+                Pair("Bondage", "genero/bondage"),
+                Pair("Casadas", "genero/casadas"),
+                Pair("Censurado", "genero/censurado"),
+                Pair("Chikan", "genero/chikan"),
+                Pair("Corridas", "genero/corridas"),
+                Pair("Ecchi", "genero/ecchi"),
+                Pair("Enfermeras", "genero/enfermeras"),
+                Pair("Escolares", "genero/hentai-escolares"),
+                Pair("Fantasia", "genero/fantasia"),
+                Pair("Futanari", "genero/futanari"),
+                Pair("Gore", "genero/gore"),
+                Pair("Hardcore", "genero/hardcore"),
+                Pair("Harem", "genero/harem"),
+                Pair("Incesto", "genero/incesto"),
+                Pair("Josei", "genero/josei"),
+                Pair("Juegos Sexuales", "genero/juegos-sexuales"),
+                Pair("Lesbiana", "genero/lesbiana"),
+                Pair("Lolicon", "genero/lolicon"),
+                Pair("Maids", "genero/maids"),
+                Pair("Manga", "genero/manga"),
+                Pair("Masturbación", "genero/masturbacion"),
+                Pair("Milfs", "genero/milfs"),
+                Pair("Netorare", "genero/netorare"),
+                Pair("Ninfomania", "genero/ninfomania"),
+                Pair("Ninjas", "genero/ninjas"),
+                Pair("Orgias", "genero/orgias"),
+                Pair("Romance", "genero/romance"),
+                Pair("Sexo oral", "genero/sexo-oral"),
+                Pair("Shota", "genero/shota"),
+                Pair("Sin Censura", "genero/hentai-sin-censura"),
+                Pair("Softcore", "genero/softcore"),
+                Pair("Succubus", "genero/succubus"),
+                Pair("Teacher", "genero/teacher"),
+                Pair("Tentaculos", "genero/tentaculos"),
+                Pair("Tetonas", "genero/tetonas"),
+                Pair("Vanilla", "genero/vanilla"),
+                Pair("Violacion", "genero/violacion"),
+                Pair("Virgenes", "genero/virgenes"),
+                Pair("Yaoi", "genero/yaoi"),
+                Pair("Yuri", "genero/yuri"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     protected open fun org.jsoup.nodes.Element.isValidUrl(attrName: String): Boolean {

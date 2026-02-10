@@ -24,7 +24,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -41,7 +41,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
+class Torrentio :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Torrentio Anime (Torrent / Debrid)"
 
@@ -169,15 +171,13 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -299,9 +299,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val responseString = response.body.string()
@@ -357,15 +355,11 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun parseDateTime(dateStr: String): Long {
-        return runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDateTime(dateStr: String): Long = runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
     // ============================ Video Links =============================
 
@@ -402,6 +396,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
                     }
                     throw UnsupportedOperationException()
                 }
+
                 !token.isNullOrBlank() && debridProvider != "none" -> append("$debridProvider=$token|")
             }
             append(episode.url)
@@ -483,14 +478,13 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun Video.detectCodec(): String =
-        when {
-            quality.contains("264", true) -> "x264"
-            quality.contains("265", true) || quality.contains("hevc", true) -> "x265"
-            quality.contains("av1", true) -> "av1"
-            quality.contains("vp9", true) -> "vp9"
-            else -> "other"
-        }
+    private fun Video.detectCodec(): String = when {
+        quality.contains("264", true) -> "x264"
+        quality.contains("265", true) || quality.contains("hevc", true) -> "x265"
+        quality.contains("av1", true) -> "av1"
+        quality.contains("vp9", true) -> "vp9"
+        else -> "other"
+    }
 
     private fun fetchTrackers(): String {
         val request = Request.Builder()

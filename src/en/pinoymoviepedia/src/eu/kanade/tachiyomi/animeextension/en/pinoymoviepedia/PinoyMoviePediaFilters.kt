@@ -16,21 +16,15 @@ object PinoyMoviePediaFilters {
         fun toUriPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asUriPart(): String {
-        return getFirst<R>().let {
-            (it as UriPartFilter).toUriPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asUriPart(): String = getFirst<R>().let {
+        (it as UriPartFilter).toUriPart()
     }
 
     class GenreFilter : UriPartFilter("Genre", AnimesOnlineNinjaData.GENRES)
 
-    private inline fun <reified R> AnimeFilter.Group<UriPartFilter>.getItemUri(): String {
-        return state.first { it is R }.toUriPart()
-    }
+    private inline fun <reified R> AnimeFilter.Group<UriPartFilter>.getItemUri(): String = state.first { it is R }.toUriPart()
 
     val FILTER_LIST get() = AnimeFilterList(
         AnimeFilter.Header("These filters do not affect text searches."),

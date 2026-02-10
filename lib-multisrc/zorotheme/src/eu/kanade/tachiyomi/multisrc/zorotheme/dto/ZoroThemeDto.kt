@@ -9,9 +9,7 @@ import org.jsoup.nodes.Document
 data class HtmlResponse(
     val html: String,
 ) {
-    fun getHtml(): Document {
-        return Jsoup.parseBodyFragment(html)
-    }
+    fun getHtml(): Document = Jsoup.parseBodyFragment(html)
 }
 
 @Serializable

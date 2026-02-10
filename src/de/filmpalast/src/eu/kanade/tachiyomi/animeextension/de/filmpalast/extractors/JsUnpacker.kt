@@ -88,12 +88,15 @@ class JsUnpacker(packedJS: String?) {
                     radix < 62 -> {
                         alphabet = alphabet62.substring(0, radix)
                     }
+
                     radix in 63..94 -> {
                         alphabet = alphabet95.substring(0, radix)
                     }
+
                     radix == 62 -> {
                         alphabet = alphabet62
                     }
+
                     radix == 95 -> {
                         alphabet = alphabet95
                     }
@@ -106,7 +109,7 @@ class JsUnpacker(packedJS: String?) {
         }
     }
 
-    /**
+    /*
      * @param packedJS javascript P.A.C.K.E.R. coded.
      */
     init {

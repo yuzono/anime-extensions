@@ -11,7 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -31,7 +31,8 @@ data class AnimeDescription(
 )
 
 class AnimevostSource(override val name: String, override val baseUrl: String) :
-    ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     private enum class SortBy(val by: String) {
         RATING("rating"),
         DATE("date"),
@@ -218,45 +219,45 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     override fun searchAnimeNextPageSelector() = nextPageSelector
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotBlank()) {
-            val searchStart = if (page <= 1) 0 else page
-            val resultFrom = (page - 1) * 10 + 1
-            val headers: Headers =
-                Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
-            val body = FormBody.Builder()
-                .add("do", "search")
-                .add("subaction", "search")
-                .add("search_start", searchStart.toString())
-                .add("full_search", "0")
-                .add("result_from", resultFrom.toString())
-                .add("story", query)
-                .build()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
+        val searchStart = if (page <= 1) 0 else page
+        val resultFrom = (page - 1) * 10 + 1
+        val headers: Headers =
+            Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
+        val body = FormBody.Builder()
+            .add("do", "search")
+            .add("subaction", "search")
+            .add("search_start", searchStart.toString())
+            .add("full_search", "0")
+            .add("result_from", resultFrom.toString())
+            .add("story", query)
+            .build()
 
-            POST("$baseUrl/index.php?do=search", headers, body)
-        } else {
-            var sortBy = SortBy.DATE
-            var sortDirection = SortDirection.DESC
-            var genre = "all"
+        POST("$baseUrl/index.php?do=search", headers, body)
+    } else {
+        var sortBy = SortBy.DATE
+        var sortDirection = SortDirection.DESC
+        var genre = "all"
 
-            filters.forEach { filter ->
-                when (filter) {
-                    is GenreFilter -> {
-                        genre = filter.toString()
-                    }
-                    is SortFilter -> {
-                        if (filter.state != null) {
-                            sortBy = sortableList[filter.state!!.index].second
-
-                            sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
-                        }
-                    }
-                    else -> {}
+        filters.forEach { filter ->
+            when (filter) {
+                is GenreFilter -> {
+                    genre = filter.toString()
                 }
-            }
 
-            animeRequest(page, sortBy, sortDirection, genre)
+                is SortFilter -> {
+                    if (filter.state != null) {
+                        sortBy = sortableList[filter.state!!.index].second
+
+                        sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
+                    }
+                }
+
+                else -> {}
+            }
         }
+
+        animeRequest(page, sortBy, sortDirection, genre)
     }
 
     override fun searchAnimeSelector() = animeSelector
@@ -365,8 +366,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         Pair("Этти", "etti"),
     )
 
-    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         override fun toString() = vals[state].second
     }
 

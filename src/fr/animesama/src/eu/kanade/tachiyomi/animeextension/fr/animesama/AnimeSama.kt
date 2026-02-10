@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
 import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -27,7 +27,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeSama :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Sama"
 
@@ -202,16 +204,15 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
         }.toList()
     }
 
-    private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> =
-        List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
-            val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
-            SEpisode.create().apply {
-                name = "Episode ${episodeNumber + 1}"
-                url = json.encodeToString(players)
-                episode_number = (episodeNumber + 1).toFloat()
-                scanlator = players.mapIndexedNotNull { i, it -> if (it.isNotEmpty()) VOICES_VALUES[i] else null }.joinToString().uppercase()
-            }
+    private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> = List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
+        val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
+        SEpisode.create().apply {
+            name = "Episode ${episodeNumber + 1}"
+            url = json.encodeToString(players)
+            episode_number = (episodeNumber + 1).toFloat()
+            scanlator = players.mapIndexedNotNull { i, it -> if (it.isNotEmpty()) VOICES_VALUES[i] else null }.joinToString().uppercase()
         }
+    }
 
     private fun fetchPlayers(url: String): List<List<String>> {
         val docUrl = "$url/episodes.js"

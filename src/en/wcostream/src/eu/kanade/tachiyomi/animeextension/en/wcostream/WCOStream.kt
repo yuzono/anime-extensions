@@ -18,10 +18,8 @@ class WCOStream : WcoTheme() {
 
     override fun episodeListSelector() = "div#catlist-listview > ul > li, table:has(> tbody > tr > td > h3:contains(Episode List)) div.menustyle > ul > li"
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        return super.latestUpdatesFromElement(element)
-            .apply { title = title.substringBefore(" Episode").trim() }
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = super.latestUpdatesFromElement(element)
+        .apply { title = title.substringBefore(" Episode").trim() }
 
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         document.selectFirst("div.video-title a")?.text()?.let { title = it }

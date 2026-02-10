@@ -19,9 +19,7 @@ data class VideoData(
 data class ResultResponse(
     val result: String,
 ) {
-    fun toDocument(): Document {
-        return Jsoup.parseBodyFragment(result)
-    }
+    fun toDocument(): Document = Jsoup.parseBodyFragment(result)
 }
 
 @Serializable

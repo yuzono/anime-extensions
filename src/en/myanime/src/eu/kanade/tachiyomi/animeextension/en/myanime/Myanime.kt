@@ -16,13 +16,15 @@ import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Myanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Myanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Myanime"
 
@@ -91,16 +93,16 @@ class Myanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         SubPageFilter(),
     )
 
-    private class SubPageFilter : UriPartFilter(
-        "Sup-page",
-        arrayOf(
-            Pair("<select>", ""),
-            Pair("izfanmade", "/category/anime/"),
-        ),
-    )
+    private class SubPageFilter :
+        UriPartFilter(
+            "Sup-page",
+            arrayOf(
+                Pair("<select>", ""),
+                Pair("izfanmade", "/category/anime/"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -196,16 +198,20 @@ class Myanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     url.contains("dailymotion") -> {
                         DailymotionExtractor(client, headers).videosFromUrl(url)
                     }
+
                     url.contains("ok.ru") -> {
                         OkruExtractor(client).videosFromUrl(url)
                     }
+
                     url.contains("youtube.com") -> {
                         YouTubeExtractor(client).videosFromUrl(url, "YouTube - ")
                     }
+
                     url.contains("gdriveplayer") -> {
                         val newHeaders = headersBuilder().add("Referer", baseUrl).build()
                         GdrivePlayerExtractor(client).videosFromUrl(url, name = "Gdriveplayer", headers = newHeaders)
                     }
+
                     else -> null
                 }.orEmpty()
             },

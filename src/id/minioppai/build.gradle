@@ -10,6 +10,6 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:gdriveplayer-extractor"))
+    implementation(project(":lib:gdriveplayerextractor"))
     implementation(project(":lib:unpacker"))
 }

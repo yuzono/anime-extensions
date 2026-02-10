@@ -13,10 +13,11 @@ abstract class SelectFilter(
     val selected get() = options[state].second.takeUnless { state == 0 }
 }
 
-class SortFilter : SelectFilter(
-    "Sort by",
-    SORT,
-) {
+class SortFilter :
+    SelectFilter(
+        "Sort by",
+        SORT,
+    ) {
     companion object {
         val SORT = listOf(
             Pair("Release date", "released_at"),
@@ -29,10 +30,11 @@ class SortFilter : SelectFilter(
     }
 }
 
-class GenreList : SelectFilter(
-    "Genres",
-    GENRES,
-) {
+class GenreList :
+    SelectFilter(
+        "Genres",
+        GENRES,
+    ) {
     companion object {
         val GENRES = listOf(
             Pair("<Select>", ""),

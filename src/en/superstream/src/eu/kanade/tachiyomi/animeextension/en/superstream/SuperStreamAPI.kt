@@ -725,10 +725,8 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
     )
 
     // Random 32 length string
-    private fun randomToken(): String {
-        return (0..31).joinToString("") {
-            (('0'..'9') + ('a'..'f')).random().toString()
-        }
+    private fun randomToken(): String = (0..31).joinToString("") {
+        (('0'..'9') + ('a'..'f')).random().toString()
     }
 
     private val token = randomToken()
@@ -736,33 +734,29 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
     private object CipherUtils {
         private const val ALGORITHM = "DESede"
         private const val TRANSFORMATION = "DESede/CBC/PKCS5Padding"
-        fun encrypt(str: String, key: String, iv: String): String? {
-            return try {
-                val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
-                val bArr = ByteArray(24)
-                val bytes: ByteArray = key.toByteArray()
-                var length = if (bytes.size <= 24) bytes.size else 24
-                System.arraycopy(bytes, 0, bArr, 0, length)
-                while (length < 24) {
-                    bArr[length] = 0
-                    length++
-                }
-                cipher.init(
-                    1,
-                    SecretKeySpec(bArr, ALGORITHM),
-                    IvParameterSpec(iv.toByteArray()),
-                )
-
-                String(Base64.encode(cipher.doFinal(str.toByteArray()), 2), StandardCharsets.UTF_8)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
+        fun encrypt(str: String, key: String, iv: String): String? = try {
+            val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
+            val bArr = ByteArray(24)
+            val bytes: ByteArray = key.toByteArray()
+            var length = if (bytes.size <= 24) bytes.size else 24
+            System.arraycopy(bytes, 0, bArr, 0, length)
+            while (length < 24) {
+                bArr[length] = 0
+                length++
             }
+            cipher.init(
+                1,
+                SecretKeySpec(bArr, ALGORITHM),
+                IvParameterSpec(iv.toByteArray()),
+            )
+
+            String(Base64.encode(cipher.doFinal(str.toByteArray()), 2), StandardCharsets.UTF_8)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
 
-        fun md5(str: String): String? {
-            return MD5Util.md5(str)?.let { HexDump.toHexString(it).lowercase() }
-        }
+        fun md5(str: String): String? = MD5Util.md5(str)?.let { HexDump.toHexString(it).lowercase() }
 
         fun getVerify(str: String?, str2: String, str3: String): String? {
             if (str != null) {
@@ -795,9 +789,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
     }
 
     private object MD5Util {
-        fun md5(str: String): ByteArray? {
-            return this.md5(str.toByteArray())
-        }
+        fun md5(str: String): ByteArray? = this.md5(str.toByteArray())
 
         fun md5(bArr: ByteArray?): ByteArray? {
             return try {
@@ -839,9 +831,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
         }
     }
 
-    private inline fun <reified T : Any> queryApiParsed(query: String): T {
-        return parseJson(queryApi(query).body.string())
-    }
+    private inline fun <reified T : Any> queryApiParsed(query: String): T = parseJson(queryApi(query).body.string())
 
     private val unixTime: Long
         get() = System.currentTimeMillis() / 1000L
@@ -902,11 +892,9 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
         return AnimesPage(animes, animes.isNotEmpty())
     }
 
-    private fun sendQuery(page: Int): String {
-        return queryApi(
-            """{"childmode":"$hideNsfw","app_version":"11.5","appid":"$appId","module":"Home_list_type_v2","channel":"Website","page":"$page","lang":"en","type":"all","pagelimit":"20","expired_date":"${getExpiryDate()}","platform":"android"}""".trimIndent(),
-        ).body.string()
-    }
+    private fun sendQuery(page: Int): String = queryApi(
+        """{"childmode":"$hideNsfw","app_version":"11.5","appid":"$appId","module":"Home_list_type_v2","channel":"Website","page":"$page","lang":"en","type":"all","pagelimit":"20","expired_date":"${getExpiryDate()}","platform":"android"}""".trimIndent(),
+    ).body.string()
 
     private fun Data.toSearchResponse(): SAnime? {
         val it = this
@@ -1038,26 +1026,18 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
         return videoList
     }
 
-    private fun LoadData.toJson(): String {
-        return json.encodeToString(this)
-    }
+    private fun LoadData.toJson(): String = json.encodeToString(this)
 
-    private fun base64Decode(string: String): String {
-        return String(base64DecodeArray(string), Charsets.ISO_8859_1)
-    }
+    private fun base64Decode(string: String): String = String(base64DecodeArray(string), Charsets.ISO_8859_1)
 
     @SuppressLint("NewApi")
-    private fun base64DecodeArray(string: String): ByteArray {
-        return try {
-            Base64.decode(string, Base64.DEFAULT)
-        } catch (e: Exception) {
-            JavaBase64.getDecoder().decode(string)
-        }
+    private fun base64DecodeArray(string: String): ByteArray = try {
+        Base64.decode(string, Base64.DEFAULT)
+    } catch (e: Exception) {
+        JavaBase64.getDecoder().decode(string)
     }
 
-    private inline fun <reified T> parseJson(value: String): T {
-        return json.decodeFromString(value)
-    }
+    private inline fun <reified T> parseJson(value: String): T = json.decodeFromString(value)
 }
 
 private fun configureToIgnoreCertificate(): OkHttpClient {
@@ -1073,9 +1053,7 @@ private fun configureToIgnoreCertificate(): OkHttpClient {
                 @SuppressLint("TrustAllX509TrustManager")
                 override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
 
-                override fun getAcceptedIssuers(): Array<X509Certificate> {
-                    return arrayOf()
-                }
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
             },
         )
 

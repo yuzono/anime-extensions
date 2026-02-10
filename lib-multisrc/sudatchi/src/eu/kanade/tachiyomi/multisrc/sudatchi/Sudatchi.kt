@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -27,7 +27,8 @@ import okhttp3.Response
 open class Sudatchi(
     override val name: String = "Sudatchi",
     val mature: Boolean = false,
-) : AnimeHttpSource(), ConfigurableAnimeSource {
+) : AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl = "https://sudatchi.com"
 
     override val client = network.client.newBuilder()
@@ -43,18 +44,14 @@ open class Sudatchi(
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return searchAnimeRequest(page, "", SudatchiFilters.getPopularFilterList())
-    }
+    override fun popularAnimeRequest(page: Int): Request = searchAnimeRequest(page, "", SudatchiFilters.getPopularFilterList())
 
     override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        return when (page) {
-            1 -> GET("$baseUrl/api/home?matureMode=$mature", headers)
-            else -> searchAnimeRequest(page - 1, "", SudatchiFilters.getTrendingFilterList())
-        }
+    override fun latestUpdatesRequest(page: Int): Request = when (page) {
+        1 -> GET("$baseUrl/api/home?matureMode=$mature", headers)
+        else -> searchAnimeRequest(page - 1, "", SudatchiFilters.getTrendingFilterList())
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
@@ -74,15 +71,13 @@ open class Sudatchi(
     // =============================== Search ===============================
     override fun getFilterList() = SudatchiFilters.getFilterList()
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -132,9 +127,7 @@ open class Sudatchi(
     // =========================== Anime Details ============================
     override fun getAnimeUrl(anime: SAnime) = "$baseUrl${anime.url}"
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET("$baseUrl/api${anime.url}", headers)
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl/api${anime.url}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val data = response.parseAs<AnimeDetailDto>()
@@ -172,12 +165,10 @@ open class Sudatchi(
 
         val videoUrl = "$baseUrl/api/streams?episodeId=$episodeId"
 
-        fun buildSubtitleUrl(subUrl: String): String {
-            return if (subUrl.startsWith("http://") || subUrl.startsWith("https://")) {
-                subUrl
-            } else {
-                "$baseUrl/api/proxy/${subUrl.removePrefix("/ipfs/")}"
-            }
+        fun buildSubtitleUrl(subUrl: String): String = if (subUrl.startsWith("http://") || subUrl.startsWith("https://")) {
+            subUrl
+        } else {
+            "$baseUrl/api/proxy/${subUrl.removePrefix("/ipfs/")}"
         }
 
         return playlistUtils.extractFromHls(

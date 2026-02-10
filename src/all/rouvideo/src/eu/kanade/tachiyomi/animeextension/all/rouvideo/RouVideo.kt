@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -192,11 +192,13 @@ class RouVideo(
                         json.decodeFromString<List<RouVideoDto.Video>>(body.string()).toAnimePage()
                     }
                 }
+
                 FEATURED, null, "" -> { // "Featured", "No category", or "All Categories" -> Show featured content
                     handleSearchAnime(featuredURL, docHeaders) {
                         asJsoup().parseFeaturedPage(sortFilter)
                     }
                 }
+
                 else -> {
                     // Specific category (e.g., "asian") or "All Videos" (ALL_VIDEOS)
                     val url = buildBrowseUrl(page, categoryUriPart, sortFilter, tagFilter, hotSearchFilter)
@@ -220,14 +222,12 @@ class RouVideo(
         }
     }
 
-    private fun Document.parseFeaturedPage(sortFilter: RouVideoFilter.SortFilter?): AnimesPage {
-        return this.selectFirst("script#__NEXT_DATA__")?.data()
-            ?.let {
-                json.decodeFromString<RouVideoDto.HotVideoList>(it)
-                    .props.pageProps.toAnimePage(sortFilter?.toUriPart())
-            }
-            ?: AnimesPage(emptyList(), false)
-    }
+    private fun Document.parseFeaturedPage(sortFilter: RouVideoFilter.SortFilter?): AnimesPage = this.selectFirst("script#__NEXT_DATA__")?.data()
+        ?.let {
+            json.decodeFromString<RouVideoDto.HotVideoList>(it)
+                .props.pageProps.toAnimePage(sortFilter?.toUriPart())
+        }
+        ?: AnimesPage(emptyList(), false)
 
     private fun buildBrowseUrl(
         page: Int,
@@ -235,42 +235,40 @@ class RouVideo(
         sortFilter: RouVideoFilter.SortFilter?,
         tagFilter: RouVideoFilter.TagFilter?,
         hotSearchFilter: RouVideoFilter.HotSearchFilter?,
-    ): String {
-        return videoUrl.toHttpUrl().newBuilder().apply {
-            when {
-                // Specific category (e.g., "asian") is provided
-                categoryUri != null && categoryUri != ALL_VIDEOS -> {
-                    addPathSegments("$CATEGORY_SLUG/$categoryUri")
-                }
-                // Tag filter is active
-                tagFilter?.isEmpty() == false -> {
-                    if (hotSearchFilter?.isEmpty() == false) {
-                        // Hot search filter is active => search within the tag
-                        addPathSegment("search")
-                        addQueryParameter("q", hotSearchFilter.toUriPart())
-                        addQueryParameter(CATEGORY_SLUG, tagFilter.toUriPart())
-                    } else {
-                        // Only tag filter is active => browse by tag
-                        addPathSegments("$CATEGORY_SLUG/${tagFilter.toUriPart()}")
-                    }
-                }
-                else -> {
-                    // Default to browsing all videos
-                    addPathSegment(VIDEO_SLUG)
+    ): String = videoUrl.toHttpUrl().newBuilder().apply {
+        when {
+            // Specific category (e.g., "asian") is provided
+            categoryUri != null && categoryUri != ALL_VIDEOS -> {
+                addPathSegments("$CATEGORY_SLUG/$categoryUri")
+            }
+
+            // Tag filter is active
+            tagFilter?.isEmpty() == false -> {
+                if (hotSearchFilter?.isEmpty() == false) {
+                    // Hot search filter is active => search within the tag
+                    addPathSegment("search")
+                    addQueryParameter("q", hotSearchFilter.toUriPart())
+                    addQueryParameter(CATEGORY_SLUG, tagFilter.toUriPart())
+                } else {
+                    // Only tag filter is active => browse by tag
+                    addPathSegments("$CATEGORY_SLUG/${tagFilter.toUriPart()}")
                 }
             }
 
-            // Add sorting and pagination parameters
-            sortFilter?.let { addQueryParameter("order", it.toUriPart()) }
-            addQueryParameter("page", page.toString())
-        }.build().toString()
-    }
+            else -> {
+                // Default to browsing all videos
+                addPathSegment(VIDEO_SLUG)
+            }
+        }
 
-    private suspend fun handleSearchAnime(url: String, headers: Headers, parse: Response.() -> AnimesPage): AnimesPage {
-        return client.newCall(GET(url, headers))
-            .awaitSuccess()
-            .use(parse)
-    }
+        // Add sorting and pagination parameters
+        sortFilter?.let { addQueryParameter("order", it.toUriPart()) }
+        addQueryParameter("page", page.toString())
+    }.build().toString()
+
+    private suspend fun handleSearchAnime(url: String, headers: Headers, parse: Response.() -> AnimesPage): AnimesPage = client.newCall(GET(url, headers))
+        .awaitSuccess()
+        .use(parse)
 
     private val featuredURL = baseUrl
     private val watchingURL by lazy { "$apiUrl/$VIDEO_SLUG/watching" }
@@ -281,34 +279,32 @@ class RouVideo(
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            RouVideoFilter.SortFilter(intl),
-            AnimeFilter.Header(intl["sort_filter_note"]),
-            RouVideoFilter.CategoryFilter(intl),
-            AnimeFilter.Separator(),
-            RouVideoFilter.TagFilter(
-                intl,
-                if (!this::tagsArray.isInitialized && savedTags.isEmpty()) {
-                    arrayOf(Tag(intl["reset_filter_to_load"], ""))
-                } else {
-                    setOf(Tag(intl["set_video_all_to_filter_tag"], ""))
-                        .plus(if (this::tagsArray.isInitialized) tagsArray.toSet() else emptySet())
-                        .plus(savedTags.minus(categories(intl)))
-                        .toTypedArray()
-                },
-            ),
-            RouVideoFilter.HotSearchFilter(
-                intl,
-                if (!this::hotSearch.isInitialized || hotSearch.isEmpty()) {
-                    setOf(Pair(intl["reset_filter_to_load"], ""))
-                } else {
-                    setOf(Pair(intl["set_video_all_to_filter_tag"], ""))
-                        .plus(hotSearch.map { it to it })
-                },
-            ),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        RouVideoFilter.SortFilter(intl),
+        AnimeFilter.Header(intl["sort_filter_note"]),
+        RouVideoFilter.CategoryFilter(intl),
+        AnimeFilter.Separator(),
+        RouVideoFilter.TagFilter(
+            intl,
+            if (!this::tagsArray.isInitialized && savedTags.isEmpty()) {
+                arrayOf(Tag(intl["reset_filter_to_load"], ""))
+            } else {
+                setOf(Tag(intl["set_video_all_to_filter_tag"], ""))
+                    .plus(if (this::tagsArray.isInitialized) tagsArray.toSet() else emptySet())
+                    .plus(savedTags.minus(categories(intl)))
+                    .toTypedArray()
+            },
+        ),
+        RouVideoFilter.HotSearchFilter(
+            intl,
+            if (!this::hotSearch.isInitialized || hotSearch.isEmpty()) {
+                setOf(Pair(intl["reset_filter_to_load"], ""))
+            } else {
+                setOf(Pair(intl["set_video_all_to_filter_tag"], ""))
+                    .plus(hotSearch.map { it to it })
+            },
+        ),
+    )
 
     /**
      * Automatically fetched tags from the source to be used in the filters.
@@ -342,14 +338,12 @@ class RouVideo(
     /**
      * Get the genres from the document.
      */
-    private fun tagsListParse(document: Document): Tags {
-        return document.selectFirst("script#__NEXT_DATA__")?.data()
-            ?.let {
-                json.decodeFromString<RouVideoDto.TagList>(it)
-                    .props.pageProps.toTagList()
-            }
-            ?: emptyArray<Tag>()
-    }
+    private fun tagsListParse(document: Document): Tags = document.selectFirst("script#__NEXT_DATA__")?.data()
+        ?.let {
+            json.decodeFromString<RouVideoDto.TagList>(it)
+                .props.pageProps.toTagList()
+        }
+        ?: emptyArray<Tag>()
 
     private var savedTags: Set<Tag> = loadTagListFromPreferences()
         set(value) {
@@ -360,11 +354,10 @@ class RouVideo(
             field = value
         }
 
-    private fun loadTagListFromPreferences(): Set<Tag> =
-        preferences.getStringSet(TAG_LIST_PREF, emptySet())
-            ?.mapNotNull { Tag(it, it) }
-            ?.toSet()
-            ?: emptySet()
+    private fun loadTagListFromPreferences(): Set<Tag> = preferences.getStringSet(TAG_LIST_PREF, emptySet())
+        ?.mapNotNull { Tag(it, it) }
+        ?.toSet()
+        ?: emptySet()
 
     private lateinit var hotSearch: Set<String>
 
@@ -386,15 +379,13 @@ class RouVideo(
         }.onFailure { it.printStackTrace() }
     }
 
-    private fun hotSearchParse(document: Document): Set<String> {
-        return document.selectFirst("script#__NEXT_DATA__")?.data()
-            ?.let {
-                val hotSearches = json.decodeFromString<RouVideoDto.VideoList>(it)
-                    .props.pageProps.hotSearches
-                hotSearches?.toSet()
-            }
-            ?: emptySet()
-    }
+    private fun hotSearchParse(document: Document): Set<String> = document.selectFirst("script#__NEXT_DATA__")?.data()
+        ?.let {
+            val hotSearches = json.decodeFromString<RouVideoDto.VideoList>(it)
+                .props.pageProps.hotSearches
+            hotSearches?.toSet()
+        }
+        ?: emptySet()
 
     // =========================== Anime Details ============================
 
@@ -434,9 +425,7 @@ class RouVideo(
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET("$videoUrl/$VIDEO_SLUG/${anime.url}", docHeaders)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET("$videoUrl/$VIDEO_SLUG/${anime.url}", docHeaders)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -463,9 +452,7 @@ class RouVideo(
     }
 
     // Sorts by quality
-    override fun List<Video>.sort(): List<Video> {
-        return sortedByDescending { it.quality }
-    }
+    override fun List<Video>.sort(): List<Video> = sortedByDescending { it.quality }
 
     // ============================= Utilities ==============================
 

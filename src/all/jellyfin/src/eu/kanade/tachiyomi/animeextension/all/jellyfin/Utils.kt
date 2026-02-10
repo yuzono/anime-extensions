@@ -44,24 +44,20 @@ fun Long.formatBytes(): String = when {
     else -> ""
 }
 
-fun String.getImageUrl(baseUrl: String, id: String): String {
-    return baseUrl.toHttpUrl().newBuilder().apply {
-        addPathSegment("Items")
-        addPathSegment(id)
-        addPathSegment("Images")
-        addPathSegment("Primary")
-        addQueryParameter("tag", this@getImageUrl)
-    }.build().toString()
-}
+fun String.getImageUrl(baseUrl: String, id: String): String = baseUrl.toHttpUrl().newBuilder().apply {
+    addPathSegment("Items")
+    addPathSegment(id)
+    addPathSegment("Images")
+    addPathSegment("Primary")
+    addQueryParameter("tag", this@getImageUrl)
+}.build().toString()
 
 object PascalCaseToCamelCase : JsonNamingStrategy {
     override fun serialNameForJson(
         descriptor: SerialDescriptor,
         elementIndex: Int,
         serialName: String,
-    ): String {
-        return serialName.replaceFirstChar { it.uppercase() }
-    }
+    ): String = serialName.replaceFirstChar { it.uppercase() }
 }
 
 object Constants {

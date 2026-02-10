@@ -20,18 +20,17 @@ object AnimeUnityFilters {
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return this.filterIsInstance<R>().joinToString("") {
-            (it as QueryPartFilter).toQueryPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
+        (it as QueryPartFilter).toQueryPart()
     }
 
     class TopFilter : QueryPartFilter("Top Anime", AnimeUnityFiltersData.TOP)
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genere",
-        AnimeUnityFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genere",
+            AnimeUnityFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
     class YearFilter : QueryPartFilter("Anno", AnimeUnityFiltersData.YEAR)
 

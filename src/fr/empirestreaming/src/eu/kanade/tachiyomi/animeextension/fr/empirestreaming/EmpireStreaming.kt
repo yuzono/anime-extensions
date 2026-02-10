@@ -22,7 +22,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -31,7 +31,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class EmpireStreaming : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class EmpireStreaming :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "EmpireStreaming"
 
@@ -253,10 +255,8 @@ class EmpireStreaming : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     private fun List<VideoDto>.encode() = joinToString { it.encoded }
 

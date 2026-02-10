@@ -48,8 +48,7 @@ class FrAnime : AnimeHttpSource() {
     }
 
     // ============================== Popular ===============================
-    override suspend fun getPopularAnime(page: Int) =
-        pagesToAnimesPage(database.sortedByDescending { it.note }, page)
+    override suspend fun getPopularAnime(page: Int) = pagesToAnimesPage(database.sortedByDescending { it.note }, page)
 
     override fun popularAnimeParse(response: Response) = throw UnsupportedOperationException()
 
@@ -154,29 +153,27 @@ class FrAnime : AnimeHttpSource() {
     private val titleRegex by lazy { Regex("[^A-Za-z0-9 ]") }
     private fun titleToUrl(title: String) = titleRegex.replace(title, "").replace(" ", "-").lowercase()
 
-    private fun pageToSAnimes(page: List<Anime>): List<SAnime> {
-        return page.flatMap { anime ->
-            anime.seasons.flatMapIndexed { index, season ->
-                val seasonTitle = anime.title + if (anime.seasons.size > 1) " S${index + 1}" else ""
-                val hasVostfr = season.episodes.any { ep -> ep.languages.vo.players.isNotEmpty() }
-                val hasVf = season.episodes.any { ep -> ep.languages.vf.players.isNotEmpty() }
+    private fun pageToSAnimes(page: List<Anime>): List<SAnime> = page.flatMap { anime ->
+        anime.seasons.flatMapIndexed { index, season ->
+            val seasonTitle = anime.title + if (anime.seasons.size > 1) " S${index + 1}" else ""
+            val hasVostfr = season.episodes.any { ep -> ep.languages.vo.players.isNotEmpty() }
+            val hasVf = season.episodes.any { ep -> ep.languages.vf.players.isNotEmpty() }
 
-                // I want to die for writing this
-                val languages = listOfNotNull(
-                    if (hasVostfr) Triple("VOSTFR", "vo", hasVf) else null,
-                    if (hasVf) Triple("VF", "vf", hasVostfr) else null,
-                )
+            // I want to die for writing this
+            val languages = listOfNotNull(
+                if (hasVostfr) Triple("VOSTFR", "vo", hasVf) else null,
+                if (hasVf) Triple("VF", "vf", hasVostfr) else null,
+            )
 
-                languages.map { lang ->
-                    SAnime.create().apply {
-                        title = seasonTitle + if (lang.third) " (${lang.first})" else ""
-                        thumbnail_url = anime.poster
-                        genre = anime.genres.joinToString()
-                        status = parseStatus(anime.status, anime.seasons.size, index + 1)
-                        description = anime.description
-                        setUrlWithoutDomain("/anime/${titleToUrl(anime.originalTitle)}?lang=${lang.second}&s=${index + 1}")
-                        initialized = true
-                    }
+            languages.map { lang ->
+                SAnime.create().apply {
+                    title = seasonTitle + if (lang.third) " (${lang.first})" else ""
+                    thumbnail_url = anime.poster
+                    genre = anime.genres.joinToString()
+                    status = parseStatus(anime.status, anime.seasons.size, index + 1)
+                    description = anime.description
+                    setUrlWithoutDomain("/anime/${titleToUrl(anime.originalTitle)}?lang=${lang.second}&s=${index + 1}")
+                    initialized = true
                 }
             }
         }

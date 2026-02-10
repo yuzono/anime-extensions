@@ -12,11 +12,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimePlayer : DooPlay(
-    "pt-BR",
-    "AnimePlayer",
-    "https://animeplayer.com.br",
-) {
+class AnimePlayer :
+    DooPlay(
+        "pt-BR",
+        "AnimePlayer",
+        "https://animeplayer.com.br",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "div#archive-content article div.poster"
@@ -95,17 +96,16 @@ class AnimePlayer : DooPlay(
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private fun getVideosFromURL(url: String, quality: String): List<Video> {
-        return when {
-            "cdn.animeson.com.br" in url -> {
-                listOf(
-                    Video(url, quality, url, headers),
-                )
-            }
-
-            "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> emptyList()
+    private fun getVideosFromURL(url: String, quality: String): List<Video> = when {
+        "cdn.animeson.com.br" in url -> {
+            listOf(
+                Video(url, quality, url, headers),
+            )
         }
+
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+
+        else -> emptyList()
     }
 
     // ============================== Filters ===============================

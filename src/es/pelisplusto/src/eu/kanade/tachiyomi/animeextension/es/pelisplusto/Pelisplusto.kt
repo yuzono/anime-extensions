@@ -102,7 +102,9 @@ class Pelisplusto : PelisPlus() {
 
             val url = if (!REGEX_LINK.containsMatchIn(decode)) {
                 "$baseUrl/player/${String(Base64.encode(it.attr("data-server").toByteArray(), Base64.DEFAULT))}"
-            } else { decode }
+            } else {
+                decode
+            }
 
             val videoUrl = if (url.contains("/player/")) {
                 val script = client.newCall(GET(url)).execute().asJsoup().selectFirst("script:containsData(window.onload)")?.data() ?: ""
@@ -121,43 +123,44 @@ class Pelisplusto : PelisPlus() {
         GenreFilter(),
     )
 
-    private class GenreFilter : Filters.UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("Peliculas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Doramas", "doramas"),
-            Pair("Animes", "animes"),
-            Pair("Acción", "genres/accion"),
-            Pair("Action & Adventure", "genres/action-adventure"),
-            Pair("Animación", "genres/animacion"),
-            Pair("Aventura", "genres/aventura"),
-            Pair("Bélica", "genres/belica"),
-            Pair("Ciencia ficción", "genres/ciencia-ficcion"),
-            Pair("Comedia", "genres/comedia"),
-            Pair("Crimen", "genres/crimen"),
-            Pair("Documental", "genres/documental"),
-            Pair("Dorama", "genres/dorama"),
-            Pair("Drama", "genres/drama"),
-            Pair("Familia", "genres/familia"),
-            Pair("Fantasía", "genres/fantasia"),
-            Pair("Guerra", "genres/guerra"),
-            Pair("Historia", "genres/historia"),
-            Pair("Horror", "genres/horror"),
-            Pair("Kids", "genres/kids"),
-            Pair("Misterio", "genres/misterio"),
-            Pair("Música", "genres/musica"),
-            Pair("Musical", "genres/musical"),
-            Pair("Película de TV", "genres/pelicula-de-tv"),
-            Pair("Reality", "genres/reality"),
-            Pair("Romance", "genres/romance"),
-            Pair("Sci-Fi & Fantasy", "genres/sci-fi-fantasy"),
-            Pair("Soap", "genres/soap"),
-            Pair("Suspense", "genres/suspense"),
-            Pair("Terror", "genres/terror"),
-            Pair("War & Politics", "genres/war-politics"),
-            Pair("Western", "genres/western"),
-        ),
-    )
+    private class GenreFilter :
+        Filters.UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("Peliculas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Doramas", "doramas"),
+                Pair("Animes", "animes"),
+                Pair("Acción", "genres/accion"),
+                Pair("Action & Adventure", "genres/action-adventure"),
+                Pair("Animación", "genres/animacion"),
+                Pair("Aventura", "genres/aventura"),
+                Pair("Bélica", "genres/belica"),
+                Pair("Ciencia ficción", "genres/ciencia-ficcion"),
+                Pair("Comedia", "genres/comedia"),
+                Pair("Crimen", "genres/crimen"),
+                Pair("Documental", "genres/documental"),
+                Pair("Dorama", "genres/dorama"),
+                Pair("Drama", "genres/drama"),
+                Pair("Familia", "genres/familia"),
+                Pair("Fantasía", "genres/fantasia"),
+                Pair("Guerra", "genres/guerra"),
+                Pair("Historia", "genres/historia"),
+                Pair("Horror", "genres/horror"),
+                Pair("Kids", "genres/kids"),
+                Pair("Misterio", "genres/misterio"),
+                Pair("Música", "genres/musica"),
+                Pair("Musical", "genres/musical"),
+                Pair("Película de TV", "genres/pelicula-de-tv"),
+                Pair("Reality", "genres/reality"),
+                Pair("Romance", "genres/romance"),
+                Pair("Sci-Fi & Fantasy", "genres/sci-fi-fantasy"),
+                Pair("Soap", "genres/soap"),
+                Pair("Suspense", "genres/suspense"),
+                Pair("Terror", "genres/terror"),
+                Pair("War & Politics", "genres/war-politics"),
+                Pair("Western", "genres/western"),
+            ),
+        )
 }

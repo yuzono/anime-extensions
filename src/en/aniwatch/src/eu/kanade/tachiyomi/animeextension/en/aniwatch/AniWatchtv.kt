@@ -9,15 +9,16 @@ import eu.kanade.tachiyomi.network.GET
 import okhttp3.Request
 import org.jsoup.nodes.Element
 
-class AniWatchtv : ZoroTheme(
-    "en",
-    "AniWatchtv",
-    "https://aniwatchtv.to",
-    hosterNames = listOf(
-        "VidSrc",
-        "MegaCloud",
-    ),
-) {
+class AniWatchtv :
+    ZoroTheme(
+        "en",
+        "AniWatchtv",
+        "https://aniwatchtv.to",
+        hosterNames = listOf(
+            "VidSrc",
+            "MegaCloud",
+        ),
+    ) {
     override val id = 8051984946387208343L
 
     override val ajaxRoute = "/v2"
@@ -26,16 +27,12 @@ class AniWatchtv : ZoroTheme(
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/recently-updated?page=$page", docHeaders)
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return super.popularAnimeFromElement(element).apply {
-            url = url.substringBefore("?")
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = super.popularAnimeFromElement(element).apply {
+        url = url.substringBefore("?")
     }
 
-    override fun extractVideo(server: VideoData): List<Video> {
-        return when (server.name) {
-            "VidSrc", "MegaCloud" -> megaCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
-            else -> emptyList()
-        }
+    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+        "VidSrc", "MegaCloud" -> megaCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
+        else -> emptyList()
     }
 }

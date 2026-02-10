@@ -87,25 +87,28 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 Log.d(tag, "m3u8 URL: $resultUrl")
                 playlistUtils.extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
             }
+
             "mpd" in resultUrl -> {
                 Log.d(tag, "mpd URL: $resultUrl")
                 playlistUtils.extractFromDash(resultUrl, { it -> "$prefix: $it" }, referer = origRequestUrl)
             }
+
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
                 Video(resultUrl, "$prefix: MP4", resultUrl, Headers.headersOf("referer", origRequestUrl)).let(::listOf)
             }
+
             else -> emptyList()
         }
     }
 
-    private fun String.proper(): String {
-        return this.replaceFirstChar {
-            if (it.isLowerCase()) {
-                it.titlecase(
-                    Locale.getDefault(),
-                )
-            } else it.toString()
+    private fun String.proper(): String = this.replaceFirstChar {
+        if (it.isLowerCase()) {
+            it.titlecase(
+                Locale.getDefault(),
+            )
+        } else {
+            it.toString()
         }
     }
 

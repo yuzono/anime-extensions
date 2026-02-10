@@ -11,13 +11,14 @@ import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 
-class AnimeYTES : AnimeStream(
-    "es",
-    "AnimeYT.es",
-    "https://animeyt.es",
-) {
+class AnimeYTES :
+    AnimeStream(
+        "es",
+        "AnimeYT.es",
+        "https://animeyt.es",
+    ) {
     override val preferences by getPreferencesLazy()
 
     companion object {
@@ -48,16 +49,14 @@ class AnimeYTES : AnimeStream(
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return when (name) {
-            "OK" -> okruExtractor.videosFromUrl(url)
-            "Stream" -> streamtapeExtractor.videosFromUrl(url)
-            "Send" -> sendvidExtractor.videosFromUrl(url)
-            "Your" -> youruploadExtractor.videoFromUrl(url, headers)
-            "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
-            "Moon" -> filemoonExtractor.videosFromUrl(url)
-            else -> universalExtractor.videosFromUrl(url, headers)
-        }
+    override fun getVideoList(url: String, name: String): List<Video> = when (name) {
+        "OK" -> okruExtractor.videosFromUrl(url)
+        "Stream" -> streamtapeExtractor.videosFromUrl(url)
+        "Send" -> sendvidExtractor.videosFromUrl(url)
+        "Your" -> youruploadExtractor.videoFromUrl(url, headers)
+        "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
+        "Moon" -> filemoonExtractor.videosFromUrl(url)
+        else -> universalExtractor.videosFromUrl(url, headers)
     }
 
     override fun List<Video>.sort(): List<Video> {

@@ -21,7 +21,7 @@ import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
@@ -30,7 +30,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class Anime4Up : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Anime4Up :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime4Up"
 
@@ -193,24 +195,32 @@ class Anime4Up : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val vidyardExtractor by lazy { VidYardExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun extractVideos(url: String): List<Video> {
-        return when {
-            url.contains("drive.google") -> {
-                val embedUrlG = "https://gdriveplayer.to/embed2.php?link=$url"
-                gdriveplayerExtractor.videosFromUrl(embedUrlG, "GdrivePlayer", headers)
-            }
-            url.contains("vidyard") -> vidyardExtractor.videosFromUrl(url)
-            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
-            url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
-            url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-            url.contains("voe") -> voeExtractor.videosFromUrl(url)
-            url.contains("shared") -> sharedExtractor.videosFromUrl(url)?.let(::listOf)
-            DOOD_REGEX.containsMatchIn(url) -> doodExtractor.videosFromUrl(url, "Dood mirror")
-            VIDBOM_REGEX.containsMatchIn(url) -> vidbomExtractor.videosFromUrl(url)
-            STREAMWISH_REGEX.containsMatchIn(url) -> streamwishExtractor.videosFromUrl(url) { "Mirror: $it" }
-            else -> null
-        } ?: emptyList()
-    }
+    private fun extractVideos(url: String): List<Video> = when {
+        url.contains("drive.google") -> {
+            val embedUrlG = "https://gdriveplayer.to/embed2.php?link=$url"
+            gdriveplayerExtractor.videosFromUrl(embedUrlG, "GdrivePlayer", headers)
+        }
+
+        url.contains("vidyard") -> vidyardExtractor.videosFromUrl(url)
+
+        url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+
+        url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
+
+        url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
+
+        url.contains("voe") -> voeExtractor.videosFromUrl(url)
+
+        url.contains("shared") -> sharedExtractor.videosFromUrl(url)?.let(::listOf)
+
+        DOOD_REGEX.containsMatchIn(url) -> doodExtractor.videosFromUrl(url, "Dood mirror")
+
+        VIDBOM_REGEX.containsMatchIn(url) -> vidbomExtractor.videosFromUrl(url)
+
+        STREAMWISH_REGEX.containsMatchIn(url) -> streamwishExtractor.videosFromUrl(url) { "Mirror: $it" }
+
+        else -> null
+    } ?: emptyList()
 
     override fun videoListSelector() = throw UnsupportedOperationException()
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()

@@ -4,8 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 
 object DramaFullFilters {
 
-    open class SelectFilter(displayName: String, val vals: Array<Pair<String, Int>>, state: Int = 0) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray(), state) {
+    open class SelectFilter(displayName: String, val vals: Array<Pair<String, Int>>, state: Int = 0) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray(), state) {
         fun getValue() = vals[state].second
     }
 

@@ -5,24 +5,23 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
 object AnimeFenixFilters {
-    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(
-        displayName,
-        vals.map { it.first }.toTypedArray(),
-    ) {
+    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
+        AnimeFilter.Select<String>(
+            displayName,
+            vals.map { it.first }.toTypedArray(),
+        ) {
         fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: run { "" }
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: run { this }
 
-    data class FilterSearchParams(val filter: String = "") { fun getQuery() = filter.changePrefix() }
+    data class FilterSearchParams(val filter: String = "") {
+        fun getQuery() = filter.changePrefix()
+    }
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()

@@ -14,7 +14,9 @@ class GoVadExtractor(private val client: OkHttpClient) {
             val src = source.substringBefore("\"")
             val qualityHost = host.replaceFirstChar(Char::uppercase)
             var quality = source.substringAfter("label:\"").substringBefore("\"")
-            if (quality.length > 15) { quality = "480p" }
+            if (quality.length > 15) {
+                quality = "480p"
+            }
             Video(src, "$qualityHost: $quality", src)
         }
     }

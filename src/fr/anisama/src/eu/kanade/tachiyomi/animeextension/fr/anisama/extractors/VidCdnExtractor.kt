@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.animeextension.fr.anisama.extractors
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.commonEmptyHeaders
+import keiyoushi.utils.commonEmptyHeaders
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -31,6 +31,7 @@ class VidCdnExtractor(
         val httpUrl = url.toHttpUrl()
         val source = when {
             url.contains("embeds.html") -> Pair("sib2", "Sibnet")
+
             // their sendvid server is currently borken lmao
             // url.contains("embedsen.html") -> Pair("azz", "Sendvid")
             else -> return emptyList()

@@ -16,11 +16,12 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class PinoyMoviePedia : DooPlay(
-    "en",
-    "PinoyMoviePedia",
-    "https://pinoymoviepedia.ru",
-) {
+class PinoyMoviePedia :
+    DooPlay(
+        "en",
+        "PinoyMoviePedia",
+        "https://pinoymoviepedia.ru",
+    ) {
     override val supportsLatest = false
 
     // ============================== Popular ===============================
@@ -54,13 +55,11 @@ class PinoyMoviePedia : DooPlay(
         }
     }
 
-    private fun extractVideos(url: String, lang: String): List<Video> {
-        return when {
-            "dood" in url -> doodExtractor.videosFromUrl(url, lang)
-            "mixdrop" in url -> mixDropExtractor.videosFromUrl(url, lang)
-            else -> null
-        } ?: emptyList()
-    }
+    private fun extractVideos(url: String, lang: String): List<Video> = when {
+        "dood" in url -> doodExtractor.videosFromUrl(url, lang)
+        "mixdrop" in url -> mixDropExtractor.videosFromUrl(url, lang)
+        else -> null
+    } ?: emptyList()
 
     private fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
@@ -93,6 +92,7 @@ class PinoyMoviePedia : DooPlay(
                     "/genre/${params.genre}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

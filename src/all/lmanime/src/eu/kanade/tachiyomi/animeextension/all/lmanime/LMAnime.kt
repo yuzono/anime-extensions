@@ -12,11 +12,12 @@ import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 
-class LMAnime : AnimeStream(
-    "all",
-    "LMAnime",
-    "https://lmanime.com",
-) {
+class LMAnime :
+    AnimeStream(
+        "all",
+        "LMAnime",
+        "https://lmanime.com",
+    ) {
     // ============================ Video Links =============================
     override val prefQualityValues = arrayOf("144p", "288p", "480p", "720p", "1080p")
     override val prefQualityEntries = prefQualityValues
@@ -45,7 +46,6 @@ class LMAnime : AnimeStream(
             "dailymotion" in url -> dailyExtractor.videosFromUrl(url, "Dailymotion ($name)")
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix")
             "filelions" in url -> streamwishExtractor.videosFromUrl(url, "StreamWish ($name)")
-
             else -> emptyList()
         }
     }

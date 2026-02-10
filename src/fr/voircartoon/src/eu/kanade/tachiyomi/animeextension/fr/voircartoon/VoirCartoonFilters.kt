@@ -14,9 +14,7 @@ object VoirCartoonFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     internal class TypeFilter : QueryPartFilter("Type", VoirCartoonFiltersData.TYPES)
     internal class GenreFilter : QueryPartFilter("Genre", VoirCartoonFiltersData.GENRES)

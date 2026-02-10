@@ -102,9 +102,7 @@ object CryptoAES {
         salt: ByteArray,
         resultKey: ByteArray,
         resultIv: ByteArray,
-    ): ByteArray {
-        return EvpKDF(password, keySize, ivSize, salt, 1, KDF_DIGEST, resultKey, resultIv)
-    }
+    ): ByteArray = EvpKDF(password, keySize, ivSize, salt, 1, KDF_DIGEST, resultKey, resultIv)
 
     private fun EvpKDF(
         password: ByteArray,
@@ -149,9 +147,7 @@ object CryptoAES {
         return derivedBytes // key + iv
     }
 
-    private fun generateSalt(length: Int): ByteArray {
-        return ByteArray(length).apply {
-            SecureRandom().nextBytes(this)
-        }
+    private fun generateSalt(length: Int): ByteArray = ByteArray(length).apply {
+        SecureRandom().nextBytes(this)
     }
 }

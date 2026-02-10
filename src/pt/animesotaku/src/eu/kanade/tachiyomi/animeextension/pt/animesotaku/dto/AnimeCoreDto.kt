@@ -50,21 +50,19 @@ data class EpisodeItemDto(
         date_upload = parseReleasedDate(released, dateFormat)
     }
 
-    private fun parseReleasedDate(released: String, dateFormat: SimpleDateFormat): Long {
-        return try {
-            // Verifica se é apenas números (formato de dias desde 01/01/1900)
-            released.toIntOrNull()?.let { days ->
-                val calendar = Calendar.getInstance()
-                calendar.set(1900, Calendar.JANUARY, 1, 0, 0, 0)
-                calendar.set(Calendar.MILLISECOND, 0)
-                calendar.add(Calendar.DAY_OF_YEAR, days)
-                calendar.timeInMillis
-            } ?: run {
-                val date = dateFormat.parse(released)
-                date?.time ?: 0L
-            }
-        } catch (_: Exception) {
-            0L
+    private fun parseReleasedDate(released: String, dateFormat: SimpleDateFormat): Long = try {
+        // Verifica se é apenas números (formato de dias desde 01/01/1900)
+        released.toIntOrNull()?.let { days ->
+            val calendar = Calendar.getInstance()
+            calendar.set(1900, Calendar.JANUARY, 1, 0, 0, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            calendar.add(Calendar.DAY_OF_YEAR, days)
+            calendar.timeInMillis
+        } ?: run {
+            val date = dateFormat.parse(released)
+            date?.time ?: 0L
         }
+    } catch (_: Exception) {
+        0L
     }
 }

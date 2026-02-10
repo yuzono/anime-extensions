@@ -23,11 +23,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FrenchAnime : DataLifeEngine(
-    "French Anime",
-    "https://french-anime.com",
-    "fr",
-) {
+class FrenchAnime :
+    DataLifeEngine(
+        "French Anime",
+        "https://french-anime.com",
+        "fr",
+    ) {
 
     override val categories = arrayOf(
         Pair("<Sélectionner>", ""),
@@ -107,18 +108,30 @@ class FrenchAnime : DataLifeEngine(
                 when {
                     contains("dood") ||
                         contains("d0000d") -> doodExtractor.videosFromUrl(this)
+
                     contains("upstream") -> upstreamExtractor.videosFromUrl(this)
+
                     contains("vudeo") -> vudeoExtractor.videosFromUrl(this)
+
                     contains("uqload") -> uqloadExtractor.videosFromUrl(this)
+
                     contains("guccihide") ||
                         contains("streamhide") -> streamHideVidExtractor.videosFromUrl(this)
+
                     contains("streamvid") -> streamVidExtractor.videosFromUrl(this)
+
                     contains("vido") -> vidoExtractor.videosFromUrl(this)
+
                     contains("sibnet") -> sibnetExtractor.videosFromUrl(this)
+
                     contains("ok.ru") -> okruExtractor.videosFromUrl(this)
+
                     contains("streamhub.gg") -> streamHubExtractor.videosFromUrl(this)
+
                     contains("vidmoly") -> vidmolyExtractor.videosFromUrl(this)
+
                     contains("voe.sx") -> voeExtractor.videosFromUrl(this)
+
                     else -> emptyList()
                 }
             }

@@ -65,15 +65,13 @@ class AnimesROLL : AnimeHttpSource() {
         return AnimesPage(listOf(details), false)
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByPathParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
     override fun searchAnimeParse(response: Response): AnimesPage {
         val results = response.parseAs<SearchResultsDto>()
@@ -81,9 +79,7 @@ class AnimesROLL : AnimeHttpSource() {
         return AnimesPage(animes, false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return GET("$OLD_API_URL/search?q=$query")
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$OLD_API_URL/search?q=$query")
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(response: Response): SAnime {
@@ -146,13 +142,13 @@ class AnimesROLL : AnimeHttpSource() {
             when {
                 response.meta.totalOfPages > page ->
                     episodes + fetchEpisodesRecursively(animeId, page + 1)
+
                 else -> episodes
             }
         }
     }
 
-    private fun episodeListRequest(animeId: String, page: Int) =
-        GET("$NEW_API_URL/animes/$animeId/episodes?page=$page%order=desc")
+    private fun episodeListRequest(animeId: String, page: Int) = GET("$NEW_API_URL/animes/$animeId/episodes?page=$page%order=desc")
 
     // ============================ Video Links =============================
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
@@ -177,14 +173,10 @@ class AnimesROLL : AnimeHttpSource() {
         return json.decodeFromString<PagePropDto<T>>(nextData).data
     }
 
-    private fun String.ifNotEmpty(block: (String) -> String): String {
-        return if (isNotEmpty() && this != "0") block(this) else ""
-    }
+    private fun String.ifNotEmpty(block: (String) -> String): String = if (isNotEmpty() && this != "0") block(this) else ""
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     fun AnimeDataDto.toSAnime() = SAnime.create().apply {
         val ismovie = slug == ""

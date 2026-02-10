@@ -15,13 +15,15 @@ import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeToast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeToast :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeToast"
 
@@ -135,7 +137,10 @@ class AnimeToast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         100.0f
                     }
                     nEpEl.forEach { tIt ->
-                        if (try { tIt.text().substringAfter("Ep.").toFloat() } catch (_: Exception) {} == nEpcu) {
+                        if (try {
+                                tIt.text().substringAfter("Ep.").toFloat()
+                            } catch (_: Exception) {} == nEpcu
+                        ) {
                             val url = tIt.attr("href")
                             val newdoc = client.newCall(GET(url)).execute().asJsoup()
                             val element = newdoc.select("#player-embed")
@@ -197,7 +202,10 @@ class AnimeToast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             }
             val ep = document.select("div.tab-pane a")
             ep.forEach {
-                if (try { it.text().substringAfter("Ep.").toFloat() } catch (_: Exception) {} == epcu) {
+                if (try {
+                        it.text().substringAfter("Ep.").toFloat()
+                    } catch (_: Exception) {} == epcu
+                ) {
                     val url = it.attr("href")
                     val newdoc = client.newCall(GET(url)).execute().asJsoup()
                     val element = newdoc.select("#player-embed")

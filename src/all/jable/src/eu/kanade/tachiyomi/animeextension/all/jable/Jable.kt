@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -30,9 +30,7 @@ class Jable(override val lang: String) : AnimeHttpSource() {
     private val json by injectLazy<Json>()
     private var tagsUpdated = false
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET("$baseUrl${anime.url}?lang=${lang.toRequestLang()}", headers)
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}?lang=${lang.toRequestLang()}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
@@ -50,14 +48,12 @@ class Jable(override val lang: String) : AnimeHttpSource() {
 
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                name = "Episode"
-                url = anime.url
-            },
-        )
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            name = "Episode"
+            url = anime.url
+        },
+    )
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.asJsoup()
@@ -88,29 +84,25 @@ class Jable(override val lang: String) : AnimeHttpSource() {
         )
     }
 
-    override fun latestUpdatesRequest(page: Int) =
-        searchRequest("latest-updates", page, latestFilter)
+    override fun latestUpdatesRequest(page: Int) = searchRequest("latest-updates", page, latestFilter)
 
     override fun popularAnimeParse(response: Response): AnimesPage = latestUpdatesParse(response)
 
-    override fun popularAnimeRequest(page: Int) =
-        searchRequest("hot", page, popularFilter)
+    override fun popularAnimeRequest(page: Int) = searchRequest("hot", page, popularFilter)
 
     override fun searchAnimeParse(response: Response) = latestUpdatesParse(response)
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotEmpty()) {
-            searchRequest(
-                "search/$query",
-                page,
-                AnimeFilterList(filters.list + defaultSearchFunctionFilter),
-                query = query,
-            )
-        } else {
-            val path = filters.list.filterIsInstance<TagFilter>()
-                .firstOrNull()?.selected?.second?.takeUnless { it.isEmpty() } ?: "hot"
-            searchRequest(path, page, AnimeFilterList(filters.list + commonVideoListFuncFilter))
-        }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotEmpty()) {
+        searchRequest(
+            "search/$query",
+            page,
+            AnimeFilterList(filters.list + defaultSearchFunctionFilter),
+            query = query,
+        )
+    } else {
+        val path = filters.list.filterIsInstance<TagFilter>()
+            .firstOrNull()?.selected?.second?.takeUnless { it.isEmpty() } ?: "hot"
+        searchRequest(path, page, AnimeFilterList(filters.list + commonVideoListFuncFilter))
     }
 
     private fun searchRequest(
@@ -150,39 +142,37 @@ class Jable(override val lang: String) : AnimeHttpSource() {
         return GET(urlBuilder.build())
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            SortFilter(
-                intl.filterPopularSortTitle,
-                arrayOf(
-                    "" to "",
-                    intl.hotMonth to "video_viewed_month",
-                    intl.hotWeek to "video_viewed_week",
-                    intl.hotDay to "video_viewed_today",
-                    intl.hotAll to "video_viewed",
-                ),
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        SortFilter(
+            intl.filterPopularSortTitle,
+            arrayOf(
+                "" to "",
+                intl.hotMonth to "video_viewed_month",
+                intl.hotWeek to "video_viewed_week",
+                intl.hotDay to "video_viewed_today",
+                intl.hotAll to "video_viewed",
             ),
-            TagFilter(
-                intl.filterTagTitle,
-                buildList {
-                    add("" to "")
-                    preferences.getTags()?.forEach {
-                        add(it.key to it.value)
-                    }
-                }.toTypedArray(),
+        ),
+        TagFilter(
+            intl.filterTagTitle,
+            buildList {
+                add("" to "")
+                preferences.getTags()?.forEach {
+                    add(it.key to it.value)
+                }
+            }.toTypedArray(),
+        ),
+        SortFilter(
+            intl.filterTagsSortTitle,
+            arrayOf(
+                "" to "",
+                intl.sortLatestUpdate to "post_date",
+                intl.sortMostView to "video_viewed",
+                intl.sortMostFavorite to "most_favourited",
+                intl.sortRecentBest to "post_date_and_popularity",
             ),
-            SortFilter(
-                intl.filterTagsSortTitle,
-                arrayOf(
-                    "" to "",
-                    intl.sortLatestUpdate to "post_date",
-                    intl.sortMostView to "video_viewed",
-                    intl.sortMostFavorite to "most_favourited",
-                    intl.sortRecentBest to "post_date_and_popularity",
-                ),
-            ),
-        )
-    }
+        ),
+    )
 
     private fun SharedPreferences.getTags(): Map<String, String>? {
         val savedStr = getString("${lang}_$PREF_KEY_TAGS", null)

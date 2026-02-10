@@ -38,9 +38,8 @@ class StreamHideExtractor(private val client: OkHttpClient, private val headers:
         }
     }
 
-    private fun fixUrl(urlPart: String, playlistUrl: String) =
-        when {
-            !urlPart.startsWith("https:") -> playlistUrl.substringBeforeLast("/") + "/$urlPart"
-            else -> urlPart
-        }
+    private fun fixUrl(urlPart: String, playlistUrl: String) = when {
+        !urlPart.startsWith("https:") -> playlistUrl.substringBeforeLast("/") + "/$urlPart"
+        else -> urlPart
+    }
 }

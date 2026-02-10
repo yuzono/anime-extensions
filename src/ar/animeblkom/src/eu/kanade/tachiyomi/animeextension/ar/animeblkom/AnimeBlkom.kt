@@ -13,13 +13,15 @@ import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBlkom : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBlkom :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "أنمي بالكوم"
 
@@ -107,28 +109,24 @@ class AnimeBlkom : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return document.select(episodeListSelector()).map(::episodeFromElement).reversed()
     }
 
-    private fun oneEpisodeParse(document: Document): List<SEpisode> {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(document.location())
-            episode_number = 1F
-            name = document.selectFirst("div.name.col-xs-12 span h1")!!.text()
-        }.let(::listOf)
-    }
+    private fun oneEpisodeParse(document: Document): List<SEpisode> = SEpisode.create().apply {
+        setUrlWithoutDomain(document.location())
+        episode_number = 1F
+        name = document.selectFirst("div.name.col-xs-12 span h1")!!.text()
+    }.let(::listOf)
 
     override fun episodeListSelector() = "ul.episodes-links li a"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
 
-            val eptitle = element.selectFirst("span:nth-child(3)")!!.text()
-            val epNum = eptitle.filter { it.isDigit() }
-            episode_number = when {
-                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                else -> 1F
-            }
-            name = eptitle + " :" + element.selectFirst("span:nth-child(1)")!!.text()
+        val eptitle = element.selectFirst("span:nth-child(3)")!!.text()
+        val epNum = eptitle.filter { it.isDigit() }
+        episode_number = when {
+            epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+            else -> 1F
         }
+        name = eptitle + " :" + element.selectFirst("span:nth-child(1)")!!.text()
     }
 
     // ============================ Video Links =============================
@@ -150,8 +148,11 @@ class AnimeBlkom : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     .asJsoup()
                 videoDoc.select(videoListSelector()).map(::videoFromElement)
             }
+
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             else -> emptyList()
         }
     }

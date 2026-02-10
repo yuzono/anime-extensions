@@ -15,26 +15,21 @@ object AnimelerFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, Int>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, Int>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, Int>>,
         name: String,
-    ): TaxonomyDto {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .let { TaxonomyDto(name, it) }
-    }
+    ): TaxonomyDto = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .let { TaxonomyDto(name, it) }
 
     class GenresFilter : CheckBoxFilterList("Genres", AnimelerFiltersData.GENRES)
     class StatusFilter : CheckBoxFilterList("Durumu", AnimelerFiltersData.STATUS)
@@ -42,11 +37,12 @@ object AnimelerFilters {
     class StudiosFilter : CheckBoxFilterList("Stüdyo", AnimelerFiltersData.GENRES)
     class TypesFilter : CheckBoxFilterList("Tür", AnimelerFiltersData.TYPES)
 
-    class OrderFilter : AnimeFilter.Sort(
-        "Order by",
-        AnimelerFiltersData.ORDERS.map { it.first }.toTypedArray(),
-        Selection(0, false),
-    )
+    class OrderFilter :
+        AnimeFilter.Sort(
+            "Order by",
+            AnimelerFiltersData.ORDERS.map { it.first }.toTypedArray(),
+            Selection(0, false),
+        )
     class YearFilter : QueryPartFilter("Yil", AnimelerFiltersData.YEARS)
     class SeasonFilter : QueryPartFilter("Sezon", AnimelerFiltersData.SEASONS)
 

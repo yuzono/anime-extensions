@@ -56,18 +56,14 @@ class AnimeCoreFilters(
         }
     }
 
-    fun filterInitialized(): Boolean {
-        return this::filterList.isInitialized
-    }
+    fun filterInitialized(): Boolean = this::filterList.isInitialized
 
-    fun getFilterList(): AnimeFilterList {
-        return if (error) {
-            AnimeFilterList(AnimeFilter.Header("Erro ao buscar os filtros."))
-        } else if (filterInitialized()) {
-            filterList
-        } else {
-            AnimeFilterList(AnimeFilter.Header("Use 'Redefinir' para carregar os filtros."))
-        }
+    fun getFilterList(): AnimeFilterList = if (error) {
+        AnimeFilterList(AnimeFilter.Header("Erro ao buscar os filtros."))
+    } else if (filterInitialized()) {
+        filterList
+    } else {
+        AnimeFilterList(AnimeFilter.Header("Use 'Redefinir' para carregar os filtros."))
     }
 
     fun fetchFilters() {

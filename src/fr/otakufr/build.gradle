@@ -7,13 +7,13 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:sibnet-extractor'))
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:sendvid-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(":lib:playlist-utils"))
-    implementation(project(":lib:upstream-extractor"))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:sibnetextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:sendvidextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:upstreamextractor"))
     implementation(libs.jsunpacker)
 }

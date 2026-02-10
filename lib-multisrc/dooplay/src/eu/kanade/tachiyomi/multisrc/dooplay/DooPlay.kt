@@ -13,7 +13,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -29,7 +29,8 @@ abstract class DooPlay(
     override val lang: String,
     override val name: String,
     override val baseUrl: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
@@ -61,14 +62,12 @@ abstract class DooPlay(
 
     override fun popularAnimeRequest(page: Int) = GET(baseUrl)
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            val img = element.selectFirst("img")!!
-            val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
-            setUrlWithoutDomain(url)
-            title = img.attr("alt")
-            thumbnail_url = img.getImageUrl()
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        val img = element.selectFirst("img")!!
+        val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
+        setUrlWithoutDomain(url)
+        title = img.attr("alt")
+        thumbnail_url = img.getImageUrl()
     }
 
     override fun popularAnimeNextPageSelector(): String? = null
@@ -120,22 +119,20 @@ abstract class DooPlay(
 
     override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
-    protected open fun episodeFromElement(element: Element, seasonName: String): SEpisode {
-        return SEpisode.create().apply {
-            val epNum = element.selectFirst("div.numerando")!!.text()
-                .trim()
-                .let(episodeNumberRegex::find)
-                ?.groupValues
-                ?.last() ?: "0"
-            val href = element.selectFirst("a[href]")!!
-            val episodeName = href.ownText()
-            episode_number = epNum.toFloatOrNull() ?: 0F
-            date_upload = element.selectFirst(episodeDateSelector)
-                ?.text()
-                ?.toDate() ?: 0L
-            name = "$episodeSeasonPrefix $seasonName x $epNum - $episodeName"
-            setUrlWithoutDomain(href.attr("href"))
-        }
+    protected open fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
+        val epNum = element.selectFirst("div.numerando")!!.text()
+            .trim()
+            .let(episodeNumberRegex::find)
+            ?.groupValues
+            ?.last() ?: "0"
+        val href = element.selectFirst("a[href]")!!
+        val episodeName = href.ownText()
+        episode_number = epNum.toFloatOrNull() ?: 0F
+        date_upload = element.selectFirst(episodeDateSelector)
+            ?.text()
+            ?.toDate() ?: 0L
+        name = "$episodeSeasonPrefix $seasonName x $epNum - $episodeName"
+        setUrlWithoutDomain(href.attr("href"))
     }
 
     // ============================ Video Links =============================
@@ -168,6 +165,7 @@ abstract class DooPlay(
                     searchAnimeFromElement(element)
                 }
             }
+
             else -> { // Search by some kind of filter, like genres or popularity.
                 document.select(latestUpdatesSelector()).map { element ->
                     popularAnimeFromElement(element)
@@ -179,42 +177,37 @@ abstract class DooPlay(
         return AnimesPage(animes, hasNextPage)
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$path", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByPathParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return when {
-            query.isBlank() -> {
-                filters
-                    .firstOrNull { it.state != 0 }
-                    ?.let {
-                        val filter = it as UriPartFilter
-                        val filterUrl = buildString {
-                            append("$baseUrl/${filter.toUriPart()}")
-                            if (page > 1) append("/page/$page")
-                        }
-                        GET(filterUrl, headers)
-                    } ?: popularAnimeRequest(page)
-            }
-            else -> GET("$baseUrl/page/$page/?s=$query", headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = when {
+        query.isBlank() -> {
+            filters
+                .firstOrNull { it.state != 0 }
+                ?.let {
+                    val filter = it as UriPartFilter
+                    val filterUrl = buildString {
+                        append("$baseUrl/${filter.toUriPart()}")
+                        if (page > 1) append("/page/$page")
+                    }
+                    GET(filterUrl, headers)
+                } ?: popularAnimeRequest(page)
         }
+
+        else -> GET("$baseUrl/page/$page/?s=$query", headers)
     }
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            val img = element.selectFirst("img")!!
-            title = img.attr("alt")
-            thumbnail_url = img.getImageUrl()
-        }
+    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        val img = element.selectFirst("img")!!
+        title = img.attr("alt")
+        thumbnail_url = img.getImageUrl()
     }
 
     override fun searchAnimeNextPageSelector() = latestUpdatesNextPageSelector()
@@ -236,11 +229,9 @@ abstract class DooPlay(
         else -> listOf("Original", "First", "Last", "Seasons", "Episodes")
     }
 
-    protected open fun Document.getDescription(): String {
-        return selectFirst("$additionalInfoSelector p")
-            ?.let { it.text() + "\n" }
-            ?: ""
-    }
+    protected open fun Document.getDescription(): String = selectFirst("$additionalInfoSelector p")
+        ?.let { it.text() + "\n" }
+        ?: ""
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
         val sheader = doc.selectFirst("div.sheader")!!
@@ -319,17 +310,15 @@ abstract class DooPlay(
      */
     protected open lateinit var genresArray: FilterItems
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (this::genresArray.isInitialized) {
-            AnimeFilterList(
-                AnimeFilter.Header(genreFilterHeader),
-                FetchedGenresFilter(genresListMessage, genresArray),
-            )
-        } else if (fetchGenres) {
-            AnimeFilterList(AnimeFilter.Header(genresMissingWarning))
-        } else {
-            AnimeFilterList()
-        }
+    override fun getFilterList(): AnimeFilterList = if (this::genresArray.isInitialized) {
+        AnimeFilterList(
+            AnimeFilter.Header(genreFilterHeader),
+            FetchedGenresFilter(genresListMessage, genresArray),
+        )
+    } else if (fetchGenres) {
+        AnimeFilterList(AnimeFilter.Header(genresMissingWarning))
+    } else {
+        AnimeFilterList()
     }
 
     /**
@@ -408,9 +397,7 @@ abstract class DooPlay(
     }
 
     @Suppress("UNUSED")
-    private inline fun <reified R> AnimeFilterList.asUriPart(): String {
-        return this.first { it is R }.let { it as UriPartFilter }.toUriPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asUriPart(): String = this.first { it is R }.let { it as UriPartFilter }.toUriPart()
 
     // ============================= Utilities ==============================
 
@@ -455,13 +442,11 @@ abstract class DooPlay(
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
      */
-    protected open fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }
+    protected open fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -475,10 +460,8 @@ abstract class DooPlay(
         SimpleDateFormat("MMMM. dd, yyyy", Locale.ENGLISH)
     }
 
-    protected open fun String.toDate(): Long {
-        return runCatching { dateFormatter.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    protected open fun String.toDate(): Long = runCatching { dateFormatter.parse(trim())?.time }
+        .getOrNull() ?: 0L
 }
 
 typealias FilterItems = Array<Pair<String, String>>
