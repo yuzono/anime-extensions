@@ -128,9 +128,14 @@ class AnimeSama :
                 with(playerUrl) {
                     when {
                         contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
+
                         contains("vk.") -> vkExtractor.videosFromUrl(playerUrl, prefix)
+
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
-                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl.replace(".to", ".biz"), prefix) // .to doesn't work, and it's .biz that's used on the site
+
+                        // .to doesn't work, and it's .biz that's used on the site
+                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl.replace(".to", ".biz"), prefix)
+
                         else -> emptyList()
                     }
                 }
