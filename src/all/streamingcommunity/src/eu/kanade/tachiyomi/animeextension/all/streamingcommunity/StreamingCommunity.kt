@@ -107,14 +107,14 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     private val apiHeadersRef by lazy { AtomicReference(newApiHeader()) }
     private fun newApiHeader() = headers.newBuilder()
-        .add("Origin", baseUrl)
-        .add("Referer", "$baseUrl/")
+        .add("Origin", homepage)
+        .add("Referer", "$homepage/")
         .build()
 
     private val jsonHeadersRef by lazy { AtomicReference(newJsonHeader()) }
     private fun newJsonHeader() = headers.newBuilder()
-        .add("Origin", baseUrl)
-        .add("Referer", "$baseUrl/")
+        .add("Origin", homepage)
+        .add("Referer", "$homepage/")
         .add("Content-Type", "application/json")
         .add("X-Requested-With", "XMLHttpRequest")
         .add("X-Inertia", "true")
