@@ -3,7 +3,7 @@ ext {
     extClass = '.DonghuaStream'
     themePkg = 'animestream'
     baseUrl = 'https://donghuastream.org'
-    overrideVersionCode = 14
+    overrideVersionCode = 15
 }
 
 apply from: "$rootDir/common.gradle"
@@ -11,4 +11,5 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:dailymotionextractor'))
     implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:okruextractor'))
 }
