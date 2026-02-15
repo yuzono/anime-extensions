@@ -24,12 +24,9 @@ class DonghuaStream :
     override fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
         return when {
-            url.contains("dailymotion") ->
-                dailymotionExtractor.videosFromUrl(url, prefix = prefix)
-            url.contains("streamplay") ->
-                streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-            url.contains("ok.ru") ->
-                okRuPlayExtractor.videosFromUrl(url, prefix = prefix)
+            url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix = prefix)
+            url.contains("streamplay") -> streamPlayExtractor.videosFromUrl(url, prefix = prefix)
+            url.contains("ok.ru") -> okRuPlayExtractor.videosFromUrl(url, prefix = prefix)
             else -> emptyList()
         }
     }
