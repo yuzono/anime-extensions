@@ -23,12 +23,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -161,24 +162,26 @@ class Katanime :
                 .header("Referer", referer)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .build()
-            val jsonString = client.newCall(request).execute().body.string()
 
-            val detailResponse = json.decodeFromString<EpisodeList>(jsonString)
+            val detailResponse = client.newCall(request).execute().parseAs<EpisodeList>(json)
 
-            if (page == "1") {
-                pages = ((detailResponse.ep?.total?.toDouble() ?: 0.0) / (detailResponse.ep?.perPage?.toDouble() ?: 0.0)).ceilPage()
-            }
+            pages = ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
 
-            detailResponse.ep?.data?.forEach { ep ->
-                episodeList.add(
-                    SEpisode.create().apply {
-                        name = "Episodio ${ep.numero}"
-                        episode_number = ep.numero?.toFloatOrNull() ?: 0f
-                        date_upload = ep.createdAt?.toDate() ?: 0L
-                        setUrlWithoutDomain(ep.url!!)
-                    },
-                )
-            }
+            episodeList.addAll(
+                detailResponse.ep?.data
+                    ?.mapNotNull { ep ->
+                        if (ep.url != null) {
+                            SEpisode.create().apply {
+                                name = "Episodio ${ep.numero}"
+                                episode_number = ep.numero?.toFloatOrNull() ?: 0f
+                                date_upload = ep.createdAt?.toDate() ?: 0L
+                                setUrlWithoutDomain(ep.url!!)
+                            }
+                        } else {
+                            null
+                        }
+                    } ?: emptyList(),
+            )
         } catch (_: Exception) {
         }
         return episodeList to pages
@@ -292,11 +295,15 @@ class Katanime :
         }.also(screen::addPreference)
     }
 
-    private fun Double.ceilPage(): Int = if (this % 1 == 0.0) this.toInt() else ceil(this).toInt()
+    private fun Double.ceilPage(): Int = if (!isFinite()) {
+        1
+    } else {
+        maxOf(1, ceil(this).toInt())
+    }
 
     private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
-    private fun org.jsoup.nodes.Element.getImageUrl(): String? = when {
+    private fun Element.getImageUrl(): String? = when {
         isValidUrl("data-src") -> attr("abs:data-src")
         isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
         isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
@@ -304,7 +311,7 @@ class Katanime :
         else -> ""
     }
 
-    private fun org.jsoup.nodes.Element.isValidUrl(attrName: String): Boolean {
+    private fun Element.isValidUrl(attrName: String): Boolean {
         if (!hasAttr(attrName)) return false
         return !attr(attrName).contains("data:image/")
     }
