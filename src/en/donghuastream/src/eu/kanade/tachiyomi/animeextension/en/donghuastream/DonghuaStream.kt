@@ -76,10 +76,8 @@ class DonghuaStream :
     override val prefQualityValues = arrayOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
     override val prefQualityEntries = prefQualityValues
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response)
-            .filter { !it.name.contains("Preview") || !preferences.ignorePreview }
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
+        .filter { !it.name.contains("Preview") || !preferences.ignorePreview }
 
     // ============================ Video Links =============================
 

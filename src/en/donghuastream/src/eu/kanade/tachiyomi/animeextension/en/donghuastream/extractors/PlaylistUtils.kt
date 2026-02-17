@@ -41,18 +41,16 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         toStandardQuality: (String) -> String = { quality ->
             stnQuality(quality)
         },
-    ): List<Video> {
-        return extractFromHls(
-            playlistUrl,
-            referer,
-            { _, _ -> masterHeaders },
-            { _, _, _ -> videoHeaders },
-            videoNameGen,
-            subtitleList,
-            audioList,
-            toStandardQuality,
-        )
-    }
+    ): List<Video> = extractFromHls(
+        playlistUrl,
+        referer,
+        { _, _ -> masterHeaders },
+        { _, _, _ -> videoHeaders },
+        videoNameGen,
+        subtitleList,
+        audioList,
+        toStandardQuality,
+    )
 
     /**
      * Extracts videos from a .m3u8 file.
@@ -133,7 +131,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             )
         }.toList()
 
-        /**
+        /*
          * Stream might have multiple sub-streams separated by [PLAYLIST_SEPARATOR]. Template:
          *
          * #EXTM3U
@@ -177,10 +175,10 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                     }
                 }
             val bandwidth = BANDWIDTH_REGEX.find(stream)
-                    ?.groupValues?.get(1)
-                    ?.toLongOrNull()
+                ?.groupValues?.get(1)
+                ?.toLongOrNull()
             val bandwidthFormatted = bandwidth
-                    ?.let(::formatBytes)
+                ?.let(::formatBytes)
             val streamName = listOfNotNull(resolution, bandwidthFormatted).joinToString(" - ")
                 .takeIf { it.isNotBlank() }
                 ?: "Video"
@@ -204,26 +202,26 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             .map { (_, video) -> video }
     }
 
-    private fun getAbsoluteUrl(url: String, playlistUrl: String, masterBase: String): String? {
-        return when {
-            url.isEmpty() -> null
-            url.startsWith("http") -> url
-            url.startsWith("//") -> "https:$url"
-            url.startsWith("/") -> playlistUrl.toHttpUrl().newBuilder().encodedPath("/").build().toString()
-                .substringBeforeLast("/") + url
-            else -> masterBase + url
-        }
+    private fun getAbsoluteUrl(url: String, playlistUrl: String, masterBase: String): String? = when {
+        url.isEmpty() -> null
+
+        url.startsWith("http") -> url
+
+        url.startsWith("//") -> "https:$url"
+
+        url.startsWith("/") -> playlistUrl.toHttpUrl().newBuilder().encodedPath("/").build().toString()
+            .substringBeforeLast("/") + url
+
+        else -> masterBase + url
     }
 
-    fun generateMasterHeaders(baseHeaders: Headers, referer: String): Headers {
-        return baseHeaders.newBuilder().apply {
-            set("Accept", "*/*")
-            if (referer.isNotEmpty()) {
-                set("Origin", "https://${referer.toHttpUrl().host}")
-                set("Referer", referer)
-            }
-        }.build()
-    }
+    fun generateMasterHeaders(baseHeaders: Headers, referer: String): Headers = baseHeaders.newBuilder().apply {
+        set("Accept", "*/*")
+        if (referer.isNotEmpty()) {
+            set("Origin", "https://${referer.toHttpUrl().host}")
+            set("Referer", referer)
+        }
+    }.build()
 
     // ================================ DASH ================================
 
@@ -253,20 +251,18 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         toStandardQuality: (String) -> String = { quality ->
             stnQuality(quality)
         },
-    ): List<Video> {
-        return extractFromDash(
-            mpdUrl,
-            { videoRes, bandwidth ->
-                videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
-            },
-            referer,
-            { _, _ -> mpdHeaders },
-            { _, _, _ -> videoHeaders },
-            subtitleList,
-            audioList,
-            toStandardQuality,
-        )
-    }
+    ): List<Video> = extractFromDash(
+        mpdUrl,
+        { videoRes, bandwidth ->
+            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+        },
+        referer,
+        { _, _ -> mpdHeaders },
+        { _, _, _ -> videoHeaders },
+        subtitleList,
+        audioList,
+        toStandardQuality,
+    )
 
     /**
      * Extracts video information from a DASH .mpd file.
@@ -302,20 +298,18 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         toStandardQuality: (String) -> String = { quality ->
             stnQuality(quality)
         },
-    ): List<Video> {
-        return extractFromDash(
-            mpdUrl,
-            { videoRes, bandwidth ->
-                videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
-            },
-            referer,
-            mpdHeadersGen,
-            videoHeadersGen,
-            subtitleList,
-            audioList,
-            toStandardQuality,
-        )
-    }
+    ): List<Video> = extractFromDash(
+        mpdUrl,
+        { videoRes, bandwidth ->
+            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+        },
+        referer,
+        mpdHeadersGen,
+        videoHeadersGen,
+        subtitleList,
+        audioList,
+        toStandardQuality,
+    )
 
     /**
      * Extracts video information from a DASH .mpd file.
@@ -383,26 +377,22 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         }
     }
 
-    private fun formatBytes(bytes: Long?): String {
-        return when {
-            bytes == null -> ""
-            bytes >= 1_000_000_000 -> "%.2f GB/s".format(bytes / 1_000_000_000.0)
-            bytes >= 1_000_000 -> "%.2f MB/s".format(bytes / 1_000_000.0)
-            bytes >= 1_000 -> "%.2f KB/s".format(bytes / 1_000.0)
-            bytes > 1 -> "$bytes bytes/s"
-            bytes == 1L -> "$bytes byte/s"
-            else -> ""
-        }
+    private fun formatBytes(bytes: Long?): String = when {
+        bytes == null -> ""
+        bytes >= 1_000_000_000 -> "%.2f GB/s".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.2f MB/s".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.2f KB/s".format(bytes / 1_000.0)
+        bytes > 1 -> "$bytes bytes/s"
+        bytes == 1L -> "$bytes byte/s"
+        else -> ""
     }
 
     // ============================= Utilities ==============================
 
-    private fun String.toDefaultReferer(): String {
-        return try {
-            toHttpUrl().run { "$scheme://$host/" }
-        } catch (_: IllegalArgumentException) {
-            ""
-        }
+    private fun String.toDefaultReferer(): String = try {
+        toHttpUrl().run { "$scheme://$host/" }
+    } catch (_: IllegalArgumentException) {
+        ""
     }
 
     private fun stnQuality(quality: String): String {
@@ -416,21 +406,19 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         return "\n" + "&nbsp;\n".repeat(lineCount - 1)
     }
 
-    fun fixSubtitles(subtitleList: List<Track>): List<Track> {
-        return subtitleList.mapNotNull {
-            try {
-                val subData = client.newCall(GET(it.url)).execute().body.string()
+    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.mapNotNull {
+        try {
+            val subData = client.newCall(GET(it.url)).execute().body.string()
 
-                val file = File.createTempFile("subs", "vtt")
-                    .also(File::deleteOnExit)
+            val file = File.createTempFile("subs", "vtt")
+                .also(File::deleteOnExit)
 
-                file.writeText(FIX_SUBTITLE_REGEX.replace(subData, ::cleanSubtitleData))
-                val uri = Uri.fromFile(file)
+            file.writeText(FIX_SUBTITLE_REGEX.replace(subData, ::cleanSubtitleData))
+            val uri = Uri.fromFile(file)
 
-                Track(uri.toString(), it.lang)
-            } catch (_: Exception) {
-                null
-            }
+            Track(uri.toString(), it.lang)
+        } catch (_: Exception) {
+            null
         }
     }
 
