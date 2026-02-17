@@ -5,53 +5,53 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class EpisodeList(
-    @SerialName("ep") var ep: Ep? = Ep(),
-    @SerialName("last") var last: Last? = Last(),
+    @SerialName("ep") val ep: Ep? = Ep(),
+    @SerialName("last") val last: Last? = Last(),
 )
 
 @Serializable
 data class Data(
-    @SerialName("numero") var numero: String? = null,
-    @SerialName("idserie") var idserie: Int? = null,
-    @SerialName("thumb") var thumb: String? = null,
-    @SerialName("created_at") var createdAt: String? = null,
-    @SerialName("url") var url: String? = null,
+    @SerialName("numero") val numero: String? = null,
+    @SerialName("idserie") val idserie: Int? = null,
+    @SerialName("thumb") val thumb: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("url") val url: String? = null,
 )
 
 @Serializable
 data class Links(
-    @SerialName("url") var url: String? = null,
-    @SerialName("label") var label: String? = null,
-    @SerialName("active") var active: Boolean? = null,
+    @SerialName("url") val url: String? = null,
+    @SerialName("label") val label: String? = null,
+    @SerialName("active") val active: Boolean? = null,
 )
 
 @Serializable
 data class Ep(
-    @SerialName("current_page") var currentPage: Int? = null,
-    @SerialName("data") var data: ArrayList<Data> = arrayListOf(),
-    @SerialName("first_page_url") var firstPageUrl: String? = null,
-    @SerialName("from") var from: Int? = null,
-    @SerialName("last_page") var lastPage: Int? = null,
-    @SerialName("last_page_url") var lastPageUrl: String? = null,
-    @SerialName("links") var links: ArrayList<Links> = arrayListOf(),
-    @SerialName("next_page_url") var nextPageUrl: String? = null,
-    @SerialName("path") var path: String? = null,
-    @SerialName("per_page") var perPage: Int? = null,
-    @SerialName("prev_page_url") var prevPageUrl: String? = null,
-    @SerialName("to") var to: Int? = null,
-    @SerialName("total") var total: Int? = null,
+    @SerialName("current_page") val currentPage: Int? = null,
+    @SerialName("data") val data: List<Data> = listOf(),
+    @SerialName("first_page_url") val firstPageUrl: String? = null,
+    @SerialName("from") val from: Int? = null,
+    @SerialName("last_page") val lastPage: Int? = null,
+    @SerialName("last_page_url") val lastPageUrl: String? = null,
+    @SerialName("links") val links: List<Links> = listOf(),
+    @SerialName("next_page_url") val nextPageUrl: String? = null,
+    @SerialName("path") val path: String? = null,
+    @SerialName("per_page") val perPage: Int? = null,
+    @SerialName("prev_page_url") val prevPageUrl: String? = null,
+    @SerialName("to") val to: Int? = null,
+    @SerialName("total") val total: Int? = null,
 )
 
 @Serializable
 data class Last(
-    @SerialName("numero") var numero: String? = null,
+    @SerialName("numero") val numero: String? = null,
 )
 
 // ===========================================================
 
 @Serializable
 data class CryptoDto(
-    @SerialName("ct") var ct: String? = null,
-    @SerialName("iv") var iv: String? = null,
-    @SerialName("s") var s: String? = null,
+    @SerialName("ct") val ct: String? = null,
+    @SerialName("iv") val iv: String? = null,
+    @SerialName("s") val s: String? = null,
 )

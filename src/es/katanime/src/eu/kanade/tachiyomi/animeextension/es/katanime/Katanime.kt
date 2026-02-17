@@ -138,54 +138,44 @@ class Katanime :
 
         if (pages > 1) {
             (2..pages).forEach { currentPage ->
-                runCatching {
-                    episodeList += getPageEpisodes(paginationUrl, token, currentPage.toString(), jsoup.location()).first
-                }
+                episodeList += getPageEpisodes(paginationUrl, token, currentPage.toString(), jsoup.location()).first
             }
         }
         return episodeList.reversed()
     }
 
-    private fun getPageEpisodes(paginationUrl: String, token: String, page: String, referer: String): Pair<MutableList<SEpisode>, Int> {
-        val episodeList = mutableListOf<SEpisode>()
-        var pages = 1
-        try {
-            val formBody = FormBody.Builder()
-                .add("_token", token)
-                .add("pagina", page)
-                .build()
+    private fun getPageEpisodes(paginationUrl: String, token: String, page: String, referer: String): Pair<List<SEpisode>, Int> = runCatching {
+        val formBody = FormBody.Builder()
+            .add("_token", token)
+            .add("pagina", page)
+            .build()
 
-            val request = Request.Builder()
-                .url(paginationUrl)
-                .post(formBody)
-                .header("Origin", baseUrl)
-                .header("Referer", referer)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .build()
+        val request = Request.Builder()
+            .url(paginationUrl)
+            .post(formBody)
+            .header("Origin", baseUrl)
+            .header("Referer", referer)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
 
-            val detailResponse = client.newCall(request).execute().parseAs<EpisodeList>(json)
+        val detailResponse = client.newCall(request).execute().parseAs<EpisodeList>(json)
 
-            pages = ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
+        val pages = detailResponse.ep?.lastPage
+            ?: ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
 
-            episodeList.addAll(
-                detailResponse.ep?.data
-                    ?.mapNotNull { ep ->
-                        if (ep.url != null) {
-                            SEpisode.create().apply {
-                                name = "Episodio ${ep.numero}"
-                                episode_number = ep.numero?.toFloatOrNull() ?: 0f
-                                date_upload = ep.createdAt?.toDate() ?: 0L
-                                setUrlWithoutDomain(ep.url!!)
-                            }
-                        } else {
-                            null
-                        }
-                    } ?: emptyList(),
-            )
-        } catch (_: Exception) {
-        }
-        return episodeList to pages
-    }
+        val episodeList = detailResponse.ep?.data
+            ?.mapNotNull { ep ->
+                ep.url?.let { url ->
+                    SEpisode.create().apply {
+                        name = "Episodio ${ep.numero}"
+                        episode_number = ep.numero?.toFloatOrNull() ?: 0f
+                        date_upload = ep.createdAt?.toDate() ?: 0L
+                        setUrlWithoutDomain(url)
+                    }
+                }
+            } ?: emptyList()
+        episodeList to pages
+    }.getOrElse { emptyList<SEpisode>() to 1 }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
