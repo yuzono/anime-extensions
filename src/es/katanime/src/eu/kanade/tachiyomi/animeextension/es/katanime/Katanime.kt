@@ -1,7 +1,7 @@
 
 package eu.kanade.tachiyomi.animeextension.es.katanime
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -23,6 +23,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
@@ -33,7 +36,6 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import kotlin.getValue
 import kotlin.math.ceil
 
 class Katanime :
@@ -52,16 +54,21 @@ class Katanime :
 
     private val preferences by getPreferencesLazy()
 
+    private val SharedPreferences.userAgent by preferences.delegate(PREF_USER_AGENT, DEFAULT_USER_AGENT)
+
+    override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", preferences.userAgent.ifBlank { network.defaultUserAgentProvider() })
+
     companion object {
         const val DECRYPTION_PASSWORD = "hanabi"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "VidGuard"
-        private val SERVER_LIST = arrayOf(
+        private val SERVER_LIST = listOf(
             "StreamWish",
             "VidGuard",
             "Filemoon",
@@ -76,6 +83,9 @@ class Katanime :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
+
+        private const val PREF_USER_AGENT = "preferred_user_agent"
+        private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -252,37 +262,31 @@ class Katanime :
     override fun getFilterList(): AnimeFilterList = KatanimeFilters.FILTER_LIST
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            entries = SERVER_LIST,
+            entryValues = SERVER_LIST,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST,
+            entryValues = QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addEditTextPreference(
+            key = PREF_USER_AGENT,
+            title = "User-Agent",
+            default = DEFAULT_USER_AGENT,
+            summary = "Leave blank to use the default app user agent.",
+            restartRequired = true,
+        )
     }
 
     private fun Double.ceilPage(): Int = if (!isFinite()) {
