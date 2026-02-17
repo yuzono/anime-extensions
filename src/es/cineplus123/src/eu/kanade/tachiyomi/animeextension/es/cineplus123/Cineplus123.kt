@@ -17,11 +17,12 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Cineplus123 : DooPlay(
-    "es",
-    "Cineplus123",
-    "https://cineplus123.org",
-) {
+class Cineplus123 :
+    DooPlay(
+        "es",
+        "Cineplus123",
+        "https://cineplus123.org",
+    ) {
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page")
 
@@ -54,12 +55,10 @@ class Cineplus123 : DooPlay(
         }
     }
 
-    private fun extractVideos(url: String, lang: String): List<Video> {
-        return when {
-            "uqload" in url -> uqloadExtractor.videosFromUrl(url, "$lang -")
-            "strwish" in url -> streamWishExtractor.videosFromUrl(url, lang)
-            else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
-        }
+    private fun extractVideos(url: String, lang: String): List<Video> = when {
+        "uqload" in url -> uqloadExtractor.videosFromUrl(url, "$lang -")
+        "strwish" in url -> streamWishExtractor.videosFromUrl(url, lang)
+        else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
     }
 
     private fun getPlayerUrl(player: Element): String? {
@@ -93,8 +92,11 @@ class Cineplus123 : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             params.language.isNotBlank() -> "/genero/${params.language}"
+
             params.year.isNotBlank() -> "/ano/${params.year}"
+
             params.movie.isNotBlank() -> {
                 if (params.movie == "Peliculas") {
                     "/peliculas"
@@ -102,6 +104,7 @@ class Cineplus123 : DooPlay(
                     "/genero/${params.movie}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

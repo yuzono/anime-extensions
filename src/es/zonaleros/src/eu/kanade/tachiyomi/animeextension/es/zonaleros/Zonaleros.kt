@@ -22,13 +22,15 @@ import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
+class Zonaleros :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Zonaleros"
 
@@ -239,14 +241,12 @@ class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {

@@ -1,0 +1,17 @@
+ext {
+    extName = 'Tuktuk Cinema'
+    extClass = '.Tuktukcinema'
+    extVersionCode = 2
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(':lib:megamaxmultiserver'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:vidbomextractor'))
+    implementation(project(':lib:vidlandextractor'))
+    implementation(project(":lib:i18n"))
+}

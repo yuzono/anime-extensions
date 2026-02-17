@@ -3,13 +3,13 @@ ext {
     extClass = '.Cineplus123'
     themePkg = 'dooplay'
     baseUrl = 'https://cineplus123.org'
-    overrideVersionCode = 11
+    overrideVersionCode = 12
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:uqload-extractor"))
-    implementation(project(":lib:universal-extractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:uqloadextractor"))
+    implementation(project(":lib:universalextractor"))
 }

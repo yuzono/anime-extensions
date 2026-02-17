@@ -14,24 +14,19 @@ object AniPlayFilters {
         val selected get() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.getSelected(): String {
-        return (first { it is R } as SelectFilter).selected
-    }
+    private inline fun <reified R> AnimeFilterList.getSelected(): String = (first { it is R } as SelectFilter).selected
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first) })
+    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first) })
 
     private class CheckBoxVal(name: String) : AnimeFilter.CheckBox(name, false)
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String {
-        return (first { it is R } as CheckBoxFilterList).state
-            .asSequence()
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .joinToString(",")
-    }
+    ): String = (first { it is R } as CheckBoxFilterList).state
+        .asSequence()
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .joinToString(",")
 
     internal class OrderFilter : SelectFilter("Ordina per", ORDER_LIST)
 

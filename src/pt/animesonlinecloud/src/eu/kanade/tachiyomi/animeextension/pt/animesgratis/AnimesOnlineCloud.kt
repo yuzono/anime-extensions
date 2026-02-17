@@ -14,11 +14,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesOnlineCloud : DooPlay(
-    "pt-BR",
-    "Animes Online Cloud",
-    "https://animesonline.cloud/",
-) {
+class AnimesOnlineCloud :
+    DooPlay(
+        "pt-BR",
+        "Animes Online Cloud",
+        "https://animesonline.cloud/",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"
@@ -81,6 +82,7 @@ class AnimesOnlineCloud : DooPlay(
 
         return when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+
             "jwplayer?source=" in url -> {
                 val videoUrl = url.toHttpUrl().queryParameter("source") ?: return emptyList()
 

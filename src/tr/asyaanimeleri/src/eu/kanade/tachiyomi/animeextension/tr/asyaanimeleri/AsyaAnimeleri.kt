@@ -26,11 +26,12 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AsyaAnimeleri : AnimeStream(
-    "tr",
-    "AsyaAnimeleri",
-    "https://asyaanimeleri.com",
-) {
+class AsyaAnimeleri :
+    AnimeStream(
+        "tr",
+        "AsyaAnimeleri",
+        "https://asyaanimeleri.com",
+    ) {
     override val animeListUrl = "$baseUrl/series"
 
     override val dateFormatter by lazy {
@@ -67,32 +68,28 @@ class AsyaAnimeleri : AnimeStream(
     // ============================== Filters ===============================
     override val filtersSelector = "div.filter.dropdown > ul"
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                GenresFilter("Tür"),
-                StudioFilter("Stüdyo"),
-                CountryFilter("Ülke"),
-                NetworkFilter("Ağ"),
-                AnimeFilter.Separator(),
-                StatusFilter("Durum"),
-                TypeFilter("Tip"),
-                OrderFilter("Sirala"),
-            )
-        } else {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        }
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+        AnimeFilterList(
+            GenresFilter("Tür"),
+            StudioFilter("Stüdyo"),
+            CountryFilter("Ülke"),
+            NetworkFilter("Ağ"),
+            AnimeFilter.Separator(),
+            StatusFilter("Durum"),
+            TypeFilter("Tip"),
+            OrderFilter("Sirala"),
+        )
+    } else {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
     }
 
     // =========================== Anime Details ============================
     override val animeStatusText = "Durum"
 
-    override fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()?.lowercase()) {
-            "tamamlandı" -> SAnime.COMPLETED
-            "devam ediyor" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    override fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase()) {
+        "tamamlandı" -> SAnime.COMPLETED
+        "devam ediyor" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -109,19 +106,22 @@ class AsyaAnimeleri : AnimeStream(
     private val doodExtractor by lazy { DoodExtractor(client) }
     // private val dailyExtractor by lazy { DailymotionExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return when (name.lowercase().trim()) {
-            "vk" -> vkExtractor.videosFromUrl(url)
-            "ok.ru" -> okruExtractor.videosFromUrl(url)
-            "sibnet" -> sibnetExtractor.videosFromUrl(url)
-            // "daily" -> dailyExtractor.videosFromUrl(url)
-            "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
-            "gdrive" -> {
-                val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
-                gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
-            }
-            else -> emptyList()
+    override fun getVideoList(url: String, name: String): List<Video> = when (name.lowercase().trim()) {
+        "vk" -> vkExtractor.videosFromUrl(url)
+
+        "ok.ru" -> okruExtractor.videosFromUrl(url)
+
+        "sibnet" -> sibnetExtractor.videosFromUrl(url)
+
+        // "daily" -> dailyExtractor.videosFromUrl(url)
+        "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
+
+        "gdrive" -> {
+            val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
+            gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
         }
+
+        else -> emptyList()
     }
 
     // ============================= Utilities ==============================
@@ -134,12 +134,10 @@ class AsyaAnimeleri : AnimeStream(
     // Overriding to prevent removing the ?resize part.
     // Without it, some images simply don't load (????)
     // Turkish source moment. That's why i prefer greeks.
-    override fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }
+    override fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
     }
 }

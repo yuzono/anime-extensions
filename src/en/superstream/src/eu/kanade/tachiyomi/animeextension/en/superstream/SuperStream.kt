@@ -11,7 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -20,7 +20,9 @@ import uy.kohesive.injekt.injectLazy
 import java.util.Date
 
 @ExperimentalSerializationApi
-class SuperStream : ConfigurableAnimeSource, AnimeHttpSource() {
+class SuperStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "SuperStream"
 
@@ -218,16 +220,12 @@ class SuperStream : ConfigurableAnimeSource, AnimeHttpSource() {
         }.also(screen::addPreference)
     }
 
-    private fun LinkData.toJson(): String {
-        return json.encodeToString(this)
-    }
+    private fun LinkData.toJson(): String = json.encodeToString(this)
 
-    private fun getDateTime(s: Int?): Long {
-        return try {
-            Date(s!!.toLong() * 1000).time
-        } catch (e: Exception) {
-            0L
-        }
+    private fun getDateTime(s: Int?): Long = try {
+        Date(s!!.toLong() * 1000).time
+    } catch (e: Exception) {
+        0L
     }
 }
 

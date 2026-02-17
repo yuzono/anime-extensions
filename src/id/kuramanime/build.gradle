@@ -1,14 +1,14 @@
 ext {
     extName = 'Kuramanime'
     extClass = '.Kuramanime'
-    extVersionCode = 14
+    extVersionCode = 15
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:streamtape-extractor"))
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:filemoon-extractor"))
-    implementation(project(":lib:vidguard-extractor"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:vidguardextractor"))
 }

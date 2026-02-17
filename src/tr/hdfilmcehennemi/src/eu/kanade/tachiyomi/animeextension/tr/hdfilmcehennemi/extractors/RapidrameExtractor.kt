@@ -50,6 +50,5 @@ class RapidrameExtractor(private val client: OkHttpClient, private val headers: 
         )
     }
 
-    private fun String.getProperty(before: String) =
-        substringAfter("$before\"").substringBefore('"')
+    private fun String.getProperty(before: String) = substringAfter("$before\"").substringBefore('"')
 }

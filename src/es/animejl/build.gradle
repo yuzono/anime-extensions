@@ -1,20 +1,20 @@
 ext {
     extName = 'Animejl'
     extClass = '.Animejl'
-    extVersionCode = 12
+    extVersionCode = 13
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:yourupload-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:streamhidevid-extractor'))
-    implementation(project(':lib:universal-extractor'))
-    implementation(project(':lib:uqload-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:universalextractor'))
+    implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
 }

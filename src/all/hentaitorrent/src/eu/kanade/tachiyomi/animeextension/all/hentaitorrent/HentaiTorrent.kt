@@ -15,7 +15,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.torrentutils.TorrentUtils
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -24,7 +24,9 @@ import org.jsoup.nodes.Element
 import java.net.SocketTimeoutException
 import java.util.Locale
 
-class HentaiTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class HentaiTorrent :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hentai Torrent (Torrent)"
 
@@ -36,15 +38,11 @@ class HentaiTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override val supportsLatest = false
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .add("Referer", baseUrl)
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", baseUrl)
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/page/$page")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page")
 
     override fun popularAnimeSelector(): String = "div.image-container div.image-wrapper"
 
@@ -60,32 +58,22 @@ class HentaiTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun popularAnimeNextPageSelector(): String = "div.pagination a:contains(Next)"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -185,9 +173,7 @@ class HentaiTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return listOf(Video(episode.url, episode.name, episode.url))
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name, episode.url))
 
     override fun videoListSelector() = throw Exception("Not used")
 
@@ -236,16 +222,14 @@ class HentaiTorrent : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val categoryName = getCategory().map {
         it.name
     }.toTypedArray()
-    private fun getCategory(): List<Category> {
-        return listOf(
-            Category("Home", "0"),
-            Category("Cartoons", "Cartoons"),
-            Category("2D video Hentai", "2D%20video%20Hentai"),
-            Category("3D video Hentai", "3D%20video%20Hentai"),
-            Category("Hentai DVD HD", "Hentai%20DVD%20HD"),
-            Category("Main Subsection Hentai", "Main%20Subsection%20Hentai"),
-        )
-    }
+    private fun getCategory(): List<Category> = listOf(
+        Category("Home", "0"),
+        Category("Cartoons", "Cartoons"),
+        Category("2D video Hentai", "2D%20video%20Hentai"),
+        Category("3D video Hentai", "3D%20video%20Hentai"),
+        Category("Hentai DVD HD", "Hentai%20DVD%20HD"),
+        Category("Main Subsection Hentai", "Main%20Subsection%20Hentai"),
+    )
 
     companion object {
         const val PREFIX_SEARCH = "id:"

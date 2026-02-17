@@ -1,18 +1,18 @@
 ext {
     extName = 'Einfach'
     extClass = '.Einfach'
-    extVersionCode = 25
+    extVersionCode = 26
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:dood-extractor"))
-    implementation(project(":lib:filemoon-extractor"))
-    implementation(project(":lib:mixdrop-extractor"))
-    implementation(project(":lib:playlist-utils"))
-    implementation(project(":lib:streamtape-extractor"))
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:voe-extractor"))
+    implementation(project(":lib:doodextractor"))
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:mixdropextractor"))
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:voeextractor"))
     implementation(libs.jsunpacker)
 }

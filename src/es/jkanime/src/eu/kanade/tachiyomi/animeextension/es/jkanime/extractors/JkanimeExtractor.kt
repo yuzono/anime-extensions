@@ -10,6 +10,7 @@ import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 class JkanimeExtractor(
     private val client: OkHttpClient,
@@ -22,7 +23,8 @@ class JkanimeExtractor(
 
         val gsplayBody = "data=$dataKey".toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
 
-        val location = client.newCall(POST("https://jkanime.net/gsplay/redirect_post.php", dataKeyHeaders, gsplayBody)).execute().request.url.toString()
+        val location = client.newCall(POST("https://jkanime.net/gsplay/redirect_post.php", dataKeyHeaders, gsplayBody))
+            .execute().request.url.toString()
         val postKey = location.substringAfter("player.html#")
 
         val nozomiBody = "v=$postKey".toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
@@ -32,33 +34,45 @@ class JkanimeExtractor(
         return listOf(Video(nozomiUrl, "${prefix}Nozomi", nozomiUrl))
     }
 
-    fun getDesuFromUrl(url: String, prefix: String = ""): List<Video> {
-        val document = client.newCall(GET(url)).execute()
-        val streamUrl = document.asJsoup()
-            .selectFirst("script:containsData(var parts = {)")
+    fun parseVideoFromDpPlayer(response: Response, quality: String = ""): List<Video> {
+        val document = response.asJsoup()
+        val streamUrl = document
+            .selectFirst("""script:containsData(new DPlayer\({)""")
             ?.data()?.substringAfter("url: '")
             ?.substringBefore("'") ?: return emptyList()
 
-        return listOf(Video(streamUrl, "${prefix}Desu", streamUrl))
+        return listOf(Video(streamUrl, quality, streamUrl))
+    }
+
+    fun getDesuFromUrl(url: String, prefix: String = ""): List<Video> {
+        val response = client.newCall(GET(url)).execute()
+        return parseVideoFromDpPlayer(response, "${prefix}Desu")
     }
 
     fun getDesukaFromUrl(url: String, prefix: String = ""): List<Video> {
-        val document = client.newCall(GET(url)).execute()
-        val contentType = document.header("Content-Type") ?: ""
+        val response = client.newCall(GET(url)).execute()
+        val contentType = response.header("Content-Type") ?: ""
 
         if (contentType.startsWith("video/")) {
-            val realUrl = document.networkResponse.toString()
-                .substringAfter("url=")
-                .substringBefore("}")
+            val realUrl = response.request.url.toString()
             return listOf(Video(realUrl, "${prefix}Desuka", realUrl))
         }
+        return parseVideoFromDpPlayer(response, "${prefix}Desuka")
+    }
 
-        val streamUrl = document.asJsoup()
-            .selectFirst("script:containsData(new DPlayer({)")
-            ?.data()?.substringAfter("url: '")
-            ?.substringBefore("'") ?: return emptyList()
+    fun getMagiFromUrl(url: String, prefix: String = ""): List<Video> {
+        val document = client.newCall(GET(url)).execute().asJsoup()
+        val videoUrl = document.selectFirst("""source[src*=".m3u8"]""")?.attr("src") ?: return emptyList()
+        return listOf(Video(videoUrl, "${prefix}Magi", videoUrl))
+    }
 
-        return listOf(Video(streamUrl, "${prefix}Desuka", streamUrl))
+    fun getMediafireFromUrl(url: String, prefix: String = ""): List<Video> {
+        val response = client.newCall(GET(url)).execute()
+        val downloadUrl = response.asJsoup().selectFirst("a#downloadButton")?.attr("href")
+        if (!downloadUrl.isNullOrBlank()) {
+            return listOf(Video(downloadUrl, "${prefix}MediaFire", downloadUrl))
+        }
+        return emptyList()
     }
 
     @Serializable

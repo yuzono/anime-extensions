@@ -81,20 +81,19 @@ class KickAssAnimeExtractor(
             Track(subUrl, language)
         }.let { playlistUtils.fixSubtitles(it) }
 
-        fun getVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers {
-            return baseHeaders.newBuilder().apply {
-                add("Accept", "*/*")
-                add("Accept-Language", "en-US,en;q=0.5")
-                add("Origin", "https://$host")
-                add("Sec-Fetch-Dest", "empty")
-                add("Sec-Fetch-Mode", "cors")
-                add("Sec-Fetch-Site", "cross-site")
-            }.build()
-        }
+        fun getVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers = baseHeaders.newBuilder().apply {
+            add("Accept", "*/*")
+            add("Accept-Language", "en-US,en;q=0.5")
+            add("Origin", "https://$host")
+            add("Sec-Fetch-Dest", "empty")
+            add("Sec-Fetch-Mode", "cors")
+            add("Sec-Fetch-Site", "cross-site")
+        }.build()
 
         return when {
             videoObject.hls.isBlank() ->
                 playlistUtils.extractFromDash(videoObject.playlistUrl, videoNameGen = { res -> "$name - $res" }, subtitleList = subtitles)
+
             else -> playlistUtils.extractFromHls(
                 videoObject.playlistUrl,
                 videoNameGen = { "$name - $it" },
@@ -134,14 +133,12 @@ class KickAssAnimeExtractor(
         return Triple(sha1sum(signature), timeStamp, route)
     }
 
-    private fun sha1sum(value: String): String {
-        return try {
-            val md = MessageDigest.getInstance("SHA-1")
-            val bytes = md.digest(value.toByteArray())
-            bytes.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            throw Exception("Attempt to create the signature failed miserably.")
-        }
+    private fun sha1sum(value: String): String = try {
+        val md = MessageDigest.getInstance("SHA-1")
+        val bytes = md.digest(value.toByteArray())
+        bytes.joinToString("") { "%02x".format(it) }
+    } catch (e: Exception) {
+        throw Exception("Attempt to create the signature failed miserably.")
     }
 
     // ============================= Utilities ==============================

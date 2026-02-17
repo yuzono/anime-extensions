@@ -23,7 +23,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
@@ -36,7 +36,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 
-class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
+class GoogleDriveIndex :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "GoogleDriveIndex"
 
@@ -175,6 +177,7 @@ class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
                     headers = searchHeaders.add("Referer", serverUrl.asReferer()).build(),
                 )
             }
+
             else -> {
                 val cleanQuery = query.replace(" ", "+")
                 val searchUrl = "https://${serverUrl.toHttpUrl().hostAndCred()}/${serverUrl.toHttpUrl().pathSegments[0]}search"
@@ -200,10 +203,11 @@ class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
         URLFilter(),
     )
 
-    private class ServerFilter(domains: Array<Pair<String, String>>) : UriPartFilter(
-        "Select server",
-        domains,
-    )
+    private class ServerFilter(domains: Array<Pair<String, String>>) :
+        UriPartFilter(
+            "Select server",
+            domains,
+        )
 
     private fun getDomains(): Array<Pair<String, String>> {
         if (preferences.domainList.isBlank()) return emptyArray()
@@ -216,8 +220,7 @@ class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
         }.toTypedArray()
     }
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -476,28 +479,20 @@ class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun HttpUrl.hostAndCred(): String {
-        return if (this.password.isNotBlank() && this.username.isNotBlank()) {
-            "${this.username}:${this.password}@${this.host}"
-        } else {
-            this.host
-        }
+    private fun HttpUrl.hostAndCred(): String = if (this.password.isNotBlank() && this.username.isNotBlank()) {
+        "${this.username}:${this.password}@${this.host}"
+    } else {
+        this.host
     }
 
-    private fun joinUrl(path1: String, path2: String): String {
-        return path1.removeSuffix("/") + "/" + path2.removePrefix("/")
-    }
+    private fun joinUrl(path1: String, path2: String): String = path1.removeSuffix("/") + "/" + path2.removePrefix("/")
 
-    private fun String.decrypt(): String {
-        return Base64.decode(this.reversed().substring(24, this.length - 20), Base64.DEFAULT).toString(Charsets.UTF_8)
-    }
+    private fun String.decrypt(): String = Base64.decode(this.reversed().substring(24, this.length - 20), Base64.DEFAULT).toString(Charsets.UTF_8)
 
-    private fun String.addSuffix(suffix: String): String {
-        return if (this.endsWith(suffix)) {
-            this
-        } else {
-            this.plus(suffix)
-        }
+    private fun String.addSuffix(suffix: String): String = if (this.endsWith(suffix)) {
+        this
+    } else {
+        this.plus(suffix)
     }
 
     private fun String.trimInfo(): String {
@@ -513,35 +508,27 @@ class GoogleDriveIndex : ConfigurableAnimeSource, AnimeHttpSource() {
         return newString.trim()
     }
 
-    private fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-            bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-            bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-            bytes > 1 -> "$bytes bytes"
-            bytes == 1L -> "$bytes byte"
-            else -> ""
-        }
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
+        bytes > 1 -> "$bytes bytes"
+        bytes == 1L -> "$bytes byte"
+        else -> ""
     }
 
-    private fun String.asReferer(): String {
-        return URLEncoder.encode(
-            this.toHttpUrl().let {
-                "https://${it.host}${it.encodedPath}"
-            },
-            "UTF-8",
-        )
-    }
+    private fun String.asReferer(): String = URLEncoder.encode(
+        this.toHttpUrl().let {
+            "https://${it.host}${it.encodedPath}"
+        },
+        "UTF-8",
+    )
 
     private fun String.removeName(): String = Regex("""^(\[[^\[\];]+\])""").replace(this, "")
 
-    private fun LinkData.toJsonString(): String {
-        return json.encodeToString(this)
-    }
+    private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
-    private fun IdUrl.toJsonString(): String {
-        return json.encodeToString(this)
-    }
+    private fun IdUrl.toJsonString(): String = json.encodeToString(this)
 
     private fun parsePage(response: Response, url: String): AnimesPage {
         val parsed = json.decodeFromString<ResponseData>(response.body.string().decrypt())

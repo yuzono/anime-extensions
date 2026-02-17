@@ -18,13 +18,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import java.util.Base64
 
-class Animeiat : ConfigurableAnimeSource, AnimeHttpSource() {
+class Animeiat :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animeiat"
 
@@ -138,9 +140,11 @@ class Animeiat : ConfigurableAnimeSource, AnimeHttpSource() {
                     is TypeCategoryList -> {
                         type = getTypeFilterList()[filter.state].query
                     }
+
                     is StatCategoryList -> {
                         status = getStatFilterList()[filter.state].query
                     }
+
                     else -> {}
                 }
             }

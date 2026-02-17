@@ -18,83 +18,83 @@ object AniwaveSeFilters {
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return this.filterIsInstance<R>().joinToString("") {
-            (it as QueryPartFilter).toQueryPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
+        (it as QueryPartFilter).toQueryPart()
     }
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
-            }.joinToString("&$name[]=").let {
-                if (it.isBlank()) {
-                    ""
-                } else {
-                    "&$name[]=$it"
-                }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }.joinToString("&$name[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&$name[]=$it"
+            }
+        }
 
     class SortFilter : QueryPartFilter("Sort order", NineAnimeFiltersData.SORT)
 
     private class GenreModeFilter(state: Boolean = false) : AnimeFilter.CheckBox("Must have all selected genres", state) {
-        fun asQueryPart(): String {
-            return if (state) "&genre_mode=and" else ""
-        }
+        fun asQueryPart(): String = if (state) "&genre_mode=and" else ""
     }
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genre",
-        NineAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genre",
+            NineAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
-    class CountryFilter : CheckBoxFilterList(
-        "Country",
-        NineAnimeFiltersData.COUNTRY.map { CheckBoxVal(it.first, false) },
-    )
+    class CountryFilter :
+        CheckBoxFilterList(
+            "Country",
+            NineAnimeFiltersData.COUNTRY.map { CheckBoxVal(it.first, false) },
+        )
 
-    class SeasonFilter : CheckBoxFilterList(
-        "Season",
-        NineAnimeFiltersData.SEASON.map { CheckBoxVal(it.first, false) },
-    )
+    class SeasonFilter :
+        CheckBoxFilterList(
+            "Season",
+            NineAnimeFiltersData.SEASON.map { CheckBoxVal(it.first, false) },
+        )
 
-    class YearFilter : CheckBoxFilterList(
-        "Year",
-        NineAnimeFiltersData.YEAR.map { CheckBoxVal(it.first, false) },
-    )
+    class YearFilter :
+        CheckBoxFilterList(
+            "Year",
+            NineAnimeFiltersData.YEAR.map { CheckBoxVal(it.first, false) },
+        )
 
-    class TypeFilter : CheckBoxFilterList(
-        "Type",
-        NineAnimeFiltersData.TYPE.map { CheckBoxVal(it.first, false) },
-    )
+    class TypeFilter :
+        CheckBoxFilterList(
+            "Type",
+            NineAnimeFiltersData.TYPE.map { CheckBoxVal(it.first, false) },
+        )
 
-    class StatusFilter : CheckBoxFilterList(
-        "Status",
-        NineAnimeFiltersData.STATUS.map { CheckBoxVal(it.first, false) },
-    )
+    class StatusFilter :
+        CheckBoxFilterList(
+            "Status",
+            NineAnimeFiltersData.STATUS.map { CheckBoxVal(it.first, false) },
+        )
 
-    class LanguageFilter : CheckBoxFilterList(
-        "Language",
-        NineAnimeFiltersData.LANGUAGE.map { CheckBoxVal(it.first, false) },
-    )
+    class LanguageFilter :
+        CheckBoxFilterList(
+            "Language",
+            NineAnimeFiltersData.LANGUAGE.map { CheckBoxVal(it.first, false) },
+        )
 
-    class RatingFilter : CheckBoxFilterList(
-        "Rating",
-        NineAnimeFiltersData.RATING.map { CheckBoxVal(it.first, false) },
-    )
+    class RatingFilter :
+        CheckBoxFilterList(
+            "Rating",
+            NineAnimeFiltersData.RATING.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         // SortFilter(),

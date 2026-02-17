@@ -19,11 +19,12 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class DeTodoPeliculas : DooPlay(
-    "es",
-    "DeTodo Peliculas",
-    "https://detodopeliculas.nu",
-) {
+class DeTodoPeliculas :
+    DooPlay(
+        "es",
+        "DeTodo Peliculas",
+        "https://detodopeliculas.nu",
+    ) {
 // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/novedades/page/$page")
 
@@ -76,7 +77,6 @@ class DeTodoPeliculas : DooPlay(
                 "strwish" in url -> streamWishExtractor.videosFromUrl(url, "$lang - ")
                 "vidguard" in url || "listeamed" in url -> vidGuardExtractor.videosFromUrl(url, "$lang - ")
                 "voe" in url -> voeExtractor.videosFromUrl(url, "$lang - ")
-
                 else -> emptyList()
             }
         } catch (e: Exception) {
@@ -116,6 +116,7 @@ class DeTodoPeliculas : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

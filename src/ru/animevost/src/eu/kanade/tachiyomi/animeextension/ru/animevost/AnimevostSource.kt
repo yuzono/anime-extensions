@@ -11,7 +11,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -29,7 +31,8 @@ data class AnimeDescription(
 )
 
 class AnimevostSource(override val name: String, override val baseUrl: String) :
-    ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     private enum class SortBy(val by: String) {
         RATING("rating"),
         DATE("date"),
@@ -126,7 +129,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         if (animeData.rating != null && animeData.votes != null) {
             val rating = 5 * animeData.rating / 100
 
-            description += "Рейтинг: ${"★".repeat(rating)}${"☆".repeat(Math.max(5 - rating, 0))} (Голосов: ${animeData.votes})\n"
+            description += "Рейтинг: ${"★".repeat(rating)}${"☆".repeat((5 - rating).coerceAtLeast(0))} (Голосов: ${animeData.votes})\n"
         }
 
         if (animeData.type != null) {
@@ -149,22 +152,42 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val animePage = response.asJsoup()
-        var episodeScript = animePage.select(".shortstoryContent > script:nth-of-type(2)").html()
-        episodeScript = episodeScript.substring(episodeScript.indexOf("var data = {") + 12)
-        val episodes = episodeScript.substring(0, episodeScript.indexOf(",};")).replace("\"", "").split(",")
+        val document = response.asJsoup()
+        val startMarker = "var data = {"
+        val endMarker = "};"
+
+        val script = document.select("script").find { it.html().contains(startMarker) }
+            ?: return emptyList()
+
+        val scriptContent = script.html()
+        val dataString = scriptContent
+            .substringAfter(startMarker, "")
+            .substringBefore(endMarker, "")
+            .takeIf { it.isNotEmpty() } ?: return emptyList()
+
+        val cleanedDataString = dataString.trimEnd().removeSuffix(",")
+
+        val json = Json { isLenient = true }
+        val episodeData = try {
+            json.decodeFromString<Map<String, String>>("{$cleanedDataString}")
+        } catch (_: SerializationException) {
+            return emptyList()
+        }
 
         val episodeList = mutableListOf<SEpisode>()
+        episodeData.entries.forEachIndexed { index, entry ->
+            val name = entry.key
+            val id = entry.value
 
-        episodes.forEachIndexed { index, entry ->
-            episodeList.add(
-                SEpisode.create().apply {
-                    val id = entry.split(":")[1]
-                    name = entry.split(":")[0]
-                    episode_number = index.toFloat()
-                    url = "/frame5.php?play=$id&old=1"
-                },
-            )
+            if (name.isNotEmpty() && id.isNotEmpty()) {
+                episodeList.add(
+                    SEpisode.create().apply {
+                        url = "/frame5.php?play=$id&old=1"
+                        this.name = name
+                        episode_number = (index + 1).toFloat()
+                    },
+                )
+            }
         }
 
         return episodeList.reversed()
@@ -196,45 +219,45 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     override fun searchAnimeNextPageSelector() = nextPageSelector
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (query.isNotBlank()) {
-            val searchStart = if (page <= 1) 0 else page
-            val resultFrom = (page - 1) * 10 + 1
-            val headers: Headers =
-                Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
-            val body = FormBody.Builder()
-                .add("do", "search")
-                .add("subaction", "search")
-                .add("search_start", searchStart.toString())
-                .add("full_search", "0")
-                .add("result_from", resultFrom.toString())
-                .add("story", query)
-                .build()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
+        val searchStart = if (page <= 1) 0 else page
+        val resultFrom = (page - 1) * 10 + 1
+        val headers: Headers =
+            Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
+        val body = FormBody.Builder()
+            .add("do", "search")
+            .add("subaction", "search")
+            .add("search_start", searchStart.toString())
+            .add("full_search", "0")
+            .add("result_from", resultFrom.toString())
+            .add("story", query)
+            .build()
 
-            POST("$baseUrl/index.php?do=search", headers, body)
-        } else {
-            var sortBy = SortBy.DATE
-            var sortDirection = SortDirection.DESC
-            var genre = "all"
+        POST("$baseUrl/index.php?do=search", headers, body)
+    } else {
+        var sortBy = SortBy.DATE
+        var sortDirection = SortDirection.DESC
+        var genre = "all"
 
-            filters.forEach { filter ->
-                when (filter) {
-                    is GenreFilter -> {
-                        genre = filter.toString()
-                    }
-                    is SortFilter -> {
-                        if (filter.state != null) {
-                            sortBy = sortableList[filter.state!!.index].second
-
-                            sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
-                        }
-                    }
-                    else -> {}
+        filters.forEach { filter ->
+            when (filter) {
+                is GenreFilter -> {
+                    genre = filter.toString()
                 }
-            }
 
-            animeRequest(page, sortBy, sortDirection, genre)
+                is SortFilter -> {
+                    if (filter.state != null) {
+                        sortBy = sortableList[filter.state!!.index].second
+
+                        sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
+                    }
+                }
+
+                else -> {}
+            }
         }
+
+        animeRequest(page, sortBy, sortDirection, genre)
     }
 
     override fun searchAnimeSelector() = animeSelector
@@ -244,14 +267,34 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     override fun videoListParse(response: Response): List<Video> {
         val videoList = mutableListOf<Video>()
         val document = response.asJsoup()
+        val html = document.html()
+        val fileData = Regex(""""file":"(.+?)"""")
+            .findAll(html)
+            .map { it.groupValues[1] }
+            .filter { it.contains("http") }
+            .maxByOrNull { it.length }
+            ?: return emptyList()
 
-        val videoData = document.html().substringAfter("file\":\"").substringBefore("\",").split(",")
+        val qualityPattern = """\[([^]]+)](.+?)(?=,\[|$)""".toRegex()
 
-        videoData.forEach {
-            val linkData = it.replace("[", "").split("]")
-            val quality = linkData.first()
-            val url = linkData.last().split(" or").first()
-            videoList.add(Video(url, quality, url))
+        qualityPattern.findAll(fileData).forEach { match ->
+            val quality = match.groupValues[1]
+            val urlsString = match.groupValues[2]
+
+            val urls = urlsString
+                .split(" or ")
+                .map { it.trim() }
+                .filter { it.startsWith("http") }
+
+            urls.forEachIndexed { index, url ->
+                val qualityLabel = if (urls.size > 1) {
+                    "$quality - Mirror ${index + 1}"
+                } else {
+                    quality
+                }
+
+                videoList.add(Video(url, qualityLabel, url))
+            }
         }
 
         return videoList
@@ -323,8 +366,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         Pair("Этти", "etti"),
     )
 
-    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         override fun toString() = vals[state].second
     }
 

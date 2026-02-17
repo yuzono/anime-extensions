@@ -1,25 +1,25 @@
 ext {
     extName = 'PelisForte'
     extClass = '.PelisForte'
-    extVersionCode = 40
+    extVersionCode = 41
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:burstcloud-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:yourupload-extractor'))
-    implementation(project(':lib:fastream-extractor'))
-    implementation(project(':lib:upstream-extractor'))
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:uqload-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:playlist-utils'))
-    implementation(project(':lib:streamlare-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:vidguard-extractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:burstcloudextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:fastreamextractor'))
+    implementation(project(':lib:upstreamextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:streamlareextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:vidguardextractor'))
 }

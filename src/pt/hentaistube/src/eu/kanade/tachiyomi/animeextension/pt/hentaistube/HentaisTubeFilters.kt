@@ -17,38 +17,32 @@ object HentaisTubeFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class TriStateFilterList(name: String, val vals: Array<String>) :
-        AnimeFilter.Group<TriState>(name, vals.map(::TriStateVal))
+    open class TriStateFilterList(name: String, val vals: Array<String>) : AnimeFilter.Group<TriState>(name, vals.map(::TriStateVal))
 
     private class TriStateVal(name: String) : TriState(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> {
-        return (getFirst<R>() as TriStateFilterList).state
-            .filterNot { it.isIgnored() }
-            .map { filter -> filter.state to filter.name }
-            .groupBy { it.first } // group by state
-            .let { dict ->
-                val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
-                val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
-                listOf(included, excluded)
-            }
-    }
+    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> = (getFirst<R>() as TriStateFilterList).state
+        .filterNot { it.isIgnored() }
+        .map { filter -> filter.state to filter.name }
+        .groupBy { it.first } // group by state
+        .let { dict ->
+            val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
+            val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
+            listOf(included, excluded)
+        }
 
     class InitialLetterFilter : QueryPartFilter("Primeira letra", HentaisTubeFiltersData.INITIAL_LETTER)
 
-    class SortFilter : AnimeFilter.Sort(
-        "Ordem",
-        arrayOf("Alfabética"),
-        Selection(0, true),
-    )
+    class SortFilter :
+        AnimeFilter.Sort(
+            "Ordem",
+            arrayOf("Alfabética"),
+            Selection(0, true),
+        )
 
     class GenresFilter : TriStateFilterList("Gêneros", HentaisTubeFiltersData.GENRES)
     class StudiosFilter : TriStateFilterList("Estúdios", HentaisTubeFiltersData.STUDIOS)
@@ -90,40 +84,40 @@ object HentaisTubeFilters {
         )
     }
 
-    private fun mustRemove(anime: SearchItemDto, params: FilterSearchParams): Boolean {
-        return when {
-            params.animeName != "" && !anime.title.contains(params.animeName, true) -> true
-            params.initialLetter != "" && !anime.title.lowercase().startsWith(params.initialLetter) -> true
-            params.blackListedGenres.size > 0 && params.blackListedGenres.any {
-                anime.tags.contains(it, true)
-            } -> true
-            params.includedGenres.size > 0 && params.includedGenres.any {
-                !anime.tags.contains(it, true)
-            } -> true
-            params.blackListedStudios.size > 0 && params.blackListedStudios.any {
-                anime.studios.contains(it, true)
-            } -> true
-            params.includedStudios.size > 0 && params.includedStudios.any {
-                !anime.studios.contains(it, true)
-            } -> true
-            else -> false
-        }
+    private fun mustRemove(anime: SearchItemDto, params: FilterSearchParams): Boolean = when {
+        params.animeName != "" && !anime.title.contains(params.animeName, true) -> true
+
+        params.initialLetter != "" && !anime.title.lowercase().startsWith(params.initialLetter) -> true
+
+        params.blackListedGenres.size > 0 && params.blackListedGenres.any {
+            anime.tags.contains(it, true)
+        } -> true
+
+        params.includedGenres.size > 0 && params.includedGenres.any {
+            !anime.tags.contains(it, true)
+        } -> true
+
+        params.blackListedStudios.size > 0 && params.blackListedStudios.any {
+            anime.studios.contains(it, true)
+        } -> true
+
+        params.includedStudios.size > 0 && params.includedStudios.any {
+            !anime.studios.contains(it, true)
+        } -> true
+
+        else -> false
     }
 
     private inline fun <T, R : Comparable<R>> Sequence<T>.sortedByIf(
         isAscending: Boolean,
         crossinline selector: (T) -> R,
-    ): Sequence<T> {
-        return when {
-            isAscending -> sortedBy(selector)
-            else -> sortedByDescending(selector)
-        }
+    ): Sequence<T> = when {
+        isAscending -> sortedBy(selector)
+        else -> sortedByDescending(selector)
     }
 
-    fun Sequence<SearchItemDto>.applyFilterParams(params: FilterSearchParams): Sequence<SearchItemDto> {
-        return filterNot { mustRemove(it, params) }
-            .sortedByIf(params.orderAscending) { it.title.lowercase() }
-    }
+    fun Sequence<SearchItemDto>.applyFilterParams(params: FilterSearchParams): Sequence<SearchItemDto> = filterNot { mustRemove(it, params) }
+        .sortedByIf(params.orderAscending) { it.title.lowercase() }
 
     private object HentaisTubeFiltersData {
         val INITIAL_LETTER = arrayOf(Pair("Selecione", "")) + ('A'..'Z').map {

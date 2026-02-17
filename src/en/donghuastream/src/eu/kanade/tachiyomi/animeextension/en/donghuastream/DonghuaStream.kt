@@ -17,11 +17,12 @@ import extensions.utils.addSwitchPreference
 import okhttp3.Request
 import okhttp3.Response
 
-class DonghuaStream : AnimeStream(
-    "en",
-    "DonghuaStream",
-    "https://donghuastream.org",
-) {
+class DonghuaStream :
+    AnimeStream(
+        "en",
+        "DonghuaStream",
+        "https://donghuastream.org",
+    ) {
     override val fetchFilters: Boolean
         get() = false
 

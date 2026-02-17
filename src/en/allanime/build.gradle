@@ -1,17 +1,17 @@
 ext {
     extName = 'AllAnime'
     extClass = '.AllAnime'
-    extVersionCode = 41
+    extVersionCode = 43
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:streamlare-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:gogostream-extractor'))
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
+    implementation(project(':lib:streamlareextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:gogostreamextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:streamwishextractor'))
 }

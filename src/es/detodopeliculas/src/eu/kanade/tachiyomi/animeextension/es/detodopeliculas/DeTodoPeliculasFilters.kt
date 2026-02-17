@@ -16,14 +16,10 @@ object DeTodoPeliculasFilters {
         fun toUriPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asUriPart(): String {
-        return getFirst<R>().let {
-            (it as UriPartFilter).toUriPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asUriPart(): String = getFirst<R>().let {
+        (it as UriPartFilter).toUriPart()
     }
 
     class GenreFilter : UriPartFilter("Generos", AnimesOnlineNinjaData.GENRES)

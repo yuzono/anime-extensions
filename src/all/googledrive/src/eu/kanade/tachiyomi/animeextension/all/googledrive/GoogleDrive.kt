@@ -22,8 +22,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.commonEmptyRequestBody
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.commonEmptyRequestBody
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -37,7 +37,9 @@ import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
 
-class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
+class GoogleDrive :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Google Drive"
 
@@ -70,8 +72,7 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage =
-        parsePage(popularAnimeRequest(page), page)
+    override suspend fun getPopularAnime(page: Int): AnimesPage = parsePage(popularAnimeRequest(page), page)
 
     override fun popularAnimeRequest(page: Int): Request {
         require(!baseUrlInternal.isNullOrEmpty()) { "Enter drive path(s) in extension settings." }
@@ -151,10 +152,11 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
         URLFilter(),
     )
 
-    private class ServerFilter(domains: Array<Pair<String, String>>) : UriPartFilter(
-        "Select drive path",
-        domains,
-    )
+    private class ServerFilter(domains: Array<Pair<String, String>>) :
+        UriPartFilter(
+            "Select drive path",
+            domains,
+        )
 
     private fun getDomains(): Array<Pair<String, String>> {
         if (preferences.domainList.isBlank()) return emptyArray()
@@ -166,8 +168,7 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
         }.toTypedArray()
     }
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -352,8 +353,7 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> =
-        GoogleDriveExtractor(client, headers).videosFromUrl(episode.url.substringAfter("?id="))
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = GoogleDriveExtractor(client, headers).videosFromUrl(episode.url.substringAfter("?id="))
 
     // ============================= Utilities ==============================
 
@@ -526,15 +526,13 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
         return newString.trim()
     }
 
-    private fun formatBytes(bytes: Long): String {
-        return when {
-            bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-            bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-            bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-            bytes > 1 -> "$bytes bytes"
-            bytes == 1L -> "$bytes byte"
-            else -> ""
-        }
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
+        bytes > 1 -> "$bytes bytes"
+        bytes == 1L -> "$bytes byte"
+        else -> ""
     }
 
     private fun getCookie(url: String): String {
@@ -546,9 +544,7 @@ class GoogleDrive : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun LinkData.toJsonString(): String {
-        return json.encodeToString(this)
-    }
+    private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
     private fun isFolder(text: String) = DRIVE_FOLDER_REGEX matches text
 

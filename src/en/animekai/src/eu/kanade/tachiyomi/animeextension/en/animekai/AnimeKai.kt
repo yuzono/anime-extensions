@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.animeextension.en.animekai
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animeextension.en.animekai.AnimeKaiFilters.CountriesFilter
 import eu.kanade.tachiyomi.animeextension.en.animekai.AnimeKaiFilters.GenresFilter
 import eu.kanade.tachiyomi.animeextension.en.animekai.AnimeKaiFilters.LanguagesFilter
@@ -21,17 +20,21 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelFlatMap
 import eu.kanade.tachiyomi.util.parallelMapNotNull
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.LazyMutable
-import extensions.utils.addListPreference
-import extensions.utils.addSetPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toRequestBody
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -39,10 +42,14 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
 
-class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeKai :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeKai"
 
@@ -57,11 +64,9 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override var baseUrl: String
         by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
-    override fun headersBuilder(): Headers.Builder {
-        return super.headersBuilder()
-            .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
-            .add("Referer", "$baseUrl/")
-    }
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
+        .add("Referer", "$baseUrl/")
 
     private var docHeaders by LazyMutable {
         headersBuilder().build()
@@ -77,29 +82,23 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/trending?page=$page", docHeaders, cacheControl)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trending?page=$page", docHeaders, cacheControl)
 
     override fun popularAnimeSelector() = "div.aitem-wrapper div.aitem"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            element.selectFirst("a.poster")?.attr("href")?.let {
-                setUrlWithoutDomain(it)
-            }
-            title = element.selectFirst("a.title")?.getTitle() ?: ""
-            thumbnail_url = element.select("a.poster img").attr("data-src")
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        element.selectFirst("a.poster")?.attr("href")?.let {
+            setUrlWithoutDomain(it)
         }
+        title = element.selectFirst("a.title")?.getTitle() ?: ""
+        thumbnail_url = element.select("a.poster img").attr("data-src")
     }
 
     override fun popularAnimeNextPageSelector() = "nav > ul.pagination > li.active ~ li"
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
@@ -135,12 +134,10 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun relatedAnimeListSelector() = "div.aitem-col a.aitem"
 
-    override fun relatedAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            title = element.selectFirst("div.title")?.getTitle() ?: ""
-            thumbnail_url = element.getBackgroundImage()
-        }
+    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        title = element.selectFirst("div.title")?.getTitle() ?: ""
+        thumbnail_url = element.getBackgroundImage()
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
@@ -164,53 +161,93 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            thumbnail_url = document.select(".poster img").attr("src")
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        thumbnail_url = document.select(".poster img").attr("src")
 
-            document.selectFirst("div#main-entity")?.let { info ->
-                val titles = info.selectFirst("h1.title")
-                    ?.also { title = it.getTitle() }
-                    ?.let {
-                        listOf(
-                            it.attr("title"),
-                            it.attr("data-jp"),
-                            it.ownText(),
-                        )
-                    } ?: emptyList()
+        // fancy score
+        val scorePosition = preferences.scorePosition
+        val fancyScore = when (scorePosition) {
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("#anime-rating")?.attr("data-score"))
+            else -> ""
+        }
 
-                val altTitles = (
-                    info.selectFirst(".al-title")?.text()?.split(";").orEmpty() +
-                        titles
+        document.selectFirst("div#main-entity")?.let { info ->
+            val titles = info.selectFirst("h1.title")
+                ?.also { title = it.getTitle() }
+                ?.let {
+                    listOf(
+                        it.attr("title"),
+                        it.attr("data-jp"),
+                        it.ownText(),
                     )
-                    .asSequence()
-                    .map { it.trim() }.filterNot { it.isBlank() }.distinctBy { it.lowercase() }
-                    .filterNot { it.lowercase() == title.lowercase() }.joinToString("; ")
-                val rating = info.selectFirst(".rating")?.text().orEmpty()
+                } ?: emptyList()
 
-                info.selectFirst("div.detail")?.let { detail ->
-                    author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
-                        ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
-                    status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
-                    genre = detail.getInfo("Genres:", isList = true)
+            val altTitles = (
+                info.selectFirst(".al-title")?.text()?.split(";").orEmpty() +
+                    titles
+                )
+                .asSequence()
+                .map { it.trim() }.filterNot { it.isBlank() }.distinctBy { it.lowercase() }
+                .filterNot { it.lowercase() == title.lowercase() }.joinToString("; ")
+            val rating = info.selectFirst(".rating")?.text().orEmpty()
 
-                    description = buildString {
-                        info.selectFirst(".desc")?.text()?.let { append(it + "\n") }
-                        detail.getInfo("Country:", full = true)?.run(::append)
-                        detail.getInfo("Premiered:", full = true)?.run(::append)
-                        detail.getInfo("Date aired:", full = true)?.run(::append)
-                        detail.getInfo("Broadcast:", full = true)?.run(::append)
-                        detail.getInfo("Duration:", full = true)?.run(::append)
-                        if (rating.isNotBlank()) append("\n**Rating:** $rating")
-                        detail.getInfo("MAL:", full = true)?.run(::append)
-                        if (altTitles.isNotBlank()) { append("\n**Alternative Title:** $altTitles") }
-                        detail.select("div div div:contains(Links:) a").forEach {
-                            append("\n[${it.text()}](${it.attr("href")})")
-                        }
-                        document.getCover()?.let { append("\n\n![Cover]($it)") }
+            info.selectFirst("div.detail")?.let { detail ->
+                author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
+                    ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
+                status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
+                genre = detail.getInfo("Genres:", isList = true)
+
+                description = buildString {
+                    if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) {
+                        append(fancyScore)
+                        append("\n\n")
+                    }
+
+                    info.selectFirst(".desc")?.text()?.let { append(it + "\n") }
+                    detail.getInfo("Country:", full = true)?.run(::append)
+                    detail.getInfo("Premiered:", full = true)?.run(::append)
+                    detail.getInfo("Date aired:", full = true)?.run(::append)
+                    detail.getInfo("Broadcast:", full = true)?.run(::append)
+                    detail.getInfo("Duration:", full = true)?.run(::append)
+                    if (rating.isNotBlank()) append("\n**Rating:** $rating")
+                    detail.getInfo("MAL:", full = true)?.run(::append)
+                    if (altTitles.isNotBlank()) {
+                        append("\n**Alternative Title:** $altTitles")
+                    }
+                    detail.select("div div div:contains(Links:) a").forEach {
+                        append("\n[${it.text()}](${it.attr("href")})")
+                    }
+                    document.getCover()?.let { append("\n\n![Cover]($it)") }
+
+                    if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
+                        if (isNotEmpty()) append("\n\n")
+                        append(fancyScore)
                     }
                 }
-            } ?: throw IllegalStateException("Invalid anime details page format")
+            }
+        } ?: throw IllegalStateException("Invalid anime details page format")
+    }
+
+    private fun getFancyScore(score: String?): String {
+        return try {
+            val scoreDouble = score?.toDoubleOrNull() ?: return ""
+            if (scoreDouble == 0.0) return ""
+
+            val scoreBig = BigDecimal(score)
+            val stars = scoreBig.divide(BigDecimal(2))
+                .setScale(0, RoundingMode.HALF_UP)
+                .toInt()
+                .coerceIn(0, 5)
+
+            val scoreString = scoreBig.stripTrailingZeros().toPlainString()
+
+            buildString {
+                append("★".repeat(stars))
+                if (stars < 5) append("☆".repeat(5 - stars))
+                append(" $scoreString")
+            }
+        } catch (_: Exception) {
+            ""
         }
     }
 
@@ -230,9 +267,7 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
     private val coverSelector by lazy { "div.watch-section-bg" }
 
-    private fun Document.getCover(): String? {
-        return selectFirst(coverSelector)?.getBackgroundImage()
-    }
+    private fun Document.getCover(): String? = selectFirst(coverSelector)?.getBackgroundImage()
 
     private fun Element.getBackgroundImage(): String? {
         val style = attr("style")
@@ -251,11 +286,12 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     ?: throw IllegalStateException("Anime ID not found")
             }
 
-        val decoded = decode(animeId)
+        val enc = encDecEndpoints(animeId)
+            .parseAs<ResultResponse>().result
 
-        val chapterListRequest = GET("$baseUrl/ajax/episodes/list?ani_id=$animeId&_=$decoded", docHeaders)
+        val chapterListRequest = GET("$baseUrl/ajax/episodes/list?ani_id=$animeId&_=$enc", docHeaders)
         val document = client.newCall(chapterListRequest)
-            .awaitSuccess().use { it.parseAs<ResultResponse>().toDocument() }
+            .awaitSuccess().parseAs<ResultResponse>().toDocument()
 
         val episodeElements = document.select(episodeListSelector())
         return episodeElements.mapNotNull {
@@ -294,12 +330,13 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val token = episode.url
-        val decodedToken = decode(token)
+        val enc = encDecEndpoints(token)
+            .parseAs<ResultResponse>().result
 
         val typeSelection = preferences.typeToggle
         val hosterSelection = preferences.hostToggle
 
-        val servers = client.newCall(GET("$baseUrl/ajax/links/list?token=$token&_=$decodedToken", docHeaders))
+        val servers = client.newCall(GET("$baseUrl/ajax/links/list?token=$token&_=$enc", docHeaders))
             .awaitSuccess().use { response ->
                 val document = response.parseAs<ResultResponse>().toDocument()
                 document.select("div.server-items[data-id]")
@@ -348,18 +385,20 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private suspend fun extractIframe(server: VideoCode): VideoData {
         val (type, lid, serverName) = server
 
-        val decodedLid = decode(lid)
+        val enc = encDecEndpoints(lid)
+            .parseAs<ResultResponse>().result
 
-        val encodedLink = client.newCall(GET("$baseUrl/ajax/links/view?id=$lid&_=$decodedLid", docHeaders))
-            .awaitSuccess().use { json ->
-                json.parseAs<ResultResponse>().result
-            }
+        val encodedLink = client.newCall(GET("$baseUrl/ajax/links/view?id=$lid&_=$enc", docHeaders))
+            .awaitSuccess().parseAs<ResultResponse>().result
 
-        val iframe = decode(encodedLink, "d").let { json ->
-            val url = json.parseAs<IframeResponse>().url
-            url.toHttpUrl().newBuilder()
-                .build().toString()
+        val postBody = buildJsonObject {
+            put("text", encodedLink)
         }
+        val payload = postBody.toRequestBody()
+
+        val iframe = client.newCall(POST("https://enc-dec.app/api/dec-kai", body = payload))
+            .awaitSuccess().parseAs<IframeResponse>()
+            .result.url
 
         val typeSuffix = when (type) {
             "sub" -> "Hard Sub"
@@ -372,22 +411,18 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return VideoData(iframe, name)
     }
 
-    private suspend fun extractVideo(server: VideoData): List<Video> {
-        return try {
-            megaUpExtractor.videosFromUrl(
-                server.iframe,
-                server.serverName,
-            )
-        } catch (e: Exception) {
-            Log.e("AnimeKai", "Error extracting videos for ${server.serverName}", e)
-            emptyList()
-        }
+    private suspend fun extractVideo(server: VideoData): List<Video> = try {
+        megaUpExtractor.videosFromUrl(
+            server.iframe,
+            server.serverName,
+        )
+    } catch (e: Exception) {
+        Log.e("AnimeKai", "Error extracting videos for ${server.serverName}", e)
+        emptyList()
     }
 
-    private suspend fun decode(value: String, type: String = "e"): String {
-        val url = "${BuildConfig.KAISVA}/?f=$type&d=$value"
-        return client.newCall(GET(url, docHeaders)).awaitSuccess().use { it.body.string() }
-    }
+    private suspend fun encDecEndpoints(enc: String): String = client.newCall(GET("https://enc-dec.app/api/enc-kai?text=$enc", docHeaders))
+        .awaitSuccess().body.string()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.prefQuality
@@ -403,12 +438,10 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         )
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Completed", "Finished Airing" -> SAnime.COMPLETED
-            "Releasing" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Completed", "Finished Airing" -> SAnime.COMPLETED
+        "Releasing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun Element.getTitle(): String {
@@ -423,10 +456,14 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
+
+        // Domain list: https://animekai.ws
         private val DOMAIN_ENTRIES = listOf(
             "animekai.to",
-            "animekai.cc",
-            "animekai.ac",
+            "animekai.im",
+            "animekai.la",
+            "animekai.nl",
+            "animekai.vc",
             "anikai.to",
         )
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
@@ -456,6 +493,14 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
         private const val PREF_TYPE_KEY = "preferred_type"
         private const val PREF_TYPE_DEFAULT = "[Soft Sub]"
+
+        private const val PREF_SCORE_POSITION_KEY = "score_position"
+        private const val SCORE_POS_TOP = "top"
+        private const val SCORE_POS_BOTTOM = "bottom"
+        private const val SCORE_POS_NONE = "none"
+        private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
+        private val PREF_SCORE_POSITION_ENTRIES = listOf("Top of description", "Bottom of description", "Don't show")
+        private val PREF_SCORE_POSITION_VALUES = listOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
 
         private const val RATE_LIMIT = 5
     }
@@ -502,6 +547,9 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val SharedPreferences.typeToggle: Set<String>
         by preferences.delegate(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES)
+
+    private val SharedPreferences.scorePosition
+        by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -555,6 +603,15 @@ class AnimeKai : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entries = TYPES_ENTRIES,
             entryValues = TYPES_ENTRIES, // Using entries directly for parsing Quality string
             default = PREF_TYPE_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_SCORE_POSITION_KEY,
+            title = "Score display position",
+            entries = PREF_SCORE_POSITION_ENTRIES,
+            entryValues = PREF_SCORE_POSITION_VALUES,
+            default = PREF_SCORE_POSITION_DEFAULT,
             summary = "%s",
         )
 

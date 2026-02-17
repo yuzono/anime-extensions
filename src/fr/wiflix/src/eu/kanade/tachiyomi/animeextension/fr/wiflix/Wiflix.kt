@@ -18,11 +18,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Wiflix : DataLifeEngine(
-    "Wiflix",
-    "https://wiflix.voto",
-    "fr",
-) {
+class Wiflix :
+    DataLifeEngine(
+        "Wiflix",
+        "https://wiflix.voto",
+        "fr",
+    ) {
 
     override val categories = arrayOf(
         Pair("<Sélectionner>", ""),

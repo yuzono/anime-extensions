@@ -1,13 +1,4 @@
 package eu.kanade.tachiyomi.lib.cryptoaes
-
-/*
- * Copyright (C) The Tachiyomi Open Source Project
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-
 /**
  * Helper class to deobfuscate JavaScript strings encoded in JSFuck style.
  *
@@ -18,8 +9,8 @@ package eu.kanade.tachiyomi.lib.cryptoaes
 object Deobfuscator {
     fun deobfuscateJsPassword(inputString: String): String {
         var idx = 0
-        val brackets = listOf<Char>('[', '(')
-        var evaluatedString = StringBuilder()
+        val brackets = listOf('[', '(')
+        val evaluatedString = StringBuilder()
         while (idx < inputString.length) {
             val chr = inputString[idx]
             if (chr !in brackets) {

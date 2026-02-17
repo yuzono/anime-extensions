@@ -14,30 +14,32 @@ class VideaExtractor(private val client: OkHttpClient) {
     fun videosFromUrl(url: String): List<Video> {
         val body = client.newCall(GET(url)).execute().body.string()
         val nonce = NONCE_REGEX.find(body)?.groupValues?.elementAt(1) ?: return emptyList()
-        val paramL = nonce.substring(0, 32)
+        val paramL = nonce.take(32)
         val paramS = nonce.substring(32)
         val result = (0..31).joinToString("") {
             val index = it - (STUPID_KEY.indexOf(paramL.elementAt(it)) - 31)
             paramS.elementAt(index).toString()
         }
 
-        val seed = getRandomString(8)
+        val seed = getRandomString()
 
         val requestUrl = REQUEST_URL.toHttpUrl().newBuilder()
             .addQueryParameter("_s", seed)
-            .addQueryParameter("_t", result.substring(0, 16))
+            .addQueryParameter("_t", result.take(16))
             .addQueryParameter("v", url.toHttpUrl().queryParameter("v") ?: "")
             .build()
 
         val headers = Headers.headersOf("referer", url, "origin", "https://videa.hu")
-        val response = client.newCall(GET(requestUrl.toString(), headers)).execute()
-        val doc = response.body.string().let {
-            when {
-                it.startsWith("<?xml") -> Jsoup.parse(it)
-                else -> {
-                    val key = result.substring(16) + seed + response.headers["x-videa-xs"]
-                    val b64dec = Base64.decode(it, Base64.DEFAULT)
-                    Jsoup.parse(decryptXml(b64dec, key))
+        val doc = client.newCall(GET(requestUrl, headers)).execute().use { response ->
+            response.body.string().let {
+                when {
+                    it.startsWith("<?xml") -> Jsoup.parse(it)
+
+                    else -> {
+                        val key = result.substring(16) + seed + response.headers["x-videa-xs"]
+                        val b64dec = Base64.decode(it, Base64.DEFAULT)
+                        Jsoup.parse(decryptXml(b64dec, key))
+                    }
                 }
             }
         }

@@ -163,13 +163,11 @@ class Iyf : AnimeHttpSource() {
 
     override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        searchAnimeRequest(page, "", latestAnimeFilterList)
+    override fun latestUpdatesRequest(page: Int): Request = searchAnimeRequest(page, "", latestAnimeFilterList)
 
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    override fun popularAnimeRequest(page: Int): Request =
-        searchAnimeRequest(page, "", popularAnimeFilterList)
+    override fun popularAnimeRequest(page: Int): Request = searchAnimeRequest(page, "", popularAnimeFilterList)
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val resp = response.parseAs<CommonResponse<SearchResult>>()
@@ -242,17 +240,15 @@ class Iyf : AnimeHttpSource() {
             .joinToString(separator = "") { "%02x".format(it) }
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            TypeFilter(),
-            SortFilter(),
-            RegionFilter(),
-            LangFilter(),
-            YearFilter(),
-            QualityFilter(),
-            StatusFilter(),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        TypeFilter(),
+        SortFilter(),
+        RegionFilter(),
+        LangFilter(),
+        YearFilter(),
+        QualityFilter(),
+        StatusFilter(),
+    )
 
     private class PConfig(
         val publicKey: String,

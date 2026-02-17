@@ -1,8 +1,12 @@
 package eu.kanade.tachiyomi.animeextension.fr.animesama
 
+import android.content.SharedPreferences
+import android.webkit.URLUtil
+import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import app.cash.quickjs.QuickJs
+import eu.kanade.tachiyomi.animeextension.fr.animesama.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -17,32 +21,68 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
 import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeSama :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Sama"
-
-    override val baseUrl = "https://anime-sama.fr"
 
     override val lang = "fr"
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
-    private val database by lazy {
-        client.newCall(GET("$baseUrl/catalogue/listing_all.php", headers)).execute()
-            .asJsoup().select(".cardListAnime")
-    }
+    private var SharedPreferences.customDomain by preferences.delegate(PREF_URL_KEY, PREF_URL_DEFAULT)
+
+    override var baseUrl by LazyMutable { preferences.customDomain.ifBlank { PREF_URL_DEFAULT }.sanitizeDomain() }
+
+    override val client: OkHttpClient = super.client.newBuilder()
+        .followRedirects(false)
+        .addInterceptor { chain ->
+            val maxRedirects = 5
+            var request = chain.request()
+            var response = chain.proceed(request)
+            var redirectCount = 0
+
+            while (response.isRedirect && redirectCount < maxRedirects) {
+                val newUrl = response.header("Location") ?: break
+                val newUrlHttp = request.url.resolve(newUrl) ?: break
+                val redirectedDomain = newUrlHttp.run { "$scheme://$host" }
+                if (redirectedDomain != baseUrl) {
+                    updateDomain(redirectedDomain)
+                }
+                response.close()
+                request = request.newBuilder()
+                    .url(newUrlHttp)
+                    .apply {
+                        header("Origin", redirectedDomain)
+                        header("Referer", "$redirectedDomain/")
+                    }
+                    .build()
+                response = chain.proceed(request)
+                redirectCount++
+            }
+            if (redirectCount >= maxRedirects) {
+                response.close()
+                throw java.io.IOException("Too many redirects: $maxRedirects")
+            }
+            response
+        }.build()
+
+    private val json: Json by injectLazy()
 
     // ============================== Popular ===============================
     override fun popularAnimeParse(response: Response): AnimesPage {
@@ -62,7 +102,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val animes = response.asJsoup()
         val seasons = animes.select("#containerAjoutsAnimes > div").flatMap {
-            val animeUrl = it.getElementsByTag("a").attr("href").toHttpUrl()
+            val animeUrl = it.getElementsByTag("a").attr("abs:href").toHttpUrl()
             val url = animeUrl.newBuilder()
                 .removePathSegment(animeUrl.pathSize - 2)
                 .removePathSegment(animeUrl.pathSize - 3)
@@ -117,6 +157,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val sendvidExtractor by lazy { SendvidExtractor(client, headers) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val playerUrls = json.decodeFromString<List<List<String>>>(episode.url)
@@ -126,8 +167,14 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
                 with(playerUrl) {
                     when {
                         contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
+
                         contains("vk.") -> vkExtractor.videosFromUrl(playerUrl, prefix)
+
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
+
+                        // .to doesn't work, and it's .biz that's used on the site
+                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl.replace(".to", ".biz"), prefix)
+
                         else -> emptyList()
                     }
                 }
@@ -145,8 +192,8 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
         return this.sortedWith(
             compareBy(
                 { it.quality.contains(voices, true) },
-                { it.quality.contains(quality) },
                 { it.quality.contains(player, true) },
+                { it.quality.contains(quality) },
             ),
         ).reversed()
     }
@@ -193,7 +240,7 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
                 title = it.first
                 thumbnail_url = animeDoc.getElementById("coverOeuvre")?.attr("src")
                 description = animeDoc.select("h2:contains(synopsis) + p").text()
-                genre = animeDoc.select("h2:contains(genres) + a").text()
+                genre = animeDoc.select("h2:contains(genres) + a").text().replace(" - ", ", ")
                 setUrlWithoutDomain(it.second)
                 status = it.third
                 initialized = true
@@ -201,16 +248,15 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
         }.toList()
     }
 
-    private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> =
-        List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
-            val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
-            SEpisode.create().apply {
-                name = "Episode ${episodeNumber + 1}"
-                url = json.encodeToString(players)
-                episode_number = (episodeNumber + 1).toFloat()
-                scanlator = players.mapIndexedNotNull { i, it -> if (it.isNotEmpty()) VOICES_VALUES[i] else null }.joinToString().uppercase()
-            }
+    private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> = List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
+        val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
+        SEpisode.create().apply {
+            name = "Episode ${episodeNumber + 1}"
+            url = json.encodeToString(players)
+            episode_number = (episodeNumber + 1).toFloat()
+            scanlator = players.mapIndexedNotNull { i, it -> if (it.isNotEmpty()) VOICES_VALUES[i] else null }.joinToString().uppercase()
         }
+    }
 
     private fun fetchPlayers(url: String): List<List<String>> {
         val docUrl = "$url/episodes.js"
@@ -228,13 +274,34 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
         return List(urls[0].size) { i -> urls.mapNotNull { it.getOrNull(i) }.distinct() }
     }
 
-    private fun getPlayers(playerName: String, doc: String): List<String>? {
-        val playerRegex = Regex("$playerName\\s*=\\s*(\\[.*?])", RegexOption.DOT_MATCHES_ALL)
-        val string = playerRegex.find(doc)?.groupValues?.get(1)
-        return if (string != null) json.decodeFromString<List<String>>(string) else null
+    private fun String.sanitizeDomain() = trim().removeSuffix("/").ifBlank { PREF_URL_DEFAULT }
+
+    private fun updateDomain(domain: String) {
+        val newDomain = domain.sanitizeDomain()
+        if (URLUtil.isValidUrl(newDomain)) {
+            preferences.customDomain = newDomain
+            baseUrl = newDomain
+        }
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addEditTextPreference(
+            key = PREF_URL_KEY,
+            title = PREF_URL_TITLE,
+            default = PREF_URL_DEFAULT,
+            summary = PREF_URL_SUMMARY,
+            onChange = { _, newValue ->
+                val newDomain = newValue.trim().removeSuffix("/")
+                if (URLUtil.isValidUrl(newDomain)) {
+                    updateDomain(newDomain)
+                    true
+                } else {
+                    Toast.makeText(screen.context, "URL invalide. Exemple: $PREF_URL_DEFAULT", Toast.LENGTH_LONG).show()
+                    false
+                }
+            },
+        )
+
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = "Preferred quality"
@@ -266,39 +333,35 @@ class AnimeSama : ConfigurableAnimeSource, AnimeHttpSource() {
     companion object {
         const val PREFIX_SEARCH = "id:"
 
-        private val VOICES = arrayOf(
-            "Préférer VOSTFR",
-            "Préférer VF",
-            "Préférer VF1",
-            "Préférer VF2",
-            "Préférer VCN",
-            "Préférer VJ",
-            "Préférer VKR",
-            "Préférer VQC",
-        )
+        private const val PREF_URL_KEY = "base_url_pref"
+        private const val PREF_URL_TITLE = "URL de base"
 
-        private val VOICES_VALUES = arrayOf(
-            "vostfr",
-            "vf",
-            "vf1",
-            "vf2",
-            "vcn",
-            "vj",
-            "vkr",
-            "vqc",
-        )
+        // Domain info at: https://anime-sama.pw
+        private const val PREF_URL_DEFAULT = "https://anime-sama.tv"
+        private const val PREF_URL_SUMMARY = "Pour changer le domaine de l'extension. Voir https://anime-sama.pw"
 
-        private val PLAYERS = arrayOf(
-            "Sendvid",
-            "Sibnet",
-            "VK",
+        private val voicesMap = mapOf(
+            "Préférer VOSTFR" to "vostfr",
+            "Préférer VF" to "vf",
+            "Préférer VF1" to "vf1",
+            "Préférer VF2" to "vf2",
+            "Préférer VA" to "va",
+            "Préférer VCN" to "vcn",
+            "Préférer VJ" to "vj",
+            "Préférer VKR" to "vkr",
+            "Préférer VQC" to "vqc",
         )
+        private val VOICES = voicesMap.keys.toTypedArray()
+        private val VOICES_VALUES = voicesMap.values.toTypedArray()
 
-        private val PLAYERS_VALUES = arrayOf(
-            "sendvid",
-            "sibnet",
-            "vk",
+        private val playersMap = mapOf(
+            "Sendvid" to "sendvid",
+            "Sibnet" to "sibnet",
+            "VK" to "vk",
+            "VidMoly" to "vidmoly",
         )
+        private val PLAYERS = playersMap.keys.toTypedArray()
+        private val PLAYERS_VALUES = playersMap.values.toTypedArray()
 
         private const val PREF_VOICES_KEY = "voices_preference"
         private const val PREF_VOICES_DEFAULT = "vostfr"

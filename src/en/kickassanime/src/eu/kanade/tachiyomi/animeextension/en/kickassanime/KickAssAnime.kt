@@ -26,7 +26,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -43,7 +43,9 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class KickAssAnime : ConfigurableAnimeSource, AnimeHttpSource() {
+class KickAssAnime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "KickAssAnime"
 
@@ -72,27 +74,22 @@ class KickAssAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animes, hasNext)
     }
 
-    private fun popularAnimeFromObject(anime: PopularItemDto): SAnime {
-        return SAnime.create().apply {
-            val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
-            title = when {
-                anime.title_en.isNotBlank() && useEnglish -> anime.title_en
-                else -> anime.title
-            }
-            setUrlWithoutDomain("/${anime.slug}")
-            thumbnail_url = "$baseUrl/${anime.poster.url}"
+    private fun popularAnimeFromObject(anime: PopularItemDto): SAnime = SAnime.create().apply {
+        val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
+        title = when {
+            anime.title_en.isNotBlank() && useEnglish -> anime.title_en
+            else -> anime.title
         }
+        setUrlWithoutDomain("/${anime.slug}")
+        thumbnail_url = "$baseUrl/${anime.poster.url}"
     }
 
     // ============================== Episodes ==============================
-    private fun episodeListRequest(anime: SAnime, page: Int, lang: String) =
-        GET("$apiUrl${anime.url}/episodes?page=$page&lang=$lang")
+    private fun episodeListRequest(anime: SAnime, page: Int, lang: String) = GET("$apiUrl${anime.url}/episodes?page=$page&lang=$lang")
 
-    private fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto {
-        return client.newCall(episodeListRequest(anime, page, lang))
-            .execute()
-            .parseAs()
-    }
+    private fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
+        .execute()
+        .parseAs()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
         // Fetch what languages are available for this anime
@@ -297,9 +294,7 @@ class KickAssAnime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun String.getLocale(): String {
-        return LOCALE.firstOrNull { it.first == this }?.second ?: ""
-    }
+    private fun String.getLocale(): String = LOCALE.firstOrNull { it.first == this }?.second ?: ""
 
     private fun String.parseStatus() = when (this) {
         "finished_airing" -> SAnime.COMPLETED
@@ -368,7 +363,15 @@ class KickAssAnime : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
-        private val PREF_DOMAIN_ENTRIES = arrayOf("kaa.to")
+
+        // Check domains here: https://kickassanime.cx/
+        private val PREF_DOMAIN_ENTRIES = arrayOf(
+            "kickass-anime.ru",
+            "kickass-anime.ro",
+            "kaa.to",
+            "kaa.rs",
+            "kaa.si",
+        )
         private val PREF_DOMAIN_ENTRY_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]
 

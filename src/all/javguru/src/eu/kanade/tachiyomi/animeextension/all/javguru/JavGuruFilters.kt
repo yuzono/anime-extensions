@@ -17,8 +17,7 @@ fun getFilters() = AnimeFilterList(
 
 class UriPartFilter(val name: String, val urlPart: String)
 
-abstract class UriPartFilters(name: String, private val tags: List<UriPartFilter>) :
-    AnimeFilter.Select<String>(name, tags.map { it.name }.toTypedArray()) {
+abstract class UriPartFilters(name: String, private val tags: List<UriPartFilter>) : AnimeFilter.Select<String>(name, tags.map { it.name }.toTypedArray()) {
     fun toUrlPart() = tags[state].urlPart
 }
 
@@ -47,16 +46,14 @@ class StudioFilter : TextFilter("Studio", "studio")
 
 class MakerFilter : TextFilter("Maker", "maker")
 
-fun <T> AnimeFilter<T>.toUrlPart(): String? {
-    return when (this) {
-        is TagFilter -> this.toUrlPart()
-        is CategoryFilter -> this.toUrlPart()
-        is ActressFilter -> this.toUrlPart()
-        is ActorFilter -> this.toUrlPart()
-        is StudioFilter -> this.toUrlPart()
-        is MakerFilter -> this.toUrlPart()
-        else -> null
-    }
+fun <T> AnimeFilter<T>.toUrlPart(): String? = when (this) {
+    is TagFilter -> this.toUrlPart()
+    is CategoryFilter -> this.toUrlPart()
+    is ActressFilter -> this.toUrlPart()
+    is ActorFilter -> this.toUrlPart()
+    is StudioFilter -> this.toUrlPart()
+    is MakerFilter -> this.toUrlPart()
+    else -> null
 }
 
 val TAGS = listOf(

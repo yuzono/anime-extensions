@@ -1,0 +1,9 @@
+ext {
+    extName = 'PelisPlusPh'
+    extClass = '.Pelisplusph'
+    themePkg = 'pelisplus'
+    baseUrl = 'https://www25.pelisplushd.to'
+    overrideVersionCode = 82
+}
+
+apply from: "$rootDir/common.gradle"

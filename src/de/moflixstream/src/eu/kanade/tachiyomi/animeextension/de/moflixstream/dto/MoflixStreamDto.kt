@@ -81,9 +81,8 @@ data class VideoListDto(val videos: List<VideoDto> = emptyList())
 data class VideoDto(val name: String, val src: String)
 
 object StringSerializer : JsonTransformingSerializer<String>(String.serializer()) {
-    override fun transformDeserialize(element: JsonElement) =
-        when (element) {
-            is JsonPrimitive -> JsonPrimitive(element.content)
-            else -> JsonPrimitive("")
-        }
+    override fun transformDeserialize(element: JsonElement) = when (element) {
+        is JsonPrimitive -> JsonPrimitive(element.content)
+        else -> JsonPrimitive("")
+    }
 }

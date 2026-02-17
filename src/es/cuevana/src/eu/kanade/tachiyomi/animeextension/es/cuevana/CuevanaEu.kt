@@ -23,7 +23,7 @@ import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
@@ -31,7 +31,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 
-class CuevanaEu(override val name: String, override val baseUrl: String) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class CuevanaEu(override val name: String, override val baseUrl: String) :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val lang = "es"
 
@@ -182,36 +184,44 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
                 videoList.addAll(videos)
                 videoList
             }
+
             embedUrl.contains("doodstream") || embedUrl.contains("dood.") -> {
                 DoodExtractor(client).videoFromUrl(url, "$prefix DoodStream")
                     ?.let { videoList.add(it) }
                 videoList
             }
+
             embedUrl.contains("okru") || embedUrl.contains("ok.ru") -> {
                 OkruExtractor(client).videosFromUrl(url, prefix, true).also(videoList::addAll)
                 videoList
             }
+
             embedUrl.contains("voe") -> {
                 VoeExtractor(client, headers).videosFromUrl(url, prefix).also(videoList::addAll)
                 videoList
             }
+
             embedUrl.contains("streamtape") -> {
                 StreamTapeExtractor(client).videoFromUrl(url, "$prefix StreamTape")?.let { videoList.add(it) }
                 videoList
             }
+
             embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("wish") -> {
                 StreamWishExtractor(client, headers).videosFromUrl(url) { "$prefix StreamWish:$it" }
                     .also(videoList::addAll)
                 videoList
             }
+
             embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
                 FilemoonExtractor(client).videosFromUrl(url, "$prefix Filemoon:").also(videoList::addAll)
                 videoList
             }
+
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
                 StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix FileLions:$it" }).also(videoList::addAll)
                 videoList
             }
+
             else -> {
                 UniversalExtractor(client).videosFromUrl(url, headers, prefix = prefix).also(videoList::addAll)
                 videoList
@@ -301,30 +311,30 @@ class CuevanaEu(override val name: String, override val baseUrl: String) : Confi
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Tipos",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("Series", "series/estrenos"),
-            Pair("Acción", "genero/accion"),
-            Pair("Aventura", "genero/aventura"),
-            Pair("Animación", "genero/animacion"),
-            Pair("Ciencia Ficción", "genero/ciencia-ficcion"),
-            Pair("Comedia", "genero/comedia"),
-            Pair("Crimen", "genero/crimen"),
-            Pair("Documentales", "genero/documental"),
-            Pair("Drama", "genero/drama"),
-            Pair("Familia", "genero/familia"),
-            Pair("Fantasía", "genero/fantasia"),
-            Pair("Misterio", "genero/misterio"),
-            Pair("Romance", "genero/romance"),
-            Pair("Suspenso", "genero/suspense"),
-            Pair("Terror", "genero/terror"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Tipos",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("Series", "series/estrenos"),
+                Pair("Acción", "genero/accion"),
+                Pair("Aventura", "genero/aventura"),
+                Pair("Animación", "genero/animacion"),
+                Pair("Ciencia Ficción", "genero/ciencia-ficcion"),
+                Pair("Comedia", "genero/comedia"),
+                Pair("Crimen", "genero/crimen"),
+                Pair("Documentales", "genero/documental"),
+                Pair("Drama", "genero/drama"),
+                Pair("Familia", "genero/familia"),
+                Pair("Fantasía", "genero/fantasia"),
+                Pair("Misterio", "genero/misterio"),
+                Pair("Romance", "genero/romance"),
+                Pair("Suspenso", "genero/suspense"),
+                Pair("Terror", "genero/terror"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

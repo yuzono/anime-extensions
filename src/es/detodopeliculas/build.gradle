@@ -3,15 +3,15 @@ ext {
     extClass = '.DeTodoPeliculas'
     themePkg = 'dooplay'
     baseUrl = 'https://detodopeliculas.nu'
-    overrideVersionCode = 10
+    overrideVersionCode = 11
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:uqload-extractor"))
-    implementation(project(':lib:streamhidevid-extractor'))
-    implementation(project(':lib:vidguard-extractor'))
-    implementation(project(':lib:voe-extractor'))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:uqloadextractor"))
+    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidguardextractor'))
+    implementation(project(':lib:voeextractor'))
 }

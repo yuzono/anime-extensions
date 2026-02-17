@@ -6,7 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import extensions.utils.tryParse
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.Headers.Companion.toHeaders
@@ -108,9 +108,7 @@ data class LibraryItemDto(
         thumbnail_url = poster
     }
 
-    fun watched(): Boolean {
-        return state.timesWatched > 0
-    }
+    fun watched(): Boolean = state.timesWatched > 0
 }
 
 @Serializable

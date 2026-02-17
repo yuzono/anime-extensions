@@ -13,22 +13,22 @@ import org.jsoup.nodes.Element
  */
 
 /**
- * Use if the attribute tag has a data:image string but real URLs are on a different attribute
- */
-fun Element.dataImageAsUrlOrNull(attr: String): String? {
-    return if (attr(attr).startsWith("data")) {
-        "https://127.0.0.1/?" + attr(attr).substringAfter(":")
-    } else {
-        null
-    }
-}
-
-/**
  * Use if the attribute tag could have a data:image string or URL
  * Transforms data:image in to a fake URL that OkHttp won't die on
  */
 fun Element.dataImageAsUrl(attr: String): String {
     return dataImageAsUrlOrNull(attr) ?: attr("abs:$attr")
+}
+
+/**
+ * Use if the attribute tag has a data:image string but real URLs are on a different attribute
+ */
+fun Element.dataImageAsUrlOrNull(attr: String): String? {
+    return if (this.attr(attr).startsWith("data")) {
+        "https://127.0.0.1/?" + this.attr(attr).substringAfter(":")
+    } else {
+        null
+    }
 }
 
 /**

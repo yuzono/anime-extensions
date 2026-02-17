@@ -16,7 +16,7 @@
   ],
   "ignoreDeps": [
     "aniyomiorg/issue-moderator-action",
-    "com.github.mihonapp:injekt"
+    "com.github.null2264.injekt:injekt-core"
   ],
   "packageRules": [
     {

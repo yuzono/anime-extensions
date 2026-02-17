@@ -20,7 +20,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
 import eu.kanade.tachiyomi.util.parallelMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -29,7 +29,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AniwaveSe :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Aniwave.se"
 
@@ -77,8 +79,7 @@ class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         thumbnail_url = element.select("div.poster img").attr("src")
     }
 
-    override fun popularAnimeNextPageSelector(): String =
-        "nav > ul.pagination > li.active ~ li"
+    override fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
 
     // =============================== Latest ===============================
 
@@ -280,7 +281,7 @@ class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 //    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
     private fun extractVideo(server: VideoData, epUrl: String): List<Video> {
-        /**
+        /*
          * Calling server script and return the encrypted JSON response here, will work on decrypting it later.
          */
 //        val vrf = utils.vrfEncrypt(server.serverId)
@@ -301,7 +302,8 @@ class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 //            val embedLink = utils.vrfDecrypt(parsed.result.url)
             when (server.serverName) {
                 "f4 - noads" -> videosFromUrl(server.serverId, "F4 - Noads", server.type)
-//                "vidstream" -> vidsrcExtractor.videosFromUrl(embedLink, "Vidstream", server.type)
+
+                //                "vidstream" -> vidsrcExtractor.videosFromUrl(embedLink, "Vidstream", server.type)
 //                "megaf" -> vidsrcExtractor.videosFromUrl(embedLink, "MegaF", server.type)
 //                "moonf" -> filemoonExtractor.videosFromUrl(embedLink, "MoonF - ${server.type} - ")
 //                "streamtape" -> streamtapeExtractor.videoFromUrl(embedLink, "StreamTape - ${server.type}")?.let(::listOf) ?: emptyList()
@@ -370,9 +372,7 @@ class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         )
     }
 
-    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean {
-        return any { it.equals(s, ignoreCase) }
-    }
+    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -387,18 +387,14 @@ class AniwaveSe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     @Synchronized
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString) {
-            "Ongoing Anime" -> SAnime.ONGOING
-            "Finished Airing" -> SAnime.COMPLETED
-            "Completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString) {
+        "Ongoing Anime" -> SAnime.ONGOING
+        "Finished Airing" -> SAnime.COMPLETED
+        "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     private fun resolveSearchAnime(document: Document): Document {

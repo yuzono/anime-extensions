@@ -16,14 +16,16 @@ import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 
-class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class LocoPelis :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "LocoPelis"
 
@@ -53,13 +55,11 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/pelicula/peliculas-mas-vistas?page=$page")
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select("h2.titpeli").text()
-            thumbnail_url = element.select("div.peli_img div.peli_img_img a img").attr("src")
-            description = element.select("div.peli_img div.peli_txt p").text().removeSurrounding("\"")
-            setUrlWithoutDomain(element.select("div.peli_img div.peli_img_img a").attr("href"))
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select("h2.titpeli").text()
+        thumbnail_url = element.select("div.peli_img div.peli_img_img a img").attr("src")
+        description = element.select("div.peli_img div.peli_txt p").text().removeSurrounding("\"")
+        setUrlWithoutDomain(element.select("div.peli_img div.peli_img_img a").attr("href"))
     }
 
     override fun popularAnimeNextPageSelector(): String = "#cn div ul.nav li ~ li"
@@ -72,7 +72,9 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 name = "PELÍCULA"
                 episode_number = 1f
                 document.select("div.content div.details ul.dtalist li").map {
-                    if (it.text().contains("Publicado:")) { date_upload = it.text().replace("Publicado:", "").trim().toDate() }
+                    if (it.text().contains("Publicado:")) {
+                        date_upload = it.text().replace("Publicado:", "").trim().toDate()
+                    }
                 }
             }
         }
@@ -89,11 +91,15 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 when {
                     contains("streamtape") || contains("stp") || contains("stape")
                     -> StreamTapeExtractor(client).videosFromUrl(this, quality = "StreamTape")
+
                     contains("doodstream") || contains("dood.") || contains("d000d") || contains("ds2play") || contains("doods.")
                     -> DoodExtractor(client).videosFromUrl(this, "DoodStream")
+
                     contains("ok.ru") || contains("okru") -> OkruExtractor(client).videosFromUrl(this)
+
                     contains("vidhide") || contains("streamhide") || contains("guccihide") || contains("streamvid")
                     -> StreamHideVidExtractor(client, headers).videosFromUrl(this)
+
                     else -> emptyList()
                 }
             }
@@ -122,45 +128,45 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Últ. agregadas", "pelicula/ultimas-peliculas"),
-            Pair("Últ. descargas", "pelicula/ultimas-descargas"),
-            Pair("Más votadas", "pelicula/peliculas-mas-votadas"),
-            Pair("Más visitadas", "pelicula/peliculas-mas-vistas"),
-            Pair("Accion", "accion"),
-            Pair("Adolescente", "adolescente"),
-            Pair("Animacion e Infantil", "animacion-e-infantil"),
-            Pair("Anime", "anime"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Asiaticas", "asiaticas"),
-            Pair("Aventura", "aventura"),
-            Pair("Bélico (Guerra)", "belico"),
-            Pair("Ciencia Ficcion", "ciencia-ficcion"),
-            Pair("Cine negro", "cine-negro"),
-            Pair("Comedia", "comedia"),
-            Pair("Deporte", "deporte"),
-            Pair("Documentales", "documentales"),
-            Pair("Drama", "drama"),
-            Pair("Eroticas +18", "eroticas"),
-            Pair("Fantasia", "fantasia"),
-            Pair("Hindu", "hindu"),
-            Pair("Intriga", "intriga"),
-            Pair("Musical", "musical"),
-            Pair("Religiosas", "religiosas"),
-            Pair("Romance", "romance"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Western", "western"),
-            Pair("Zombies", "zombies"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Últ. agregadas", "pelicula/ultimas-peliculas"),
+                Pair("Últ. descargas", "pelicula/ultimas-descargas"),
+                Pair("Más votadas", "pelicula/peliculas-mas-votadas"),
+                Pair("Más visitadas", "pelicula/peliculas-mas-vistas"),
+                Pair("Accion", "accion"),
+                Pair("Adolescente", "adolescente"),
+                Pair("Animacion e Infantil", "animacion-e-infantil"),
+                Pair("Anime", "anime"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Asiaticas", "asiaticas"),
+                Pair("Aventura", "aventura"),
+                Pair("Bélico (Guerra)", "belico"),
+                Pair("Ciencia Ficcion", "ciencia-ficcion"),
+                Pair("Cine negro", "cine-negro"),
+                Pair("Comedia", "comedia"),
+                Pair("Deporte", "deporte"),
+                Pair("Documentales", "documentales"),
+                Pair("Drama", "drama"),
+                Pair("Eroticas +18", "eroticas"),
+                Pair("Fantasia", "fantasia"),
+                Pair("Hindu", "hindu"),
+                Pair("Intriga", "intriga"),
+                Pair("Musical", "musical"),
+                Pair("Religiosas", "religiosas"),
+                Pair("Romance", "romance"),
+                Pair("Suspenso", "suspenso"),
+                Pair("Terror", "terror"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Western", "western"),
+                Pair("Zombies", "zombies"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -170,16 +176,14 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            thumbnail_url = document.selectFirst("div.intsd div.peli_img_int img")?.attr("abs:src")
-            description = document.selectFirst("div.content span div.sinoptxt strong")?.text()?.removeSurrounding("\"")
-            status = SAnime.COMPLETED
-            document.select("div.content div.details ul.dtalist li").map { it.text().lowercase() }.map { textContent ->
-                when {
-                    "titulo latino" in textContent -> title = textContent.replace("titulo latino:", "").trim()
-                    "genero" in textContent -> genre = textContent.replace("genero:", "").trim()
-                }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        thumbnail_url = document.selectFirst("div.intsd div.peli_img_int img")?.attr("abs:src")
+        description = document.selectFirst("div.content span div.sinoptxt strong")?.text()?.removeSurrounding("\"")
+        status = SAnime.COMPLETED
+        document.select("div.content div.details ul.dtalist li").map { it.text().lowercase() }.map { textContent ->
+            when {
+                "titulo latino" in textContent -> title = textContent.replace("titulo latino:", "").trim()
+                "genero" in textContent -> genre = textContent.replace("genero:", "").trim()
             }
         }
     }
@@ -204,9 +208,7 @@ class LocoPelis : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {

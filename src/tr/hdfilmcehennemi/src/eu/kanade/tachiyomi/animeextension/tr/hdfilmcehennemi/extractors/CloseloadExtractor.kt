@@ -59,6 +59,5 @@ class CloseloadExtractor(private val client: OkHttpClient, private val headers: 
         client.newCall(POST(url, headers, body)).await().close()
     }
 
-    private fun String.getProperty(before: String) =
-        substringAfter("$before\"").substringBefore('"')
+    private fun String.getProperty(before: String) = substringAfter("$before\"").substringBefore('"')
 }

@@ -16,13 +16,15 @@ import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class MyCima :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MY Cima"
 
@@ -37,13 +39,11 @@ class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ==============================
-    override fun popularAnimeSelector(): String =
-        "div.Grid--WecimaPosts div.GridItem div.Thumb--GridItem"
+    override fun popularAnimeSelector(): String = "div.Grid--WecimaPosts div.GridItem div.Thumb--GridItem"
 
     override fun popularAnimeNextPageSelector(): String = "ul.page-numbers li a.next"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/seriestv/top/?page_number=$page", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/seriestv/top/?page_number=$page", headers)
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -95,11 +95,9 @@ class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun movieEpisode(element: Element): List<SEpisode> =
-        newEpisodeFromElement(element, type = "movie").let(::listOf)
+    private fun movieEpisode(element: Element): List<SEpisode> = newEpisodeFromElement(element, type = "movie").let(::listOf)
 
-    private fun mSeriesEpisode(element: Element): SEpisode =
-        newEpisodeFromElement(element, type = "mSeries")
+    private fun mSeriesEpisode(element: Element): SEpisode = newEpisodeFromElement(element, type = "mSeries")
 
     private fun newEpisodeFromElement(
         element: Element,
@@ -125,8 +123,7 @@ class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episode
     }
 
-    override fun episodeFromElement(element: Element): SEpisode =
-        throw UnsupportedOperationException()
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
@@ -246,8 +243,7 @@ class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun latestUpdatesNextPageSelector(): String = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime =
-        popularAnimeFromElement(element)
+    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page", headers)
 
@@ -263,67 +259,69 @@ class MyCima : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class CategoryFilter : PairFilter(
-        "النوع",
-        arrayOf(
-            Pair("فيلم", "page/"),
-            Pair("مسلسل", "list/series/?page_number="),
-            Pair("انمى", "list/anime/?page_number="),
-            Pair("برنامج", "list/tv/?page_number="),
-        ),
-    )
-
-    private class SectionFilter : PairFilter(
-        "اقسام الموقع",
-        arrayOf(
-            Pair("اختر", ""),
-            Pair("جميع الافلام", "movies"),
-            Pair("افلام اجنبى", "category/أفلام/10-movies-english-افلام-اجنبي"),
-            Pair("افلام عربى", "category/أفلام/افلام-عربي-arabic-movies"),
-            Pair("افلام هندى", "category/أفلام/افلام-هندي-indian-movies"),
-            Pair("افلام تركى", "category/أفلام/افلام-تركى-turkish-films"),
-            Pair("افلام وثائقية", "category/أفلام/افلام-وثائقية-documentary-films"),
-            Pair("افلام انمي", "category/افلام-كرتون"),
-            Pair(
-                "سلاسل افلام",
-                "category/أفلام/10-movies-english-افلام-اجنبي/سلاسل-الافلام-الكاملة-full-pack",
+    private class CategoryFilter :
+        PairFilter(
+            "النوع",
+            arrayOf(
+                Pair("فيلم", "page/"),
+                Pair("مسلسل", "list/series/?page_number="),
+                Pair("انمى", "list/anime/?page_number="),
+                Pair("برنامج", "list/tv/?page_number="),
             ),
-            Pair("مسلسلات", "seriestv"),
-            Pair("مسلسلات اجنبى", "category/مسلسلات/5-series-english-مسلسلات-اجنبي"),
-            Pair("مسلسلات عربى", "category/مسلسلات/5-series-english-مسلسلات-اجنبي"),
-            Pair("مسلسلات هندى", "category/مسلسلات/9-series-indian-مسلسلات-هندية"),
-            Pair("مسلسلات اسيوى", "category/مسلسلات/مسلسلات-اسيوية"),
-            Pair("مسلسلات تركى", "category/مسلسلات/8-مسلسلات-تركية-turkish-series"),
-            Pair("مسلسلات وثائقية", "category/مسلسلات/مسلسلات-وثائقية-documentary-series"),
-            Pair("مسلسلات انمي", "category/مسلسلات-كرتون"),
-            Pair("NETFLIX", "production/netflix"),
-            Pair("WARNER BROS", "production/warner-bros"),
-            Pair("LIONSGATE", "production/lionsgate"),
-            Pair("DISNEY", "production/walt-disney-pictures"),
-            Pair("COLUMBIA", "production/columbia-pictures"),
-        ),
-    )
+        )
 
-    private class GenreFilter : PairFilter(
-        "التصنيف",
-        arrayOf(
-            Pair("اكشن", "اكشن-action"),
-            Pair("مغامرات", "مغامرات-adventure"),
-            Pair("خيال علمى", "خيال-علمى-science-fiction"),
-            Pair("فانتازيا", "فانتازيا-fantasy"),
-            Pair("كوميديا", "كوميديا-comedy"),
-            Pair("دراما", "دراما-drama"),
-            Pair("جريمة", "جريمة-crime"),
-            Pair("اثارة", "اثارة-thriller"),
-            Pair("رعب", "رعب-horror"),
-            Pair("سيرة ذاتية", "سيرة-ذاتية-biography"),
-            Pair("كرتون", "كرتون"),
-            Pair("انيميشين", "انيميشين-anime"),
-        ),
-    )
+    private class SectionFilter :
+        PairFilter(
+            "اقسام الموقع",
+            arrayOf(
+                Pair("اختر", ""),
+                Pair("جميع الافلام", "movies"),
+                Pair("افلام اجنبى", "category/أفلام/10-movies-english-افلام-اجنبي"),
+                Pair("افلام عربى", "category/أفلام/افلام-عربي-arabic-movies"),
+                Pair("افلام هندى", "category/أفلام/افلام-هندي-indian-movies"),
+                Pair("افلام تركى", "category/أفلام/افلام-تركى-turkish-films"),
+                Pair("افلام وثائقية", "category/أفلام/افلام-وثائقية-documentary-films"),
+                Pair("افلام انمي", "category/افلام-كرتون"),
+                Pair(
+                    "سلاسل افلام",
+                    "category/أفلام/10-movies-english-افلام-اجنبي/سلاسل-الافلام-الكاملة-full-pack",
+                ),
+                Pair("مسلسلات", "seriestv"),
+                Pair("مسلسلات اجنبى", "category/مسلسلات/5-series-english-مسلسلات-اجنبي"),
+                Pair("مسلسلات عربى", "category/مسلسلات/5-series-english-مسلسلات-اجنبي"),
+                Pair("مسلسلات هندى", "category/مسلسلات/9-series-indian-مسلسلات-هندية"),
+                Pair("مسلسلات اسيوى", "category/مسلسلات/مسلسلات-اسيوية"),
+                Pair("مسلسلات تركى", "category/مسلسلات/8-مسلسلات-تركية-turkish-series"),
+                Pair("مسلسلات وثائقية", "category/مسلسلات/مسلسلات-وثائقية-documentary-series"),
+                Pair("مسلسلات انمي", "category/مسلسلات-كرتون"),
+                Pair("NETFLIX", "production/netflix"),
+                Pair("WARNER BROS", "production/warner-bros"),
+                Pair("LIONSGATE", "production/lionsgate"),
+                Pair("DISNEY", "production/walt-disney-pictures"),
+                Pair("COLUMBIA", "production/columbia-pictures"),
+            ),
+        )
 
-    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private class GenreFilter :
+        PairFilter(
+            "التصنيف",
+            arrayOf(
+                Pair("اكشن", "اكشن-action"),
+                Pair("مغامرات", "مغامرات-adventure"),
+                Pair("خيال علمى", "خيال-علمى-science-fiction"),
+                Pair("فانتازيا", "فانتازيا-fantasy"),
+                Pair("كوميديا", "كوميديا-comedy"),
+                Pair("دراما", "دراما-drama"),
+                Pair("جريمة", "جريمة-crime"),
+                Pair("اثارة", "اثارة-thriller"),
+                Pair("رعب", "رعب-horror"),
+                Pair("سيرة ذاتية", "سيرة-ذاتية-biography"),
+                Pair("كرتون", "كرتون"),
+                Pair("انيميشين", "انيميشين-anime"),
+            ),
+        )
+
+    open class PairFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

@@ -18,7 +18,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -42,7 +42,9 @@ import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
+class AniZone :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniZone"
 
@@ -68,29 +70,27 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return if (page == 1) {
-            loadCount = 0
-            snapShots[ANIME_SNAPSHOT_KEY] = ""
+    override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
+        loadCount = 0
+        snapShots[ANIME_SNAPSHOT_KEY] = ""
 
-            val updates = buildJsonObject {
-                put("sort", "title-asc")
-            }
-            val calls = buildJsonArray { }
-
-            createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
-        } else {
-            val updates = buildJsonObject { }
-            val calls = buildJsonArray {
-                addJsonObject {
-                    put("path", "")
-                    put("method", "loadMore")
-                    putJsonArray("params") { }
-                }
-            }
-
-            createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
+        val updates = buildJsonObject {
+            put("sort", "title-asc")
         }
+        val calls = buildJsonArray { }
+
+        createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
+    } else {
+        val updates = buildJsonObject { }
+        val calls = buildJsonArray {
+            addJsonObject {
+                put("path", "")
+                put("method", "loadMore")
+                putJsonArray("params") { }
+            }
+        }
+
+        createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
@@ -105,37 +105,31 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun animeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            thumbnail_url = element.selectFirst("img")!!.attr("src")
-            with(element.selectFirst("a.inline")!!) {
-                setUrlWithoutDomain(attr("href"))
-                title = text()
-            }
+    private fun animeFromElement(element: Element): SAnime = SAnime.create().apply {
+        thumbnail_url = element.selectFirst("img")!!.attr("src")
+        with(element.selectFirst("a.inline")!!) {
+            setUrlWithoutDomain(attr("href"))
+            title = text()
         }
     }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return if (page == 1) {
-            loadCount = 0
-            snapShots[ANIME_SNAPSHOT_KEY] = ""
+    override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
+        loadCount = 0
+        snapShots[ANIME_SNAPSHOT_KEY] = ""
 
-            val updates = buildJsonObject {
-                put("sort", "release-desc")
-            }
-            val calls = buildJsonArray { }
-
-            createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
-        } else {
-            popularAnimeRequest(page)
+        val updates = buildJsonObject {
+            put("sort", "release-desc")
         }
+        val calls = buildJsonArray { }
+
+        createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)
+    } else {
+        popularAnimeRequest(page)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
@@ -160,30 +154,26 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(SortFilter())
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(SortFilter())
 
-    private class SortFilter : UriPartFilter(
-        "Sort",
-        arrayOf(
-            Pair("A-Z", "title-asc"),
-            Pair("Z-A", "title-desc"),
-            Pair("Earliest Release", "release-asc"),
-            Pair("Latest Release", "release-desc"),
-            Pair("First Added", "added-asc"),
-            Pair("Last Added", "added-desc"),
-        ),
-    )
+    private class SortFilter :
+        UriPartFilter(
+            "Sort",
+            arrayOf(
+                Pair("A-Z", "title-asc"),
+                Pair("Z-A", "title-desc"),
+                Pair("Earliest Release", "release-asc"),
+                Pair("Latest Release", "release-desc"),
+                Pair("First Added", "added-asc"),
+                Pair("Last Added", "added-desc"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -216,11 +206,9 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================== Episodes ==============================
 
-    private fun getPredefinedSnapshots(slug: String): String {
-        return when (slug) {
-            "/anime/uyyyn4kf" -> """{"data":{"anime":[null,{"class":"anime","key":68,"s":"mdl"}],"title":null,"search":"","listSize":1104,"sort":"release-asc","sortOptions":[{"release-asc":"First Aired","release-desc":"Last Aired"},{"s":"arr"}],"view":"list","paginators":[{"page":1},{"s":"arr"}]},"memo":{"id":"GD1OiEMOJq6UQDQt1OBt","name":"pages.anime-detail","path":"anime\/uyyyn4kf","method":"GET","children":[],"scripts":[],"assets":[],"errors":[],"locale":"en"},"checksum":"5800932dd82e4862f34f6fd72d8098243b32643e8accb8da6a6a39cd0ee86acd"}"""
-            else -> ""
-        }
+    private fun getPredefinedSnapshots(slug: String): String = when (slug) {
+        "/anime/uyyyn4kf" -> """{"data":{"anime":[null,{"class":"anime","key":68,"s":"mdl"}],"title":null,"search":"","listSize":1104,"sort":"release-asc","sortOptions":[{"release-asc":"First Aired","release-desc":"Last Aired"},{"s":"arr"}],"view":"list","paginators":[{"page":1},{"s":"arr"}]},"memo":{"id":"GD1OiEMOJq6UQDQt1OBt","name":"pages.anime-detail","path":"anime\/uyyyn4kf","method":"GET","children":[],"scripts":[],"assets":[],"errors":[],"locale":"en"},"checksum":"5800932dd82e4862f34f6fd72d8098243b32643e8accb8da6a6a39cd0ee86acd"}"""
+        else -> ""
     }
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -287,9 +275,7 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET(baseUrl + episode.url, headers)
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET(baseUrl + episode.url, headers)
 
     private val playlistUtils: PlaylistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -395,11 +381,9 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
         )
     }
 
-    private fun Document.getSnapshot(): String {
-        return this.selectFirst("main > div[wire:snapshot]")!!
-            .attr("wire:snapshot")
-            .replace("&quot;", "\"")
-    }
+    private fun Document.getSnapshot(): String = this.selectFirst("main > div[wire:snapshot]")!!
+        .attr("wire:snapshot")
+        .replace("&quot;", "\"")
 
     private fun createLivewireReq(
         mapKey: String,
@@ -439,18 +423,14 @@ class AniZone : AnimeHttpSource(), ConfigurableAnimeSource {
         return POST("$baseUrl/livewire/update", headers, body)
     }
 
-    private fun JsonObject.toRequestBody(): RequestBody {
-        return json.encodeToString(this).toRequestBody(
-            "application/json".toMediaType(),
-        )
-    }
+    private fun JsonObject.toRequestBody(): RequestBody = json.encodeToString(this).toRequestBody(
+        "application/json".toMediaType(),
+    )
 
-    private fun parseDate(dateStr: String): Long {
-        return try {
-            DATE_FORMAT.parse(dateStr)!!.time
-        } catch (_: ParseException) {
-            0L
-        }
+    private fun parseDate(dateStr: String): Long = try {
+        DATE_FORMAT.parse(dateStr)!!.time
+    } catch (_: ParseException) {
+        0L
     }
 
     private val SharedPreferences.quality

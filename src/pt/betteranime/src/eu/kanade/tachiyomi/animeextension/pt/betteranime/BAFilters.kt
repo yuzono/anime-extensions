@@ -20,25 +20,22 @@ object BAFilters {
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): List<String> {
-        return (first { it is R } as CheckBoxFilterList).state
-            .asSequence()
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .toList()
-    }
+    ): List<String> = (first { it is R } as CheckBoxFilterList).state
+        .asSequence()
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .toList()
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     class LanguageFilter : QueryPartFilter("Idioma", BAFiltersData.LANGUAGES)
     class YearFilter : QueryPartFilter("Ano", BAFiltersData.YEARS)
 
-    class GenresFilter : CheckBoxFilterList(
-        "Gêneros",
-        BAFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Gêneros",
+            BAFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         LanguageFilter(),

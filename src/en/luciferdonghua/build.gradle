@@ -3,13 +3,13 @@ ext {
     extClass = '.LuciferDonghua'
     themePkg = 'animestream'
     baseUrl = 'https://luciferdonghua.in'
-    overrideVersionCode = 10
+    overrideVersionCode = 11
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
+    implementation(project(':lib:dailymotionextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:streamwishextractor'))
 }

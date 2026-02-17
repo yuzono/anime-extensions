@@ -1,18 +1,19 @@
 ext {
     extName = 'Jkanime'
     extClass = '.Jkanime'
-    extVersionCode = 41
+    extVersionCode = 43
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:mixdrop-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:universal-extractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:vidhideextractor'))
+    implementation(project(':lib:universalextractor'))
 }

@@ -6,11 +6,12 @@ import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
-class LuciferDonghua : AnimeStream(
-    "en",
-    "LuciferDonghua",
-    "https://luciferdonghua.in",
-) {
+class LuciferDonghua :
+    AnimeStream(
+        "en",
+        "LuciferDonghua",
+        "https://luciferdonghua.in",
+    ) {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.eplister > ul > li a"
 

@@ -13,22 +13,26 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelMapNotNull
-import extensions.utils.LazyMutable
-import extensions.utils.addListPreference
-import extensions.utils.addSetPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferences
-import extensions.utils.parseAs
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferences
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
+class YFlix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "YFlix"
 
@@ -126,15 +130,26 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         genre = document.select("ul.mics li:has(a[href*=/genre/]) a").eachText().joinToString()
         author = document.select("ul.mics li:has(a[href*=/production/]) a").eachText().joinToString()
 
+        // fancy score
+        val scorePosition = preferences.scorePosition
+        val fancyScore = when (scorePosition) {
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.rating")?.attr("data-score"))
+            else -> ""
+        }
+
         description = buildString {
+            if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) {
+                append(fancyScore)
+                append("\n\n")
+            }
+
             document.selectFirst(".description")?.text()?.also { append("$it\n\n") }
 
             val type = if (isMovie) "Movie" else "TV Show"
             append("**Type:** $type\n")
 
-            fun getInfo(label: String): String? =
-                document.selectFirst("ul.mics li:contains($label:)")
-                    ?.text()?.substringAfter(":")?.trim()
+            fun getInfo(label: String): String? = document.selectFirst("ul.mics li:contains($label:)")
+                ?.text()?.substringAfter(":")?.trim()
 
             getInfo("Country")?.let { append("**Country:** $it\n") }
             getInfo("Released")?.let { append("**Released:** $it\n") }
@@ -152,8 +167,38 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
                     append("\n\n![Cover]($coverUrl)")
                 }
             }
+
+            if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
+                if (isNotEmpty()) append("\n\n")
+                append(fancyScore)
+            }
         }
     }
+
+    private fun getFancyScore(score: String?): String {
+        if (score.isNullOrBlank()) return ""
+
+        return try {
+            val scoreBig = BigDecimal(score.trim())
+            if (scoreBig.compareTo(BigDecimal.ZERO) == 0) return ""
+
+            val stars = scoreBig.divide(BigDecimal(2))
+                .setScale(0, RoundingMode.HALF_UP)
+                .toInt()
+                .coerceIn(0, 5)
+
+            val scoreString = scoreBig.stripTrailingZeros().toPlainString()
+
+            buildString {
+                append("★".repeat(stars))
+                if (stars < 5) append("☆".repeat(5 - stars))
+                append(" $scoreString")
+            }
+        } catch (_: NumberFormatException) {
+            ""
+        }
+    }
+
     // ============================== Filters ==============================
 
     override fun getFilterList(): AnimeFilterList = YFlixFilters.FILTER_LIST
@@ -189,8 +234,7 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> =
-        throw UnsupportedOperationException("Not used.")
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used.")
 
     private fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode = SEpisode.create().apply {
         val epNum = element.attr("num")
@@ -248,23 +292,17 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         .add("X-Requested-With", "XMLHttpRequest")
         .build()
 
-    private suspend fun encrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<ResultResponse>(json = json).result
-            }
-    }
+    private suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<ResultResponse>(json = json).result
+        }
 
-    private suspend fun decrypt(text: String): String {
-        return apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
-            .awaitSuccess().use {
-                it.parseAs<DecryptedIframeResponse>(json = json).result.url
-            }
-    }
+    private suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
+        .awaitSuccess().use {
+            it.parseAs<DecryptedIframeResponse>(json = json).result.url
+        }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.qualityPref
@@ -291,6 +329,7 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
     private val SharedPreferences.subLangPref by preferences.delegate(PREF_SUB_LANG_KEY, PREF_SUB_LANG_DEFAULT)
     private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
     private val SharedPreferences.hosterPref by preferences.delegate(PREF_HOSTER_KEY, SERVERS.toSet())
+    private val SharedPreferences.scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
@@ -350,6 +389,15 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             summary = "%s",
         )
 
+        screen.addListPreference(
+            key = PREF_SCORE_POSITION_KEY,
+            title = "Score display position",
+            entries = PREF_SCORE_POSITION_ENTRIES,
+            entryValues = PREF_SCORE_POSITION_VALUES,
+            default = PREF_SCORE_POSITION_DEFAULT,
+            summary = "%s",
+        )
+
         screen.addSetPreference(
             key = PREF_HOSTER_KEY,
             title = "Enable/disable servers",
@@ -383,6 +431,14 @@ class YFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         private val PREF_SERVER_DEFAULT = SERVERS.first()
 
         const val PREF_HOSTER_KEY = "pref_hoster_key"
+
+        private const val PREF_SCORE_POSITION_KEY = "score_position"
+        private const val SCORE_POS_TOP = "top"
+        private const val SCORE_POS_BOTTOM = "bottom"
+        private const val SCORE_POS_NONE = "none"
+        private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
+        private val PREF_SCORE_POSITION_ENTRIES = listOf("Top of description", "Bottom of description", "Don't show")
+        private val PREF_SCORE_POSITION_VALUES = listOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
 
         private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
     }

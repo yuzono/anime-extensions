@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,7 +33,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class BetterAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class BetterAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Better Anime"
 
@@ -84,15 +86,13 @@ class BetterAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // =============================== Search ===============================
     override fun getFilterList() = BAFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH_PATH)) {
-            val path = query.removePrefix(PREFIX_SEARCH_PATH)
-            client.newCall(GET("$baseUrl/$path", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH_PATH)) {
+        val path = query.removePrefix(PREFIX_SEARCH_PATH)
+        client.newCall(GET("$baseUrl/$path", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByPathParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByPathParse(response: Response): AnimesPage {
@@ -211,8 +211,7 @@ class BetterAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "ul#episodesList > li.list-group-item-action > a"
 
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).reversed()
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
         val episodeName = element.text()
@@ -252,26 +251,20 @@ class BetterAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun getRealDoc(document: Document): Document {
-        return document.selectFirst("div.anime-title a")?.let { link ->
-            client.newCall(GET(link.attr("href"), headers))
-                .execute()
-                .asJsoup()
-        } ?: document
+    private fun getRealDoc(document: Document): Document = document.selectFirst("div.anime-title a")?.let { link ->
+        client.newCall(GET(link.attr("href"), headers))
+            .execute()
+            .asJsoup()
+    } ?: document
+
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "Completo" -> SAnime.COMPLETED
+        else -> SAnime.ONGOING
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Completo" -> SAnime.COMPLETED
-            else -> SAnime.ONGOING
-        }
-    }
-
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("p:containsOwn($key) > span")
-            ?.text()
-            ?.trim()
-    }
+    private fun Element.getInfo(key: String): String? = selectFirst("p:containsOwn($key) > span")
+        ?.text()
+        ?.trim()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

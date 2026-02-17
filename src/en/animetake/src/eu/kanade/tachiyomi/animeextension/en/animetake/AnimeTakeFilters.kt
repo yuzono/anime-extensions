@@ -4,26 +4,20 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 object AnimeTakeFilters {
-    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .filter(String::isNotBlank)
-            .joinToString("&") { "$name[]=$it" }
-    }
+    ): String = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .filter(String::isNotBlank)
+        .joinToString("&") { "$name[]=$it" }
 
     internal class LetterFilter : CheckBoxFilterList("Letter", AnimeTakeFiltersData.LETTER)
     internal class GenresFilter : CheckBoxFilterList("Genre", AnimeTakeFiltersData.GENRE)

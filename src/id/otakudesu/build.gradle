@@ -1,13 +1,13 @@
 ext {
     extName = 'OtakuDesu'
     extClass = '.OtakuDesu'
-    extVersionCode = 35
+    extVersionCode = 36
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:yourupload-extractor"))
-    implementation(project(":lib:streamwish-extractor"))
-    implementation(project(":lib:streamhidevid-extractor"))
+    implementation(project(":lib:youruploadextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:streamhidevidextractor"))
 }
