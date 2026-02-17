@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import okhttp3.Response
@@ -92,7 +93,7 @@ class DonghuaStream :
         return when {
             preferences.getHosters.contains("dailymotion") and url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix = prefix)
             preferences.getHosters.contains("streamplay") and url.contains("streamplay") -> streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-            preferences.getHosters.contains("ok.ru") and url.contains("ok.ru") -> okruExtractor.videosFromUrl(url = if (url.startsWith("//")) "https:$url" else url, prefix = prefix)
+            preferences.getHosters.contains("ok.ru") and url.contains("ok.ru") -> okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
             preferences.getHosters.contains("rumble") and url.contains("rumble") -> rumbleExtractor.videosFromUrl(url, prefix = prefix)
             else -> emptyList()
         }
