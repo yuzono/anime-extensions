@@ -11,10 +11,9 @@ import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
 import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.LazyMutable
-import extensions.utils.addSetPreference
-import extensions.utils.addSwitchPreference
-import okhttp3.Request
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.addSwitchPreference
 import okhttp3.Response
 
 class DonghuaStream :
@@ -28,11 +27,11 @@ class DonghuaStream :
 
     // ============================ Manual Changes ==========================
 
-    override fun popularAnimeNextPageSelector(): String? = "div.mrgn a.r"
+    override fun popularAnimeNextPageSelector() = "div.mrgn a.r"
 
-    override fun latestUpdatesNextPageSelector(): String? = popularAnimeNextPageSelector()
+    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/pagg/$page/?s=$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/pagg/$page/?s=$query")
 
     private var SharedPreferences.ignorePreview
         by LazyMutable { preferences.getBoolean(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT) }

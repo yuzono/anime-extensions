@@ -7,7 +7,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.UrlUtils
+import keiyoushi.utils.UrlUtils
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -24,7 +24,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         ).execute().asJsoup()
 
         return document.select("#servers a").parallelCatchingFlatMapBlocking { element ->
-            extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()} ")!!
+            extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()} ")
         }
     }
 
@@ -88,7 +88,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         return result
     }
 
-    fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video>? {
+    fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
         try {
             val document = client.newCall(
                 GET(url, headers),
