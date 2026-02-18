@@ -36,7 +36,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
     private val numbersPattern by lazy { Regex(",(\\d+),(\\d+),") }
     private val kakenPattern by lazy { Regex("window\\.kaken ?= ?\"([^\"]+)\";") }
 
-    fun decodePackedJavaScript(encodedString: String): String {
+    fun decodePackedJavaScript(encodedString: String): String? {
         // Extract the `p` parameter (the actual JavaScript assignments)
         val p = pPattern.find(encodedString)?.groupValues?.get(1) ?: ""
 
@@ -58,7 +58,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         val result = obfuscationReplacer(p, a ?: 0, c ?: 0, kList)
 
         // Extract kaken
-        val kaken = kakenPattern.find(result)?.groupValues?.get(1) ?: ""
+        val kaken = kakenPattern.find(result)?.groupValues?.get(1)
 
         return kaken
     }
@@ -108,7 +108,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                 document.selectFirst("script:containsData(window.kaken)")
                     ?.data()?.let {
                         // Extract kaken
-                        kakenPattern.find(it)?.groupValues?.get(1) ?: ""
+                        kakenPattern.find(it)?.groupValues?.get(1)
                     }
             } ?: return emptyList()
 

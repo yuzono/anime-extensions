@@ -90,13 +90,15 @@ class DonghuaStream :
 
     override fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        return when {
-            preferences.getHosters.contains("dailymotion") and url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix = prefix)
-            preferences.getHosters.contains("streamplay") and url.contains("streamplay") -> streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-            preferences.getHosters.contains("ok.ru") and url.contains("ok.ru") -> okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
-            preferences.getHosters.contains("rumble") and url.contains("rumble") -> rumbleExtractor.videosFromUrl(url, prefix = prefix)
-            else -> emptyList()
-        }
+        return runCatching {
+            when {
+                preferences.getHosters.contains("dailymotion") && url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix = prefix)
+                preferences.getHosters.contains("streamplay") && url.contains("streamplay") -> streamPlayExtractor.videosFromUrl(url, prefix = prefix)
+                preferences.getHosters.contains("ok.ru") && url.contains("ok.ru") -> okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
+                preferences.getHosters.contains("rumble") && url.contains("rumble") -> rumbleExtractor.videosFromUrl(url, prefix = prefix)
+                else -> emptyList()
+            }
+        }.getOrElse { emptyList() }
     }
 
     // ============================= Utilities ==============================
