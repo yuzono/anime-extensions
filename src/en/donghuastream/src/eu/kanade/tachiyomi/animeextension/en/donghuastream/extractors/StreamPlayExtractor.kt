@@ -7,8 +7,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -121,7 +121,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                 headers = apiHeaders,
                 body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
             ),
-        ).execute().use { it.parseAs<APIResponse>() }
+        ).execute().parseAs<APIResponse>()
 
         val subtitleList = apiResponse.tracks?.let { t ->
             t.map { Track(it.file, it.label) }
