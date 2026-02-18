@@ -78,7 +78,7 @@ class DonghuaStream :
     override val prefQualityEntries = prefQualityValues
 
     override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
-        .filter { !it.name.contains("Preview") || !preferences.ignorePreview }
+        .filter { !it.name.contains("Preview", ignoreCase = true) || !preferences.ignorePreview }
 
     // ============================ Video Links =============================
 

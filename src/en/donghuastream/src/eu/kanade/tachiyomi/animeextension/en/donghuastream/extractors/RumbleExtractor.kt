@@ -11,7 +11,7 @@ class RumbleExtractor(private val client: OkHttpClient, private val headers: Hea
 
     fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val id = extractRumbleId(url) ?: return emptyList()
-        val sourceUrl = "https://rumble.com/hls-vod/${id}/playlist.m3u8"
+        val sourceUrl = "https://rumble.com/hls-vod/$id/playlist.m3u8"
         return playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = emptyList(), videoNameGen = { q -> "$prefix $q" })
     }
 

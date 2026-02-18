@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors
 
-import android.util.MalformedJsonException
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
@@ -16,7 +15,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.regex.Pattern
 
 class StreamPlayExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
@@ -32,33 +30,29 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         }
     }
 
-    private val pPattern by lazy { Regex("\\('([^']+)',") }
-    private val numbersPattern by lazy { Regex(",(\\d+),(\\d+),") }
-    private val kakenPattern by lazy { Regex("window\\.kaken ?= ?\"([^\"]+)\";") }
+    private val pRegex by lazy { Regex("\\('([^']+)',") }
+    private val numbersRegex by lazy { Regex(",(\\d+),(\\d+),") }
+    private val kakenRegex by lazy { Regex("window\\.kaken ?= ?\"([^\"]+)\";") }
 
     fun decodePackedJavaScript(encodedString: String): String? {
         // Extract the `p` parameter (the actual JavaScript assignments)
-        val p = pPattern.find(encodedString)?.groupValues?.get(1) ?: ""
+        val p = pRegex.find(encodedString)?.groupValues?.get(1) ?: ""
 
         // Extract the `a` and `c` parameters (the two numbers)
-        val (a, c) = numbersPattern.find(encodedString)?.groupValues?.let {
+        val (a, c) = numbersRegex.find(encodedString)?.groupValues?.let {
             it[1].toInt() to it[2].toInt()
         } ?: (null to null)
 
         // Extract the `k` list correctly by capturing the string before .split('|')
-        val kPattern = Pattern.compile(",$a,$c,\'([^\']+)\'\\.split\\('\\|'\\)")
-        val kMatcher = kPattern.matcher(encodedString)
-        val kList = if (kMatcher.find()) {
-            kMatcher.group(1)!!.split("|")
-        } else {
-            emptyList()
-        }
+        val kRegex = Regex(",$a,$c,\'([^\']+)\'\\.split\\('\\|'\\)")
+        val kList = kRegex.find(encodedString)?.groupValues?.get(1)?.split("|")
+            ?: emptyList()
 
         // Perform the obfuscation replacement
         val result = obfuscationReplacer(p, a ?: 0, c ?: 0, kList)
 
         // Extract kaken
-        val kaken = kakenPattern.find(result)?.groupValues?.get(1)
+        val kaken = kakenRegex.find(result)?.groupValues?.get(1)
 
         return kaken
     }
@@ -92,67 +86,64 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
      * Server 3 has issue with playlist compatibility, it only plays the first segment
      */
     fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
-        try {
-            val document = client.newCall(
-                GET(url, headers),
-            ).execute().use { it.asJsoup() }
+        val document = client.newCall(
+            GET(url, headers),
+        ).execute().use { it.asJsoup() }
 
-            // Find script containing the packed code
-            val packedScript = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
+        // Find script containing the packed code
+        val packedScript = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
 
-            val kaken = if (packedScript != null) {
-                val scriptContent = packedScript.data()
-                decodePackedJavaScript(scriptContent)
-            } else {
-                // For mobile UA, it's non-packed
-                document.selectFirst("script:containsData(window.kaken)")
-                    ?.data()?.let {
-                        // Extract kaken
-                        kakenPattern.find(it)?.groupValues?.get(1)
-                    }
-            } ?: return emptyList()
-
-            val httpUrl = url.toHttpUrlOrNull() ?: return emptyList()
-
-            val apiHeaders = headers.newBuilder().apply {
-                add("Accept", "application/json, text/javascript, */*; q=0.01")
-                add("Host", httpUrl.host)
-                add("Origin", "${httpUrl.scheme}://${httpUrl.host}")
-                add("Referer", url)
-                add("X-Requested-With", "XMLHttpRequest")
-            }.build()
-
-            val apiResponse = client.newCall(
-                POST(
-                    "https://play.streamplay.co.in/api/",
-                    headers = apiHeaders,
-                    body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
-                ),
-            ).execute().use { it.parseAs<APIResponse>() }
-
-            val subtitleList = apiResponse.tracks?.let { t ->
-                t.map { Track(it.file, it.label) }
-            } ?: emptyList()
-
-            val videos = apiResponse.sources.flatMap { source ->
-                val sourceUrl = UrlUtils.fixUrl(source.videoUrl)
-                if (source.type == "hls" && sourceUrl.endsWith("master.m3u8")) {
-                    playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
-                } else {
-                    listOf(
-                        Video(
-                            sourceUrl,
-                            "$prefix (StreamPlay) Original",
-                            sourceUrl,
-                            headers = headers,
-                            subtitleTracks = subtitleList,
-                        ),
-                    )
+        val kaken = if (packedScript != null) {
+            val scriptContent = packedScript.data()
+            decodePackedJavaScript(scriptContent)
+        } else {
+            // For mobile UA, it's non-packed
+            document.selectFirst("script:containsData(window.kaken)")
+                ?.data()?.let {
+                    // Extract kaken
+                    kakenRegex.find(it)?.groupValues?.get(1)
                 }
+        } ?: return emptyList()
+
+        val httpUrl = url.toHttpUrlOrNull() ?: return emptyList()
+
+        val apiHeaders = headers.newBuilder().apply {
+            add("Accept", "application/json, text/javascript, */*; q=0.01")
+            add("Host", httpUrl.host)
+            add("Origin", "${httpUrl.scheme}://${httpUrl.host}")
+            add("Referer", url)
+            add("X-Requested-With", "XMLHttpRequest")
+        }.build()
+
+        val apiResponse = client.newCall(
+            POST(
+                "https://play.streamplay.co.in/api/",
+                headers = apiHeaders,
+                body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
+            ),
+        ).execute().use { it.parseAs<APIResponse>() }
+
+        val subtitleList = apiResponse.tracks?.let { t ->
+            t.map { Track(it.file, it.label) }
+        } ?: emptyList()
+
+        val videos = apiResponse.sources.flatMap { source ->
+            val sourceUrl = UrlUtils.fixUrl(source.videoUrl)
+            if (source.type == "hls" && sourceUrl.endsWith("master.m3u8")) {
+                playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
+            } else {
+                listOf(
+                    Video(
+                        sourceUrl,
+                        "$prefix (StreamPlay) Original",
+                        sourceUrl,
+                        headers = headers,
+                        subtitleTracks = subtitleList,
+                    ),
+                )
             }
-            return videos
-        } catch (_: MalformedJsonException) { }
-        return emptyList()
+        }
+        return videos
     }
 
     @Serializable

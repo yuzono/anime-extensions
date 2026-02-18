@@ -167,6 +167,15 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             if (!codec.isNullOrBlank()) {
                 // Skip audio only streams
                 val codecs = codec.split(',')
+                /* Or check
+                codecs.any {
+                    it.startsWith("avc") ||
+                        it.startsWith("hev1") ||
+                        it.startsWith("hvc1") ||
+                        it.startsWith("vp9") ||
+                        it.startsWith("av01")
+                }
+                */
                 if (codecs.all { it.startsWith("mp4a") }) return@mapNotNull null
             }
 
