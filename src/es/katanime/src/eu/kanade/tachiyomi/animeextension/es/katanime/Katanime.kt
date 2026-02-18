@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -85,7 +86,8 @@ class Katanime :
         }
 
         private const val PREF_USER_AGENT = "preferred_user_agent"
-        private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -140,7 +142,10 @@ class Katanime :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val jsoup = response.asJsoup()
-        val paginationUrl = jsoup.selectFirst("._pagination")?.attr("data-url") ?: return emptyList()
+        val paginationElement = jsoup.selectFirst("._pagination") ?: return emptyList()
+        val paginationUrl = paginationElement.attr("abs:data-url")
+            .ifBlank { paginationElement.attr("data-url") }
+            .ifBlank { return emptyList() }
         val token = jsoup.selectFirst("[name=\"csrf-token\"]")?.attr("content") ?: return emptyList()
 
         val (episodes, pages) = getPageEpisodes(paginationUrl, token, "1", jsoup.location())
@@ -154,21 +159,26 @@ class Katanime :
         return episodeList.reversed()
     }
 
-    private fun getPageEpisodes(paginationUrl: String, token: String, page: String, referer: String): Pair<List<SEpisode>, Int> = runCatching {
+    private fun getPageEpisodes(
+        paginationUrl: String,
+        token: String,
+        page: String,
+        referer: String,
+    ): Pair<List<SEpisode>, Int> = runCatching {
         val formBody = FormBody.Builder()
             .add("_token", token)
             .add("pagina", page)
             .build()
 
-        val request = Request.Builder()
-            .url(paginationUrl)
-            .post(formBody)
-            .header("Origin", baseUrl)
-            .header("Referer", referer)
-            .header("Content-Type", "application/x-www-form-urlencoded")
+        val headers = headers.newBuilder()
+            .add("Origin", baseUrl)
+            .add("Referer", referer)
+            .add("Content-Type", "application/x-www-form-urlencoded")
             .build()
 
-        val detailResponse = client.newCall(request).execute().parseAs<EpisodeList>(json)
+        val detailResponse = client.newCall(
+            POST(paginationUrl, headers, body = formBody),
+        ).execute().parseAs<EpisodeList>(json)
 
         val pages = detailResponse.ep?.lastPage
             ?: ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
@@ -177,7 +187,7 @@ class Katanime :
             ?.mapNotNull { ep ->
                 ep.url?.let { url ->
                     SEpisode.create().apply {
-                        name = "Episodio ${ep.numero}"
+                        name = ep.numero?.let { "Episodio $it" } ?: "Episodio"
                         episode_number = ep.numero?.toFloatOrNull() ?: 0f
                         date_upload = ep.createdAt?.toDate() ?: 0L
                         setUrlWithoutDomain(url)
