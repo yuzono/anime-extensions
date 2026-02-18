@@ -5,14 +5,17 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.regex.Pattern
 
 class StreamPlayExtractor(private val client: OkHttpClient, private val headers: Headers) {
@@ -22,27 +25,25 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
     fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val document = client.newCall(
             GET(url, headers),
-        ).execute().asJsoup()
+        ).execute().use { it.asJsoup() }
 
         return document.select("#servers a").parallelCatchingFlatMapBlocking { element ->
             extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()} ")
         }
     }
 
+    private val pPattern by lazy { Regex("\\('([^']+)',") }
+    private val numbersPattern by lazy { Regex(",(\\d+),(\\d+),") }
+    private val kakenPattern by lazy { Regex("window\\.kaken ?= ?\"([^\"]+)\";") }
+
     fun decodePackedJavaScript(encodedString: String): String {
         // Extract the `p` parameter (the actual JavaScript assignments)
-        val pPattern = Pattern.compile("\\('([^']+)',")
-        val pMatcher = pPattern.matcher(encodedString)
-        val p = if (pMatcher.find()) pMatcher.group(1) else ""
+        val p = pPattern.find(encodedString)?.groupValues?.get(1) ?: ""
 
         // Extract the `a` and `c` parameters (the two numbers)
-        val numbersPattern = Pattern.compile(",(\\d+),(\\d+),")
-        val numbersMatcher = numbersPattern.matcher(encodedString)
-        val (a, c) = if (numbersMatcher.find()) {
-            numbersMatcher.group(1)!!.toInt() to numbersMatcher.group(2)!!.toInt()
-        } else {
-            null to null
-        }
+        val (a, c) = numbersPattern.find(encodedString)?.groupValues?.let {
+            it[1].toInt() to it[2].toInt()
+        } ?: (null to null)
 
         // Extract the `k` list correctly by capturing the string before .split('|')
         val kPattern = Pattern.compile(",$a,$c,\'([^\']+)\'\\.split\\('\\|'\\)")
@@ -56,12 +57,10 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         // Perform the obfuscation replacement
         val result = obfuscationReplacer(p, a ?: 0, c ?: 0, kList)
 
-        // Extract kaken and create URL
-        val kakenPattern = Pattern.compile("window\\.kaken=\"([^\"]+)\";")
-        val kakenMatcher = kakenPattern.matcher(result)
-        val kaken = if (kakenMatcher.find()) kakenMatcher.group(1) else ""
+        // Extract kaken
+        val kaken = kakenPattern.find(result)?.groupValues?.get(1) ?: ""
 
-        return "https://play.streamplay.co.in/api/?$kaken"
+        return kaken
     }
 
     private fun obfuscationReplacer(p: String, a: Int, c: Int, k: List<String>): String {
@@ -89,51 +88,69 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         return result
     }
 
+    /**
+     * Server 3 has issue with playlist compatibility, it only plays the first segment
+     */
     fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
         try {
             val document = client.newCall(
                 GET(url, headers),
-            ).execute().asJsoup()
+            ).execute().use { it.asJsoup() }
 
             // Find script containing the packed code
-            val script = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
+            val packedScript = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
 
-            if (script != null) {
-                val scriptContent = script.data()
-                val apiUrl = decodePackedJavaScript(scriptContent)
-
-                val apiHeaders = headers.newBuilder().apply {
-                    add("Accept", "application/json, text/javascript, */*; q=0.01")
-                    add("Host", apiUrl.toHttpUrl().host)
-                    add("Referer", url)
-                    add("X-Requested-With", "XMLHttpRequest")
-                }.build()
-
-                val apiResponse = client.newCall(
-                    GET("$apiUrl&_=${System.currentTimeMillis() / 1000}", headers = apiHeaders),
-                ).execute().parseAs<APIResponse>()
-
-                val subtitleList = apiResponse.tracks?.let { t ->
-                    t.map { Track(it.file, it.label) }
-                } ?: emptyList()
-
-                return apiResponse.sources.flatMap { source ->
-                    val sourceUrl = UrlUtils.fixUrl(source.file)
-                    if (source.type == "hls") {
-                        playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
-                    } else {
-                        listOf(
-                            Video(
-                                sourceUrl,
-                                "$prefix (StreamPlay) Original",
-                                sourceUrl,
-                                headers = headers,
-                                subtitleTracks = subtitleList,
-                            ),
-                        )
+            val kaken = if (packedScript != null) {
+                val scriptContent = packedScript.data()
+                decodePackedJavaScript(scriptContent)
+            } else {
+                // For mobile UA, it's non-packed
+                document.selectFirst("script:containsData(window.kaken)")
+                    ?.data()?.let {
+                        // Extract kaken
+                        kakenPattern.find(it)?.groupValues?.get(1) ?: ""
                     }
+            } ?: return emptyList()
+
+            val httpUrl = url.toHttpUrlOrNull() ?: return emptyList()
+
+            val apiHeaders = headers.newBuilder().apply {
+                add("Accept", "application/json, text/javascript, */*; q=0.01")
+                add("Host", httpUrl.host)
+                add("Origin", "${httpUrl.scheme}://${httpUrl.host}")
+                add("Referer", url)
+                add("X-Requested-With", "XMLHttpRequest")
+            }.build()
+
+            val apiResponse = client.newCall(
+                POST(
+                    "https://play.streamplay.co.in/api/",
+                    headers = apiHeaders,
+                    body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
+                ),
+            ).execute().use { it.parseAs<APIResponse>() }
+
+            val subtitleList = apiResponse.tracks?.let { t ->
+                t.map { Track(it.file, it.label) }
+            } ?: emptyList()
+
+            val videos = apiResponse.sources.flatMap { source ->
+                val sourceUrl = UrlUtils.fixUrl(source.videoUrl)
+                if (source.type == "hls" && sourceUrl.endsWith("master.m3u8")) {
+                    playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
+                } else {
+                    listOf(
+                        Video(
+                            sourceUrl,
+                            "$prefix (StreamPlay) Original",
+                            sourceUrl,
+                            headers = headers,
+                            subtitleTracks = subtitleList,
+                        ),
+                    )
                 }
             }
+            return videos
         } catch (_: MalformedJsonException) { }
         return emptyList()
     }
@@ -148,7 +165,10 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
             val file: String,
             val label: String,
             val type: String,
-        )
+        ) {
+            val videoUrl: String
+                get() = file.replace("master.txt", "master.m3u8")
+        }
 
         @Serializable
         data class TrackObject(
