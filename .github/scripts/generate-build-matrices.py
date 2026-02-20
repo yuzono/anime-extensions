@@ -44,7 +44,7 @@ def resolve_dependent_libs(libs: set[str]) -> set[str]:
         to_process = set()
 
         lib_dependency = re.compile(
-            rf"project\([\"']:(?:lib):({'|'.join(map(re.escape, current_libs))})[\"']\)"
+            rf"project\((?:path(?: =|:) )?[\"']:(?:lib):({'|'.join(map(re.escape, current_libs))})[\"']\)"
         )
 
         for lib in Path("lib").iterdir():
@@ -73,7 +73,7 @@ def resolve_multisrc_lib(libs: set[str]) -> set[str]:
         return set()
 
     lib_dependency = re.compile(
-        rf"project\([\"']:(?:lib):({'|'.join(map(re.escape, libs))})[\"']\)"
+        rf"project\((?:path(?: =|:) )?[\"']:(?:lib):({'|'.join(map(re.escape, libs))})[\"']\)"
     )
 
     multisrcs = set()
@@ -105,7 +105,7 @@ def resolve_ext(multisrcs: set[str], libs: set[str]) -> set[tuple[str, str]]:
     if multisrc_pattern:
         patterns.append(rf"themePkg\s*=\s*['\"]({multisrc_pattern})['\"]")
     if lib_pattern:
-        patterns.append(rf"project\([\"']:(?:lib):({lib_pattern})[\"']\)")
+        patterns.append(rf"project\((?:path(?: =|:) )?[\"']:(?:lib):({lib_pattern})[\"']\)")
 
     regex = re.compile('|'.join(patterns))
 
