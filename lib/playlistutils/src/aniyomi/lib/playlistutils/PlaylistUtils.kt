@@ -77,7 +77,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         playlistUrl: String,
         referer: String = playlistUrl.toDefaultReferer(),
         masterHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         videoNameGen: (String) -> String = { quality -> quality },
@@ -164,7 +164,17 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             val codec = CODECS_REGEX.find(stream)?.groupValues?.get(1)
             if (!codec.isNullOrBlank()) {
                 // Skip audio only streams
-                if (codec.startsWith("mp4a")) return@mapNotNull null
+                val codecs = codec.split(',')
+                /* Or check
+                codecs.any {
+                    it.startsWith("avc") ||
+                        it.startsWith("hev1") ||
+                        it.startsWith("hvc1") ||
+                        it.startsWith("vp9") ||
+                        it.startsWith("av01")
+                }
+                 */
+                if (codecs.all { it.startsWith("mp4a") }) return@mapNotNull null
             }
 
             val resolution = RESOLUTION_REGEX.find(stream)
@@ -292,7 +302,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         videoNameGen: (String) -> String,
         referer: String = mpdUrl.toDefaultReferer(),
         mpdHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         subtitleList: List<Track> = emptyList(),
@@ -341,7 +351,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         videoNameGen: (String, String) -> String,
         referer: String = mpdUrl.toDefaultReferer(),
         mpdHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         subtitleList: List<Track> = emptyList(),
@@ -393,7 +403,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
 
     private fun String.toDefaultReferer(): String = try {
         toHttpUrl().run { "$scheme://$host/" }
-    } catch (e: IllegalArgumentException) {
+    } catch (_: IllegalArgumentException) {
         ""
     }
 
