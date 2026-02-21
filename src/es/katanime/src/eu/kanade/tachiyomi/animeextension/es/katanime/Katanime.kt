@@ -1,7 +1,7 @@
 
 package eu.kanade.tachiyomi.animeextension.es.katanime
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -12,6 +12,8 @@ import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.animeextension.es.katanime.extractors.UnpackerExtractor
+import eu.kanade.tachiyomi.animeextension.es.katanime.model.CryptoDto
+import eu.kanade.tachiyomi.animeextension.es.katanime.model.EpisodeList
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -20,16 +22,22 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
+import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.Json
+import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.ceil
 
 class Katanime :
     AnimeHttpSource(),
@@ -43,18 +51,25 @@ class Katanime :
 
     override val supportsLatest = true
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     private val preferences by getPreferencesLazy()
+
+    private val SharedPreferences.userAgent by preferences.delegate(PREF_USER_AGENT, DEFAULT_USER_AGENT)
+
+    override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", preferences.userAgent.ifBlank { network.defaultUserAgentProvider() })
 
     companion object {
         const val DECRYPTION_PASSWORD = "hanabi"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "VidGuard"
-        private val SERVER_LIST = arrayOf(
+        private val SERVER_LIST = listOf(
             "StreamWish",
             "VidGuard",
             "Filemoon",
@@ -69,6 +84,10 @@ class Katanime :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
+
+        private const val PREF_USER_AGENT = "preferred_user_agent"
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -123,15 +142,60 @@ class Katanime :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val jsoup = response.asJsoup()
-        return jsoup.select("#c_list .cap_list").map {
-            SEpisode.create().apply {
-                name = it.selectFirst(".entry-title-h2")?.ownText() ?: ""
-                episode_number = it.selectFirst(".entry-title-h2")?.ownText()?.substringAfter("Capítulo")?.trim()?.toFloat() ?: 0F
-                date_upload = it.selectFirst(".timeago")?.attr("datetime")?.toDate() ?: 0L
-                setUrlWithoutDomain(it.attr("abs:href"))
+        val paginationElement = jsoup.selectFirst("._pagination") ?: return emptyList()
+        val paginationUrl = paginationElement.attr("abs:data-url")
+            .ifBlank { paginationElement.attr("data-url") }
+            .ifBlank { return emptyList() }
+        val token = jsoup.selectFirst("[name=\"csrf-token\"]")?.attr("content") ?: return emptyList()
+
+        val (episodes, pages) = getPageEpisodes(paginationUrl, token, "1", jsoup.location())
+        val episodeList = episodes.toMutableList()
+
+        if (pages > 1) {
+            (2..pages).forEach { currentPage ->
+                episodeList += getPageEpisodes(paginationUrl, token, currentPage.toString(), jsoup.location()).first
             }
-        }.reversed()
+        }
+        return episodeList.reversed()
     }
+
+    private fun getPageEpisodes(
+        paginationUrl: String,
+        token: String,
+        page: String,
+        referer: String,
+    ): Pair<List<SEpisode>, Int> = runCatching {
+        val formBody = FormBody.Builder()
+            .add("_token", token)
+            .add("pagina", page)
+            .build()
+
+        val headers = headers.newBuilder()
+            .add("Origin", baseUrl)
+            .add("Referer", referer)
+            .add("Content-Type", "application/x-www-form-urlencoded")
+            .build()
+
+        val detailResponse = client.newCall(
+            POST(paginationUrl, headers, body = formBody),
+        ).execute().parseAs<EpisodeList>(json)
+
+        val pages = detailResponse.ep?.lastPage
+            ?: ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
+
+        val episodeList = detailResponse.ep?.data
+            ?.mapNotNull { ep ->
+                ep.url?.let { url ->
+                    SEpisode.create().apply {
+                        name = ep.numero?.let { "Episodio $it" } ?: "Episodio"
+                        episode_number = ep.numero?.toFloatOrNull() ?: 0f
+                        date_upload = ep.createdAt?.toDate() ?: 0L
+                        setUrlWithoutDomain(url)
+                    }
+                }
+            } ?: emptyList()
+        episodeList to pages
+    }.getOrElse { emptyList<SEpisode>() to 1 }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -208,42 +272,42 @@ class Katanime :
     override fun getFilterList(): AnimeFilterList = KatanimeFilters.FILTER_LIST
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            entries = SERVER_LIST,
+            entryValues = SERVER_LIST,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST,
+            entryValues = QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
+        screen.addEditTextPreference(
+            key = PREF_USER_AGENT,
+            title = "User-Agent",
+            default = DEFAULT_USER_AGENT,
+            summary = "Leave blank to use the default app user agent.",
+            restartRequired = true,
+        )
+    }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+    private fun Double.ceilPage(): Int = if (!isFinite()) {
+        1
+    } else {
+        maxOf(1, ceil(this).toInt())
     }
 
     private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
-    private fun org.jsoup.nodes.Element.getImageUrl(): String? = when {
+    private fun Element.getImageUrl(): String? = when {
         isValidUrl("data-src") -> attr("abs:data-src")
         isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
         isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
@@ -251,15 +315,8 @@ class Katanime :
         else -> ""
     }
 
-    private fun org.jsoup.nodes.Element.isValidUrl(attrName: String): Boolean {
+    private fun Element.isValidUrl(attrName: String): Boolean {
         if (!hasAttr(attrName)) return false
         return !attr(attrName).contains("data:image/")
     }
-
-    @Serializable
-    data class CryptoDto(
-        @SerialName("ct") var ct: String? = null,
-        @SerialName("iv") var iv: String? = null,
-        @SerialName("s") var s: String? = null,
-    )
 }
