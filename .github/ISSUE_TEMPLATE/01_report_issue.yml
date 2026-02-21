@@ -1,5 +1,5 @@
-name: 🐞 Bug report
-description: Report a bug
+name: 🐞 Issue report
+description: Report a source issue in Yuzōnō
 labels: [Bug]
 body:
 
@@ -112,7 +112,7 @@ body:
           required: true
         - label: I have tried the [troubleshooting guide](https://anikku-app.github.io/docs/guides/troubleshooting/).
           required: true
-        - label: If this is an issue with the app itself, I should be opening an issue in the [app repository](https://github.com/komikku-app/anikku/issues/new/choose).
+        - label: If this is an issue with the app itself, I should be opening an issue in the app repository.
           required: true
         - label: I will fill out all of the requested information in this form.
           required: true

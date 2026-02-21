@@ -1,5 +1,5 @@
 name: 🌐 Source request
-description: Suggest a new source for Anikku
+description: Suggest a new source for Yuzōnō
 labels: [Source request]
 body:
 
@@ -36,7 +36,8 @@ body:
       label: Other details
       placeholder: |
         Additional details and attachments.
-        Example: "+18/NSFW = yes"
+            Example:
+                "18+/NSFW = yes"
 
   - type: checkboxes
     id: acknowledgements
@@ -44,13 +45,11 @@ body:
       label: Acknowledgements
       description: Your issue will be closed if you haven't done these steps.
       options:
+        - label: I have checked that the extension does not already exist by searching the [extension listing](https://yuzono.github.io/extensions-aniyomi/) and verified it does not appear there.
+          required: true
         - label: I have searched the existing issues and this is a new ticket, **NOT** a duplicate or related to another open or closed issue.
           required: true
-        - label: I have written a title with source name.
-          required: true
-        - label: I have checked that the extension does not already exist on the [website extensions list](https://yuzono.github.io/extensions-aniyomi/) or the app.
-          required: true
-        - label: I have checked that the extension does not already exist by searching the [GitHub repository](https://github.com/yuzono/anime-extensions/) and verified it does not appear in the code base.
+        - label: I have written a meaningful title with the source name.
           required: true
         - label: I will fill out all of the requested information in this form.
           required: true
