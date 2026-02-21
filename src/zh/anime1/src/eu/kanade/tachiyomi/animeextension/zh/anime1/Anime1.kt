@@ -4,6 +4,8 @@ import android.webkit.CookieManager
 import androidx.preference.CheckBoxPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bangumiscraper.BangumiFetchType
+import aniyomi.lib.bangumiscraper.BangumiScraper
 import com.github.houbb.opencc4j.util.ZhTwConverterUtil
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -12,8 +14,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.bangumiscraper.BangumiFetchType
-import eu.kanade.tachiyomi.lib.bangumiscraper.BangumiScraper
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess

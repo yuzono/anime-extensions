@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.lib.cryptoaes
+package aniyomi.lib.cryptoaes
 
 /*
  * Copyright (C) The Tachiyomi Open Source Project

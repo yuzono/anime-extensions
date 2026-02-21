@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesotaku
 
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesotaku.dto.EpisodeResponseDto
 import eu.kanade.tachiyomi.animeextension.pt.animesotaku.dto.RecommendedResponseDto
 import eu.kanade.tachiyomi.animeextension.pt.animesotaku.dto.SearchResponseDto
@@ -9,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess

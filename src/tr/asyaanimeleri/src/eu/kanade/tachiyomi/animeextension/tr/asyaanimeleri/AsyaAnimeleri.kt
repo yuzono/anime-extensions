@@ -1,5 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.tr.asyaanimeleri
 
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animeextension.tr.asyaanimeleri.AsyaAnimeleriFilters.CountryFilter
 import eu.kanade.tachiyomi.animeextension.tr.asyaanimeleri.AsyaAnimeleriFilters.GenresFilter
 import eu.kanade.tachiyomi.animeextension.tr.asyaanimeleri.AsyaAnimeleriFilters.NetworkFilter
@@ -11,11 +16,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET

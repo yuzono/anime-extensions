@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.animeextension.fr.empirestreaming
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.fr.empirestreaming.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.fr.empirestreaming.dto.MovieInfoDto
 import eu.kanade.tachiyomi.animeextension.fr.empirestreaming.dto.SearchResultsDto
@@ -16,8 +18,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.sr.animesrbija
 
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.AnimeDetailsDto
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.EpisodeVideo
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.EpisodesDto
@@ -13,7 +14,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup

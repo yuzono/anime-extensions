@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesdigital.extractors
 
+import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.unpacker.Unpacker
 import okhttp3.Headers
 
 object ScriptExtractor {
