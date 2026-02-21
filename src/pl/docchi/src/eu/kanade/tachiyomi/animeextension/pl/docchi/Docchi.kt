@@ -2,6 +2,15 @@ package eu.kanade.tachiyomi.animeextension.pl.docchi
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.cdaextractor.CdaExtractor
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.luluextractor.LuluExtractor
+import aniyomi.lib.lycorisextractor.LycorisExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,15 +18,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.cdaextractor.CdaPlExtractor
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.luluextractor.LuluExtractor
-import eu.kanade.tachiyomi.lib.lycorisextractor.LycorisCafeExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -123,12 +123,12 @@ class Docchi :
     )
 
     private val vkExtractor by lazy { VkExtractor(client, headers) }
-    private val cdaExtractor by lazy { CdaPlExtractor(client) }
+    private val cdaExtractor by lazy { CdaExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
-    private val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
+    private val lycorisExtractor by lazy { LycorisExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val googledriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
 

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.de.filmpalast
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.EvoloadExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.StreamHideVidExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.UpstreamExtractor
@@ -12,7 +13,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy

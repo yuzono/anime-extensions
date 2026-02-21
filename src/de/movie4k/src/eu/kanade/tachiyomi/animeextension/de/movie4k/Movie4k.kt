@@ -4,6 +4,8 @@ import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.movie4k.extractors.StreamZExtractor
 import eu.kanade.tachiyomi.animeextension.de.movie4k.extractors.VidozaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -13,8 +15,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json

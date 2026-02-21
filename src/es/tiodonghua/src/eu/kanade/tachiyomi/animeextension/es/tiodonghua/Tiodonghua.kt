@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.es.tiodonghua
 
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
 class Tiodonghua :

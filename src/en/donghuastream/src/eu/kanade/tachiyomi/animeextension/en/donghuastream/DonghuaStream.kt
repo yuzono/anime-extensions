@@ -2,13 +2,13 @@ package eu.kanade.tachiyomi.animeextension.en.donghuastream
 
 import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.RumbleExtractor
 import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.StreamPlayExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.LazyMutable
@@ -92,10 +92,14 @@ class DonghuaStream :
         val prefix = "$name - "
         return runCatching {
             when {
-                preferences.getHosters.contains("dailymotion") && url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.getHosters.contains("streamplay") && url.contains("streamplay") -> streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.getHosters.contains("ok.ru") && url.contains("ok.ru") -> okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
-                preferences.getHosters.contains("rumble") && url.contains("rumble") -> rumbleExtractor.videosFromUrl(url, prefix = prefix)
+                preferences.getHosters.contains("dailymotion") && url.contains("dailymotion") ->
+                    dailymotionExtractor.videosFromUrl(url, prefix = prefix)
+                preferences.getHosters.contains("streamplay") && url.contains("streamplay") ->
+                    streamPlayExtractor.videosFromUrl(url, prefix = prefix)
+                preferences.getHosters.contains("ok.ru") && url.contains("ok.ru") ->
+                    okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
+                preferences.getHosters.contains("rumble") && url.contains("rumble") ->
+                    rumbleExtractor.videosFromUrl(url, prefix = prefix)
                 else -> emptyList()
             }
         }.getOrElse { emptyList() }

@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
@@ -130,7 +130,12 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         val videos = apiResponse.sources.flatMap { source ->
             val sourceUrl = UrlUtils.fixUrl(source.videoUrl)
             if (source.type == "hls" && sourceUrl.endsWith("master.m3u8")) {
-                playlistUtils.extractFromHls(sourceUrl, referer = url, subtitleList = subtitleList, videoNameGen = { q -> "$prefix$q (StreamPlay)" })
+                playlistUtils.extractFromHls(
+                    playlistUrl = sourceUrl,
+                    referer = url,
+                    subtitleList = subtitleList,
+                    videoNameGen = { q -> "$prefix$q (StreamPlay)" },
+                )
             } else {
                 listOf(
                     Video(

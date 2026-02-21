@@ -20,7 +20,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
-import eu.kanade.tachiyomi.lib.synchrony.Deobfuscator as Synchrony
+import aniyomi.lib.synchrony.Deobfuscator as Synchrony
 
 class NimeGami : ParsedAnimeHttpSource() {
 
