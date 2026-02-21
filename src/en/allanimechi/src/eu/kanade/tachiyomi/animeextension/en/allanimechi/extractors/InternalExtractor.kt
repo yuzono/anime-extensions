@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.allanimechi.extractors
 
 import android.util.Base64
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.en.allanimechi.AllAnimeChi
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.parseAs
 import kotlinx.serialization.Serializable

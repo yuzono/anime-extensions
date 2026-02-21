@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.donghuastream
 
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.StreamPlayExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
 class DonghuaStream :

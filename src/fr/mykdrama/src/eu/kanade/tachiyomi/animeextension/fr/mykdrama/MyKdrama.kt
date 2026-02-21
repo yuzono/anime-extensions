@@ -1,5 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.fr.mykdrama
 
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animeextension.fr.mykdrama.MyKdramaFilters.CountryFilter
 import eu.kanade.tachiyomi.animeextension.fr.mykdrama.MyKdramaFilters.GenresFilter
 import eu.kanade.tachiyomi.animeextension.fr.mykdrama.MyKdramaFilters.OrderFilter
@@ -9,10 +13,6 @@ import eu.kanade.tachiyomi.animeextension.fr.mykdrama.MyKdramaFilters.getSearchP
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET

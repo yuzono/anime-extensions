@@ -3,11 +3,11 @@ package eu.kanade.tachiyomi.animeextension.en.zoro
 import android.content.SharedPreferences
 import android.text.InputType
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.megacloudextractor.MegaCloudExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.megacloudextractor.MegaCloudExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
 import eu.kanade.tachiyomi.multisrc.zorotheme.ZoroTheme
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.LazyMutable

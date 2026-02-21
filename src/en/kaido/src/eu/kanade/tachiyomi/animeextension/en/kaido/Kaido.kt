@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.kaido
 
+import aniyomi.lib.rapidcloudextractor.RapidCloudExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.rapidcloudextractor.RapidCloudExtractor
 import eu.kanade.tachiyomi.multisrc.zorotheme.ZoroTheme
 import kotlin.getValue
 
