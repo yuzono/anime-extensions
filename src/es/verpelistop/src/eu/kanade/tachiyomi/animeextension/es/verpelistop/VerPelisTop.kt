@@ -2,16 +2,16 @@ package eu.kanade.tachiyomi.animeextension.es.verpelistop
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
@@ -27,11 +27,12 @@ import java.text.Normalizer
 import kotlin.text.ifEmpty
 import kotlin.text.lowercase
 
-class VerPelisTop : DooPlay(
-    "es",
-    "VerPelisTop",
-    "https://www1.verpelis.top",
-) {
+class VerPelisTop :
+    DooPlay(
+        "es",
+        "VerPelisTop",
+        "https://www1.verpelis.top",
+    ) {
 
     override val supportsLatest = false
 
@@ -50,9 +51,7 @@ class VerPelisTop : DooPlay(
 
     override val prefQualityTitle = "Calidad preferida"
 
-    override fun Document.getDescription(): String {
-        return Jsoup.parse(select("$additionalInfoSelector p").joinToString(" ") { it.text() }).text().trim()
-    }
+    override fun Document.getDescription(): String = Jsoup.parse(select("$additionalInfoSelector p").joinToString(" ") { it.text() }).text().trim()
 
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
@@ -140,42 +139,42 @@ class VerPelisTop : DooPlay(
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<selecionar>", ""),
-            Pair("accion", "genero/accion"),
-            Pair("amazon prime", "genero/amazon-prime"),
-            Pair("animacion", "genero/animacion"),
-            Pair("aventura", "genero/aventura"),
-            Pair("biografia", "genero/biografia"),
-            Pair("ciencia ficcion", "genero/ciencia-ficcion"),
-            Pair("comedia", "genero/comedia"),
-            Pair("corto", "genero/corto"),
-            Pair("crimen", "genero/crimen"),
-            Pair("deporte", "genero/deporte"),
-            Pair("disney", "genero/disney"),
-            Pair("documentales", "genero/documentales"),
-            Pair("drama", "genero/drama"),
-            Pair("familia", "genero/familia"),
-            Pair("fantasia", "genero/fantasia"),
-            Pair("hbo", "genero/hbo"),
-            Pair("historia", "genero/historia"),
-            Pair("horror", "genero/horror"),
-            Pair("marvel", "genero/marvel"),
-            Pair("misterio", "genero/misterio"),
-            Pair("musica", "genero/musica"),
-            Pair("netflix", "genero/netflix"),
-            Pair("reality", "genero/reality"),
-            Pair("romance", "genero/romance"),
-            Pair("suspenso", "genero/suspenso"),
-            Pair("terror", "genero/terror"),
-            Pair("thriller", "genero/thriller"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<selecionar>", ""),
+                Pair("accion", "genero/accion"),
+                Pair("amazon prime", "genero/amazon-prime"),
+                Pair("animacion", "genero/animacion"),
+                Pair("aventura", "genero/aventura"),
+                Pair("biografia", "genero/biografia"),
+                Pair("ciencia ficcion", "genero/ciencia-ficcion"),
+                Pair("comedia", "genero/comedia"),
+                Pair("corto", "genero/corto"),
+                Pair("crimen", "genero/crimen"),
+                Pair("deporte", "genero/deporte"),
+                Pair("disney", "genero/disney"),
+                Pair("documentales", "genero/documentales"),
+                Pair("drama", "genero/drama"),
+                Pair("familia", "genero/familia"),
+                Pair("fantasia", "genero/fantasia"),
+                Pair("hbo", "genero/hbo"),
+                Pair("historia", "genero/historia"),
+                Pair("horror", "genero/horror"),
+                Pair("marvel", "genero/marvel"),
+                Pair("misterio", "genero/misterio"),
+                Pair("musica", "genero/musica"),
+                Pair("netflix", "genero/netflix"),
+                Pair("reality", "genero/reality"),
+                Pair("romance", "genero/romance"),
+                Pair("suspenso", "genero/suspenso"),
+                Pair("terror", "genero/terror"),
+                Pair("thriller", "genero/thriller"),
+            ),
+        )
 
-    open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
 
         fun getGenreList() = vals
