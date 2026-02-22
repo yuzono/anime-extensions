@@ -199,21 +199,6 @@ class VerPelisTop :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen) // Quality preference
 
-        val langPref = ListPreference(screen.context).apply {
-            key = PREF_LANG_KEY
-            title = PREF_LANG_TITLE
-            entries = PREF_LANG_ENTRIES
-            entryValues = PREF_LANG_VALUES
-            setDefaultValue(PREF_LANG_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Preferred server"
@@ -221,15 +206,16 @@ class VerPelisTop :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
-        screen.addPreference(langPref)
+
+        ListPreference(screen.context).apply {
+            key = PREF_LANG_KEY
+            title = PREF_LANG_TITLE
+            entries = PREF_LANG_ENTRIES
+            entryValues = PREF_LANG_VALUES
+            setDefaultValue(PREF_LANG_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
@@ -261,9 +247,9 @@ class VerPelisTop :
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "LATINO"
         private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "Uqload"
         private val PREF_LANG_ENTRIES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
         private val PREF_LANG_VALUES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
-        private val SERVER_LIST = arrayOf("StreamWish", "Uqload")
+        private val SERVER_LIST = arrayOf("StreamTape", "Filemoon", "StreamWish", "Uqload", "VidHide")
+        private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
     }
 }
