@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
 import okhttp3.FormBody
@@ -93,7 +94,7 @@ class VerPelisTop :
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(player: Element): List<Video> {
+    private suspend fun serverVideoResolver(player: Element): List<Video> {
         val lang = player.selectFirst("span.title")!!.text()
         val body = FormBody.Builder()
             .add("action", "doo_player_ajax")
@@ -103,12 +104,12 @@ class VerPelisTop :
             .build()
 
         val iframeSource = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute().body.string()
+            .awaitSuccess().use { it.body.string() }
             .substringAfter("src='")
             .substringBefore("'")
             .replace("\\", "").ifEmpty { return emptyList() }
 
-        val frameDoc = client.newCall(GET(iframeSource)).execute().asJsoup()
+        val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().use { it.asJsoup() }
 
         return frameDoc.select("li[onclick]:not(.SLD_A)")
             .map { it.attr("onclick").substringAfter("('").substringBefore("')") }
