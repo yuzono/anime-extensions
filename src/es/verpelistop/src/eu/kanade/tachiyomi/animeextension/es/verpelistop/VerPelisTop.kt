@@ -34,14 +34,18 @@ class VerPelisTop :
         "https://www1.verpelis.top",
     ) {
 
-    override val supportsLatest = false
-
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/online/page/$page")
+    override fun popularAnimeRequest(page: Int) = GET(baseUrl)
 
-    override fun popularAnimeSelector() = "#archive-content article > div.poster"
+    override fun popularAnimeSelector() = "#featured-titles article > div.poster"
 
-    override fun popularAnimeNextPageSelector() = "#nextpagination"
+    override fun popularAnimeNextPageSelector() = "NO_NEXT_PAGE" // dummy selector
+
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/online/page/$page")
+
+    override fun latestUpdatesSelector() = "#archive-content article > div.poster"
+
+    override fun latestUpdatesNextPageSelector() = "#nextpagination"
 
     override fun videoListSelector() = "li.dooplay_player_option" // ul#playeroptionsul
 
