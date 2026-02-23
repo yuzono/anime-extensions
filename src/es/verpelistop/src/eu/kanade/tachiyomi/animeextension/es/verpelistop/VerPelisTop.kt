@@ -88,6 +88,7 @@ class VerPelisTop :
     }
 
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
+    private val hexloadExtractor by lazy { HexloadExtractor(client, headers) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
@@ -122,6 +123,7 @@ class VerPelisTop :
                         runCatching {
                             when (matched) {
                                 "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
+                                "hexload" -> hexloadExtractor.videosFromUrl(url, lang)
                                 "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
                                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
                                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
@@ -135,6 +137,7 @@ class VerPelisTop :
 
     private val conventions = listOf(
         "uqload" to listOf("uqload"),
+        "hexload" to listOf("hexload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
@@ -254,7 +257,7 @@ class VerPelisTop :
         private const val PREF_SERVER_KEY = "preferred_server"
         private val PREF_LANG_ENTRIES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
         private val PREF_LANG_VALUES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
-        private val SERVER_LIST = arrayOf("StreamTape", "Filemoon", "StreamWish", "Uqload", "VidHide")
+        private val SERVER_LIST = arrayOf("StreamTape", "Filemoon", "StreamWish", "Uqload", "VidHide", "Hexload")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
     }
 }
