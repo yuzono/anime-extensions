@@ -95,7 +95,6 @@ class VerPelisTop :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private suspend fun serverVideoResolver(player: Element): List<Video> {
-        val lang = player.selectFirst("span.title")!!.text()
         val body = FormBody.Builder()
             .add("action", "doo_player_ajax")
             .add("post", player.attr("data-post"))
@@ -111,20 +110,26 @@ class VerPelisTop :
 
         val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().use { it.asJsoup() }
 
-        return frameDoc.select("li[onclick]:not(.SLD_A)")
-            .map { it.attr("onclick").substringAfter("('").substringBefore("')") }
-            .flatMap { url ->
-                val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-                runCatching {
-                    when (matched) {
-                        "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
-                        "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
-                        "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
-                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
-                        "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
-                        else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
+        return frameDoc.select("li.SLD_A[onclick]")
+            .map {
+                it.attr("onclick").substringAfter("'").substringBefore("')")
+            }
+            .flatMap { lang ->
+                frameDoc.select("div.OD_$lang li[onclick]")
+                    .map { it.attr("onclick").substringAfter("('").substringBefore("')") }
+                    .flatMap { url ->
+                        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+                        runCatching {
+                            when (matched) {
+                                "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
+                                "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
+                                "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
+                                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
+                                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
+                                else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
+                            }
+                        }.getOrDefault(emptyList())
                     }
-                }.getOrDefault(emptyList())
             }
     }
 
