@@ -11,7 +11,7 @@ import okhttp3.OkHttpClient
 
 class HexloadExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
-    // Example URL: https://hexload.com/embed-ii21t0gfa9c3/Avatar_Fuego_y_ceniza_LAT
+    // Example URL: https://hexload.com/embed-ii21t0gfa9c3/Avatar_Fuego_y_ceniza_LAT.mp4
     private val idRegex by lazy { Regex("""embed-(\w*?)/""") }
 
     suspend fun videosFromUrl(url: String, prefix: String = "Hexload"): List<Video> {
@@ -24,13 +24,6 @@ class HexloadExtractor(private val client: OkHttpClient, private val headers: He
             .add("ajax", "1")
             .add("method_free", "1")
             .add("dataType", "json")
-            .build()
-
-        val headers = headers.newBuilder()
-            .add("Origin", "https://hexload.com")
-            .add("Referer", url)
-            .set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            .add("X-Requested-With", "XMLHttpRequest")
             .build()
 
         val video = client.newCall(
