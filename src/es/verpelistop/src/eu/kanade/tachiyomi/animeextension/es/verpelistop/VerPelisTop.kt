@@ -112,28 +112,27 @@ class VerPelisTop :
 
         val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().use { it.asJsoup() }
 
-        return frameDoc.select("li.SLD_A[onclick]")
+        return frameDoc.select(".OD li[onclick]")
             .map {
-                it.attr("onclick").substringAfter("'").substringBefore("')")
+                val server = it.select("span").text()
+                val lang = it.select("p").text().substringBefore("-").trim()
+                val url = it.attr("onclick").substringAfter("('").substringBefore("')")
+                Triple(server, lang, url)
             }
-            .flatMap { lang ->
-                frameDoc.select("div.OD_$lang li[onclick]")
-                    .map { it.attr("onclick").substringAfter("('").substringBefore("')") }
-                    .flatMap { url ->
-                        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-                        runCatching {
-                            when (matched) {
-                                "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
-                                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
-                                "hexload" -> hexloadExtractor.videosFromUrl(url, lang)
-                                "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
-                                "hgcloud" -> hgcloudExtractor.videosFromUrl(url, lang)
-                                "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
-                                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
-                                else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
-                            }
-                        }.getOrDefault(emptyList())
+            .flatMap { (server, lang, url) ->
+                val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+                runCatching {
+                    when (matched) {
+                        "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang $server")
+                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang $server:")
+                        "hexload" -> hexloadExtractor.videosFromUrl(url, lang)
+                        "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
+                        "hgcloud" -> hgcloudExtractor.videosFromUrl(url, "$lang - $server")
+                        "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
+                        "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang $server:$it" })
+                        else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server:")
                     }
+                }.getOrDefault(emptyList())
             }
     }
 
@@ -223,7 +222,7 @@ class VerPelisTop :
             key = PREF_LANG_KEY
             title = PREF_LANG_TITLE
             entries = PREF_LANG_ENTRIES
-            entryValues = PREF_LANG_VALUES
+            entryValues = PREF_LANG_ENTRIES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
@@ -258,8 +257,7 @@ class VerPelisTop :
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "LATINO"
         private const val PREF_SERVER_KEY = "preferred_server"
-        private val PREF_LANG_ENTRIES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
-        private val PREF_LANG_VALUES = arrayOf("SUBTITULADO", "LATINO", "CASTELLANO")
+        private val PREF_LANG_ENTRIES = arrayOf("Sub", "Latino", "Castellano")
         private val SERVER_LIST = arrayOf("StreamTape", "Filemoon", "Hexload", "Uqload", "Hgcloud", "StreamWish", "VidHide")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
     }
