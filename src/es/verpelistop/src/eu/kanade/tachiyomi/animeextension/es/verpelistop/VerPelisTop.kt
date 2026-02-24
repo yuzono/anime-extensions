@@ -125,7 +125,7 @@ class VerPelisTop :
                     when (matched) {
                         "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang $server")
                         "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang $server:")
-                        "hexload" -> hexloadExtractor.videosFromUrl(url, lang)
+                        "hexload" -> hexloadExtractor.videosFromUrl(url, "$lang - $server")
                         "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
                         "hgcloud" -> hgcloudExtractor.videosFromUrl(url, "$lang - $server")
                         "streamwish" -> streamWishExtractor.videosFromUrl(url, lang)
