@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.animeonsen
 
+import android.app.Application
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeDetails
@@ -17,13 +18,21 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.Headers
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 
 class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
@@ -34,17 +43,22 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
 
+    private val searchUrl = "https://search.animeonsen.xyz"
+
     override val lang = "all"
 
     override val supportsLatest = false
 
     override val client by lazy {
         network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client))
+            .addInterceptor(AOAPIInterceptor(network.client, apiUrl))
+            .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
             .build()
     }
 
-    private val preferences by getPreferencesLazy()
+    private val preferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    }
 
     private val json: Json by injectLazy()
 
@@ -69,11 +83,18 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$apiUrl/search/$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val postBody = json.encodeToString(
+            buildJsonObject {
+                put("q", query)
+            },
+        ).toRequestBody("application/json; charset=utf-8".toMediaType())
+
+        return POST("$searchUrl/indexes/content/search", body = postBody)
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val searchResult = response.parseAs<SearchResponse>().result
+        val searchResult = response.parseAs<SearchResponse>().hits
         val results = searchResult.map { it.toSAnime() }
         return AnimesPage(results, false)
     }
@@ -172,7 +193,7 @@ class AnimeOnsen : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 }
 
-const val AO_USER_AGENT = "Aniyomi/App (mobile)"
+const val AO_USER_AGENT = "Aniyomi/app (mobile)"
 private const val PREF_SUB_KEY = "preferred_subLang"
 private const val PREF_SUB_TITLE = "Preferred sub language"
 const val PREF_SUB_DEFAULT = "en-US"
