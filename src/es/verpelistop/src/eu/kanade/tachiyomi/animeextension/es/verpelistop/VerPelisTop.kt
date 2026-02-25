@@ -135,6 +135,7 @@ class VerPelisTop :
                             "vidhide" -> {
                                 // Redirecting URLs
                                 val redirectUrl = url.redirectHgCloudHgLink()
+                                    .replace("dintezuvio", "callistanise")
                                 vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
                             }
                             else -> emptyList()
@@ -157,8 +158,8 @@ class VerPelisTop :
         "hexload" to listOf("hexload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
-        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
-        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet", "earn", "hgcloud", "hglink", "minochinos"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "bysezoxexe"),
+        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet", "earn", "hgcloud", "hglink", "minochinos", "movearnpre", "dintezuvio"),
     )
 
     // ============================== Filters ===============================
@@ -291,7 +292,7 @@ class VerPelisTop :
         private const val PREF_LANG_DEFAULT = "LATINO"
         private const val PREF_SERVER_KEY = "preferred_server"
         private val PREF_LANG_ENTRIES = arrayOf("Sub", "Latino", "Castellano")
-        private val SERVER_LIST = arrayOf("StreamTape", "VidHide", "FileMoon", "HexLoad", "Uqload", "StreamWish")
+        private val SERVER_LIST = arrayOf("VidHide", "StreamTape", "Uqload", "HexLoad", "StreamWish", "FileMoon")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
     }
 }
