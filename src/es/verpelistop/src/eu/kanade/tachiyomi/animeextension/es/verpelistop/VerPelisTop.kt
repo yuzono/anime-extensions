@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.util.parallelFlatMap
 import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
@@ -116,25 +117,38 @@ class VerPelisTop :
                 val server = it.select("span").text()
                 val lang = it.select("p").text().substringBefore("-").trim()
                 val url = it.attr("onclick").substringAfter("('").substringBefore("')")
-                Triple(server, lang, url)
-            }
-            .flatMap { (server, lang, url) ->
                 val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-                runCatching {
-                    when (matched) {
-                        "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang - StreamTape")
-                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang - FileMoon: ")
-                        "hexload" -> hexloadExtractor.videosFromUrl(url, "$lang - HexLoad")
-                        "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
-                        "streamwish" -> streamWishExtractor.videosFromUrl(url, "$lang - StreamWish")
-                        "vidhide" -> {
-                            // Redirecting URLs
-                            val redirectUrl = url.redirectHgCloudHgLink()
-                            vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
+                Pair(url, matched) to Pair(lang, server)
+            }
+            .partition { it.first.second != null }
+            .let { (extractors, universal) ->
+                val videos1 = extractors.parallelFlatMap { (hoster, info) ->
+                    val (url, matched) = hoster
+                    val (lang, _) = info
+                    runCatching {
+                        when (matched) {
+                            "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang - StreamTape")
+                            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang - FileMoon: ")
+                            "hexload" -> hexloadExtractor.videosFromUrl(url, "$lang - HexLoad")
+                            "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
+                            "streamwish" -> streamWishExtractor.videosFromUrl(url, "$lang - StreamWish")
+                            "vidhide" -> {
+                                // Redirecting URLs
+                                val redirectUrl = url.redirectHgCloudHgLink()
+                                vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
+                            }
+                            else -> emptyList()
                         }
-                        else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server")
-                    }
-                }.getOrDefault(emptyList())
+                    }.getOrDefault(emptyList())
+                }
+                val videos2 = universal.flatMap { (hoster, info) ->
+                    val (url, _) = hoster
+                    val (lang, server) = info
+                    runCatching {
+                        universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server")
+                    }.getOrDefault(emptyList())
+                }
+                videos1 + videos2
             }
     }
 
