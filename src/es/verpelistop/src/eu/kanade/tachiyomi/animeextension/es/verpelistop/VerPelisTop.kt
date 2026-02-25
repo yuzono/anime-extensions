@@ -128,8 +128,8 @@ class VerPelisTop :
                         "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
                         "streamwish" -> streamWishExtractor.videosFromUrl(url, "$lang - StreamWish")
                         "vidhide" -> {
-                            // hgcloud is redirecting to audinifer
-                            val redirectUrl = url.replace("hgcloud.to", "audinifer.com")
+                            // Redirecting URLs
+                            val redirectUrl = url.redirectHgCloudHgLink()
                             vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
                         }
                         else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server")
@@ -144,7 +144,7 @@ class VerPelisTop :
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
-        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet", "earn", "hgcloud", "audinifer", "minochinos"),
+        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet", "earn", "hgcloud", "hglink", "minochinos"),
     )
 
     // ============================== Filters ===============================
@@ -230,6 +230,24 @@ class VerPelisTop :
     }
 
     // ============================= Utilities ==============================
+
+    private val hgCloudLinkDomains by lazy { listOf("hgcloud.to", "hglink.to") }
+    private val hgCloudLinkRedirected by lazy {
+        listOf(
+            "hanerix.com",
+            "vibuxer.com",
+            "audinifer.com",
+            "masukestin.com",
+        )
+    }
+
+    private fun String.redirectHgCloudHgLink(): String {
+        return hgCloudLinkDomains.firstOrNull(::contains)?.let {
+            val redirectingDomain = hgCloudLinkRedirected.random()
+            return replace(it, redirectingDomain)
+        } ?: this
+    }
+
     override fun String.toDate() = 0L
 
     private fun String.normalize(): String {
