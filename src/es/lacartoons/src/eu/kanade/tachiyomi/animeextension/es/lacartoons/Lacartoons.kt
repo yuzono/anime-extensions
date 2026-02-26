@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
+import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
 import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
@@ -49,6 +50,7 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
             "YourUpload",
             "FileLions",
             "StreamHideVid",
+            "Sendvid",
         )
     }
 
@@ -129,6 +131,7 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
+        val extractor = SendvidExtractor(client, headers)
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" })
@@ -143,6 +146,7 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
                 embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url)
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
             embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+            embedUrl.contains("sendvid") -> extractor.videosFromUrl(url)
             else -> UniversalExtractor(client).videosFromUrl(url, headers)
         }
     }
