@@ -166,7 +166,7 @@ class VerPelisTop :
     override val fetchGenres = false
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("La busqueda por texto ignora el filtro de año"),
+        AnimeFilter.Header("La búsqueda por texto ignora el filtro de año"),
         GenreFilter(),
     )
 
@@ -174,7 +174,7 @@ class VerPelisTop :
         UriPartFilter(
             "Géneros",
             arrayOf(
-                Pair("<selecionar>", ""),
+                Pair("<seleccionar>", ""),
                 Pair("accion", "genero/accion"),
                 Pair("amazon prime", "genero/amazon-prime"),
                 Pair("animacion", "genero/animacion"),
