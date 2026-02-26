@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.es.lacartoons
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
@@ -52,6 +53,7 @@ class Lacartoons :
             "YourUpload",
             "FileLions",
             "StreamHideVid",
+            "Sendvid",
         )
     }
 
@@ -132,6 +134,7 @@ class Lacartoons :
 
     private fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
+        val extractor = SendvidExtractor(client, headers)
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
 
@@ -153,6 +156,8 @@ class Lacartoons :
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
 
             embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+
+            embedUrl.contains("sendvid") -> extractor.videosFromUrl(url)
 
             else -> UniversalExtractor(client).videosFromUrl(url, headers)
         }
