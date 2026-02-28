@@ -24,10 +24,10 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody

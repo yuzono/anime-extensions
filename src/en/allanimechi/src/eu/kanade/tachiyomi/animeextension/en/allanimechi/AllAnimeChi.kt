@@ -22,8 +22,8 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

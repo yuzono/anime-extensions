@@ -18,8 +18,8 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import eu.kanade.tachiyomi.util.parallelMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject

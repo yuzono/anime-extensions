@@ -24,13 +24,13 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parallelMapNotNull
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
+import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.json.buildJsonObject

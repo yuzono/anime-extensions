@@ -16,7 +16,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.Source
 import keiyoushi.utils.addEditTextPreference
@@ -25,6 +24,7 @@ import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.get
 import keiyoushi.utils.getSwitchPreference
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toRequestBody

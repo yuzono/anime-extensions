@@ -9,7 +9,7 @@ import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 
 class LMAnime :

@@ -15,8 +15,8 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anilist.AniListAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.parallelFlatMap
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString

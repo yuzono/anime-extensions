@@ -12,7 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.datalifeengine.DataLifeEngine
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document

@@ -19,6 +19,7 @@ aniyomi-lib = { module = "com.github.komikku-app:aniyomi-extensions-lib", versio
 
 kotlin-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization" }
 kotlin-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+kotlin-json-okio = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json-okio", version.ref = "serialization" }
 
 coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -30,4 +31,4 @@ quickjs = { module = "app.cash.quickjs:quickjs-android", version = "0.9.2" }
 jsunpacker = { module = "dev.datlag.jsunpacker:jsunpacker", version = "1.0.2" }
 
 [bundles]
-common = ["coroutines-core", "coroutines-android", "injekt-core", "kotlin-protobuf", "kotlin-json", "jsoup", "okhttp", "aniyomi-lib", "quickjs"]
+common = ["coroutines-core", "coroutines-android", "injekt-core", "kotlin-protobuf", "kotlin-json", "kotlin-json-okio", "jsoup", "okhttp", "aniyomi-lib", "quickjs"]

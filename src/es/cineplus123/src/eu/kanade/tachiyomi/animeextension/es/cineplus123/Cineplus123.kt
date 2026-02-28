@@ -11,7 +11,7 @@ import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.parallelFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response

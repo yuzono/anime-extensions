@@ -1,12 +1,11 @@
 package keiyoushi.utils
 
-// From https://github.com/keiyoushi/extensions-source/blob/main/core/src/main/kotlin/keiyoushi/utils/Json.kt
-
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.okio.decodeFromBufferedSource
+import kotlinx.serialization.serializer
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -29,9 +28,24 @@ inline fun <reified T> String.parseAs(json: Json = jsonInstance): T = json.decod
 inline fun <reified T> String.parseAs(json: Json = jsonInstance, transform: (String) -> String): T = transform(this).parseAs(json)
 
 /**
- * Parses the response body into an object of type [T].
+ * Parse and deserialize the response body as the type [T].
+ *
+ * This function uses okio utilities instead of converting the response body to
+ * a String, so you may have a small performance gain over `Response.parseAs(transform)`,
+ * mainly in large responses.
+ *
+ * @since extensions-lib 14
  */
-inline fun <reified T> Response.parseAs(json: Json = jsonInstance): T = use { json.decodeFromStream(body.byteStream()) }
+inline fun <reified T> Response.parseAs(json: Json = jsonInstance): T = use {
+    body.source().use {
+        json.decodeFromBufferedSource(serializer(), it)
+    }
+}
+
+// /**
+//  * Parses the response body into an object of type [T].
+//  */
+// inline fun <reified T> Response.parseAs(json: Json = jsonInstance): T = use { json.decodeFromStream(body.byteStream()) }
 
 /**
  * Parses the response body into an object of type [T], applying a transformation to the raw JSON string before parsing.

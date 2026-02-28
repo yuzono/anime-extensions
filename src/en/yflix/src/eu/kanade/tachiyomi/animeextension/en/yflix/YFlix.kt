@@ -12,12 +12,12 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelMapNotNull
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferences
+import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
