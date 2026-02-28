@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

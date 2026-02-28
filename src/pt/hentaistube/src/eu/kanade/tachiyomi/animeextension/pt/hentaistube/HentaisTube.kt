@@ -17,8 +17,8 @@ import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document

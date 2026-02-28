@@ -4,7 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl

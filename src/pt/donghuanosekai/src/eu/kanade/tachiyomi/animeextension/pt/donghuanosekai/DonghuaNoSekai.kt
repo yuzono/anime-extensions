@@ -16,8 +16,8 @@ import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody

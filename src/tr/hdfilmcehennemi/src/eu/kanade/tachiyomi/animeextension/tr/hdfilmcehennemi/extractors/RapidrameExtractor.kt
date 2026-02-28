@@ -8,7 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl

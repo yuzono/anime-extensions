@@ -22,9 +22,9 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl

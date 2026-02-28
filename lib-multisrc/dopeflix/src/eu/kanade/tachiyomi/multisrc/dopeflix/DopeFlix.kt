@@ -21,11 +21,11 @@ import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
 import eu.kanade.tachiyomi.util.parallelFlatMap
 import eu.kanade.tachiyomi.util.parallelMapNotNull
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl

@@ -17,8 +17,8 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive

@@ -26,8 +26,8 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int

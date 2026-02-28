@@ -12,12 +12,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope

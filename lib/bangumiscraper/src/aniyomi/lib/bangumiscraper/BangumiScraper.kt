@@ -3,7 +3,7 @@ package aniyomi.lib.bangumiscraper
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject

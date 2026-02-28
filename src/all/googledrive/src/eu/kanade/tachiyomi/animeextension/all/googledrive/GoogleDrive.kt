@@ -21,9 +21,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.commonEmptyRequestBody
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
