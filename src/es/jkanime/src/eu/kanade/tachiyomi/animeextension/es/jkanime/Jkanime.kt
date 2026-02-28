@@ -25,9 +25,9 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -411,7 +411,7 @@ class Jkanime :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return getVideoLinks(document).parallelCatchingFlatMapBlocking { (url, lang, name) ->
+        return getVideoLinks(document).catchingFlatMapBlocking { (url, lang, name) ->
             val matched = serverMatching.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first ?: name.lowercase()
             when (matched) {
                 // "mega" -> emptyList() // Skip mega server
@@ -431,7 +431,7 @@ class Jkanime :
                 // "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" }) // Use UniversalExtractor
                 "doostream" -> doodExtractor.videosFromUrl(url.replace("d-s.io", "dsvplay.com"), "$lang ${name.ifBlank { "Doodstream" }}")
 
-                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
+                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang - VidHide:$it" })
 
                 "mediafire" -> jkanimeExtractor.getMediafireFromUrl(url, "$lang ")
 

@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.es.zonaleros
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -21,7 +20,9 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
@@ -77,9 +78,9 @@ class Zonaleros :
                 else -> SAnime.UNKNOWN
             }
             artist = document.selectFirst(".ListActors li a")?.text()
-            document.select(".TxtMAY").map {
-                when {
-                    it.text().contains("PRODUCTORA") || it.text().contains("CREADOR") -> author = it.nextElementSibling()?.text()
+            document.select(".TxtMAY").forEach {
+                if (it.text().contains("PRODUCTORA") || it.text().contains("CREADOR")) {
+                    author = it.nextElementSibling()?.text()
                 }
             }
         }
@@ -177,24 +178,19 @@ class Zonaleros :
 
         val scriptServerList = serverDocument.selectFirst("script:containsData(var video)")?.data() ?: return emptyList()
 
-        val videoList = mutableListOf<Video>()
-        fetchUrls(scriptServerList).filter { it.contains("anomizador", true) }.forEach {
-            try {
-                val realUrl = client.newCall(GET(it)).execute()
-                    .networkResponse.toString()
+        return fetchUrls(scriptServerList).filter { it.contains("anomizador", true) }
+            .catchingFlatMapBlocking {
+                val realUrl = client.newCall(GET(it)).awaitSuccess()
+                    .use { response -> response.networkResponse.toString() }
                     .substringAfter("url=")
                     .substringBefore("}")
-                serverVideoResolver(realUrl).also(videoList::addAll)
-            } catch (e: Exception) {
-                Log.i("bruh e", e.toString())
+                serverVideoResolver(realUrl)
             }
-        }
-        return videoList
     }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -211,7 +207,7 @@ class Zonaleros :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)

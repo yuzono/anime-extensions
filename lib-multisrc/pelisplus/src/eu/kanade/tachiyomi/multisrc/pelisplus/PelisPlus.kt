@@ -62,7 +62,7 @@ abstract class PelisPlus :
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
+    suspend fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
         return runCatching {
             val source = serverName?.ifEmpty { url } ?: url
             val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
@@ -113,7 +113,7 @@ abstract class PelisPlus :
 
                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
 
-                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix VidHide:$it" })
+                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
 
                 "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
 
@@ -206,8 +206,6 @@ abstract class PelisPlus :
     }
 
     private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }
-
-    fun getNumberFromString(epsStr: String) = epsStr.filter { it.isDigit() }.ifEmpty { "0" }
 
     override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
     override fun latestUpdatesFromElement(element: Element) = throw UnsupportedOperationException()
