@@ -4,6 +4,9 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Taken from https://github.com/DatL4g/JsUnpacker/blob/master/src/commonTest/kotlin/dev/datlag/jsunpacker/UnpackUnitTest.kt
+ */
 class JsUnpackerUnitTest {
 
     @Test
