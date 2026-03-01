@@ -130,7 +130,7 @@ object JsUnpacker {
             } else {
                 payload?.replace(unpackReplaceRegex) { match ->
                     val word = match.value
-                    val unbased = symtab[unbaser.unbase(word)]
+                    val unbased = symtab.getOrNull(unbaser.unbase(word)) ?: ""
                     unbased.ifEmpty {
                         word
                     }

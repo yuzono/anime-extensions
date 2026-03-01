@@ -45,7 +45,7 @@ object Unpacker {
             val key = it.value
             val index = parseRadix62(key)
             if (index >= size) return@replace key
-            dictionary[index].ifEmpty { key }
+            dictionary.getOrNull(index)?.ifEmpty { key } ?: key
         }
     }
 
