@@ -16,5 +16,4 @@ dependencies {
     implementation(project(":lib:vidhideextractor"))
     implementation(project(":lib:universalextractor"))
     implementation(project(':lib:playlistutils'))
-    implementation(libs.jsunpacker)
 }
