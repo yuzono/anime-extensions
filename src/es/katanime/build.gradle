@@ -15,5 +15,5 @@ dependencies {
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:playlistutils'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

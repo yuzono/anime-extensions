@@ -14,5 +14,5 @@ dependencies {
     implementation(project(":lib:streamtapeextractor"))
     implementation(project(":lib:streamwishextractor"))
     implementation(project(":lib:voeextractor"))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

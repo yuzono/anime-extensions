@@ -9,6 +9,6 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(':lib:playlistutils'))
 }

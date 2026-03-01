@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors
 
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup

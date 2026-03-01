@@ -12,5 +12,5 @@ dependencies {
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:playlistutils'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

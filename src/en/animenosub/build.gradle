@@ -12,5 +12,5 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:streamwishextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }
