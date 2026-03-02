@@ -1,0 +1,12 @@
+ext {
+    extName = 'Nonton Anime ID'
+    pkgNameSuffix = 'nontonanimeid'
+    extClass = '.NontonAnimeID'
+    extVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(":lib:anime-extractor"))
+}
