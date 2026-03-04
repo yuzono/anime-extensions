@@ -26,4 +26,6 @@ kotlin {
 
 dependencies {
     compileOnly(versionCatalogs.named("libs").findBundle("common").get())
+    testImplementation(libs.okhttp)
+    testImplementation(kotlin("test-junit"))
 }

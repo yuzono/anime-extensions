@@ -229,15 +229,17 @@ class KissKH :
             }.awaitAll().filterNotNull()
         }
 
-        return listOf(
-            Video(
-                UrlUtils.fixUrl(videoUrl),
-                "FirstParty",
-                UrlUtils.fixUrl(videoUrl),
-                subtitleTracks = subList,
-                headers = Headers.headersOf("referer", "$baseUrl/", "origin", baseUrl),
-            ),
-        )
+        return UrlUtils.fixUrl(videoUrl)?.let { videoUrl ->
+            listOf(
+                Video(
+                    videoUrl,
+                    "FirstParty",
+                    videoUrl,
+                    subtitleTracks = subList,
+                    headers = Headers.headersOf("referer", "$baseUrl/", "origin", baseUrl),
+                ),
+            )
+        } ?: emptyList()
     }
 
     private suspend fun requestVideoKey(id: String): String {

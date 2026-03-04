@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.commonEmptyHeaders
 import keiyoushi.utils.parallelMapNotNullBlocking
 import okhttp3.Headers
@@ -108,19 +109,10 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             )
         }
 
-        val playlistHttpUrl = playlistUrl.toHttpUrl()
-
-        val masterUrlBasePath = playlistHttpUrl.newBuilder().apply {
-            removePathSegment(playlistHttpUrl.pathSize - 1)
-            addPathSegment("")
-            query(null)
-            fragment(null)
-        }.build().toString()
-
         // Get subtitles
         val subtitleTracks = subtitleList + SUBTITLE_REGEX.findAll(masterPlaylist).mapNotNull {
             Track(
-                getAbsoluteUrl(it.groupValues[2], playlistUrl, masterUrlBasePath) ?: return@mapNotNull null,
+                UrlUtils.fixUrl(it.groupValues[2], playlistUrl) ?: return@mapNotNull null,
                 it.groupValues[1],
             )
         }.toList()
@@ -128,7 +120,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         // Get audio tracks
         val audioTracks = audioList + AUDIO_REGEX.findAll(masterPlaylist).mapNotNull {
             Track(
-                getAbsoluteUrl(it.groupValues[2], playlistUrl, masterUrlBasePath) ?: return@mapNotNull null,
+                UrlUtils.fixUrl(it.groupValues[2], playlistUrl) ?: return@mapNotNull null,
                 it.groupValues[1],
             )
         }.toList()
@@ -193,7 +185,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 ?: "Video"
 
             val videoUrl = stream.substringAfter("\n").substringBefore("\n").let { url ->
-                getAbsoluteUrl(url, playlistUrl, masterUrlBasePath)?.trimEnd()
+                UrlUtils.fixUrl(url, playlistUrl)?.trimEnd()
             } ?: return@mapNotNull null
 
             bandwidth to Video(
@@ -209,15 +201,6 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 bandwidth ?: 0L
             }
             .map { (_, video) -> video }
-    }
-
-    private fun getAbsoluteUrl(url: String, playlistUrl: String, masterBase: String): String? = when {
-        url.isEmpty() -> null
-        url.startsWith("http") -> url
-        url.startsWith("//") -> "https:$url"
-        url.startsWith("/") -> playlistUrl.toHttpUrl().newBuilder().encodedPath("/").build().toString()
-            .substringBeforeLast("/") + url
-        else -> masterBase + url
     }
 
     fun generateMasterHeaders(baseHeaders: Headers, referer: String): Headers = baseHeaders.newBuilder().apply {
