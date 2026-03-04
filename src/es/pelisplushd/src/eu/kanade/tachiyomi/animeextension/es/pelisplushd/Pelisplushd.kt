@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.parallelFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.SerialName
@@ -107,15 +108,16 @@ class Pelisplushd : PelisPlus() {
                                 val lng = data.videoLanguage ?: ""
                                 (server to lng) to link
                             }
-                        }.flatMap {
+                        }.parallelFlatMapBlocking {
                             serverVideoResolver(it.third, it.second, it.first)
                         }.also(videoList::addAll)
                     } else {
                         docResponse.select("li[onclick]")
                             .flatMap { fetchUrls(it.attr("onclick")) }
-                            .forEach { realUrl ->
-                                serverVideoResolver(realUrl).also(videoList::addAll)
+                            .parallelFlatMapBlocking { realUrl ->
+                                serverVideoResolver(realUrl)
                             }
+                            .also(videoList::addAll)
                     }
                 }
             }

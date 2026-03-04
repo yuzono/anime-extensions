@@ -1,5 +1,5 @@
 ext {
-    extName = 'HentaiLA'
+    extName = 'Hentaila'
     extClass = '.Hentaila'
     extVersionCode = 42
     isNsfw = true
@@ -16,5 +16,4 @@ dependencies {
     implementation(project(':lib:sendvidextractor'))
     implementation(project(':lib:universalextractor'))
     implementation(project(':lib:vidhideextractor'))
-    implementation(project(':lib:megacloudextractor'))
 }

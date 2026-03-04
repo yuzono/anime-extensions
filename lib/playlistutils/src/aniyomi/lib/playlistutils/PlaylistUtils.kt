@@ -4,8 +4,11 @@ import android.net.Uri
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.commonEmptyHeaders
+import keiyoushi.utils.parallelMapNotNullBlocking
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -77,7 +80,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         playlistUrl: String,
         referer: String = playlistUrl.toDefaultReferer(),
         masterHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         videoNameGen: (String) -> String = { quality -> quality },
@@ -89,8 +92,8 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> {
         val masterHeaders = masterHeadersGen(headers, referer)
 
-        val masterPlaylist = client.newCall(GET(playlistUrl, masterHeaders)).execute()
-            .body.string()
+        val masterPlaylist = client.newCall(GET(playlistUrl, masterHeaders))
+            .execute().use { it.body.string() }
 
         // Check if there isn't multiple streams available
         if (PLAYLIST_SEPARATOR !in masterPlaylist) {
@@ -106,19 +109,10 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             )
         }
 
-        val playlistHttpUrl = playlistUrl.toHttpUrl()
-
-        val masterUrlBasePath = playlistHttpUrl.newBuilder().apply {
-            removePathSegment(playlistHttpUrl.pathSize - 1)
-            addPathSegment("")
-            query(null)
-            fragment(null)
-        }.build().toString()
-
         // Get subtitles
         val subtitleTracks = subtitleList + SUBTITLE_REGEX.findAll(masterPlaylist).mapNotNull {
             Track(
-                getAbsoluteUrl(it.groupValues[2], playlistUrl, masterUrlBasePath) ?: return@mapNotNull null,
+                UrlUtils.fixUrl(it.groupValues[2], playlistUrl) ?: return@mapNotNull null,
                 it.groupValues[1],
             )
         }.toList()
@@ -126,7 +120,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         // Get audio tracks
         val audioTracks = audioList + AUDIO_REGEX.findAll(masterPlaylist).mapNotNull {
             Track(
-                getAbsoluteUrl(it.groupValues[2], playlistUrl, masterUrlBasePath) ?: return@mapNotNull null,
+                UrlUtils.fixUrl(it.groupValues[2], playlistUrl) ?: return@mapNotNull null,
                 it.groupValues[1],
             )
         }.toList()
@@ -163,8 +157,9 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         return masterPlaylist.substringAfter(PLAYLIST_SEPARATOR).split(PLAYLIST_SEPARATOR).mapNotNull { stream ->
             val codec = CODECS_REGEX.find(stream)?.groupValues?.get(1)
             if (!codec.isNullOrBlank()) {
-                // Skip audio only streams
-                if (codec.startsWith("mp4a")) return@mapNotNull null
+                // Skip audio only streams. Can check if `codecs` starts with any of avc/hev1/hvc1/vp9/av01.
+                val codecs = codec.split(',')
+                if (codecs.all { it.startsWith("mp4a") }) return@mapNotNull null
             }
 
             val resolution = RESOLUTION_REGEX.find(stream)
@@ -190,7 +185,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 ?: "Video"
 
             val videoUrl = stream.substringAfter("\n").substringBefore("\n").let { url ->
-                getAbsoluteUrl(url, playlistUrl, masterUrlBasePath)?.trimEnd()
+                UrlUtils.fixUrl(url, playlistUrl)?.trimEnd()
             } ?: return@mapNotNull null
 
             bandwidth to Video(
@@ -206,15 +201,6 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 bandwidth ?: 0L
             }
             .map { (_, video) -> video }
-    }
-
-    private fun getAbsoluteUrl(url: String, playlistUrl: String, masterBase: String): String? = when {
-        url.isEmpty() -> null
-        url.startsWith("http") -> url
-        url.startsWith("//") -> "https:$url"
-        url.startsWith("/") -> playlistUrl.toHttpUrl().newBuilder().encodedPath("/").build().toString()
-            .substringBeforeLast("/") + url
-        else -> masterBase + url
     }
 
     fun generateMasterHeaders(baseHeaders: Headers, referer: String): Headers = baseHeaders.newBuilder().apply {
@@ -292,7 +278,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         videoNameGen: (String) -> String,
         referer: String = mpdUrl.toDefaultReferer(),
         mpdHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         subtitleList: List<Track> = emptyList(),
@@ -341,7 +327,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         videoNameGen: (String, String) -> String,
         referer: String = mpdUrl.toDefaultReferer(),
         mpdHeadersGen: (Headers, String) -> Headers = ::generateMasterHeaders,
-        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, videoUrl ->
+        videoHeadersGen: (Headers, String, String) -> Headers = { baseHeaders, referer, _ ->
             generateMasterHeaders(baseHeaders, referer)
         },
         subtitleList: List<Track> = emptyList(),
@@ -352,8 +338,8 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> {
         val mpdHeaders = mpdHeadersGen(headers, referer)
 
-        val doc = client.newCall(GET(mpdUrl, mpdHeaders)).execute()
-            .asJsoup()
+        val doc = client.newCall(GET(mpdUrl, mpdHeaders))
+            .execute().use { it.asJsoup() }
 
         // Get audio tracks
         val audioTracks = audioList + doc.select("Representation[mimetype~=audio]").map { audioSrc ->
@@ -393,7 +379,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
 
     private fun String.toDefaultReferer(): String = try {
         toHttpUrl().run { "$scheme://$host/" }
-    } catch (e: IllegalArgumentException) {
+    } catch (_: IllegalArgumentException) {
         ""
     }
 
@@ -403,14 +389,25 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         return "${result}p"
     }
 
+    /**
+     * When the regex finds a match (illegal newlines), this function is called to replace them.
+     * Instead of just deleting the lines (which might mess up the visual timing/positioning intended by the creator),
+     * it replaces them with non-breaking spaces (`&nbsp;`).
+     * This preserves the "height" or "spacing" of the original text without breaking the VTT file structure.
+     */
     private fun cleanSubtitleData(matchResult: MatchResult): String {
         val lineCount = matchResult.groupValues[1].count { it == '\n' }
         return "\n" + "&nbsp;\n".repeat(lineCount - 1)
     }
 
-    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.mapNotNull {
-        try {
-            val subData = client.newCall(GET(it.url)).execute().body.string()
+    /**
+     * Fix a common issue in VTT (WebVTT) subtitle files where extra or unexpected newline characters break the subtitle format,
+     * potentially causing players to fail to render them correctly.
+     */
+    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.parallelMapNotNullBlocking {
+        runCatching {
+            val subData = client.newCall(GET(it.url))
+                .awaitSuccess().use { response -> response.body.string() }
 
             val file = File.createTempFile("subs", "vtt")
                 .also(File::deleteOnExit)
@@ -419,13 +416,20 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             val uri = Uri.fromFile(file)
 
             Track(uri.toString(), it.lang)
-        } catch (_: Exception) {
-            null
-        }
+        }.getOrNull()
     }
 
     companion object {
-        private val FIX_SUBTITLE_REGEX = Regex("""${'$'}(\n{2,})(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)""", RegexOption.MULTILINE)
+        /**
+         * This regex identifies "illegal" gaps or line breaks within a subtitle file.
+         *
+         * * `$`: Matches the end of a line.
+         * * `(\n{2,})`: Captures a group of two or more consecutive newline characters. In VTT files, a double newline usually indicates the end of one "cue" (subtitle block) and the start of another.
+         * * `(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)`: This is a negative lookahead. It checks that what follows the newlines is NOT a VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000)`.
+         *
+         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
+         */
+        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)""", RegexOption.MULTILINE)
 
         private const val PLAYLIST_SEPARATOR = "#EXT-X-STREAM-INF:"
 
