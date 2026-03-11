@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
@@ -71,17 +72,17 @@ class Animejl :
 
         val script = document.select("script:containsData(var episodes =)").firstOrNull()?.data() ?: return emptyList()
 
-        val episodesPattern = Regex("var episodes = (\\[.*?\\]);", RegexOption.DOT_MATCHES_ALL)
+        val episodesPattern = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
         val episodesMatch = episodesPattern.find(script) ?: return emptyList()
         val episodesString = episodesMatch.groupValues[1]
 
-        val animeInfoPattern = Regex("var anime_info = \\[(.*?)\\];")
+        val animeInfoPattern = Regex("var anime_info = \\[(.*?)];")
         val animeInfoMatch = animeInfoPattern.find(script) ?: return emptyList()
         val animeInfo = animeInfoMatch.groupValues[1].split(",").map { it.trim('"') }
 
         val animeSlug = animeInfo.getOrNull(2) ?: ""
         val animeId = animeInfo.getOrNull(0) ?: ""
-        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"\\]")
+        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
         val episodeMatches = episodePattern.findAll(episodesString)
 
         episodeMatches.forEach { match ->
@@ -120,12 +121,11 @@ class Animejl :
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
-        val videoList = mutableListOf<Video>()
-        val videoPattern = Regex("""video\[\d+\] = '<iframe src="(.*?)"""")
+        val videoPattern = Regex("""video\[\d+] = '<iframe src="(.*?)"""")
         val matches = videoPattern.findAll(scriptContent)
-        matches.forEach { match ->
+        return matches.toList().catchingFlatMapBlocking { match ->
             val url = match.groupValues[1]
-            val videos = when {
+            when {
                 url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
                 url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
                 url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
@@ -136,9 +136,7 @@ class Animejl :
                 url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
-            videoList.addAll(videos)
         }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()

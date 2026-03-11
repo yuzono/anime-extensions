@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.es.serieskao
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
@@ -28,10 +27,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -111,61 +114,40 @@ open class Serieskao :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
         val data = document.selectFirst("script:containsData(video[1] = )")?.data() ?: return emptyList()
 
-        // Extrae los enlaces de video de `video` en el script
-        val videoUrls = Regex("video\\[\\d+\\] = '([^']+)'").findAll(data)
+        val videoUrls = Regex("video\\[\\d+] = '([^']+)'").findAll(data)
             .map { it.groupValues[1] }
             .toList()
 
-        // Itera a través de los enlaces de video encontrados
-        videoUrls.forEach { videoUrl ->
-            runCatching {
-                // Ejecuta la solicitud para obtener el cuerpo de la página del enlace de video
-                val body = client.newCall(GET(videoUrl)).execute().asJsoup()
+        return videoUrls.parallelCatchingFlatMapBlocking { videoUrl ->
+            val body = client.newCall(GET(videoUrl)).awaitSuccess().useAsJsoup()
 
-                // Extrae el idioma correspondiente basado en el contexto
-
-                // Extrae y desencripta los enlaces con `extractNewExtractorLinks`
-                extractNewExtractorLinks(body, body.toString())?.forEach { (url, lang) ->
-                    runCatching {
-                        // Envía el enlace desencriptado y el idioma al resolver
-                        serverVideoResolver(url, lang).also { videoList.addAll(it) }
-                    }.onFailure {
-                        // Log para depuración si falla el proceso
-                        Log.e("videoListParse", "Error al procesar URL de video: $url", it)
-                    }
-                }
-            }.onFailure {
-                // Log para depuración si falla la solicitud de video
-                Log.e("videoListParse", "Error al obtener cuerpo de videoUrl: $videoUrl", it)
-            }
+            extractNewExtractorLinks(body.toString())
+                ?.parallelCatchingFlatMap { (url, lang) ->
+                    serverVideoResolver(url, lang)
+                } ?: emptyList()
         }
-
-        return videoList
     }
 
-    private fun extractNewExtractorLinks(doc: Document, htmlContent: String): List<Pair<String, String>>? {
-        val links = mutableListOf<Pair<String, String>>()
-        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?\]);""".toRegex(), htmlContent)
+    private fun extractNewExtractorLinks(htmlContent: String): List<Pair<String, String>>? {
+        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?]);""".toRegex(), htmlContent)
         if (jsLinksMatch.isEmpty()) return null
 
-        val items = Json.decodeFromString<List<Item>>(jsLinksMatch)
+        val items = jsLinksMatch.parseAs<List<Item>>()
 
         // Diccionario de idiomas
         val idiomas = mapOf("LAT" to "[LAT]", "ESP" to "[CAST]", "SUB" to "[SUB]")
 
-        items.forEach { item ->
+        return items.flatMap { item ->
             val languageCode = idiomas[item.video_language] ?: "unknown"
 
-            item.sortedEmbeds.forEach { embed ->
+            item.sortedEmbeds.mapNotNull { embed ->
                 val decryptedLink = CryptoAES.decrypt(embed.link, "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE")
-                links.add(Pair(decryptedLink, languageCode))
+                    .takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                Pair(decryptedLink, languageCode)
             }
         }
-
-        return links.ifEmpty { null }
     }
 
     /*--------------------------------Video extractors------------------------------------*/
@@ -186,68 +168,65 @@ open class Serieskao :
     private val streamSilkExtractor by lazy { StreamSilkExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
-        return runCatching {
-            Log.d("SoloLatino", "URL: $url")
-            when {
-                arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
+        return when {
+            arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
 
-                arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
+            arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
 
-                arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+            arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
 
-                !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
-                    val body = client.newCall(GET(url)).execute().asJsoup()
-                    return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
-                        val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
-                            .substringAfter("shareId = \"").substringBefore("\"")
-                        val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
-                            .execute().asJsoup()
-                        val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
-                        val amazonApi =
-                            client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
-                                .execute().asJsoup()
-                        val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-                        listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
-                    } else {
-                        emptyList()
-                    }
+            !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
+                val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+                return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
+                    val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
+                        .substringAfter("shareId = \"").substringBefore("\"")
+                    val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
+                        .awaitSuccess().useAsJsoup()
+                    val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
+                    val amazonApi =
+                        client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
+                            .awaitSuccess().useAsJsoup()
+                    val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
+                    listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
+                } else {
+                    emptyList()
                 }
-
-                arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
-
-                arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-
-                arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
-                    streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                }
-
-                arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
-                    val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
-                    doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
-                }
-
-                arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
-
-                arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-                arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-                arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
-
-                arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-                arrayOf("streamsilk").any(url) -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
-
-                arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
-
-                arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
-
-                arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-                else -> emptyList()
             }
-        }.getOrNull() ?: emptyList()
+
+            arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
+
+            arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+
+            arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
+                streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+            }
+
+            arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
+                val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
+                doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
+            }
+
+            arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
+
+            arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+            arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+            arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
+            arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+            arrayOf("streamsilk").any(url) -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
+
+            arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
+            arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+
+            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+            else -> emptyList()
+        }
     }
 
     private fun getFirstMatch(regex: Regex, input: String): String = regex.find(input)?.groupValues?.get(1) ?: ""

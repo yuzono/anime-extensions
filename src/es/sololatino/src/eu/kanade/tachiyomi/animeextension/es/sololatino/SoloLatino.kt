@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -41,7 +42,6 @@ class SoloLatino :
         "SoloLatino",
         "https://sololatino.net",
     ) {
-    private val json by lazy { Json { ignoreUnknownKeys = true } }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/page/$page")
@@ -119,7 +119,7 @@ class SoloLatino :
 
         runBlocking {
             getLinks({ videoLinks -> links.addAll(videoLinks) }, { error ->
-                println("Error al obtener los enlaces: $error")
+                Log.e("SoloLatino", "Error al obtener los enlaces: $error")
             }, path)
         }
 
@@ -127,14 +127,10 @@ class SoloLatino :
             return emptyList()
         }
 
-        return links.filter { it.first.isNotBlank() }.flatMap { (link, languageCode) ->
-            extractVideosSafely(link, languageCode)
+        return links.filter { it.first.isNotBlank() }.parallelCatchingFlatMapBlocking { (link, languageCode) ->
+            extractVideos(link, languageCode)
         }
     }
-
-    private fun extractVideosSafely(link: String, languageCode: String): List<Video> = runCatching {
-        extractVideos(link, languageCode)
-    }.onFailure { it.printStackTrace() }.getOrDefault(emptyList())
 
     private suspend fun getLinks(after: (List<Pair<String, String>>) -> Unit, onError: (Throwable) -> Unit, path: String) {
         try {
@@ -178,7 +174,7 @@ class SoloLatino :
         val bData = httpGet(iframeUrl)
 
         parseLinks(bData)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         emptyList()
     }
 
@@ -238,23 +234,18 @@ class SoloLatino :
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
 
-    private fun extractVideos(url: String, lang: String): List<Video> {
+    private suspend fun extractVideos(url: String, lang: String): List<Video> {
         val prefix = if (lang == "unknown") "[UNK]" else lang
-        try {
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-            return when (matched) {
-                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url, "$prefix ")
-                "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix ")
-                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-                "vidhide" -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
-                else -> emptyList()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return emptyList()
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+        return when (matched) {
+            "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+            "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url, "$prefix ")
+            "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix ")
+            "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+            "vidhide" -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
+            else -> emptyList()
         }
     }
 
@@ -274,7 +265,7 @@ class SoloLatino :
         val links = mutableListOf<Pair<String, String>>()
         val doc: Document = Jsoup.parse(htmlContent)
 
-        extractNewExtractorLinks(doc, htmlContent)?.let { newLinks ->
+        extractNewExtractorLinks(htmlContent)?.let { newLinks ->
             newLinks.forEach { links.add(it) }
         }
         extractOldExtractorLinks(doc)?.let { oldLinks ->
@@ -284,9 +275,9 @@ class SoloLatino :
         return links
     }
 
-    private fun extractNewExtractorLinks(doc: Document, htmlContent: String): MutableList<Pair<String, String>>? {
+    private fun extractNewExtractorLinks(htmlContent: String): MutableList<Pair<String, String>>? {
         val links = mutableListOf<Pair<String, String>>()
-        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?\]);""".toRegex(), htmlContent)
+        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?]);""".toRegex(), htmlContent)
         if (jsLinksMatch.isEmpty()) return null
 
         val items = Json.decodeFromString<List<Item>>(jsLinksMatch)
@@ -471,7 +462,7 @@ class SoloLatino :
         val dateFormat = SimpleDateFormat("MMM. dd, yyyy", Locale.ENGLISH)
         val date = dateFormat.parse(this)
         date?.time ?: 0L
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         0L
     }
 

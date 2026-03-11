@@ -2,7 +2,7 @@ ext {
     extName = 'Wiflix'
     extClass = '.Wiflix'
     themePkg = 'datalifeengine'
-    baseUrl = 'https://wiflix.voto'
+    baseUrl = 'https://flemmix.rent'
     overrideVersionCode = 22
 }
 

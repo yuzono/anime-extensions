@@ -1,5 +1,5 @@
 ext {
-    extName = 'Serieskao'
+    extName = 'SeriesKao'
     extClass = '.Serieskao'
     extVersionCode = 13
 }

@@ -18,13 +18,15 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
+/**
+ * Domain list: https://wiflix-news.site | https://ww1.wiflix-adresses.fun
+ */
 class Wiflix :
     DataLifeEngine(
         "Wiflix",
-        "https://wiflix.voto",
+        "https://flemmix.rent",
         "fr",
     ) {
-
     override val categories = arrayOf(
         Pair("<Sélectionner>", ""),
         Pair("Séries", "/serie-en-streaming/"),
