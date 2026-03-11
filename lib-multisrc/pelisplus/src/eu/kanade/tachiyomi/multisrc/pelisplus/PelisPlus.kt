@@ -23,8 +23,9 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -62,64 +63,61 @@ abstract class PelisPlus :
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
-        return runCatching {
-            val source = serverName?.ifEmpty { url } ?: url
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+    /**
+     * Don't run this in parallel since [UniversalExtractor] uses Webview doesn't support multi-thread.
+     */
+    suspend fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
+        val source = serverName?.ifEmpty { url } ?: url
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
+        return when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
 
-                "okru" -> okruExtractor.videosFromUrl(url, prefix)
+            "okru" -> okruExtractor.videosFromUrl(url, prefix)
 
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
 
-                "amazon" -> {
-                    val body = client.newCall(GET(url)).execute().asJsoup()
-                    return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
-                        val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
-                            .substringAfter("shareId = \"").substringBefore("\"")
-                        val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
-                            .execute().asJsoup()
-                        val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
-                        val amazonApi =
-                            client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
-                                .execute().asJsoup()
-                        val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-                        listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
-                    } else {
-                        emptyList()
-                    }
-                }
-
-                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
-
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-
-                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-
-                "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
-
-                "streamlare" -> streamlareExtractor.videosFromUrl(url, prefix)
-
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-                "burstcloud" -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-                "fastream" -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
-
-                "upstream" -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-                "streamsilk" -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
-
-                "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
-
-                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix VidHide:$it" })
-
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+            "amazon" -> {
+                val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+                val shareId = body.selectFirst("script:containsData(var shareId)")?.data()
+                    ?.substringAfter("shareId = \"")?.substringBefore("\"")?.takeIf { it.isNotBlank() } ?: return emptyList()
+                val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
+                    .awaitSuccess().useAsJsoup()
+                val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
+                val amazonApi =
+                    client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
+                        .awaitSuccess().useAsJsoup()
+                val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
+                listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
             }
-        }.getOrNull() ?: emptyList()
+
+            "uqload" -> uqloadExtractor.videosFromUrl(url, "$prefix ")
+
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+
+            "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+
+            "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
+
+            "streamlare" -> streamlareExtractor.videosFromUrl(url, prefix)
+
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+            "burstcloud" -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+            "fastream" -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
+            "upstream" -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+            "streamsilk" -> streamSilkExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamSilk:$it" })
+
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
+            "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
+
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+            else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+        }
     }
 
     private val conventions = listOf(
@@ -206,8 +204,6 @@ abstract class PelisPlus :
     }
 
     private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }
-
-    fun getNumberFromString(epsStr: String) = epsStr.filter { it.isDigit() }.ifEmpty { "0" }
 
     override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
     override fun latestUpdatesFromElement(element: Element) = throw UnsupportedOperationException()

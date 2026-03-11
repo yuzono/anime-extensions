@@ -9,9 +9,14 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.Filters
 import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.flatMapCatching
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.add
@@ -71,55 +76,48 @@ class Pelisplushd : PelisPlus() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
         val data = document.selectFirst("script:containsData(video[1] = )")?.data() ?: return emptyList()
 
-        REGEX_VIDEO_OPTS.findAll(data).map { it.groupValues[1] }
-            .filter { it.contains("embed69.org") }
-            .forEach { opt ->
-                val apiResponse = client.newCall(GET(opt)).execute()
-                if (apiResponse.isSuccessful) {
-                    val docResponse = apiResponse.asJsoup()
-                    val cryptoScript = docResponse.selectFirst("script:containsData(let dataLink)")?.data()
-                    if (!cryptoScript.isNullOrBlank()) {
-                        val jsLinksMatch = cryptoScript.substringAfter("let dataLink =").substringBefore("];") + "]"
-                        json.decodeFromString<List<DataLinkDto>>(jsLinksMatch).flatMap { data ->
-                            val sortEmbeds = data.sortedEmbeds
-                            val links = sortEmbeds.mapNotNull { it?.link }
+        return REGEX_VIDEO_OPTS.findAll(data).map { it.groupValues[1] }
+            .filter { it.contains("embed69.org") }.toList()
+            .flatMapCatching { opt ->
+                val docResponse = client.newCall(GET(opt)).execute().useAsJsoup()
+                val cryptoScript = docResponse.selectFirst("script:containsData(let dataLink)")?.data()
+                if (!cryptoScript.isNullOrBlank()) {
+                    val jsLinksMatch = cryptoScript.substringAfter("let dataLink =").substringBefore("];") + "]"
+                    jsLinksMatch.parseAs<List<DataLinkDto>>().parallelCatchingFlatMapBlocking { data ->
+                        val sortEmbeds = data.sortedEmbeds
+                        val links = sortEmbeds.mapNotNull { it?.link }
 
-                            val postBody = buildJsonObject {
-                                putJsonArray("links") {
-                                    links.forEach { add(it) }
-                                }
+                        val postBody = buildJsonObject {
+                            putJsonArray("links") {
+                                links.forEach { add(it) }
                             }
-                            val payload = postBody.toRequestBody()
+                        }
+                        val payload = postBody.toRequestBody()
 
-                            val decryptedLinks = runCatching {
-                                client.newCall(POST("https://embed69.org/api/decrypt", body = payload))
-                                    .execute()
-                                    .parseAs<Embed69Dto>().links
-                            }.getOrNull() ?: emptyList()
+                        val decryptedLinks = client.newCall(POST("https://embed69.org/api/decrypt", body = payload))
+                            .awaitSuccess()
+                            .parseAs<Embed69Dto>().links
 
-                            decryptedLinks.mapNotNull {
-                                val link = it.link
-                                if (link.isEmpty()) return@mapNotNull null
-                                val server = sortEmbeds.getOrNull(it.index)?.servername ?: "Embed69"
-                                val lng = data.videoLanguage ?: ""
-                                (server to lng) to link
-                            }
-                        }.flatMap {
-                            serverVideoResolver(it.third, it.second, it.first)
-                        }.also(videoList::addAll)
-                    } else {
-                        docResponse.select("li[onclick]")
-                            .flatMap { fetchUrls(it.attr("onclick")) }
-                            .forEach { realUrl ->
-                                serverVideoResolver(realUrl).also(videoList::addAll)
-                            }
+                        decryptedLinks.mapNotNull {
+                            val link = it.link
+                            if (link.isEmpty()) return@mapNotNull null
+                            val server = sortEmbeds.getOrNull(it.index)?.servername ?: "Embed69"
+                            val lng = data.videoLanguage ?: ""
+                            (server to lng) to link
+                        }
+                    }.catchingFlatMapBlocking {
+                        serverVideoResolver(it.third, it.second, it.first)
                     }
+                } else {
+                    docResponse.select("li[onclick]")
+                        .flatMap { fetchUrls(it.attr("onclick")) }
+                        .catchingFlatMapBlocking { realUrl ->
+                            serverVideoResolver(realUrl)
+                        }
                 }
             }
-        return videoList
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
