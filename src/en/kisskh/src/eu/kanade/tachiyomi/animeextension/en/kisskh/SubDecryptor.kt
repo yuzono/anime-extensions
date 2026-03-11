@@ -5,6 +5,7 @@ import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import java.io.File
@@ -27,7 +28,7 @@ class SubDecryptor(private val client: OkHttpClient, private val headers: Header
 
         val subtitleData = client.newCall(
             GET(subUrl, subHeaders),
-        ).awaitSuccess().use { it.body.string() }
+        ).awaitSuccess().bodyString()
 
         val chunks = subtitleData.split(CHUNK_REGEX)
             .filter(String::isNotBlank)
