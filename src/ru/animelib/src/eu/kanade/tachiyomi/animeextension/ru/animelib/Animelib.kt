@@ -375,7 +375,7 @@ class Animelib :
             return emptyList()
         }
 
-        val kodikPage = UrlUtils.fixUrl(playerUrl)
+        val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
         headers.add("Referer", baseUrl)
         val kodikPageResponse = client.newCall(GET(kodikPage, headers.build())).awaitSuccess()
@@ -464,7 +464,7 @@ class Animelib :
             }.toString()
 
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
-            val playlistUrl = UrlUtils.fixUrl(hlsUrl)
+            val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
             playlistUtils.extractFromHls(
                 playlistUrl,
                 videoNameGen = { "$teamName (${quality}p Kodik)" },
