@@ -49,13 +49,13 @@ class DonghuaStream :
     private var SharedPreferences.ignorePreview
         by LazyMutable { preferences.getBoolean(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT) }
 
-    private var SharedPreferences.getHosters
+    private var SharedPreferences.enabledHosters
         by LazyMutable { preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!! }
 
     private companion object {
         private const val PREF_HOSTER_KEY = "dm_hoster_selection"
         private val INTERNAL_HOSTER_NAMES = listOf("Dailymotion", "Streamplay", "Rumble", "Ok.ru")
-        private val PREF_HOSTER_ENTRY_VALUES = INTERNAL_HOSTER_NAMES.map { it.lowercase() }.toList()
+        private val PREF_HOSTER_ENTRY_VALUES = INTERNAL_HOSTER_NAMES.map { it.lowercase() }
         private val PREF_HOSTER_DEFAULT = INTERNAL_HOSTER_NAMES.map { it.lowercase() }.toSet()
 
         private const val IGNORE_PREVIEW_KEY = "dm_ignore_preview"
@@ -73,7 +73,7 @@ class DonghuaStream :
             entryValues = PREF_HOSTER_ENTRY_VALUES,
             default = PREF_HOSTER_DEFAULT,
         ) {
-            preferences.getHosters = it
+            preferences.enabledHosters = it
         }
 
         screen.addSwitchPreference(
@@ -104,14 +104,14 @@ class DonghuaStream :
         val prefix = "$name - "
         return runBlocking {
             when {
-                preferences.getHosters.contains("dailymotion") && url.contains("dailymotion") ->
+                preferences.enabledHosters.contains("dailymotion") && url.contains("dailymotion") ->
                     dailymotionExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.getHosters.contains("streamplay") && url.contains("streamplay") ->
+                preferences.enabledHosters.contains("streamplay") && url.contains("streamplay") ->
                     streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.getHosters.contains("ok.ru") && url.contains("ok.ru") ->
+                preferences.enabledHosters.contains("ok.ru") && url.contains("ok.ru") ->
                     UrlUtils.fixUrl(url)?.let { okruExtractor.videosFromUrl(url = it, prefix = prefix) }
                         ?: emptyList()
-                preferences.getHosters.contains("rumble") && url.contains("rumble") ->
+                preferences.enabledHosters.contains("rumble") && url.contains("rumble") ->
                     rumbleExtractor.videosFromUrl(url, prefix = prefix)
                 else -> emptyList()
             }
@@ -126,7 +126,7 @@ class DonghuaStream :
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
         return sortedWith(
             compareBy<Video>(
-                { it.quality.contains(quality) },
+                { it.quality.contains(quality, true) },
                 { qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ).thenByDescending { it.quality },
         ).reversed()

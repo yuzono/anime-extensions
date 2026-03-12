@@ -28,7 +28,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         ).awaitSuccess().useAsJsoup()
 
         return document.select("#servers a").parallelCatchingFlatMap { element ->
-            extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()}")
+            extractAndDecodeFromDocument(element.attr("abs:href"), "$prefix ${element.text()}")
         }
     }
 
