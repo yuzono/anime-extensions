@@ -16,9 +16,11 @@ import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.flatMapCatching
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -26,8 +28,6 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.Normalizer
-import kotlin.text.ifEmpty
-import kotlin.text.lowercase
 
 class VerPelisTop :
     DooPlay(
@@ -81,9 +81,9 @@ class VerPelisTop :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val players = document.select("ul#playeroptionsul li")
-        return players.parallelFlatMapBlocking { player ->
+        return players.catchingFlatMapBlocking { player ->
             serverVideoResolver(player)
         }
     }
@@ -105,12 +105,12 @@ class VerPelisTop :
             .build()
 
         val iframeSource = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .awaitSuccess().use { it.body.string() }
+            .awaitSuccess().bodyString()
             .substringAfter("src='")
             .substringBefore("'")
             .replace("\\", "").ifEmpty { return emptyList() }
 
-        val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().use { it.asJsoup() }
+        val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().useAsJsoup()
 
         return frameDoc.select(".OD li[onclick]")
             .map {
@@ -121,35 +121,31 @@ class VerPelisTop :
                 Pair(url, matched) to Pair(lang, server)
             }
             .partition { it.first.second != null }
-            .let { (extractors, universal) ->
-                val videos1 = extractors.parallelFlatMap { (hoster, info) ->
+            .let { (matched, unmatched) ->
+                val extractors = matched.parallelCatchingFlatMap { (hoster, info) ->
                     val (url, matched) = hoster
                     val (lang, _) = info
-                    runCatching {
-                        when (matched) {
-                            "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang - StreamTape")
-                            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang - FileMoon: ")
-                            "hexload" -> hexloadExtractor.videosFromUrl(url, "$lang - HexLoad")
-                            "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
-                            "streamwish" -> streamWishExtractor.videosFromUrl(url, "$lang - StreamWish")
-                            "vidhide" -> {
-                                // Redirecting URLs
-                                val redirectUrl = url.redirectHgCloudHgLink()
-                                    .replace("dintezuvio", "callistanise")
-                                vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
-                            }
-                            else -> emptyList()
+                    when (matched) {
+                        "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang - StreamTape")
+                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang - FileMoon: ")
+                        "hexload" -> hexloadExtractor.videosFromUrl(url, "$lang - HexLoad")
+                        "uqload" -> uqloadExtractor.videosFromUrl(url, "$lang -")
+                        "streamwish" -> streamWishExtractor.videosFromUrl(url, "$lang - StreamWish")
+                        "vidhide" -> {
+                            // Redirecting URLs
+                            val redirectUrl = url.redirectHgCloudHgLink()
+                                .replace("dintezuvio", "callistanise")
+                            vidHideExtractor.videosFromUrl(redirectUrl, videoNameGen = { "$lang - VidHide: $it" })
                         }
-                    }.getOrDefault(emptyList())
+                        else -> emptyList()
+                    }
                 }
-                val videos2 = universal.flatMap { (hoster, info) ->
+                val universal = unmatched.flatMapCatching { (hoster, info) ->
                     val (url, _) = hoster
                     val (lang, server) = info
-                    runCatching {
-                        universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server")
-                    }.getOrDefault(emptyList())
+                    universalExtractor.videosFromUrl(url, headers, prefix = "$lang $server")
                 }
-                videos1 + videos2
+                extractors + universal
             }
     }
 
