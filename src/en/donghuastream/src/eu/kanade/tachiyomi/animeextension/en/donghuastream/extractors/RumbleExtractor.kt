@@ -17,5 +17,5 @@ class RumbleExtractor(private val client: OkHttpClient, private val headers: Hea
 
     private val regex by lazy { Regex("""rumble\.com/embed/v([a-zA-Z0-9]+)""") }
 
-    fun extractRumbleId(url: String): String? = regex.find(url)?.groupValues?.get(1)
+    private fun extractRumbleId(url: String): String? = regex.find(url)?.groupValues?.get(1)
 }

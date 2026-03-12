@@ -28,7 +28,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
         ).awaitSuccess().useAsJsoup()
 
         return document.select("#servers a").parallelCatchingFlatMap { element ->
-            extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()} ")
+            extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()}")
         }
     }
 
@@ -37,7 +37,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
     /**
      * Server 3 has issue with playlist compatibility, it only plays the first segment
      */
-    suspend fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
+    private suspend fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
         val document = client.newCall(
             GET(url, headers),
         ).awaitSuccess().useAsJsoup()
@@ -63,7 +63,6 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
 
         val apiHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
-            add("Host", httpUrl.host)
             add("Origin", "${httpUrl.scheme}://${httpUrl.host}")
             add("Referer", url)
             add("X-Requested-With", "XMLHttpRequest")
@@ -88,7 +87,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                     playlistUrl = sourceUrl,
                     referer = url,
                     subtitleList = subtitleList,
-                    videoNameGen = { q -> "$prefix$q (StreamPlay)" },
+                    videoNameGen = { q -> "$prefix $q (StreamPlay)" },
                 )
             } else {
                 listOf(
@@ -96,7 +95,9 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                         sourceUrl,
                         "$prefix (StreamPlay) Original",
                         sourceUrl,
-                        headers = headers,
+                        headers = headers.newBuilder()
+                            .set("Referer", url)
+                            .build(),
                         subtitleTracks = subtitleList,
                     ),
                 )
