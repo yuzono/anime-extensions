@@ -5,10 +5,11 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -20,12 +21,12 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
+    suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val document = client.newCall(
             GET(url, headers),
-        ).execute().use { it.asJsoup() }
+        ).awaitSuccess().useAsJsoup()
 
-        return document.select("#servers a").parallelCatchingFlatMapBlocking { element ->
+        return document.select("#servers a").parallelCatchingFlatMap { element ->
             extractAndDecodeFromDocument(element.attr("href"), "$prefix ${element.text()} ")
         }
     }
@@ -85,10 +86,10 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
     /**
      * Server 3 has issue with playlist compatibility, it only plays the first segment
      */
-    fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
+    suspend fun extractAndDecodeFromDocument(url: String, prefix: String): List<Video> {
         val document = client.newCall(
             GET(url, headers),
-        ).execute().use { it.asJsoup() }
+        ).awaitSuccess().useAsJsoup()
 
         // Find script containing the packed code
         val packedScript = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
@@ -121,14 +122,14 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                 headers = apiHeaders,
                 body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
             ),
-        ).execute().parseAs<APIResponse>()
+        ).awaitSuccess().parseAs<APIResponse>()
 
         val subtitleList = apiResponse.tracks?.let { t ->
             t.map { Track(it.file, it.label) }
         } ?: emptyList()
 
-        val videos = apiResponse.sources.flatMap { source ->
-            val sourceUrl = UrlUtils.fixUrl(source.videoUrl)
+        val videos = apiResponse.sources.parallelCatchingFlatMap { source ->
+            val sourceUrl = UrlUtils.fixUrl(source.videoUrl) ?: return@parallelCatchingFlatMap emptyList()
             if (source.type == "hls" && sourceUrl.endsWith("master.m3u8")) {
                 playlistUtils.extractFromHls(
                     playlistUrl = sourceUrl,

@@ -15,7 +15,9 @@ import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
+import kotlinx.coroutines.runBlocking
 import okhttp3.Response
+import kotlin.getValue
 
 class DonghuaStream :
     AnimeStream(
@@ -90,19 +92,20 @@ class DonghuaStream :
 
     override fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        return runCatching {
+        return runBlocking {
             when {
                 preferences.getHosters.contains("dailymotion") && url.contains("dailymotion") ->
                     dailymotionExtractor.videosFromUrl(url, prefix = prefix)
                 preferences.getHosters.contains("streamplay") && url.contains("streamplay") ->
                     streamPlayExtractor.videosFromUrl(url, prefix = prefix)
                 preferences.getHosters.contains("ok.ru") && url.contains("ok.ru") ->
-                    okruExtractor.videosFromUrl(url = UrlUtils.fixUrl(url), prefix = prefix)
+                    UrlUtils.fixUrl(url)?.let { okruExtractor.videosFromUrl(url = it, prefix = prefix) }
+                        ?: emptyList()
                 preferences.getHosters.contains("rumble") && url.contains("rumble") ->
                     rumbleExtractor.videosFromUrl(url, prefix = prefix)
                 else -> emptyList()
             }
-        }.getOrElse { emptyList() }
+        }
     }
 
     // ============================= Utilities ==============================
