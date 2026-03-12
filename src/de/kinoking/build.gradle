@@ -3,12 +3,12 @@ ext {
     extClass = '.Kinoking'
     themePkg = 'dooplay'
     baseUrl = 'https://kinoking.cc'
-    overrideVersionCode = 29
+    overrideVersionCode = 30
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:dood-extractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:doodextractor'))
 }

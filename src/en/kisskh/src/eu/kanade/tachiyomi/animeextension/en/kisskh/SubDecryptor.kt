@@ -5,6 +5,7 @@ import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import java.io.File
@@ -27,7 +28,7 @@ class SubDecryptor(private val client: OkHttpClient, private val headers: Header
 
         val subtitleData = client.newCall(
             GET(subUrl, subHeaders),
-        ).awaitSuccess().use { it.body.string() }
+        ).awaitSuccess().bodyString()
 
         val chunks = subtitleData.split(CHUNK_REGEX)
             .filter(String::isNotBlank)
@@ -88,14 +89,12 @@ class SubDecryptor(private val client: OkHttpClient, private val headers: Header
         return String(cipher.doFinal(encryptedBytes), Charsets.UTF_8)
     }
 
-    private fun IntArray.toByteArray(): ByteArray {
-        return ByteArray(size * 4).also { bytes ->
-            forEachIndexed { index, value ->
-                bytes[index * 4] = (value shr 24).toByte()
-                bytes[index * 4 + 1] = (value shr 16).toByte()
-                bytes[index * 4 + 2] = (value shr 8).toByte()
-                bytes[index * 4 + 3] = value.toByte()
-            }
+    private fun IntArray.toByteArray(): ByteArray = ByteArray(size * 4).also { bytes ->
+        forEachIndexed { index, value ->
+            bytes[index * 4] = (value shr 24).toByte()
+            bytes[index * 4 + 1] = (value shr 16).toByte()
+            bytes[index * 4 + 2] = (value shr 8).toByte()
+            bytes[index * 4 + 3] = value.toByte()
         }
     }
 }

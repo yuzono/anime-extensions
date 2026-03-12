@@ -10,16 +10,18 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeSaturn :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeSaturn"
 
@@ -42,8 +44,7 @@ class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector(): String = "div.sebox"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET(if (isNewDomain()) "$baseUrl/ongoing?page=$page" else "$baseUrl/animeincorso?page=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET(if (isNewDomain()) "$baseUrl/ongoing?page=$page" else "$baseUrl/animeincorso?page=$page")
 
     private fun formatTitle(titlestring: String): String = titlestring.replace("(ITA) ITA", "Dub ITA").replace("(ITA)", "Dub ITA").replace("Sub ITA", "")
 
@@ -194,12 +195,10 @@ class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private var filterSearch = false
 
-    override fun searchAnimeSelector(): String {
-        return if (filterSearch) {
-            "div.anime-card-newanime.main-anime-card" // filter search
-        } else {
-            "ul.list-group" // regular search
-        }
+    override fun searchAnimeSelector(): String = if (filterSearch) {
+        "div.anime-card-newanime.main-anime-card" // filter search
+    } else {
+        "ul.list-group" // regular search
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -238,12 +237,15 @@ class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             description1 == null -> {
                 anime.description = description2
             }
+
             description2 == null -> {
                 anime.description = description1
             }
+
             description1.length > description2.length -> {
                 anime.description = description1
             }
+
             else -> {
                 anime.description = description2
             }
@@ -252,17 +254,17 @@ class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("In corso") -> {
-                SAnime.ONGOING
-            }
-            statusString.contains("Finito") -> {
-                SAnime.COMPLETED
-            }
-            else -> {
-                SAnime.UNKNOWN
-            }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("In corso") -> {
+            SAnime.ONGOING
+        }
+
+        statusString.contains("Finito") -> {
+            SAnime.COMPLETED
+        }
+
+        else -> {
+            SAnime.UNKNOWN
         }
     }
 
@@ -447,6 +449,7 @@ class AnimeSaturn : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
+
                 else -> {}
             }
         }

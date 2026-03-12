@@ -1,14 +1,14 @@
 ext {
     extName = 'NeoNime'
     extClass = '.NeoNime'
-    extVersionCode = 18
+    extVersionCode = 19
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:blogger-extractor'))
-    implementation(project(':lib:gdriveplayer-extractor'))
-    implementation(project(':lib:yourupload-extractor'))
-    implementation(project(':lib:okru-extractor'))
+    implementation(project(':lib:bloggerextractor'))
+    implementation(project(':lib:gdriveplayerextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:okruextractor'))
 }

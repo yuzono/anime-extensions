@@ -2,18 +2,19 @@ package eu.kanade.tachiyomi.animeextension.all.chineseanime
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.streamvidextractor.StreamVidExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.all.chineseanime.extractors.VatchusExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 
-class ChineseAnime : AnimeStream(
-    "all",
-    "ChineseAnime",
-    "https://www.chineseanime.vip",
-) {
+class ChineseAnime :
+    AnimeStream(
+        "all",
+        "ChineseAnime",
+        "https://www.chineseanime.vip",
+    ) {
 
     // =============================== Search ===============================
     override fun searchAnimeNextPageSelector() = "div.mrgn > a.r"

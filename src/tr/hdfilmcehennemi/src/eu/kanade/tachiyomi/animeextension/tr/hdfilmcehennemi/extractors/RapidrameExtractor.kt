@@ -1,14 +1,14 @@
 package eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors
 
 import android.util.Base64
+import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -50,6 +50,5 @@ class RapidrameExtractor(private val client: OkHttpClient, private val headers: 
         )
     }
 
-    private fun String.getProperty(before: String) =
-        substringAfter("$before\"").substringBefore('"')
+    private fun String.getProperty(before: String) = substringAfter("$before\"").substringBefore('"')
 }

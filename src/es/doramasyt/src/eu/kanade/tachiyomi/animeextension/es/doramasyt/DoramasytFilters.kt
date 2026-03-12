@@ -4,20 +4,17 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 object DoramasytFilters {
-    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(
-        displayName,
-        vals.map { it.first }.toTypedArray(),
-    ) {
+    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
+        AnimeFilter.Select<String>(
+            displayName,
+            vals.map { it.first }.toTypedArray(),
+        ) {
         fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: run { "" }
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: run { this }
 

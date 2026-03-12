@@ -7,6 +7,7 @@ import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
+import aniyomi.lib.playlistutils.PlaylistUtils
 import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -16,15 +17,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.UrlUtils
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -34,7 +35,9 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
+class Animelib :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animelib"
 
@@ -224,13 +227,11 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // =============================== Video List ===============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .awaitSuccess()
-            .use { response ->
-                videoListParseAsync(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .awaitSuccess()
+        .use { response ->
+            videoListParseAsync(response)
+        }
 
     private suspend fun videoListParseAsync(response: Response): List<Video> {
         val episodeData = response.parseAs<EpisodeVideoData>()
@@ -255,18 +256,16 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
         } ?: preferredTeams
 
         val ignoreSubs = preferences.getBoolean(PREF_IGNORE_SUBS_KEY, PREF_IGNORE_SUBS_DEFAULT)
-        return videoInfoList?.parallelFlatMap { videoInfo ->
+        return videoInfoList?.parallelCatchingFlatMap { videoInfo ->
             if (ignoreSubs && videoInfo.translationInfo.id == 1) {
-                return@parallelFlatMap emptyList()
+                return@parallelCatchingFlatMap emptyList()
             }
             val playerName = videoInfo.player.lowercase()
-            runCatching {
-                when (playerName) {
-                    "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
-                    "animelib" -> animelibVideoLinks(videoInfo, videoServer)
-                    else -> emptyList()
-                }
-            }.getOrElse { emptyList() }
+            when (playerName) {
+                "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
+                "animelib" -> animelibVideoLinks(videoInfo, videoServer)
+                else -> emptyList()
+            }
         } ?: emptyList()
     }
 
@@ -375,13 +374,12 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
             return emptyList()
         }
 
-        val kodikPage = UrlUtils.fixUrl(playerUrl)
+        val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
         headers.add("Referer", baseUrl)
-        val kodikPageResponse = client.newCall(GET(kodikPage, headers.build())).awaitSuccess()
 
         // Parse form parameters for video link request
-        val page = kodikPageResponse.asJsoup()
+        val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
         val urlParams = page.selectFirst("script:containsData($domain)")?.data()
             ?: return emptyList()
 
@@ -408,13 +406,12 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
         formBody.add("hash", urlParts[5])
 
         val videoInfoRequest = POST("https://$kodikDomain/ftor", body = formBody.build())
-        val videoInfoResponse = client.newCall(videoInfoRequest).awaitSuccess()
-        val kodikData = videoInfoResponse.parseAs<KodikData>()
+        val kodikData = client.newCall(videoInfoRequest).awaitSuccess().parseAs<KodikData>()
 
         // Load js with encode algorithm and parse it
         val scriptUrl = page.selectFirst("script[src*=player_single]")?.attr("abs:src")
             ?: return emptyList()
-        val jsScript = client.newCall(GET(scriptUrl)).execute().body.string()
+        val jsScript = client.newCall(GET(scriptUrl)).awaitSuccess().bodyString()
         val atob = ATOB_REGEX.find(jsScript) ?: return emptyList()
 
         var encodeScript = ""
@@ -464,7 +461,7 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
             }.toString()
 
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
-            val playlistUrl = UrlUtils.fixUrl(hlsUrl)
+            val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
             playlistUtils.extractFromHls(
                 playlistUrl,
                 videoNameGen = { "$teamName (${quality}p Kodik)" },
@@ -509,24 +506,24 @@ class Animelib : ConfigurableAnimeSource, AnimeHttpSource() {
         return videoList
     }
 
-    private fun bestQuality(videoInfo: VideoInfo): Int {
-        return when (videoInfo.player.lowercase()) {
-            "animelib" -> videoInfo.video?.quality?.maxBy { it.quality }?.quality ?: 0
-            "kodik" -> 720
-            else -> 0
-        }
+    private fun bestQuality(videoInfo: VideoInfo): Int = when (videoInfo.player.lowercase()) {
+        "animelib" -> videoInfo.video?.quality?.maxBy { it.quality }?.quality ?: 0
+        "kodik" -> 720
+        else -> 0
     }
 
     // =============================== Converters ===============================
-    private fun convertStatus(status: Int): Int {
-        return when (status) {
-            1 -> SAnime.ONGOING
-            2 -> SAnime.COMPLETED
-            4 -> SAnime.ON_HIATUS
-            5 -> SAnime.CANCELLED
-            else -> {
-                SAnime.UNKNOWN
-            }
+    private fun convertStatus(status: Int): Int = when (status) {
+        1 -> SAnime.ONGOING
+
+        2 -> SAnime.COMPLETED
+
+        4 -> SAnime.ON_HIATUS
+
+        5 -> SAnime.CANCELLED
+
+        else -> {
+            SAnime.UNKNOWN
         }
     }
 

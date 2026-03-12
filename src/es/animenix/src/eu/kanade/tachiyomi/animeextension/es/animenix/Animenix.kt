@@ -3,11 +3,11 @@ package eu.kanade.tachiyomi.animeextension.es.animenix
 import androidx.preference.CheckBoxPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
@@ -18,11 +18,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Animenix : DooPlay(
-    "es",
-    "Animenix",
-    "https://animenix.com",
-) {
+class Animenix :
+    DooPlay(
+        "es",
+        "Animenix",
+        "https://animenix.com",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/ratings/$page")
@@ -67,21 +68,17 @@ class Animenix : DooPlay(
     private val streamWishExtractor by lazy { StreamWishExtractor(headers = headers, client = client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun getPlayerVideos(link: String): List<Video> {
-        return when {
-            link.contains("filemoon") -> filemoonExtractor.videosFromUrl(link)
-            link.contains("swdyu") -> streamWishExtractor.videosFromUrl(link)
-            link.contains("wishembed") || link.contains("cdnwish") || link.contains("flaswish") || link.contains("sfastwish") || link.contains("streamwish") || link.contains("asnwish") -> streamWishExtractor.videosFromUrl(link)
-            else -> universalExtractor.videosFromUrl(link, headers)
-        }
+    private fun getPlayerVideos(link: String): List<Video> = when {
+        link.contains("filemoon") -> filemoonExtractor.videosFromUrl(link)
+        link.contains("swdyu") -> streamWishExtractor.videosFromUrl(link)
+        link.contains("wishembed") || link.contains("cdnwish") || link.contains("flaswish") || link.contains("sfastwish") || link.contains("streamwish") || link.contains("asnwish") -> streamWishExtractor.videosFromUrl(link)
+        else -> universalExtractor.videosFromUrl(link, headers)
     }
 
     // =========================== Anime Details ============================
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector div.wp-content p")
-            .eachText()
-            .joinToString("\n")
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector div.wp-content p")
+        .eachText()
+        .joinToString("\n")
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
@@ -102,8 +99,11 @@ class Animenix : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             params.language.isNotBlank() -> "/genero/${params.language}"
+
             params.year.isNotBlank() -> "/release/${params.year}"
+
             params.movie.isNotBlank() -> {
                 if (params.movie == "pelicula") {
                     "/pelicula"
@@ -111,6 +111,7 @@ class Animenix : DooPlay(
                     "/genero/${params.movie}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

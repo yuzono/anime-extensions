@@ -2,20 +2,21 @@ package eu.kanade.tachiyomi.animeextension.en.animenosub
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VtubeExtractor
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import org.jsoup.nodes.Element
 
-class Animenosub : AnimeStream(
-    "en",
-    "Animenosub",
-    "https://animenosub.com",
-) {
+class Animenosub :
+    AnimeStream(
+        "en",
+        "Animenosub",
+        "https://animenosub.com",
+    ) {
     // ============================== Episodes ==============================
     override fun getEpisodeName(element: Element, epNum: String): String {
         val episodeTitle = element.selectFirst("div.epl-title")?.text() ?: ""
@@ -31,18 +32,23 @@ class Animenosub : AnimeStream(
             url.contains("streamwish") -> {
                 StreamWishExtractor(client, headers).videosFromUrl(url, prefix)
             }
+
             url.contains("vidmoly") -> {
                 VidMolyExtractor(client).getVideoList(url, name)
             }
+
             url.contains("https://vtbe") -> {
                 VtubeExtractor(client, headers).videosFromUrl(url, baseUrl, prefix)
             }
+
             url.contains("wolfstream") -> {
                 WolfstreamExtractor(client).videosFromUrl(url, prefix)
             }
+
             url.contains("filemoon") -> {
                 FilemoonExtractor(client).videosFromUrl(url, prefix, headers)
             }
+
             else -> emptyList()
         }
     }

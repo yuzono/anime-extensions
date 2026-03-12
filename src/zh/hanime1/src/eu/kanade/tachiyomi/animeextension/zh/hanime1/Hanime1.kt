@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +43,9 @@ enum class FilterUpdateState {
     FAILED,
 }
 
-class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
+class Hanime1 :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String
         get() = "https://hanime1.me"
     override val lang: String
@@ -143,8 +145,7 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    override fun popularAnimeRequest(page: Int) =
-        searchAnimeRequest(page, "", AnimeFilterList(HotFilter))
+    override fun popularAnimeRequest(page: Int) = searchAnimeRequest(page, "", AnimeFilterList(HotFilter))
 
     private fun String.appendInvisibleChar(): String {
         // The search result title will be same as one episode name of anime.
@@ -195,6 +196,7 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
                 }
 
                 is AnimeFilter.Group<*> -> it.state
+
                 else -> listOf(it)
             }
         }.forEach {
@@ -294,17 +296,15 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
         return result
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            createFilter(PREF_KEY_GENRE_LIST) { GenreFilter(it) },
-            createFilter(PREF_KEY_SORT_LIST) { SortFilter(it) },
-            DateFilter(
-                createFilter(PREF_KEY_YEAR_LIST) { YearFilter(it) },
-                createFilter(PREF_KEY_MONTH_LIST) { MonthFilter(it) },
-            ),
-            TagsFilter(createCategoryFilters()),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        createFilter(PREF_KEY_GENRE_LIST) { GenreFilter(it) },
+        createFilter(PREF_KEY_SORT_LIST) { SortFilter(it) },
+        DateFilter(
+            createFilter(PREF_KEY_YEAR_LIST) { YearFilter(it) },
+            createFilter(PREF_KEY_MONTH_LIST) { MonthFilter(it) },
+        ),
+        TagsFilter(createCategoryFilters()),
+    )
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.apply {

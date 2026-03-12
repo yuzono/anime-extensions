@@ -2,6 +2,22 @@ package eu.kanade.tachiyomi.animeextension.es.animefenix
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.amazonextractor.AmazonExtractor
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,32 +25,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.amazonextractor.AmazonExtractor
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
+class Animefenix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeFenix"
 
@@ -55,7 +59,7 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
         private const val PREF_SERVER_DEFAULT = "Mp4Upload"
         private val SERVER_LIST = arrayOf(
             "YourUpload", "Voe", "Mp4Upload", "Doodstream",
-            "Upload", "BurstCloud", "Upstream", "StreamTape",
+            "Uqload", "BurstCloud", "Upstream", "StreamTape",
             "Fastream", "Filemoon", "StreamWish", "Okru",
             "Amazon", "AmazonES", "Fireload", "FileLions",
         )
@@ -122,8 +126,15 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
         val script = document.selectFirst("script:containsData(var tabsArray)") ?: return emptyList()
         return script.data().substringAfter("<iframe").split("src='")
             .map { it.substringBefore("'").substringAfter("redirect.php?id=").trim() }
-            .parallelCatchingFlatMapBlocking { url ->
-                serverVideoResolver(url)
+            .partition { url -> conventions.any { (_, names) -> names.any { it.lowercase() in url.lowercase() } } }
+            .let { (matched, unmatched) ->
+                val extractors = matched.parallelCatchingFlatMapBlocking { url ->
+                    serverVideoResolver(url)
+                }
+                val universal = unmatched.catchingFlatMapBlocking { url ->
+                    universalExtractor.videosFromUrl(url, headers)
+                }
+                extractors + universal
             }
     }
 
@@ -146,37 +157,52 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val amazonExtractor by lazy { AmazonExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return runCatching {
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url)
-                "amazon" -> amazonExtractor.videosFromUrl(url)
-                "okru" -> okruExtractor.videosFromUrl(url)
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-                "uqload" -> uqloadExtractor.videosFromUrl(url)
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
-                "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-                "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream")
-                "streamlare" -> streamlareExtractor.videosFromUrl(url)
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers)
-                "burstcloud" -> burstcloudExtractor.videoFromUrl(url, headers = headers)
-                "upstream" -> upstreamExtractor.videosFromUrl(url)
-                "streamtape" -> streamTapeExtractor.videosFromUrl(url)
-                "vidhide" -> streamHideVidExtractor.videosFromUrl(url)
-                "filelions" -> filelionsExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url)
-                "fireload" -> {
-                    val video = url.substringAfter("/stream/fl.php?v=")
-                    if (client.newCall(GET(video)).execute().code == 200) {
-                        listOf(Video(video, "FireLoad", video))
-                    } else {
-                        emptyList()
-                    }
+    private suspend fun serverVideoResolver(url: String): List<Video> {
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+        return when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url)
+
+            "amazon" -> amazonExtractor.videosFromUrl(url)
+
+            "okru" -> okruExtractor.videosFromUrl(url)
+
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+
+            "uqload" -> uqloadExtractor.videosFromUrl(url)
+
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
+
+            "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+
+            "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream")
+
+            "streamlare" -> streamlareExtractor.videosFromUrl(url)
+
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers)
+
+            "burstcloud" -> burstcloudExtractor.videoFromUrl(url, headers = headers)
+
+            "upstream" -> upstreamExtractor.videosFromUrl(url)
+
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url)
+
+            "vidhide" -> streamHideVidExtractor.videosFromUrl(url)
+
+            "filelions" -> filelionsExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url)
+
+            "fireload" -> {
+                val video = url.substringAfter("/stream/fl.php?v=")
+                if (client.newCall(GET(video)).awaitSuccess().use { it.code } == 200) {
+                    listOf(Video(video, "FireLoad", video))
+                } else {
+                    emptyList()
                 }
-                else -> universalExtractor.videosFromUrl(url, headers)
             }
-        }.getOrElse { emptyList() }
+
+            else -> emptyList()
+        }
     }
 
     private val conventions = listOf(
@@ -211,22 +237,18 @@ class Animefenix : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Elements.getStatus(): Int {
-        return when {
-            text().contains("finalizado", true) -> SAnime.COMPLETED
-            text().contains("emision", true) -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun Elements.getStatus(): Int = when {
+        text().contains("finalizado", true) -> SAnime.COMPLETED
+        text().contains("emision", true) -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {

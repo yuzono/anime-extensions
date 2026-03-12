@@ -9,9 +9,7 @@ import kotlinx.serialization.Serializable
 data class RelatedResponse(
     val json: RecommendationsResponse,
 ) {
-    fun toAnimeList(): List<SAnime> {
-        return json.toAnimePage().animes
-    }
+    fun toAnimeList(): List<SAnime> = json.toAnimePage().animes
 }
 
 @Serializable
@@ -21,12 +19,10 @@ data class RecommendationsResponse(
     val recommendations: List<Recommendation>,
     val numberNextRecommsCalls: Int,
 ) {
-    fun toAnimePage(): AnimesPage {
-        return AnimesPage(
-            recommendations.mapNotNull { it.toSAnime() },
-            hasNextPage = recommendations.size >= MissAvApi.RESULT_COUNT,
-        )
-    }
+    fun toAnimePage(): AnimesPage = AnimesPage(
+        recommendations.mapNotNull { it.toSAnime() },
+        hasNextPage = recommendations.size >= MissAvApi.RESULT_COUNT,
+    )
 }
 
 @Serializable
@@ -44,9 +40,7 @@ data class Recommendation(
         }
     }
 
-    private fun stripID(): String {
-        return id.lowercase().replace(STRIP_SUB_REGEX, "")
-    }
+    private fun stripID(): String = id.lowercase().replace(STRIP_SUB_REGEX, "")
 }
 
 private val STRIP_SUB_REGEX by lazy { Regex("""-uncensored-leak|-chinese-subtitle|-english-subtitle""") }

@@ -4,19 +4,19 @@ import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -27,7 +27,9 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import java.net.URLDecoder
 
-class AnimeLoads : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeLoads :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Loads"
 
@@ -116,7 +118,8 @@ class AnimeLoads : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         lang.forEach { langit ->
             Log.i("videosFromElement", "Langit: $langit")
             when {
-                langit.select("a i.flag-de").attr("title").contains("Subtitles: German") || langit.select("a i.flag-de").attr("title").contains("Untertitel: Deutsch") && subSelection?.contains("sub") == true -> {
+                langit.select("a i.flag-de").attr("title").contains("Subtitles: German") ||
+                    (langit.select("a i.flag-de").attr("title").contains("Untertitel: Deutsch") && subSelection?.contains("sub") == true) -> {
                     val aria = langit.select("a").attr("aria-controls")
                     val id = document.select("#$aria div.episodes").attr("id")
                     val epnum = idep.substringAfter("streams_episodes_1")
@@ -404,7 +407,9 @@ class AnimeLoads : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
-                langit.select("a i.flag-de").attr("title").contains("Language: German") || langit.select("a i.flag-de").attr("title").contains("Sprache: Deutsch") && subSelection?.contains("dub") == true -> {
+
+                langit.select("a i.flag-de").attr("title").contains("Language: German") ||
+                    (langit.select("a i.flag-de").attr("title").contains("Sprache: Deutsch") && subSelection?.contains("dub") == true) -> {
                     val aria = langit.select("a").attr("aria-controls")
                     val id = document.select("#$aria div.episodes").attr("id")
                     val epnum = idep.substringAfter("streams_episodes_1")

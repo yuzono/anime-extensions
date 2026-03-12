@@ -36,10 +36,9 @@ object TRAnimeCIFilters {
         )
     }
 
-    private fun getPairListByIndexSorted(index: Int) =
-        getPairListByIndex(index)
-            .sortedBy { it.first.lowercase() }
-            .toTypedArray()
+    private fun getPairListByIndexSorted(index: Int) = getPairListByIndex(index)
+        .sortedBy { it.first.lowercase() }
+        .toTypedArray()
 
     private val EVERY get() = arrayOf(Pair("Tüm", ""))
 

@@ -21,10 +21,10 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.LazyMutable
-import extensions.utils.addEditTextPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Interceptor
@@ -39,7 +39,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-open class MyReadingManga(override val lang: String, private val siteLang: String, private val latestLang: String) : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+open class MyReadingManga(override val lang: String, private val siteLang: String, private val latestLang: String) :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     /*
      *  ========== Basic Info ==========
@@ -47,10 +49,9 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
     override val name = "MyReadingManga"
     final override val baseUrl = "https://myreadingmanga.info"
 
-    override fun headersBuilder(): Headers.Builder =
-        super.headersBuilder()
-            .set("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.159 Mobile Safari/537.36")
-            .add("X-Requested-With", randomString((1..20).random()))
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.159 Mobile Safari/537.36")
+        .add("X-Requested-With", randomString((1..20).random()))
 
     private val preferences by getPreferencesLazy()
 
@@ -155,9 +156,7 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
     /*
      *  ========== Popular - Random ==========
      */
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/popular/popular-videos", headers)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/popular/popular-videos", headers)
 
     override fun popularAnimeNextPageSelector() = null
     override fun popularAnimeSelector() = ".wpp-list li:has(img[src*=vlcsnap])"
@@ -261,37 +260,35 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
         return animeDetailsParse(response.asJsoup(), needCover).apply { initialized = true }
     }
 
-    private suspend fun animeDetailsParse(document: Document, needCover: Boolean = true): SAnime {
-        return SAnime.create().apply {
-            title = cleanTitle(document.select("h1").text())
-            author = document.select(".entry-terms a[href*=artist]").firstOrNull()?.text()
-            artist = author
-            genre = document.select(".entry-header p a[href*=genre], [href*=tag], span.entry-categories a").joinToString { it.text() }
-            val basicDescription = document.select("h1").text()
-            // too troublesome to achieve 100% accuracy assigning scanlator group during episodeListParse
-            val scanlatedBy = document.select(".entry-terms:has(a[href*=group])").firstOrNull()
-                ?.select("a[href*=group]")?.joinToString(prefix = "Scanlated by: ") { it.text() }
-            val extendedDescription = document.select(".entry-content p:not(p:containsOwn(|)):not(.chapter-class + p)").joinToString("\n") { it.text() }
-            description = listOfNotNull(basicDescription, scanlatedBy, extendedDescription).joinToString("\n").trim()
-            status = when (document.select("a[href*=status]").first()?.text()) {
-                "Completed" -> SAnime.COMPLETED
-                "Ongoing" -> SAnime.ONGOING
-                "Licensed" -> SAnime.LICENSED
-                "Dropped" -> SAnime.CANCELLED
-                "Discontinued" -> SAnime.CANCELLED
-                "Hiatus" -> SAnime.ON_HIATUS
-                else -> SAnime.UNKNOWN
-            }
+    private suspend fun animeDetailsParse(document: Document, needCover: Boolean = true): SAnime = SAnime.create().apply {
+        title = cleanTitle(document.select("h1").text())
+        author = document.select(".entry-terms a[href*=artist]").firstOrNull()?.text()
+        artist = author
+        genre = document.select(".entry-header p a[href*=genre], [href*=tag], span.entry-categories a").joinToString { it.text() }
+        val basicDescription = document.select("h1").text()
+        // too troublesome to achieve 100% accuracy assigning scanlator group during episodeListParse
+        val scanlatedBy = document.select(".entry-terms:has(a[href*=group])").firstOrNull()
+            ?.select("a[href*=group]")?.joinToString(prefix = "Scanlated by: ") { it.text() }
+        val extendedDescription = document.select(".entry-content p:not(p:containsOwn(|)):not(.chapter-class + p)").joinToString("\n") { it.text() }
+        description = listOfNotNull(basicDescription, scanlatedBy, extendedDescription).joinToString("\n").trim()
+        status = when (document.select("a[href*=status]").first()?.text()) {
+            "Completed" -> SAnime.COMPLETED
+            "Ongoing" -> SAnime.ONGOING
+            "Licensed" -> SAnime.LICENSED
+            "Dropped" -> SAnime.CANCELLED
+            "Discontinued" -> SAnime.CANCELLED
+            "Hiatus" -> SAnime.ON_HIATUS
+            else -> SAnime.UNKNOWN
+        }
 
-            if (needCover) {
-                client.newCall(GET("$baseUrl/search/?search=${document.location()}", headers))
-                    .awaitSuccess()
-                    .use { response ->
-                        response.asJsoup().selectFirst("div.wdm_results div.p_content img")
-                            ?.getImage()?.getThumbnail()
-                            ?.let { thumbnail_url = it }
-                    }
-            }
+        if (needCover) {
+            client.newCall(GET("$baseUrl/search/?search=${document.location()}", headers))
+                .awaitSuccess()
+                .use { response ->
+                    response.asJsoup().selectFirst("div.wdm_results div.p_content img")
+                        ?.getImage()?.getThumbnail()
+                        ?.let { thumbnail_url = it }
+                }
         }
     }
 
@@ -323,9 +320,7 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
         return episodes.reversed()
     }
 
-    private fun parseDate(date: String): Long {
-        return SimpleDateFormat("MMM dd, yyyy", Locale.US).parse(date)?.time ?: 0
-    }
+    private fun parseDate(date: String): Long = SimpleDateFormat("MMM dd, yyyy", Locale.US).parse(date)?.time ?: 0
 
     private fun createEpisode(pageNumber: String, animeUrl: String, date: Long, epname: String): SEpisode {
         val episode = SEpisode.create()
@@ -345,10 +340,8 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        return document.selectFirst(videoListSelector())?.attr("src")
-            ?: throw Exception("No video URL found")
-    }
+    override fun videoUrlParse(document: Document): String = document.selectFirst(videoListSelector())?.attr("src")
+        ?: throw Exception("No video URL found")
 
     override fun videoListParse(response: Response): List<Video> {
         if (!response.isSuccessful) {
@@ -440,20 +433,20 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
     }
 
     // Generates the filter lists for app
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            EnforceLanguageFilter(siteLang),
-            SearchSortTypeList(getFiltersFromSearchPage("Sort by", true)),
-            GenreFilter(getFiltersFromMainPage("Genres")),
-            CatFilter(getFiltersFromSearchPage("Category")),
-            TagFilter(getFiltersFromSearchPage("Tag")),
-            ArtistFilter(getFiltersFromSearchPage("Circle/ artist")),
-            PairingFilter(getFiltersFromSearchPage("Pairing")),
-            StatusFilter(getFiltersFromSearchPage("Status")),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        EnforceLanguageFilter(siteLang),
+        SearchSortTypeList(getFiltersFromSearchPage("Sort by", true)),
+        GenreFilter(getFiltersFromMainPage("Genres")),
+        CatFilter(getFiltersFromSearchPage("Category")),
+        TagFilter(getFiltersFromSearchPage("Tag")),
+        ArtistFilter(getFiltersFromSearchPage("Circle/ artist")),
+        PairingFilter(getFiltersFromSearchPage("Pairing")),
+        StatusFilter(getFiltersFromSearchPage("Status")),
+    )
 
-    private class EnforceLanguageFilter(val siteLang: String) : AnimeFilter.CheckBox("Enforce language", true), UriFilter {
+    private class EnforceLanguageFilter(val siteLang: String) :
+        AnimeFilter.CheckBox("Enforce language", true),
+        UriFilter {
         override fun addToUri(uri: Uri.Builder) {
             if (state) uri.appendQueryParameter("ep_filter_lang", siteLang)
         }
@@ -472,7 +465,8 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
         displayName: String,
         val uriParam: String,
         vals: List<MrmFilter>,
-    ) : AnimeFilter.Group<MrmFilter>(displayName, vals), UriFilter {
+    ) : AnimeFilter.Group<MrmFilter>(displayName, vals),
+        UriFilter {
         override fun addToUri(uri: Uri.Builder) {
             val checked = state.filter { it.state }.ifEmpty { return }
                 .joinToString(",") { it.value }
@@ -486,7 +480,8 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
         val uriParam: String,
         val vals: List<MrmFilter>,
         defaultValue: Int = 0,
-    ) : AnimeFilter.Select<String>(displayName, vals.map { it.name }.toTypedArray(), defaultValue), UriFilter {
+    ) : AnimeFilter.Select<String>(displayName, vals.map { it.name }.toTypedArray(), defaultValue),
+        UriFilter {
         override fun addToUri(uri: Uri.Builder) {
             if (state != 0) {
                 uri.appendQueryParameter(uriParam, vals[state].value)

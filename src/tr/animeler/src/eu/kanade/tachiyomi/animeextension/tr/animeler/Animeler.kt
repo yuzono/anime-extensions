@@ -3,6 +3,16 @@ package eu.kanade.tachiyomi.animeextension.tr.animeler
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.AnimeEpisodes
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.FullAnimeDto
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.SearchRequestDto
@@ -17,24 +27,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -48,11 +47,13 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Animeler : AnimeHttpSource(), ConfigurableAnimeSource {
+class Animeler :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animeler"
 
-    override val baseUrl = "https://animeler.me"
+    override val baseUrl = "https://animeler.pw"
 
     override val lang = "tr"
 
@@ -89,15 +90,13 @@ class Animeler : AnimeHttpSource(), ConfigurableAnimeSource {
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -262,30 +261,38 @@ class Animeler : AnimeHttpSource(), ConfigurableAnimeSource {
 
         return filteredSources.parallelCatchingFlatMapBlocking {
             val body = playerBody(it.key)
-            val res = client.newCall(POST(actionUrl, headers, body)).await()
+            val res = client.newCall(POST(actionUrl, headers, body)).awaitSuccess()
                 .parseAs<VideoDto>()
             videosFromUrl(res.videoSrc)
         }
     }
 
-    private fun videosFromUrl(url: String): List<Video> {
-        return when {
-            "dood" in url -> doodExtractor.videosFromUrl(url)
-            "drive.google" in url -> {
-                val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
-                gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
-            }
-            "filemoon." in url -> filemoonExtractor.videosFromUrl(url)
-            "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
-            "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
-            "sibnet" in url -> sibnetExtractor.videosFromUrl(url)
-            "streamlare" in url -> streamlareExtractor.videosFromUrl(url)
-            "uqload" in url -> uqloadExtractor.videosFromUrl(url)
-            "voe." in url -> voeExtractor.videosFromUrl(url)
-            "vudeo." in url -> vudeoExtractor.videosFromUrl(url)
-            else -> null
-        } ?: emptyList()
-    }
+    private suspend fun videosFromUrl(url: String): List<Video> = when {
+        "dood" in url -> doodExtractor.videosFromUrl(url)
+
+        "drive.google" in url -> {
+            val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
+            gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
+        }
+
+        "filemoon." in url -> filemoonExtractor.videosFromUrl(url)
+
+        "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
+
+        "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
+
+        "sibnet" in url -> sibnetExtractor.videosFromUrl(url)
+
+        "streamlare" in url -> streamlareExtractor.videosFromUrl(url)
+
+        "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+
+        "voe." in url -> voeExtractor.videosFromUrl(url)
+
+        "vudeo." in url -> vudeoExtractor.videosFromUrl(url)
+
+        else -> null
+    } ?: emptyList()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -321,10 +328,8 @@ class Animeler : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================= Utilities ==============================
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     private val qualityRegex by lazy { Regex("""(\d+)p""") }
     override fun List<Video>.sort(): List<Video> {

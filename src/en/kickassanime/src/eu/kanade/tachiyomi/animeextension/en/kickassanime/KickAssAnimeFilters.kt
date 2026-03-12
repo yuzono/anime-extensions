@@ -17,16 +17,15 @@ object KickAssAnimeFilters {
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return this.filterIsInstance<R>().joinToString("") {
-            (it as QueryPartFilter).toQueryPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
+        (it as QueryPartFilter).toQueryPart()
     }
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genre",
-        KickAssAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genre",
+            KickAssAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
     class YearFilter : QueryPartFilter("Year", KickAssAnimeFiltersData.YEAR)
     class StatusFilter : QueryPartFilter("Status", KickAssAnimeFiltersData.STATUS)
@@ -64,7 +63,9 @@ object KickAssAnimeFilters {
             .state.mapNotNull { format ->
                 if (format.state) {
                     KickAssAnimeFiltersData.GENRE.find { it.first == format.name }!!.second
-                } else { null }
+                } else {
+                    null
+                }
             }.joinToString(",") { "\"$it\"" }
 
         val year = filters.asQueryPart<YearFilter>()

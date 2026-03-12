@@ -1,15 +1,15 @@
 ext {
     extName = 'BLZone'
     extClass = '.BLZone'
-    extVersionCode = 1
+    extVersionCode = 2
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:mixdrop-extractor'))
-    implementation(project(':lib:vidguard-extractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:vidguardextractor'))
 }

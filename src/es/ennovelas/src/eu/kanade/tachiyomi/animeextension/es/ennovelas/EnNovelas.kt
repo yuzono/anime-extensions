@@ -2,6 +2,14 @@ package eu.kanade.tachiyomi.animeextension.es.ennovelas
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,19 +18,14 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,7 +36,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.concurrent.TimeUnit
 
-class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class EnNovelas :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "EnNovelas"
 
@@ -66,7 +71,7 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val seasonIds = document.select(".listSeasons li[data-season]")
         var noEp = 1F
         if (seasonIds.any()) {
-            seasonIds.reversed().map {
+            seasonIds.reversed().forEach {
                 try {
                     val headers = headers.newBuilder()
                         .add("authority", response.request.url.toString().substringAfter("https://").substringBefore("/wp-content"))
@@ -89,7 +94,7 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         .readTimeout(35, TimeUnit.SECONDS)
                         .build()
                     tmpClient.newCall(GET("$baseUrl/wp-content/themes/vo2022/temp/ajax/seasons.php?seriesID=${it.attr("data-season")}", headers = headers))
-                        .execute().asJsoup().select(".block-post").forEach { element ->
+                        .execute().useAsJsoup().select(".block-post").forEach { element ->
                             val ep = SEpisode.create()
                             val noEpisode = getNumberFromEpsString(element.selectFirst("a .episodeNum span:nth-child(2)")!!.text()).ifEmpty { noEp }
                             ep.setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
@@ -117,17 +122,14 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
         val form = document.selectFirst("#btnServers form")
         val urlRequest = form?.attr("action") ?: ""
         val watch = form?.selectFirst("input")?.attr("value")
-        val domainRegex = Regex("^(?:https?:\\/\\/)?(?:[^@\\/\\n]+@)?(?:www\\.)?([^:\\/?\\n]+)")
+        val domainRegex = Regex("^(?:https?://)?(?:[^@/\\n]+@)?(?:www\\.)?([^:/?\\n]+)")
         val domainUrl = domainRegex.findAll(urlRequest).firstOrNull()?.value ?: ""
 
         val mediaType = "application/x-www-form-urlencoded".toMediaType()
@@ -143,58 +145,31 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .add("upgrade-insecure-requests", "1")
             .build()
 
-        client.newCall(POST(urlRequest, headers, body)).execute().asJsoup().select(".serversList li").map { it ->
-            val frameString = it.attr("abs:data-server")
-            val link = frameString.substringAfter("src='").substringBefore("'")
-                .replace("https://api.mycdn.moe/sblink.php?id=", "https://streamsb.net/e/")
-                .replace("https://api.mycdn.moe/uqlink.php?id=", "https://uqload.co/embed-")
-            if (link.contains("ok.ru")) {
-                try {
-                    OkruExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
+        return client.newCall(POST(urlRequest, headers, body)).execute().useAsJsoup()
+            .select(".serversList li")
+            .parallelCatchingFlatMapBlocking { elm ->
+                val frameString = elm.attr("abs:data-server")
+                val link = frameString.substringAfter("src='").substringBefore("'")
+                    .replace("https://api.mycdn.moe/sblink.php?id=", "https://streamsb.net/e/")
+                    .replace("https://api.mycdn.moe/uqlink.php?id=", "https://uqload.is/embed-")
+
+                when {
+                    link.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(link)
+                    link.contains("vidmoly") -> VidmolyExtractor(client).getVideoList(link, "")
+                    link.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(link)
+                    link.contains("vudeo") -> VudeoExtractor(client).videosFromUrl(link)
+                    link.contains("streamtape") -> listOfNotNull(StreamTapeExtractor(client).videoFromUrl(link))
+                    link.contains("uqload") -> {
+                        val htmlLink = if (link.contains(".html")) link else "$link.html"
+                        UqloadExtractor(client).videosFromUrl(htmlLink, "Uqload")
+                    }
+
+                    link.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(link))
+                    link.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(link)
+                    link.contains("dailymotion") -> DailymotionExtractor(client, headers).videosFromUrl(link)
+                    else -> emptyList()
+                }
             }
-            if (link.contains("vidmoly")) {
-                try {
-                    VidmolyExtractor(client).getVideoList(link, "").let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("voe")) {
-                try {
-                    VoeExtractor(client, headers).videosFromUrl(link).also(videoList::addAll)
-                } catch (_: Exception) {}
-            }
-            if (link.contains("vudeo")) {
-                try {
-                    VudeoExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("streamtape")) {
-                try {
-                    StreamTapeExtractor(client).videoFromUrl(link)?.let { videoList.add(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("uqload")) {
-                try {
-                    UqloadExtractor(client).videosFromUrl(if (link.contains(".html")) link else "$link.html", "Uqload").let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("dood")) {
-                try {
-                    DoodExtractor(client).videoFromUrl(link)?.let { videoList.add(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("streamlare")) {
-                try {
-                    StreamlareExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("dailymotion")) {
-                try {
-                    DailymotionExtractor(client, headers).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-        }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -225,7 +200,7 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val document = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
         val hasNextPage = document.select(".pagination .current ~ a").any()
-        document.select(".block-post").map { element ->
+        document.select(".block-post").forEach { element ->
             if (element.selectFirst("a")?.attr("href")?.contains("/series/") == true) {
                 val anime = SAnime.create()
                 anime.setUrlWithoutDomain(element.select("a").attr("href"))
@@ -239,15 +214,13 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/search/$id", headers))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/search/$id", headers))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -269,7 +242,6 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             genreFilter.state != 0 -> GET("$baseUrl/${genreFilter.toUriPart()}/page/$page/")
             yearFilter.state != 0 -> GET("$baseUrl/${yearFilter.toUriPart()}/page/$page/")
             typeFilter.state != 0 -> GET("$baseUrl/${typeFilter.toUriPart()}/page/$page/")
-
             else -> popularAnimeRequest(page)
         }
     }
@@ -293,12 +265,10 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Continuous") -> SAnime.ONGOING
-            statusString.contains("Finished") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Continuous") -> SAnime.ONGOING
+        statusString.contains("Finished") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -308,52 +278,54 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         TypeFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Categorías",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Novelas Mexicanas", "genre/novelas-mexicanas"),
-            Pair("Novelas Colombianas", "genre/novelas-colombianas"),
-            Pair("Series Y Novelas Turcas", "genre/series-y-novelas-turcas"),
-            Pair("Novelas Brasileñas", "genre/novelas-brasilenas"),
-            Pair("Novelas Americanas", "genre/novelas-americanas"),
-            Pair("Novelas Españolas", "genre/novelas-espanolas"),
-            Pair("Novelas Chilenas", "genre/telenovelas-chilenas"),
-            Pair("Novelas Peruanas", "genre/novelas-peruanas"),
-            Pair("Novelas Venezolanas", "genre/novelas-venezolanas"),
-            Pair("Novelas Reino Unido", "genre/novelas-reino-unido"),
-            Pair("Novelas Argentinas", "genre/novelas-argentinas"),
-            Pair("Novelas Filipinas", "genre/novelas-filipinas"),
-            Pair("Novelas Indias", "genre/novelas-indias"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Categorías",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Novelas Mexicanas", "genre/novelas-mexicanas"),
+                Pair("Novelas Colombianas", "genre/novelas-colombianas"),
+                Pair("Series Y Novelas Turcas", "genre/series-y-novelas-turcas"),
+                Pair("Novelas Brasileñas", "genre/novelas-brasilenas"),
+                Pair("Novelas Americanas", "genre/novelas-americanas"),
+                Pair("Novelas Españolas", "genre/novelas-espanolas"),
+                Pair("Novelas Chilenas", "genre/telenovelas-chilenas"),
+                Pair("Novelas Peruanas", "genre/novelas-peruanas"),
+                Pair("Novelas Venezolanas", "genre/novelas-venezolanas"),
+                Pair("Novelas Reino Unido", "genre/novelas-reino-unido"),
+                Pair("Novelas Argentinas", "genre/novelas-argentinas"),
+                Pair("Novelas Filipinas", "genre/novelas-filipinas"),
+                Pair("Novelas Indias", "genre/novelas-indias"),
+            ),
+        )
 
-    private class YearFilter : UriPartFilter(
-        "Años",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("2024", "years/2024"),
-            Pair("2023", "years/2023"),
-            Pair("2022", "years/2022"),
-            Pair("2021", "years/2021"),
-            Pair("2020", "years/2020"),
-            Pair("2019", "years/2019"),
-            Pair("2018", "years/2018"),
-            Pair("2017", "years/2017"),
-            Pair("2016", "years/2016"),
-            Pair("2015", "years/2015"),
-        ),
-    )
-    private class TypeFilter : UriPartFilter(
-        "Tipo",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Peliculas", "movies"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Años",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("2024", "years/2024"),
+                Pair("2023", "years/2023"),
+                Pair("2022", "years/2022"),
+                Pair("2021", "years/2021"),
+                Pair("2020", "years/2020"),
+                Pair("2019", "years/2019"),
+                Pair("2018", "years/2018"),
+                Pair("2017", "years/2017"),
+                Pair("2016", "years/2016"),
+                Pair("2015", "years/2015"),
+            ),
+        )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipo",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Peliculas", "movies"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -399,11 +371,11 @@ class EnNovelas : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 class VidmolyExtractor(private val client: OkHttpClient) {
     fun getVideoList(url: String, lang: String): List<Video> {
         val body = client.newCall(GET(url)).execute()
-            .body.string()
-        val playlistUrl = Regex("file:\"(\\S+?)\"").find(body)!!.groupValues.get(1)
+            .bodyString()
+        val playlistUrl = Regex("file:\"(\\S+?)\"").find(body)!!.groupValues[1]
         val headers = Headers.headersOf("Referer", "https://vidmoly.to")
         val playlistData = client.newCall(GET(playlistUrl, headers)).execute()
-            .body.string()
+            .bodyString()
 
         val separator = "#EXT-X-STREAM-INF:"
         return playlistData.substringAfter(separator).split(separator).map {

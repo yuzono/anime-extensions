@@ -2,26 +2,27 @@ package eu.kanade.tachiyomi.animeextension.en.donghuastream
 
 import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.RumbleExtractor
 import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.StreamPlayExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.LazyMutable
-import extensions.utils.addSetPreference
-import extensions.utils.addSwitchPreference
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.addSwitchPreference
 import okhttp3.Request
 import okhttp3.Response
 
-class DonghuaStream : AnimeStream(
-    "en",
-    "DonghuaStream",
-    "https://donghuastream.org",
-) {
+class DonghuaStream :
+    AnimeStream(
+        "en",
+        "DonghuaStream",
+        "https://donghuastream.org",
+    ) {
     override val fetchFilters: Boolean
         get() = false
 
@@ -76,10 +77,8 @@ class DonghuaStream : AnimeStream(
     override val prefQualityValues = arrayOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
     override val prefQualityEntries = prefQualityValues
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response)
-            .filter { !it.name.contains("Preview") || !preferences.ignorePreview }
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
+        .filter { !it.name.contains("Preview") || !preferences.ignorePreview }
 
     // ============================ Video Links =============================
 

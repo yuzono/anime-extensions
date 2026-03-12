@@ -17,18 +17,17 @@ object KissAnimeFilters {
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return this.filterIsInstance<R>().joinToString("") {
-            (it as QueryPartFilter).toQueryPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
+        (it as QueryPartFilter).toQueryPart()
     }
 
     class StatusFilter : QueryPartFilter("Status", KissAnimeFiltersData.STATUS)
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genre",
-        KissAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genre",
+            KissAnimeFiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
     class SubPageFilter : QueryPartFilter("Sub-page", KissAnimeFiltersData.SUBPAGE)
 
@@ -58,7 +57,9 @@ object KissAnimeFilters {
             .state.mapNotNull { format ->
                 if (format.state) {
                     KissAnimeFiltersData.GENRE.find { it.first == format.name }!!.second
-                } else { null }
+                } else {
+                    null
+                }
             }.joinToString(separator = "")
 
         return FilterSearchParams(

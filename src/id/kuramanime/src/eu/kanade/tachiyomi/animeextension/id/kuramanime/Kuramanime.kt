@@ -2,26 +2,28 @@ package eu.kanade.tachiyomi.animeextension.id.kuramanime
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Kuramanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "Kuramanime"
 
     override val baseUrl = "https://v8.kuramanime.tel"
@@ -90,12 +92,10 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString) {
-            "Sedang Tayang" -> SAnime.ONGOING
-            "Selesai Tayang" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
+        "Sedang Tayang" -> SAnime.ONGOING
+        "Selesai Tayang" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -116,6 +116,7 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     .map(::episodeFromElement)
                     .reversed()
             }
+
             else -> { // More than 12 episodes
                 val (start, end) = limits.eachText().take(2).map {
                     it.filter(Char::isDigit).toInt()
@@ -200,11 +201,15 @@ class Kuramanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 when {
                     // server == "filelions" && url != null -> streamtapeExtractor.videosFromUrl(url)
                     server == "filemoon" && url != null -> filemoonExtractor.videosFromUrl(url)
+
                     // mega.nz source
                     // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url)
                     server == "streamwish" && url != null -> streamWishExtractor.videosFromUrl(url)
+
                     server == "streamtape" && url != null -> streamtapeExtractor.videosFromUrl(url)
+
                     server == "vidguard" && url != null -> vidguardExtractor.videosFromUrl(url)
+
                     else -> {
                         playerDoc.select("video#player > source").map {
                             val src = it.attr("src")

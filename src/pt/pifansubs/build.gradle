@@ -3,12 +3,12 @@ ext {
     extClass = '.PiFansubs'
     themePkg = 'dooplay'
     baseUrl = 'https://pifansubs.club'
-    overrideVersionCode = 25
+    overrideVersionCode = 26
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:streamhidevid-extractor'))
+    implementation(project(':lib:streamhidevidextractor'))
 }

@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.fr.hds
 
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -15,11 +15,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 
-class Hds : DooPlay(
-    "fr",
-    "HDS",
-    "https://on1.hds.quest",
-) {
+class Hds :
+    DooPlay(
+        "fr",
+        "HDS",
+        "https://on1.hds.quest",
+    ) {
 
     private val json: Json by injectLazy()
 

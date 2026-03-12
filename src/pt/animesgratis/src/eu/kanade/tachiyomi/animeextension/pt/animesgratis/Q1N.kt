@@ -1,21 +1,21 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesgratis
 
 import android.util.Log
+import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesgratis.extractors.NoaExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesgratis.extractors.RuplayExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesgratis.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -23,11 +23,12 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Q1N : DooPlay(
-    "pt-BR",
-    "Q1N",
-    "https://q1n.net",
-) {
+class Q1N :
+    DooPlay(
+        "pt-BR",
+        "Q1N",
+        "https://q1n.net",
+    ) {
 
     private val tag by lazy { javaClass.simpleName }
 
@@ -106,13 +107,11 @@ class Q1N : DooPlay(
     }
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .execute()
-            .use { response ->
-                videoListParseSuspend(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .execute()
+        .use { response ->
+            videoListParseSuspend(response)
+        }
 
     override fun videoListParse(response: Response) = throw UnsupportedOperationException()
     private suspend fun videoListParseSuspend(response: Response): List<Video> {
@@ -197,10 +196,8 @@ class Q1N : DooPlay(
     }
 
     @Suppress("SameParameterValue")
-    private fun Element.tryGetAttr(vararg attributeKeys: String): String? {
-        return attributeKeys.firstOrNull { hasAttr(it) }
-            ?.let { attr(it) }
-    }
+    private fun Element.tryGetAttr(vararg attributeKeys: String): String? = attributeKeys.firstOrNull { hasAttr(it) }
+        ?.let { attr(it) }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!

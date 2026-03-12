@@ -143,38 +143,42 @@ class AnimeWorldIndiaFilters {
         GenreList(genresName()),
     )
 
-    fun getSearchParams(filters: AnimeFilterList): String {
-        return "&" + filters.mapNotNull { filter ->
-            when (filter) {
-                is TypeList -> {
-                    val type = getTypeList()[filter.state].query
-                    "s_type=$type"
-                }
-                is StatusList -> {
-                    val status = getStatusesList()[filter.state].query
-                    "s_status=$status"
-                }
-                is StyleList -> {
-                    val style = getStyleList()[filter.state].query
-                    "s_sub_type=$style"
-                }
-                is YearList -> {
-                    val year = getYearList()[filter.state].query
-                    "s_year=$year"
-                }
-                is SortList -> {
-                    val sort = getSortList()[filter.state].query
-                    "s_orderby=$sort"
-                }
-                is GenreList -> {
-                    "s_genre=" + filter.state.filter { it.state }
-                        .joinToString("%2C") {
-                            val genre = it.id.replace(" ", "-")
-                            "$genre%2C"
-                        }
-                }
-                else -> null
+    fun getSearchParams(filters: AnimeFilterList): String = "&" + filters.mapNotNull { filter ->
+        when (filter) {
+            is TypeList -> {
+                val type = getTypeList()[filter.state].query
+                "s_type=$type"
             }
-        }.joinToString("&")
-    }
+
+            is StatusList -> {
+                val status = getStatusesList()[filter.state].query
+                "s_status=$status"
+            }
+
+            is StyleList -> {
+                val style = getStyleList()[filter.state].query
+                "s_sub_type=$style"
+            }
+
+            is YearList -> {
+                val year = getYearList()[filter.state].query
+                "s_year=$year"
+            }
+
+            is SortList -> {
+                val sort = getSortList()[filter.state].query
+                "s_orderby=$sort"
+            }
+
+            is GenreList -> {
+                "s_genre=" + filter.state.filter { it.state }
+                    .joinToString("%2C") {
+                        val genre = it.id.replace(" ", "-")
+                        "$genre%2C"
+                    }
+            }
+
+            else -> null
+        }
+    }.joinToString("&")
 }

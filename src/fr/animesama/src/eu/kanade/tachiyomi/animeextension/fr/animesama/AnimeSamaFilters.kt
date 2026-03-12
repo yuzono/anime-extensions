@@ -9,37 +9,36 @@ object AnimeSamaFilters {
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): List<String> {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
+    ): List<String> = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }
 
-    class TypesFilter : CheckBoxFilterList(
-        "Type",
-        AnimeSamaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
-    )
+    class TypesFilter :
+        CheckBoxFilterList(
+            "Type",
+            AnimeSamaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
+        )
 
-    class LangFilter : CheckBoxFilterList(
-        "Langage",
-        AnimeSamaFiltersData.LANGUAGES.map { CheckBoxVal(it.first, false) },
-    )
+    class LangFilter :
+        CheckBoxFilterList(
+            "Langage",
+            AnimeSamaFiltersData.LANGUAGES.map { CheckBoxVal(it.first, false) },
+        )
 
-    class GenresFilter : CheckBoxFilterList(
-        "Genre",
-        AnimeSamaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Genre",
+            AnimeSamaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TypesFilter(),

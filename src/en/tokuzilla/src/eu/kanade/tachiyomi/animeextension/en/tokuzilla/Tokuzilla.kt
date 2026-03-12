@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.tokuzilla
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.chillxextractor.ChillxExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -9,16 +10,17 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.chillxextractor.ChillxExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Tokuzilla : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Tokuzilla :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Tokuzilla"
 
@@ -78,26 +80,26 @@ class Tokuzilla : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genres",
-        arrayOf(
-            Pair("Any", ""),
-            Pair("Series", "/series"),
-            Pair("Movie", "/movie"),
-            Pair("Kamen Rider", "/kamen-rider"),
-            Pair("Super Sentai", "/super-sentai"),
-            Pair("Armor Hero", "/armor-hero"),
-            Pair("Garo", "/garo"),
-            Pair("Godzilla", "/godzilla"),
-            Pair("Metal Heroes", "/metal-heroes"),
-            Pair("Power Rangers", "/power-ranger"),
-            Pair("Ultraman", "/ultraman"),
-            Pair("Other", "/other"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genres",
+            arrayOf(
+                Pair("Any", ""),
+                Pair("Series", "/series"),
+                Pair("Movie", "/movie"),
+                Pair("Kamen Rider", "/kamen-rider"),
+                Pair("Super Sentai", "/super-sentai"),
+                Pair("Armor Hero", "/armor-hero"),
+                Pair("Garo", "/garo"),
+                Pair("Godzilla", "/godzilla"),
+                Pair("Metal Heroes", "/metal-heroes"),
+                Pair("Power Rangers", "/power-ranger"),
+                Pair("Ultraman", "/ultraman"),
+                Pair("Other", "/other"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

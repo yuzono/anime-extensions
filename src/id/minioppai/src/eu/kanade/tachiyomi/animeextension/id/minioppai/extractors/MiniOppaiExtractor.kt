@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.id.minioppai.extractors
 
+import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Headers
@@ -30,22 +30,19 @@ class MiniOppaiExtractor(private val client: OkHttpClient) {
     }
 
     // time to over-engineer things for no reason at all
-    private fun <T> String.getItems(key: String, baseUrl: String, transformer: (String, String) -> T): List<T> {
-        return substringAfter("$key:[").substringBefore("]")
-            .split("{")
-            .drop(1)
-            .map {
-                val url = "$baseUrl${it.extractKey("file")}"
-                val label = it.extractKey("label")
-                transformer(url, label)
-            }
-    }
+    private fun <T> String.getItems(key: String, baseUrl: String, transformer: (String, String) -> T): List<T> = substringAfter("$key:[").substringBefore("]")
+        .split("{")
+        .drop(1)
+        .map {
+            val url = "$baseUrl${it.extractKey("file")}"
+            val label = it.extractKey("label")
+            transformer(url, label)
+        }
 
-    private fun String.extractKey(key: String) =
-        substringAfter(key)
-            .substringBefore("}")
-            .substringBefore(",")
-            .substringAfter(":")
-            .trim('"')
-            .trim('\'')
+    private fun String.extractKey(key: String) = substringAfter(key)
+        .substringBefore("}")
+        .substringBefore(",")
+        .substringAfter(":")
+        .trim('"')
+        .trim('\'')
 }

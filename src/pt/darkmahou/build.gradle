@@ -3,12 +3,12 @@ ext {
     extClass = '.DarkMahou'
     themePkg = 'animestream'
     baseUrl = 'https://darkmahou.org'
-    overrideVersionCode = 8
+    overrideVersionCode = 9
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(":lib:unpacker"))
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
 }

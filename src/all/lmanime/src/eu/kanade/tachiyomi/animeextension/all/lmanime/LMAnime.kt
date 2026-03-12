@@ -3,20 +3,21 @@ package eu.kanade.tachiyomi.animeextension.all.lmanime
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 
-class LMAnime : AnimeStream(
-    "all",
-    "LMAnime",
-    "https://lmanime.com",
-) {
+class LMAnime :
+    AnimeStream(
+        "all",
+        "LMAnime",
+        "https://lmanime.com",
+    ) {
     // ============================ Video Links =============================
     override val prefQualityValues = arrayOf("144p", "288p", "480p", "720p", "1080p")
     override val prefQualityEntries = prefQualityValues
@@ -45,7 +46,6 @@ class LMAnime : AnimeStream(
             "dailymotion" in url -> dailyExtractor.videosFromUrl(url, "Dailymotion ($name)")
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix")
             "filelions" in url -> streamwishExtractor.videosFromUrl(url, "StreamWish ($name)")
-
             else -> emptyList()
         }
     }

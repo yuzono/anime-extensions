@@ -2,6 +2,12 @@ package eu.kanade.tachiyomi.animeextension.en.asiaflix
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.cryptoaes.CryptoAES
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.DetailsResponseDto
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.EncryptedResponseDto
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.EpisodeResponseDto
@@ -16,17 +22,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -39,7 +39,9 @@ import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 import kotlin.math.min
 
-class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
+class AsiaFlix :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AsiaFlix"
 
@@ -93,12 +95,10 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
     // =============================== Search ===============================
     private lateinit var searchEntries: SearchDto
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (page == 1) {
-            super.getSearchAnime(page, query, filters)
-        } else {
-            paginatedSearchParse(page)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (page == 1) {
+        super.getSearchAnime(page, query, filters)
+    } else {
+        paginatedSearchParse(page)
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -130,13 +130,9 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
         return "$baseUrl/show-details/$slug/${anime.url}"
     }
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return GET("$apiUrl/drama?id=${anime.url}", apiHeaders)
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/drama?id=${anime.url}", apiHeaders)
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        return response.parseAs<DetailsResponseDto>().toSAnime()
-    }
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<DetailsResponseDto>().toSAnime()
 
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime) = animeDetailsRequest(anime)
@@ -162,9 +158,7 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
             .source
     }
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        return GET(streamHead + episode.url, headers)
-    }
+    override fun videoListRequest(episode: SEpisode): Request = GET(streamHead + episode.url, headers)
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -184,16 +178,22 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
                 hostUrl.contains("dwish") -> {
                     streamWishExtractor.videosFromUrl(hostUrl)
                 }
+
                 hostUrl.contains("dood") -> {
                     doodStreamExtractor.videosFromUrl(hostUrl)
                 }
+
                 hostUrl.contains("streamtape") -> {
                     streamTapeExtractor.videoFromUrl(hostUrl).let(::listOfNotNull)
                 }
+
                 hostUrl.contains("mixdrop") -> {
                     mixDropExtractor.videoFromUrl(hostUrl)
                 }
-                else -> { emptyList() }
+
+                else -> {
+                    emptyList()
+                }
             }
         }.toMutableList()
 
@@ -256,8 +256,7 @@ class AsiaFlix : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================ Utilities =============================
 
-    private inline fun <reified T> JsonElement.parseAs(): T =
-        json.decodeFromJsonElement(this)
+    private inline fun <reified T> JsonElement.parseAs(): T = json.decodeFromJsonElement(this)
 
     companion object {
         private const val LIMIT = 20

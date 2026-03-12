@@ -1,10 +1,10 @@
 ext {
     extName = 'Animeyt'
     extClass = '.Animeyt'
-    extVersionCode = 14
+    extVersionCode = 15
 }
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:fastream-extractor'))
+    implementation(project(':lib:fastreamextractor'))
 }

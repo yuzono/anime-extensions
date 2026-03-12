@@ -8,27 +8,30 @@ on:
       - '!.github/**'
       - '.github/workflows/**'
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
-  CI_CHUNK_SIZE: 65
+  CI_CHUNK_SIZE: 15
   IS_PR_CHECK: true
 
 jobs:
   prepare:
     name: Prepare job
-    runs-on: 'ubuntu-24.04'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
-      latestCommitMessage: ${{ steps.set-env.outputs.LATEST_COMMIT_MESSAGE }}
       matrix: ${{ steps.generate-matrices.outputs.matrix }}
       delete: ${{ steps.generate-matrices.outputs.delete }}
     steps:
       - name: Checkout PR
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set env
         id: set-env
@@ -41,7 +44,7 @@ jobs:
 
       - name: Find lib changes
         id: modified-libs
-        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47.0.0
+        uses: tj-actions/changed-files@22103cc46bda19c2b464ffe86db46df6922fd323 # v47.0.5
         with:
           files: lib/
           files_ignore: lib/**.md
@@ -61,17 +64,6 @@ jobs:
           ./.github/scripts/bump-versions.py "$COMMIT_MESSAGE" ${{ steps.modified-libs.outputs.all_changed_files }}
           echo "!!! This PR will bumping extensions version that uses a modified lib"
 
-      - name: Set up Java
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
-        with:
-          java-version: 17
-          distribution: temurin
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
-        with:
-          cache-read-only: true
-
       - id: generate-matrices
         name: Generate build matrices
         run: |
@@ -80,22 +72,25 @@ jobs:
   build:
     name: Build extensions (${{ matrix.chunk.number }})
     needs: prepare
-    runs-on: 'ubuntu-24.04'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: ${{ toJson(fromJson(needs.prepare.outputs.matrix).chunk) != '[]' }}
     strategy:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout PR
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Java
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           java-version: 17
           distribution: temurin
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
         with:
           cache-read-only: true
 
@@ -114,11 +109,12 @@ jobs:
           KISSKH_SUB_API: ${{ secrets.KISSKH_SUB_API }}
           KAISVA: ${{ secrets.KAISVA }}
           TMDB_API: ${{ secrets.TMDB_API }}
+          MODULES: ${{ join(matrix.chunk.modules, ' ') }}
         run: |
-          ./gradlew $(echo '${{ toJson(matrix.chunk.modules) }}' | jq -r 'join(" ")')
+          ./gradlew $MODULES
 
       - name: Upload APKs (${{ matrix.chunk.number }})
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: github.repository == github.event.pull_request.head.repo.full_name
         with:
           name: "individual-apks-${{ matrix.chunk.number }}"
@@ -135,20 +131,22 @@ jobs:
     runs-on: 'ubuntu-24.04'
     steps:
       - name: Download APK artifacts
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           path: ~/apk-artifacts
 
       - name: Set up JDK
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           java-version: 17
           distribution: temurin
 
       - name: Checkout PR
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: PR
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Create repo artifacts
         run: |
@@ -160,12 +158,13 @@ jobs:
           python ./.github/scripts/create-repo.py
 
       - name: Checkout repo branch
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: yuzono/anime-repo
           ref: repo
           path: repo
-
+          fetch-depth: 0
+          persist-credentials: false
       - name: Merge repo
         run: |
           cd repo

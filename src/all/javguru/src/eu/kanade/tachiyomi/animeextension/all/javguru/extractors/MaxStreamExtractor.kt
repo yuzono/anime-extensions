@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.all.javguru.extractors
 
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.jsunpacker.JsUnpacker
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Headers

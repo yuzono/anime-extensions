@@ -68,9 +68,7 @@ class UAKino : ParsedAnimeHttpSource() {
 
     override fun popularAnimeNextPageSelector() = nextPageSelector
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl$animeUrl$popularUrl/page/$page")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl$animeUrl$popularUrl/page/$page")
 
     override fun popularAnimeSelector(): String = animeSelector
 

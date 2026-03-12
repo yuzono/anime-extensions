@@ -3,12 +3,12 @@ ext {
     extClass = '.VoirCartoon'
     themePkg = 'dooplay'
     baseUrl = 'https://voircartoon.com'
-    overrideVersionCode = 12
+    overrideVersionCode = 13
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
 }

@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.id.nimegami
 
 import android.util.Base64
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -12,7 +12,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.parallelFlatMapBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -20,7 +20,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
-import eu.kanade.tachiyomi.lib.synchrony.Deobfuscator as Synchrony
+import aniyomi.lib.synchrony.Deobfuscator as Synchrony
 
 class NimeGami : ParsedAnimeHttpSource() {
 
@@ -63,15 +63,13 @@ class NimeGami : ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = "ul.pagination > li > a:contains(Next)"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -84,8 +82,7 @@ class NimeGami : ParsedAnimeHttpSource() {
     }
 
     // TODO: Add support for search filters
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) =
-        GET("$baseUrl/page/$page/?s=$query&post_type=post")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/page/$page/?s=$query&post_type=post")
 
     override fun searchAnimeSelector() = "div.archive > div > article"
 
@@ -123,8 +120,7 @@ class NimeGami : ParsedAnimeHttpSource() {
         }
     }
 
-    private fun Element.getInfo(info: String) =
-        selectFirst("tr:has(td.tablex:contains($info))")?.text()?.substringAfter(": ")
+    private fun Element.getInfo(info: String) = selectFirst("tr:has(td.tablex:contains($info))")?.text()?.substringAfter(": ")
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
@@ -160,55 +156,53 @@ class NimeGami : ParsedAnimeHttpSource() {
         }.let { it }
     }
 
-    private fun extractVideos(url: String, quality: String, episodeIndex: Int): List<Video> {
-        return with(url) {
-            when {
-                contains("video.nimegami.id") -> {
-                    val realUrl = url.substringAfter("url=").substringBefore("&").b64Decode()
-                    extractVideos(realUrl, quality, episodeIndex)
-                }
-
-                contains("berkasdrive") || contains("drive.nimegami") -> {
-                    client.newCall(GET(url, headers)).execute()
-                        .asJsoup()
-                        .selectFirst("source[src]")
-                        ?.attr("src")
-                        ?.let {
-                            listOf(Video(it, "Berkasdrive - $quality", it, headers))
-                        } ?: emptyList()
-                }
-
-                contains("hxfile.co") -> {
-                    val embedUrl = when {
-                        "embed-" in url -> url
-                        else -> url.replace(".co/", ".co/embed-") + ".html"
-                    }
-
-                    client.newCall(GET(embedUrl, headers)).execute()
-                        .asJsoup()
-                        .selectFirst("script:containsData(eval):containsData(p,a,c,k,e,d)")
-                        ?.data()
-                        ?.let(JsUnpacker::unpackAndCombine)
-                        ?.substringAfter("sources:[", "")
-                        ?.substringAfter("file\":\"", "")
-                        ?.substringBefore('"')
-                        ?.takeIf(String::isNotBlank)
-                        ?.let { listOf(Video(it, "HXFile - $quality", it, headers)) }
-                        ?: emptyList()
-                }
-
-                contains("bunga.nimegami") -> {
-                    val episodeUrl = url.replace("select_eps", "eps=$episodeIndex")
-                    client.newCall(GET(episodeUrl, headers)).execute()
-                        .asJsoup()
-                        .select("div.server_list ul > li")
-                        .map { it.attr("url") to it.text() }
-                        .filter { it.first.contains("uservideo") } // naniplay is absurdly slow
-                        .parallelFlatMapBlocking(::extractUserVideo)
-                }
-
-                else -> emptyList()
+    private fun extractVideos(url: String, quality: String, episodeIndex: Int): List<Video> = with(url) {
+        when {
+            contains("video.nimegami.id") -> {
+                val realUrl = url.substringAfter("url=").substringBefore("&").b64Decode()
+                extractVideos(realUrl, quality, episodeIndex)
             }
+
+            contains("berkasdrive") || contains("drive.nimegami") -> {
+                client.newCall(GET(url, headers)).execute()
+                    .asJsoup()
+                    .selectFirst("source[src]")
+                    ?.attr("src")
+                    ?.let {
+                        listOf(Video(it, "Berkasdrive - $quality", it, headers))
+                    } ?: emptyList()
+            }
+
+            contains("hxfile.co") -> {
+                val embedUrl = when {
+                    "embed-" in url -> url
+                    else -> url.replace(".co/", ".co/embed-") + ".html"
+                }
+
+                client.newCall(GET(embedUrl, headers)).execute()
+                    .asJsoup()
+                    .selectFirst("script:containsData(eval):containsData(p,a,c,k,e,d)")
+                    ?.data()
+                    ?.let(JsUnpacker::unpackAndCombine)
+                    ?.substringAfter("sources:[", "")
+                    ?.substringAfter("file\":\"", "")
+                    ?.substringBefore('"')
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { listOf(Video(it, "HXFile - $quality", it, headers)) }
+                    ?: emptyList()
+            }
+
+            contains("bunga.nimegami") -> {
+                val episodeUrl = url.replace("select_eps", "eps=$episodeIndex")
+                client.newCall(GET(episodeUrl, headers)).execute()
+                    .asJsoup()
+                    .select("div.server_list ul > li")
+                    .map { it.attr("url") to it.text() }
+                    .filter { it.first.contains("uservideo") } // naniplay is absurdly slow
+                    .parallelFlatMapBlocking(::extractUserVideo)
+            }
+
+            else -> emptyList()
         }
     }
 
@@ -242,21 +236,13 @@ class NimeGami : ParsedAnimeHttpSource() {
     @Serializable
     data class VideoQuality(val format: String, val url: List<String>)
 
-    override fun videoListParse(response: Response): List<Video> {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
     private fun String.b64Decode() = String(Base64.decode(this, Base64.DEFAULT))

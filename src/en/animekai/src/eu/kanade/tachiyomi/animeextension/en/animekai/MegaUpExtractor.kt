@@ -1,14 +1,14 @@
 package eu.kanade.tachiyomi.animeextension.en.animekai
 
 import android.util.Log
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.toRequestBody
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -116,11 +116,11 @@ class MegaUpExtractor(
         }
     }
 
-    private fun String.proper(): String {
-        return this.replaceFirstChar {
-            if (it.isLowerCase()) {
-                it.titlecase()
-            } else it.toString()
+    private fun String.proper(): String = this.replaceFirstChar {
+        if (it.isLowerCase()) {
+            it.titlecase()
+        } else {
+            it.toString()
         }
     }
 
@@ -135,12 +135,10 @@ class MegaUpExtractor(
         val tracks: List<MegaUpTrack>,
         val download: String? = null,
     ) {
-        fun subtitleTracks(): List<Track> {
-            return tracks
-                .filter { it.kind == "captions" && it.file.endsWith(".vtt") }
-                .sortedByDescending { it.default }
-                .map { Track(it.file, it.label ?: "Unknown") }
-        }
+        fun subtitleTracks(): List<Track> = tracks
+            .filter { it.kind == "captions" && it.file.endsWith(".vtt") }
+            .sortedByDescending { it.default }
+            .map { Track(it.file, it.label ?: "Unknown") }
     }
 
     @Serializable

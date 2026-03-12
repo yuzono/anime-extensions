@@ -1,15 +1,15 @@
 ext {
     extName = 'WIT ANIME'
     extClass = '.WitAnime'
-    extVersionCode = 56
+    extVersionCode = 57
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
-    implementation(project(':lib:vidbom-extractor'))
+    implementation(project(':lib:dailymotionextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:vidbomextractor'))
 }

@@ -1,0 +1,9 @@
+ext {
+    extName = 'PelisPlusTo'
+    extClass = '.Pelisplusto'
+    themePkg = 'pelisplus'
+    baseUrl = 'https://tioplus.app'
+    overrideVersionCode = 82
+}
+
+apply from: "$rootDir/common.gradle"

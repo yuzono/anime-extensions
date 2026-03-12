@@ -3,6 +3,14 @@ package eu.kanade.tachiyomi.animeextension.es.hackstore
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.goodstramextractor.GoodStreamExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,29 +18,26 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.goodstramextractor.GoodStreamExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Hackstore :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hackstore"
 
-    override val baseUrl = "https://hackstore.fo"
+    override val baseUrl = "https://www.hackstore.fo"
 
     override val lang = "es"
 
@@ -45,13 +50,11 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector(): String = "div.movie-thumbnail"
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            title = element.select(".movie-title").attr("title")
-            thumbnail_url = element.select(".poster-pad img").attr("abs:data-src")
-            description = ""
-            setUrlWithoutDomain(element.select(".movie-thumbnail a").attr("abs:href"))
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        title = element.select(".movie-title").attr("title")
+        thumbnail_url = element.select(".poster-pad img").attr("abs:data-src")
+        description = ""
+        setUrlWithoutDomain(element.select(".movie-thumbnail a").attr("abs:href"))
     }
 
     override fun popularAnimeNextPageSelector(): String = "div.wp-pagenavi .current ~ a"
@@ -73,38 +76,38 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Tipos",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Peliculas", "peliculas"),
-            Pair("Series", "series"),
-            Pair("Animes", "animes"),
-            Pair("Acción", "genero/accion"),
-            Pair("Action & Adventure", "genero/action-adventure"),
-            Pair("Animación", "genero/animacion"),
-            Pair("Aventura", "genero/aventura"),
-            Pair("Bélica", "genero/belica"),
-            Pair("Ciencia ficción", "genero/ciencia-ficcion"),
-            Pair("Comedia", "genero/comedia"),
-            Pair("Crimen", "genero/crimen"),
-            Pair("Documental", "genero/documental"),
-            Pair("Drama", "genero/drama"),
-            Pair("Familia", "genero/familia"),
-            Pair("Fantasía", "genero/fantasia"),
-            Pair("Historia", "genero/historia"),
-            Pair("Misterio", "genero/misterio"),
-            Pair("Música", "genero/musica"),
-            Pair("Occidental", "genero/occidental"),
-            Pair("Película de TV", "genero/pelicula-de-tv"),
-            Pair("Romance", "genero/romance"),
-            Pair("Suspense", "genero/suspense"),
-            Pair("Suspenso", "genero/suspenso"),
-            Pair("Terror", "genero/terror"),
-        ),
-    )
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private class GenreFilter :
+        UriPartFilter(
+            "Tipos",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Peliculas", "peliculas"),
+                Pair("Series", "series"),
+                Pair("Animes", "animes"),
+                Pair("Acción", "genero/accion"),
+                Pair("Action & Adventure", "genero/action-adventure"),
+                Pair("Animación", "genero/animacion"),
+                Pair("Aventura", "genero/aventura"),
+                Pair("Bélica", "genero/belica"),
+                Pair("Ciencia ficción", "genero/ciencia-ficcion"),
+                Pair("Comedia", "genero/comedia"),
+                Pair("Crimen", "genero/crimen"),
+                Pair("Documental", "genero/documental"),
+                Pair("Drama", "genero/drama"),
+                Pair("Familia", "genero/familia"),
+                Pair("Fantasía", "genero/fantasia"),
+                Pair("Historia", "genero/historia"),
+                Pair("Misterio", "genero/misterio"),
+                Pair("Música", "genero/musica"),
+                Pair("Occidental", "genero/occidental"),
+                Pair("Película de TV", "genero/pelicula-de-tv"),
+                Pair("Romance", "genero/romance"),
+                Pair("Suspense", "genero/suspense"),
+                Pair("Suspenso", "genero/suspenso"),
+                Pair("Terror", "genero/terror"),
+            ),
+        )
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -177,12 +180,11 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "uwu"
 
-    override fun episodeFromElement(element: Element): SEpisode { throw UnsupportedOperationException() }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
-    private fun extractUrlFromDonFunction(fullUrl: String): String {
-        val response = client.newCall(GET(fullUrl, headers)).execute()
-        val body = response.body.string()
+    private suspend fun extractUrlFromDonFunction(fullUrl: String): String {
+        val body = client.newCall(GET(fullUrl, headers)).awaitSuccess().bodyString()
         val document = Jsoup.parse(body)
         val scriptElement = document.selectFirst("script:containsData(function don())")
         val urlPattern = Regex("window\\.location\\.href\\s*=\\s*'([^']+)'")
@@ -202,44 +204,60 @@ class Hackstore : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("ul.TbVideoNv li.pres").parallelCatchingFlatMapBlocking { tab ->
-            val server = tab.select("a.playr").text()
-            val deco = tab.select("a.playr").attr("data-href")
-            val langs = tab.select("a.playr").attr("data-lang")
-            val fullUrl = baseUrl + deco
-            val url = extractUrlFromDonFunction(fullUrl)
-            val isLatino = langs.contains("latino")
-            val isSub = langs.contains("subtitulado") || langs.contains("sub") || langs.contains("japonés")
-            val prefix = if (isLatino) "[LAT]" else if (isSub) "[SUB]" else "[CAST]"
-
-            when {
-                server.contains("streamtape") || server.contains("stp") || server.contains("stape") -> {
-                    listOf(streamTapeExtractor.videoFromUrl(url, quality = "$prefix StreamTape")!!)
+        return document.select("ul.TbVideoNv li.pres")
+            .parallelCatchingFlatMapBlocking { tab ->
+                val server = tab.select("a.playr").text()
+                val deco = tab.select("a.playr").attr("data-href")
+                val langs = tab.select("a.playr").attr("data-lang")
+                val fullUrl = baseUrl + deco
+                val url = extractUrlFromDonFunction(fullUrl)
+                val isLatino = langs.contains("latino")
+                val isSub = langs.contains("subtitulado") || langs.contains("sub") || langs.contains("japonés")
+                val prefix = if (isLatino) {
+                    "[LAT]"
+                } else if (isSub) {
+                    "[SUB]"
+                } else {
+                    "[CAST]"
                 }
-                server.contains("voe") -> voeExtractor.videosFromUrl(url, "$prefix ")
-                server.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-                server.contains("wishembed") || server.contains("streamwish") || server.contains("strwish") || server.contains("wish") -> {
-                    streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                }
-                server.contains("doodstream") || server.contains("dood.") || server.contains("ds2play") || server.contains("doods.") -> {
-                    doodExtractor.videosFromUrl(url, prefix)
-                }
-                server.contains("vidhide") || server.contains("vid.") -> {
-                    vidHideExtractor.videosFromUrl(url) { "$prefix VidHide:$it" }
-                }
-                server.contains("goodstream") || server.contains("vidstream") -> {
-                    goodStreamExtractor.videosFromUrl(url, "$prefix GoodStream")
-                }
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+                listOf(Triple(server, url, prefix))
             }
-        }
+            .catchingFlatMapBlocking { (server, url, prefix) ->
+                when {
+                    server.contains("streamtape") || server.contains("stp") || server.contains("stape") -> {
+                        listOf(streamTapeExtractor.videoFromUrl(url, quality = "$prefix StreamTape")!!)
+                    }
+
+                    server.contains("voe") -> voeExtractor.videosFromUrl(url, "$prefix ")
+
+                    server.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
+                    server.contains("wishembed") || server.contains("streamwish") || server.contains("strwish") || server.contains("wish") -> {
+                        streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+                    }
+
+                    server.contains("doodstream") || server.contains("dood.") || server.contains("ds2play") || server.contains("doods.") -> {
+                        doodExtractor.videosFromUrl(url, prefix)
+                    }
+
+                    server.contains("vidhide") || server.contains("vid.") -> {
+                        vidHideExtractor.videosFromUrl(url) { "$prefix - VidHide:$it" }
+                    }
+
+                    server.contains("goodstream") || server.contains("vidstream") -> {
+                        goodStreamExtractor.videosFromUrl(url, "$prefix GoodStream")
+                    }
+
+                    else -> universalExtractor.videosFromUrl(url, headers, prefix = prefix)
+                }
+            }
     }
 
     override fun videoListSelector(): String = "ul.TbVideoNv li.pres a.playr"
 
-    override fun videoFromElement(element: Element): Video { throw UnsupportedOperationException() }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String { throw UnsupportedOperationException() }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

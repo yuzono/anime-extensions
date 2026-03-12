@@ -2,21 +2,22 @@ package eu.kanade.tachiyomi.animeextension.pl.desuonline
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.animeextension.pl.desuonline.extractors.CDAExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DesuOnline : AnimeStream(
-    "pl",
-    "desu-online",
-    "https://desu-online.pl",
-) {
+class DesuOnline :
+    AnimeStream(
+        "pl",
+        "desu-online",
+        "https://desu-online.pl",
+    ) {
     override val dateFormatter by lazy {
         SimpleDateFormat("d MMMM, yyyy", Locale("pl", "PL"))
     }
@@ -26,8 +27,7 @@ class DesuOnline : AnimeStream(
 
     // ============================ Video Links =============================
 
-    override fun videoListParse(response: Response): List<Video> =
-        super.videoListParse(response).ifEmpty { throw Exception("Failed to fetch videos") }
+    override fun videoListParse(response: Response): List<Video> = super.videoListParse(response).ifEmpty { throw Exception("Failed to fetch videos") }
 
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val cdaExtractor by lazy { CDAExtractor(client, headers, "$baseUrl/") }
@@ -37,12 +37,16 @@ class DesuOnline : AnimeStream(
     override fun getVideoList(url: String, name: String): List<Video> {
         return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, name)
+
             url.contains("cda.pl") -> cdaExtractor.videosFromUrl(url, name)
+
             url.contains("sibnet") -> sibnetExtractor.videosFromUrl(url, prefix = "$name - ")
+
             url.contains("drive.google.com") -> {
                 val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
                 gdriveExtractor.videosFromUrl("https://drive.google.com/uc?id=$id", videoName = name)
             }
+
             else -> emptyList()
         }
     }

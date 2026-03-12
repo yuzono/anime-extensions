@@ -4,6 +4,12 @@ import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.fr.anisama.extractors.VidCdnExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -12,19 +18,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parallelMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -34,7 +34,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class AniSama :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniSama"
 
@@ -83,13 +85,11 @@ class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // =============================== Search ===============================
     override fun getFilterList() = aniSamaFilters.getFilterList()
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -158,13 +158,11 @@ class AniSama : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return document.select(episodeListSelector()).parallelMapBlocking(::episodeFromElement).reversed()
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            episode_number = element.attr("data-number").toFloat()
-            name = element.attr("title")
-            val id = element.attr("href").substringAfterLast("=")
-            url = "/ajax/episode/servers?episodeId=$id"
-        }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        episode_number = element.attr("data-number").toFloat()
+        name = element.attr("title")
+        val id = element.attr("href").substringAfterLast("=")
+        url = "/ajax/episode/servers?episodeId=$id"
     }
 
     // ============================ Video Links =============================

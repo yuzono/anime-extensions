@@ -1,5 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.pt.doramogo
 
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.doramogo.extractors.DoramogoExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -7,14 +11,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -59,15 +59,13 @@ class Doramogo : ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = null
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/dorama/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
-        }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        val id = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$baseUrl/dorama/$id"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
+    } else {
+        super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -109,9 +107,7 @@ class Doramogo : ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response).reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
     override fun episodeListSelector() = "li.episode--content"
 
@@ -142,6 +138,7 @@ class Doramogo : ParsedAnimeHttpSource() {
     private fun getVideosFromURL(url: String): List<Video> {
         return when {
             "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url)
+
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
 
             "drive.google.com" in url -> {
@@ -183,17 +180,11 @@ class Doramogo : ParsedAnimeHttpSource() {
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 

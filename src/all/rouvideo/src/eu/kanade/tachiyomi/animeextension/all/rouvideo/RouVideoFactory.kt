@@ -4,12 +4,10 @@ import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
 
 class RouVideoFactory : AnimeSourceFactory {
-    override fun createSources(): List<AnimeSource> {
-        return listOf(
-            RouVideo("all"),
-            RouVideo("zh"),
-            RouVideo("en"),
-            RouVideo("vi"),
-        )
-    }
+    override fun createSources(): List<AnimeSource> = listOf(
+        RouVideo("all"),
+        RouVideo("zh"),
+        RouVideo("en"),
+        RouVideo("vi"),
+    )
 }

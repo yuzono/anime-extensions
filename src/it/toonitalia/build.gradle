@@ -1,14 +1,14 @@
 ext {
     extName = 'Toonitalia'
     extClass = '.Toonitalia'
-    extVersionCode = 32
+    extVersionCode = 33
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:playlist-utils'))
-    implementation(libs.jsunpacker)
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:playlistutils'))
+    implementation(project(":lib:unpacker"))
 }

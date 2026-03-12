@@ -3,15 +3,15 @@ ext {
     extClass = '.AsyaAnimeleri'
     themePkg = 'animestream'
     baseUrl = 'https://asyaanimeleri.com'
-    overrideVersionCode = 10
+    overrideVersionCode = 11
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:vk-extractor"))
-    implementation(project(":lib:okru-extractor"))
-    implementation(project(":lib:sibnet-extractor"))
-    implementation(project(":lib:gdriveplayer-extractor"))
-    implementation(project(":lib:dood-extractor"))
+    implementation(project(":lib:vkextractor"))
+    implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:sibnetextractor"))
+    implementation(project(":lib:gdriveplayerextractor"))
+    implementation(project(":lib:doodextractor"))
 }

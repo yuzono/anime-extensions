@@ -3,6 +3,11 @@ package eu.kanade.tachiyomi.animeextension.ar.witanime
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.animeextension.ar.witanime.extractors.SharedExtractor
 import eu.kanade.tachiyomi.animeextension.ar.witanime.extractors.SoraPlayExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -11,20 +16,17 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class WitAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class WitAnime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "WIT ANIME"
 
@@ -101,11 +103,10 @@ class WitAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) =
-        getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-            .reversed()
+    override fun episodeListParse(response: Response) = getRealDoc(response.asJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
+        .reversed()
 
     override fun episodeListSelector() = "div.ehover6 > div.episodes-card-title > h3 a"
 
@@ -138,47 +139,54 @@ class WitAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val vidBomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun extractVideos(url: String): List<Video> {
-        return when {
-            url.contains("yonaplay") -> extractFromMulti(url)
-            url.contains("soraplay") -> {
-                when {
-                    url.contains("/mirror") -> extractFromMulti(url)
-                    else -> soraPlayExtractor.videosFromUrl(url, headers)
-                }
-            }
-            url.contains("dood") -> {
-                doodExtractor.videoFromUrl(url, "Dood mirror")
-                    ?.let(::listOf)
-            }
-            url.contains("4shared") -> {
-                sharedExtractor.videosFromUrl(url)
-                    ?.let(::listOf)
-            }
-            url.contains("dropbox") -> {
-                listOf(Video(url, "Dropbox mirror", url))
-            }
+    private fun extractVideos(url: String): List<Video> = when {
+        url.contains("yonaplay") -> extractFromMulti(url)
 
-            url.contains("dailymotion") -> {
-                dailymotionExtractor.videosFromUrl(url)
+        url.contains("soraplay") -> {
+            when {
+                url.contains("/mirror") -> extractFromMulti(url)
+                else -> soraPlayExtractor.videosFromUrl(url, headers)
             }
-            url.contains("ok.ru") -> {
-                okruExtractor.videosFromUrl(url)
-            }
-            url.contains("mp4upload.com") -> {
-                mp4uploadExtractor.videosFromUrl(url, headers)
-            }
-            VIDBOM_REGEX.containsMatchIn(url) -> {
-                vidBomExtractor.videosFromUrl(url)
-            }
-            else -> null
-        } ?: emptyList()
-    }
+        }
+
+        url.contains("dood") -> {
+            doodExtractor.videoFromUrl(url, "Dood mirror")
+                ?.let(::listOf)
+        }
+
+        url.contains("4shared") -> {
+            sharedExtractor.videosFromUrl(url)
+                ?.let(::listOf)
+        }
+
+        url.contains("dropbox") -> {
+            listOf(Video(url, "Dropbox mirror", url))
+        }
+
+        url.contains("dailymotion") -> {
+            dailymotionExtractor.videosFromUrl(url)
+        }
+
+        url.contains("ok.ru") -> {
+            okruExtractor.videosFromUrl(url)
+        }
+
+        url.contains("mp4upload.com") -> {
+            mp4uploadExtractor.videosFromUrl(url, headers)
+        }
+
+        VIDBOM_REGEX.containsMatchIn(url) -> {
+            vidBomExtractor.videosFromUrl(url)
+        }
+
+        else -> null
+    } ?: emptyList()
 
     private fun extractFromMulti(url: String): List<Video> {
         val newHeaders = when {
             url.contains("soraplay") ->
                 super.headersBuilder().set("referer", "https://yonaplay.org").build()
+
             else -> headers
         }
         val doc = client.newCall(GET(url, newHeaders)).execute()
@@ -227,11 +235,9 @@ class WitAnime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun getRealDoc(document: Document): Document {
-        return document.selectFirst("div.anime-page-link a")?.let {
-            client.newCall(GET(it.attr("href"), headers)).execute().asJsoup()
-        } ?: document
-    }
+    private fun getRealDoc(document: Document): Document = document.selectFirst("div.anime-page-link a")?.let {
+        client.newCall(GET(it.attr("href"), headers)).execute().asJsoup()
+    } ?: document
 
     private fun Element.getEncodedUrl() = attr("onclick")
         .substringAfter("'")

@@ -1,7 +1,7 @@
 plugins {
     id("com.android.library")
-    kotlin("android")
     id("kotlinx-serialization")
+    id("keiyoushi.lint")
 }
 
 android {
@@ -11,19 +11,29 @@ android {
         minSdk = AndroidConfig.minSdk
     }
 
-    namespace = "eu.kanade.tachiyomi.lib.${project.name}"
+    namespace = "aniyomi.lib.${project.name}"
 
-    buildFeatures {
-        androidResources = false
+    sourceSets {
+        named("main") {
+            java.directories.clear()
+            java.directories.add("src")
+            kotlin.directories.clear()
+            kotlin.directories.add("src")
+            assets.directories.clear()
+            assets.directories.add("assets")
+        }
+    }
+
+    androidResources.enable = false
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-opt-in=kotlinx.serialization.ExperimentalSerializationApi")
     }
 }
 
 dependencies {
     compileOnly(versionCatalogs.named("libs").findBundle("common").get())
-}
-
-tasks.register("printDependentExtensions") {
-    doLast {
-        project.printDependentExtensions()
-    }
+    implementation(project(":core"))
 }

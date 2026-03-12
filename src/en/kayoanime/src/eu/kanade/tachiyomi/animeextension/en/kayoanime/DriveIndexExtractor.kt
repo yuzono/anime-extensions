@@ -133,30 +133,22 @@ class DriveIndexExtractor(private val client: OkHttpClient, private val headers:
         return newString.trim()
     }
 
-    private fun String.addSuffix(suffix: String): String {
-        return if (this.endsWith(suffix)) {
-            this
-        } else {
-            this.plus(suffix)
-        }
+    private fun String.addSuffix(suffix: String): String = if (this.endsWith(suffix)) {
+        this
+    } else {
+        this.plus(suffix)
     }
 
-    private fun String.decrypt(): String {
-        return Base64.decode(this.reversed().substring(24, this.length - 20), Base64.DEFAULT).toString(Charsets.UTF_8)
-    }
+    private fun String.decrypt(): String = Base64.decode(this.reversed().substring(24, this.length - 20), Base64.DEFAULT).toString(Charsets.UTF_8)
 
-    private fun joinUrl(path1: String, path2: String): String {
-        return path1.removeSuffix("/") + "/" + path2.removePrefix("/")
-    }
+    private fun joinUrl(path1: String, path2: String): String = path1.removeSuffix("/") + "/" + path2.removePrefix("/")
 
-    private fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes >= 1073741824 -> "%.2f GB".format(bytes / 1073741824.0)
-            bytes >= 1048576 -> "%.2f MB".format(bytes / 1048576.0)
-            bytes >= 1024 -> "%.2f KB".format(bytes / 1024.0)
-            bytes > 1 -> "$bytes bytes"
-            bytes == 1L -> "$bytes byte"
-            else -> ""
-        }
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1073741824 -> "%.2f GB".format(bytes / 1073741824.0)
+        bytes >= 1048576 -> "%.2f MB".format(bytes / 1048576.0)
+        bytes >= 1024 -> "%.2f KB".format(bytes / 1024.0)
+        bytes > 1 -> "$bytes bytes"
+        bytes == 1L -> "$bytes byte"
+        else -> ""
     }
 }

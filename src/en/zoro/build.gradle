@@ -3,12 +3,12 @@ ext {
     extClass = '.HiAnime'
     themePkg = 'zorotheme'
     baseUrl = 'https://hianime.to'
-    overrideVersionCode = 63
+    overrideVersionCode = 64
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    api(project(":lib:megacloud-extractor"))
-    api(project(":lib:streamtape-extractor"))
+    api(project(":lib:megacloudextractor"))
+    api(project(":lib:streamtapeextractor"))
 }

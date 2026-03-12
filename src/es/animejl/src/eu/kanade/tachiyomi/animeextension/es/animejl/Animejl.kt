@@ -3,30 +3,33 @@ package eu.kanade.tachiyomi.animeextension.es.animejl
 import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Animejl :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animejl"
 
@@ -50,8 +53,7 @@ class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector(): String = "div.Container ul.ListAnimes li article"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/animes?order=rating&page=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/animes?order=rating&page=$page")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -70,17 +72,17 @@ class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
         val script = document.select("script:containsData(var episodes =)").firstOrNull()?.data() ?: return emptyList()
 
-        val episodesPattern = Regex("var episodes = (\\[.*?\\]);", RegexOption.DOT_MATCHES_ALL)
+        val episodesPattern = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
         val episodesMatch = episodesPattern.find(script) ?: return emptyList()
         val episodesString = episodesMatch.groupValues[1]
 
-        val animeInfoPattern = Regex("var anime_info = \\[(.*?)\\];")
+        val animeInfoPattern = Regex("var anime_info = \\[(.*?)];")
         val animeInfoMatch = animeInfoPattern.find(script) ?: return emptyList()
         val animeInfo = animeInfoMatch.groupValues[1].split(",").map { it.trim('"') }
 
         val animeSlug = animeInfo.getOrNull(2) ?: ""
         val animeId = animeInfo.getOrNull(0) ?: ""
-        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"\\]")
+        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
         val episodeMatches = episodePattern.findAll(episodesString)
 
         episodeMatches.forEach { match ->
@@ -119,12 +121,11 @@ class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
-        val videoList = mutableListOf<Video>()
-        val videoPattern = Regex("""video\[\d+\] = '<iframe src="(.*?)"""")
+        val videoPattern = Regex("""video\[\d+] = '<iframe src="(.*?)"""")
         val matches = videoPattern.findAll(scriptContent)
-        matches.forEach { match ->
+        return matches.toList().catchingFlatMapBlocking { match ->
             val url = match.groupValues[1]
-            val videos = when {
+            when {
                 url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
                 url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
                 url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
@@ -135,9 +136,7 @@ class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
-            videoList.addAll(videos)
         }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -174,12 +173,10 @@ class Animejl : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Finalizado") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Finalizado") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()

@@ -3,6 +3,10 @@ package eu.kanade.tachiyomi.animeextension.de.moflixstream
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamvidextractor.StreamVidExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.AnimeDetailsDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodeListDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodePageDto
@@ -19,19 +23,17 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
+class MoflixStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Moflix-Stream"
 
@@ -107,6 +109,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
                     setUrlWithoutDomain(response.request.url.toString())
                 }.let(::listOf)
             }
+
             else -> {
                 val seasonsList = buildList {
                     addAll(seasons.data)
@@ -160,28 +163,32 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
         }.ifEmpty { throw Exception("No videos!") }
     }
 
-    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> {
-        return when {
-            name.contains("Streamtape") && selection.contains("stape") -> {
-                streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
-            }
-            name.contains("Streamvid") && selection.contains("svid") -> {
-                streamvidExtractor.videosFromUrl(url)
-            }
-            name.contains("Highstream") && selection.contains("hstream") -> {
-                streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
-            }
-            name.contains("VidGuard") && selection.contains("vidg") -> {
-                vidguardExtractor.videosFromUrl(url)
-            }
-            name.contains("Filelions") && selection.contains("flions") -> {
-                streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
-            }
-            name.contains("LuluStream") && selection.contains("lstream") -> {
-                luluExtractor.videosFromUrl(url, "LuluStream")
-            }
-            else -> emptyList()
+    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> = when {
+        name.contains("Streamtape") && selection.contains("stape") -> {
+            streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
         }
+
+        name.contains("Streamvid") && selection.contains("svid") -> {
+            streamvidExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Highstream") && selection.contains("hstream") -> {
+            streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
+        }
+
+        name.contains("VidGuard") && selection.contains("vidg") -> {
+            vidguardExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Filelions") && selection.contains("flions") -> {
+            streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
+        }
+
+        name.contains("LuluStream") && selection.contains("lstream") -> {
+            luluExtractor.videosFromUrl(url, "LuluStream")
+        }
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {

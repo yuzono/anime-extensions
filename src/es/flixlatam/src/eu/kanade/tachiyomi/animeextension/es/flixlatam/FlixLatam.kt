@@ -1,45 +1,48 @@
 package eu.kanade.tachiyomi.animeextension.es.flixlatam
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.cryptoaes.CryptoAES
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.fastreamextractor.FastreamExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamsilkextractor.StreamSilkExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.fastreamextractor.FastreamExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamsilkextractor.StreamSilkExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FlixLatam : DooPlay(
-    "es",
-    "FlixLatam",
-    "https://flixlatam.com",
-) {
+class FlixLatam :
+    DooPlay(
+        "es",
+        "FlixLatam",
+        "https://flixlatam.com",
+    ) {
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/pelicula/page/$page")
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
@@ -58,27 +61,25 @@ class FlixLatam : DooPlay(
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoSet = mutableSetOf<Video>()
         val players = document.select("ul#playeroptionsul li")
 
         // Iterar sobre cada player
-        players.parallelFlatMapBlocking { player ->
+        return players.parallelCatchingFlatMapBlocking { player ->
             val url = getPlayerUrl(player)
-                ?: return@parallelFlatMapBlocking emptyList<Video>()
+                ?: return@parallelCatchingFlatMapBlocking emptyList()
             if (url.contains("embed69")) {
-                val htmlContent = client.newCall(GET(url)).execute().body.string()
-                val links = extractNewExtractorLinks(document, htmlContent) ?: return@parallelFlatMapBlocking emptyList<Video>()
-                links.forEach { (link, language) ->
-                    videoSet.addAll(serverVideoResolver(link, " $language"))
+                val htmlContent = client.newCall(GET(url)).awaitSuccess().bodyString()
+                val links = extractNewExtractorLinks(htmlContent) ?: return@parallelCatchingFlatMapBlocking emptyList()
+                links.parallelCatchingFlatMap { (link, language) ->
+                    serverVideoResolver(link, " $language")
                 }
+            } else {
+                emptyList()
             }
-            return@parallelFlatMapBlocking emptyList<Video>()
         }
-
-        return videoSet.toList()
     }
 
-    private fun getPlayerUrl(player: Element): String? {
+    private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "doo_player_ajax")
             .add("post", player.attr("data-post"))
@@ -87,11 +88,11 @@ class FlixLatam : DooPlay(
             .build()
 
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute().body?.string()
-            ?.substringAfter("\"embed_url\":\"")
-            ?.substringBefore("\",")
-            ?.replace("\\", "")
-            ?.takeIf(String::isNotBlank)
+            .awaitSuccess().bodyString()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
+            .takeIf(String::isNotBlank)
     }
 
     /*-------------------------------- Video extractors ------------------------------------*/
@@ -112,71 +113,63 @@ class FlixLatam : DooPlay(
     private val streamSilkExtractor by lazy { StreamSilkExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
-        return runCatching {
-            Log.d("SoloLatino", "URL: $url")
-            when {
-                "voe" in url -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "ok.ru" in url || "okru" in url -> okruExtractor.videosFromUrl(url, prefix)
-                "filemoon" in url || "moonplayer" in url -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
-                "amazon" in url || "amz" in url -> extractAmazonVideo(url, prefix)
-                "uqload" in url -> uqloadExtractor.videosFromUrl(url, prefix)
-                "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
-                "streamwish" in url || "wish" in url -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
-                "doodstream" in url || "dood." in url -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
-                "streamlare" in url -> streamlareExtractor.videosFromUrl(url, prefix)
-                "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
-                "burstcloud" in url -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
-                "fastream" in url -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
-                "upstream" in url -> upstreamExtractor.videosFromUrl(url, "$prefix ")
-                "streamsilk" in url -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
-                "streamtape" in url || "stp" in url -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
-                arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
-                arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                else -> emptyList()
-            }
-        }.getOrElse { emptyList() }
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = when {
+        "voe" in url -> voeExtractor.videosFromUrl(url, "$prefix ")
+        "ok.ru" in url || "okru" in url -> okruExtractor.videosFromUrl(url, prefix)
+        "filemoon" in url || "moonplayer" in url -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
+        "amazon" in url || "amz" in url -> extractAmazonVideo(url, prefix)
+        "uqload" in url -> uqloadExtractor.videosFromUrl(url, prefix)
+        "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
+        "streamwish" in url || "wish" in url -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
+        "doodstream" in url || "dood." in url -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
+        "streamlare" in url -> streamlareExtractor.videosFromUrl(url, prefix)
+        "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
+        "burstcloud" in url -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
+        "fastream" in url -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
+        "upstream" in url -> upstreamExtractor.videosFromUrl(url, "$prefix ")
+        "streamsilk" in url -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
+        "streamtape" in url || "stp" in url -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
+        arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+        else -> emptyList()
     }
 
-    private fun extractAmazonVideo(url: String, prefix: String): List<Video> {
-        val body = client.newCall(GET(url)).execute().asJsoup()
+    private suspend fun extractAmazonVideo(url: String, prefix: String): List<Video> {
+        val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
         val shareId = body.selectFirst("script:containsData(var shareId)")
             ?.data()
             ?.substringAfter("shareId = \"")
             ?.substringBefore("\"") ?: return emptyList()
 
         val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
-            .execute().asJsoup()
+            .awaitSuccess().useAsJsoup()
 
         val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
         val amazonApi = client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
-            .execute().asJsoup()
+            .awaitSuccess().useAsJsoup()
 
         val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
         return listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
     }
 
-    private fun extractNewExtractorLinks(doc: Document, htmlContent: String): List<Pair<String, String>>? {
-        val links = mutableListOf<Pair<String, String>>()
-        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?\]);""".toRegex(), htmlContent) ?: return null
+    private fun extractNewExtractorLinks(htmlContent: String): List<Pair<String, String>>? {
+        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?]);""".toRegex(), htmlContent) ?: return null
 
-        val items = Json.decodeFromString<List<Item>>(jsLinksMatch)
+        val items = jsLinksMatch.parseAs<List<Item>>()
         val idiomas = mapOf("LAT" to "[LAT]", "ESP" to "[CAST]", "SUB" to "[SUB]")
 
-        items.forEach { item ->
+        return items.flatMap { item ->
             val languageCode = idiomas[item.video_language] ?: "unknown"
-            item.sortedEmbeds.forEach { embed ->
-                val decryptedLink = CryptoAES.decrypt(embed.link, "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE")
-                links.add(Pair(decryptedLink, languageCode))
+            item.sortedEmbeds.mapNotNull { embed ->
+                runCatching {
+                    val decryptedLink = CryptoAES.decrypt(embed.link, "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE")
+                    Pair(decryptedLink, languageCode)
+                }.getOrNull()
             }
-        }
-
-        return links.ifEmpty { null }
+        }.ifEmpty { null }
     }
 
-    private fun getFirstMatch(regex: Regex, input: String): String? {
-        return regex.find(input)?.groupValues?.get(1)
-    }
+    private fun getFirstMatch(regex: Regex, input: String): String? = regex.find(input)?.groupValues?.get(1)
 
     // ============================== Filters ===============================
     override val fetchGenres = false
@@ -193,6 +186,7 @@ class FlixLatam : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

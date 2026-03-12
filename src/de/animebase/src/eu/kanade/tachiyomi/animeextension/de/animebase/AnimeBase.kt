@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.animeextension.de.animebase
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.animebase.extractors.UnpackerExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,21 +13,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBase :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Base"
 
@@ -99,6 +101,7 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 val animes = doc.select(searchAnimeSelector()).map(::searchAnimeFromElement)
                 AnimesPage(animes, false)
             }
+
             else -> { // pages like filmlist or animelist
                 val animes = doc.select(popularAnimeSelector()).map(::popularAnimeFromElement)
                 val hasNext = doc.selectFirst(searchAnimeNextPageSelector()) != null
@@ -141,18 +144,16 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(selector: String) =
-        selectFirst("strong:contains($selector) + p")?.text()?.trim()
+    private fun Element.getInfo(selector: String) = selectFirst("strong:contains($selector) + p")?.text()?.trim()
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).sortedWith(
-            compareBy(
-                { it.name.startsWith("Film ") },
-                { it.name.startsWith("Special ") },
-                { it.episode_number },
-            ),
-        ).reversed()
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).sortedWith(
+        compareBy(
+            { it.name.startsWith("Film ") },
+            { it.name.startsWith("Special ") },
+            { it.episode_number },
+        ),
+    ).reversed()
 
     override fun episodeListSelector() = "div.tab-content > div > div.panel"
 

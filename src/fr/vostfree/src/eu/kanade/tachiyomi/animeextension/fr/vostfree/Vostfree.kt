@@ -2,6 +2,13 @@ package eu.kanade.tachiyomi.animeextension.fr.vostfree
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,26 +17,22 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Vostfree :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Vostfree"
 
@@ -112,7 +115,7 @@ class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
         val epUrl = response.request.url.toString()
-        return doc.select("select.new_player_selector option").map { it ->
+        return doc.select("select.new_player_selector option").map {
             if (it.text() == "Film") {
                 SEpisode.create().apply {
                     episode_number = 1F
@@ -153,7 +156,7 @@ class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val epNum = episode.url.substringAfter("=")
-        val document = client.newCall(GET(baseUrl + episode.url, headers)).await().asJsoup()
+        val document = client.newCall(GET(baseUrl + episode.url, headers)).awaitSuccess().useAsJsoup()
 
         val allPlayers = document.select("div#buttons_$epNum div")
 
@@ -194,36 +197,37 @@ class Vostfree : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class TypeFilter : UriPartFilter(
-        "types",
-        arrayOf(
-            Pair("<pour sélectionner>", ""),
-            Pair("Animes VF", "animes-vf"),
-            Pair("Animes VOSTFR", "animes-vostfr"),
-            Pair("FILMS", "films-vf-vostfr"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "types",
+            arrayOf(
+                Pair("<pour sélectionner>", ""),
+                Pair("Animes VF", "animes-vf"),
+                Pair("Animes VOSTFR", "animes-vostfr"),
+                Pair("FILMS", "films-vf-vostfr"),
+            ),
+        )
 
-    private class GenreFilter : UriPartFilter(
-        "genre",
-        arrayOf(
-            Pair("<pour sélectionner>", ""),
-            Pair("Action", "Action"),
-            Pair("Comédie", "Comédie"),
-            Pair("Drame", "Drame"),
-            Pair("Surnaturel", "Surnaturel"),
-            Pair("Shonen", "Shonen"),
-            Pair("Romance", "Romance"),
-            Pair("Tranche de vie", "Tranche+de+vie"),
-            Pair("Fantasy", "Fantasy"),
-            Pair("Mystère", "Mystère"),
-            Pair("Psychologique", "Psychologique"),
-            Pair("Sci-Fi", "Sci-Fi"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "genre",
+            arrayOf(
+                Pair("<pour sélectionner>", ""),
+                Pair("Action", "Action"),
+                Pair("Comédie", "Comédie"),
+                Pair("Drame", "Drame"),
+                Pair("Surnaturel", "Surnaturel"),
+                Pair("Shonen", "Shonen"),
+                Pair("Romance", "Romance"),
+                Pair("Tranche de vie", "Tranche+de+vie"),
+                Pair("Fantasy", "Fantasy"),
+                Pair("Mystère", "Mystère"),
+                Pair("Psychologique", "Psychologique"),
+                Pair("Sci-Fi", "Sci-Fi"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

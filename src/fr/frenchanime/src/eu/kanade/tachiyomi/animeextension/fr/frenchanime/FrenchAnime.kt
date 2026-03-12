@@ -1,33 +1,34 @@
 package eu.kanade.tachiyomi.animeextension.fr.frenchanime
 
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.streamhubextractor.StreamHubExtractor
+import aniyomi.lib.streamvidextractor.StreamVidExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
+import aniyomi.lib.vidoextractor.VidoExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamhubextractor.StreamHubExtractor
-import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidmolyextractor.VidMolyExtractor
-import eu.kanade.tachiyomi.lib.vidoextractor.VidoExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.multisrc.datalifeengine.DataLifeEngine
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FrenchAnime : DataLifeEngine(
-    "French Anime",
-    "https://french-anime.com",
-    "fr",
-) {
+class FrenchAnime :
+    DataLifeEngine(
+        "French Anime",
+        "https://french-anime.com",
+        "fr",
+    ) {
 
     override val categories = arrayOf(
         Pair("<Sélectionner>", ""),
@@ -107,18 +108,30 @@ class FrenchAnime : DataLifeEngine(
                 when {
                     contains("dood") ||
                         contains("d0000d") -> doodExtractor.videosFromUrl(this)
+
                     contains("upstream") -> upstreamExtractor.videosFromUrl(this)
+
                     contains("vudeo") -> vudeoExtractor.videosFromUrl(this)
+
                     contains("uqload") -> uqloadExtractor.videosFromUrl(this)
+
                     contains("guccihide") ||
                         contains("streamhide") -> streamHideVidExtractor.videosFromUrl(this)
+
                     contains("streamvid") -> streamVidExtractor.videosFromUrl(this)
+
                     contains("vido") -> vidoExtractor.videosFromUrl(this)
+
                     contains("sibnet") -> sibnetExtractor.videosFromUrl(this)
+
                     contains("ok.ru") -> okruExtractor.videosFromUrl(this)
+
                     contains("streamhub.gg") -> streamHubExtractor.videosFromUrl(this)
+
                     contains("vidmoly") -> vidmolyExtractor.videosFromUrl(this)
+
                     contains("voe.sx") -> voeExtractor.videosFromUrl(this)
+
                     else -> emptyList()
                 }
             }

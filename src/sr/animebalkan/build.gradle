@@ -3,12 +3,12 @@ ext {
     extClass = '.AnimeBalkan'
     themePkg = 'animestream'
     baseUrl = 'https://animebalkan.org'
-    overrideVersionCode = 5
+    overrideVersionCode = 6
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:okru-extractor"))
-    implementation(project(":lib:googledrive-extractor"))
+    implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:googledriveextractor"))
 }

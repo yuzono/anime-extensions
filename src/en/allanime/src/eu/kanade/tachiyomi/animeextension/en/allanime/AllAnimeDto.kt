@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -20,9 +21,10 @@ data class PopularResult(
             ) {
                 @Serializable
                 data class Card(
-                    val _id: String,
+                    @SerialName("_id")
+                    val id: String,
                     val name: String,
-                    val thumbnail: String,
+                    val thumbnail: String? = null,
                     val englishName: String? = null,
                     val nativeName: String? = null,
                     val slugTime: String? = null,
@@ -46,9 +48,10 @@ data class SearchResult(
         ) {
             @Serializable
             data class SearchResultEdge(
-                val _id: String,
+                @SerialName("_id")
+                val id: String,
                 val name: String,
-                val thumbnail: String,
+                val thumbnail: String? = null,
                 val englishName: String? = null,
                 val nativeName: String? = null,
                 val slugTime: String? = null,
@@ -67,7 +70,7 @@ data class DetailsResult(
     ) {
         @Serializable
         data class SeriesShows(
-            val thumbnail: String,
+            val thumbnail: String? = null,
             val genres: List<String>? = null,
             val studios: List<String>? = null,
             val season: AirSeason? = null,
@@ -95,7 +98,8 @@ data class SeriesResult(
     ) {
         @Serializable
         data class SeriesShows(
-            val _id: String,
+            @SerialName("_id")
+            val id: String,
             val availableEpisodesDetail: AvailableEps,
         ) {
             @Serializable
