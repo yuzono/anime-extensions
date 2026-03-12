@@ -12,7 +12,7 @@ import okhttp3.OkHttpClient
 class HexloadExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     // Example URL: https://hexload.com/embed-ii21t0gfa9c3/Avatar_Fuego_y_ceniza_LAT.mp4
-    private val idRegex by lazy { Regex("""embed-(\w*?)/""") }
+    private val idRegex by lazy { Regex("""embed-(\w+?)/""") }
 
     suspend fun videosFromUrl(url: String, prefix: String = "HexLoad"): List<Video> {
         val id = idRegex.find(url)?.groupValues?.getOrNull(1) ?: return emptyList()

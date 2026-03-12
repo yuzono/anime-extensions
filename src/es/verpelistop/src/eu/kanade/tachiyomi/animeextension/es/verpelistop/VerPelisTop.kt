@@ -41,7 +41,7 @@ class VerPelisTop :
 
     override fun popularAnimeSelector() = "#featured-titles article > div.poster"
 
-    override fun popularAnimeNextPageSelector() = "NO_NEXT_PAGE" // dummy selector
+    override fun popularAnimeNextPageSelector() = null
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/online/page/$page")
 
@@ -174,11 +174,11 @@ class VerPelisTop :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
-        val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
+        val genreFilter = filterList.filterIsInstance<GenreFilter>().firstOrNull()
 
         return when {
             query.isNotBlank() -> GET("$baseUrl/?s=$query", headers)
-            genreFilter.state != 0 -> GET("$baseUrl/${genreFilter.toUriPart()}/page/$page")
+            genreFilter?.let { it.state != 0 } == true -> GET("$baseUrl/${genreFilter.toUriPart()}/page/$page")
             else -> popularAnimeRequest(page)
         }
     }
@@ -188,7 +188,7 @@ class VerPelisTop :
 
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
-            title = "Preferred server"
+            title = PREF_SERVER_TITLE
             entries = SERVER_LIST
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
@@ -247,9 +247,10 @@ class VerPelisTop :
 
     companion object {
         private const val PREF_LANG_KEY = "preferred_lang"
-        private const val PREF_LANG_TITLE = "Preferred language"
+        private const val PREF_LANG_TITLE = "Idioma preferido"
         private const val PREF_LANG_DEFAULT = "Latino"
         private val PREF_LANG_ENTRIES = arrayOf("Sub", "Latino", "Castellano")
+        private const val PREF_SERVER_TITLE = "Servidor preferido"
         private const val PREF_SERVER_KEY = "preferred_server"
         private val SERVER_LIST = arrayOf("VidHide", "StreamTape", "Uqload", "HexLoad", "StreamWish", "FileMoon")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
