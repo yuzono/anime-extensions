@@ -248,9 +248,9 @@ class VerPelisTop :
     companion object {
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred language"
-        private const val PREF_LANG_DEFAULT = "LATINO"
-        private const val PREF_SERVER_KEY = "preferred_server"
+        private const val PREF_LANG_DEFAULT = "Latino"
         private val PREF_LANG_ENTRIES = arrayOf("Sub", "Latino", "Castellano")
+        private const val PREF_SERVER_KEY = "preferred_server"
         private val SERVER_LIST = arrayOf("VidHide", "StreamTape", "Uqload", "HexLoad", "StreamWish", "FileMoon")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
 
