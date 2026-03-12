@@ -15,12 +15,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
 import okhttp3.MultipartBody
@@ -256,13 +256,12 @@ class HDFilmCehennemi :
 
     private suspend fun extractVideos(info: Triple<String, String, String>): List<Video> {
         val name = "[${info.first}] ${info.second}"
-        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).await()
-            .body.string()
+        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).awaitSuccess()
+            .bodyString()
             .substringAfter("src=")
             .substringBefore(' ')
             .trim('\\', '"', '\'', ' ')
             .replace("\\/", "/")
-        println(url)
         return when {
             url.contains("/rplayer") -> rapidrameExtractor.videosFromUrl(url, name)
 

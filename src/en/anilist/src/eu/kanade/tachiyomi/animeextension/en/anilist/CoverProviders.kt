@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.anilist
 
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 

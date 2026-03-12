@@ -19,7 +19,10 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Cookie
 import okhttp3.FormBody
 import okhttp3.Request
@@ -44,7 +47,7 @@ class VerSeriesOnline :
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/series-online/page/$page", headers)
 
-    override fun popularAnimeSelector(): String = "div.short.gridder-list"
+    override fun popularAnimeSelector() = "div.short.gridder-list"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -63,7 +66,7 @@ class VerSeriesOnline :
 
     override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
         val id = query.removePrefix(PREFIX_SEARCH)
@@ -72,17 +75,15 @@ class VerSeriesOnline :
             .use(::searchAnimeByIdParse)
     } else {
         val url = buildSearchUrl(query, page, filters)
-        client.newCall(GET(url, headers)).awaitSuccess().use { response ->
-            val document = response.asJsoup()
-            val animeList = document.select(searchAnimeSelector()).map { element ->
-                searchAnimeFromElement(element)
-            }
-            val hasNextPage = searchAnimeNextPageSelector().let {
-                document.select(it).isNotEmpty()
-            }
-
-            AnimesPage(animeList, hasNextPage)
+        val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+        val animeList = document.select(searchAnimeSelector()).map { element ->
+            searchAnimeFromElement(element)
         }
+        val hasNextPage = searchAnimeNextPageSelector().let {
+            document.select(it).isNotEmpty()
+        }
+
+        AnimesPage(animeList, hasNextPage)
     }
 
     private fun buildSearchUrl(query: String, page: Int, filters: AnimeFilterList): String {
@@ -145,7 +146,7 @@ class VerSeriesOnline :
         document.select(seasonListSelector()).forEach { seasonElement ->
             val seasonUrl = seasonElement.attr("href")
             val seasonNumber = Regex("temporada-(\\d+)").find(seasonUrl)?.groups?.get(1)?.value?.toIntOrNull() ?: 1
-            val seasonDocument = client.newCall(GET(seasonUrl)).execute().asJsoup()
+            val seasonDocument = client.newCall(GET(seasonUrl)).execute().useAsJsoup()
 
             seasonDocument.select(seasonEpisodesSelector()).forEach { episodeElement ->
                 val episode = SEpisode.create()
@@ -171,12 +172,11 @@ class VerSeriesOnline :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
 
         val csrfToken = document.select("meta[name=csrf-token]")
             .firstOrNull()
             ?.attr("content")
-            ?: return videoList
+            ?: return emptyList()
 
         val cookies = response.headers("Set-Cookie")
             .mapNotNull { Cookie.parse(response.request.url, it) }
@@ -187,85 +187,75 @@ class VerSeriesOnline :
         }
         val cookieString = cookieBuilder.toString().trimEnd(' ', ';')
 
-        document.select(".undervideo .player-list li").forEach { liElement ->
-            try {
-                liElement.selectFirst("div.lien")?.let { div ->
-                    val dataHash = div.attr("data-hash")
-                    val serverText = div.selectFirst(".serv")?.text() ?: "Unknown Server"
+        return document.select(".undervideo .player-list li").parallelCatchingFlatMapBlocking { liElement ->
+            liElement.selectFirst("div.lien")?.let { div ->
+                val dataHash = div.attr("data-hash")
+                val serverText = div.selectFirst(".serv")?.text() ?: "Unknown Server"
 
-                    val language = when {
-                        div.select("img[src*=lat]").isNotEmpty() ||
-                            serverText.contains("latino", ignoreCase = true) -> "Latino"
+                val language = when {
+                    div.select("img[src*=lat]").isNotEmpty() ||
+                        serverText.contains("latino", ignoreCase = true) -> "Latino"
 
-                        div.select("img[src*=esp]").isNotEmpty() ||
-                            serverText.contains("castellano", ignoreCase = true) ||
-                            serverText.contains("español", ignoreCase = true) -> "Castellano"
+                    div.select("img[src*=esp]").isNotEmpty() ||
+                        serverText.contains("castellano", ignoreCase = true) ||
+                        serverText.contains("español", ignoreCase = true) -> "Castellano"
 
-                        div.select("img[src*=subesp]").isNotEmpty() ||
-                            serverText.contains("subtitulado", ignoreCase = true) ||
-                            serverText.contains("sub", ignoreCase = true) ||
-                            serverText.contains("vose", ignoreCase = true) -> "VOSE"
+                    div.select("img[src*=subesp]").isNotEmpty() ||
+                        serverText.contains("subtitulado", ignoreCase = true) ||
+                        serverText.contains("sub", ignoreCase = true) ||
+                        serverText.contains("vose", ignoreCase = true) -> "VOSE"
 
-                        else -> "Unknown"
-                    }
-
-                    if (dataHash.isNotEmpty()) {
-                        val request = Request.Builder()
-                            .url("https://www.verseriesonline.net/hashembedlink")
-                            .post(
-                                FormBody.Builder()
-                                    .add("hash", dataHash)
-                                    .add("_token", csrfToken)
-                                    .build(),
-                            )
-                            .addHeader("X-Requested-With", "XMLHttpRequest")
-                            .addHeader("X-CSRF-TOKEN", csrfToken)
-                            .addHeader("Cookie", cookieString)
-                            .addHeader("Referer", response.request.url.toString())
-                            .addHeader("Accept", "application/json, text/plain, */*")
-                            .addHeader("Accept-Language", "es-ES,es;q=0.9")
-                            .addHeader("Origin", "https://www.verseriesonline.net")
-                            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
-                            .addHeader("sec-ch-ua", "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"")
-                            .addHeader("sec-ch-ua-mobile", "?0")
-                            .addHeader("sec-ch-ua-platform", "\"Windows\"")
-                            .addHeader("Sec-Fetch-Dest", "empty")
-                            .addHeader("Sec-Fetch-Mode", "cors")
-                            .addHeader("Sec-Fetch-Site", "same-origin")
-                            .build()
-
-                        Thread.sleep(1000)
-
-                        client.newCall(request).execute().use { videoResponse ->
-                            val responseBody = videoResponse.body.string()
-
-                            if (!videoResponse.isSuccessful) {
-                                return@let
-                            }
-
-                            val jsonResponse = JSONObject(responseBody)
-                            val videoUrl = jsonResponse.optString("link")
-                            if (videoUrl.isNotEmpty()) {
-                                val extractedVideos = when {
-                                    videoUrl.contains("dood") -> doodExtractor.videosFromUrl(videoUrl, quality = "$language - ")
-                                    videoUrl.contains("dwish") -> streamwishExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
-                                    videoUrl.contains("streamtape") -> streamtapeExtractor.videosFromUrl(videoUrl, quality = "$language - StreamTape")
-                                    videoUrl.contains("voe") -> voeExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
-                                    videoUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
-                                    videoUrl.contains("vudeo") -> vudeoExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
-                                    else -> emptyList()
-                                }
-
-                                videoList.addAll(extractedVideos)
-                            }
-                        }
-                    }
+                    else -> "Unknown"
                 }
-            } catch (_: Exception) {
-            }
-        }
 
-        return videoList
+                if (dataHash.isNotEmpty()) {
+                    val request = Request.Builder()
+                        .url("https://www.verseriesonline.net/hashembedlink")
+                        .post(
+                            FormBody.Builder()
+                                .add("hash", dataHash)
+                                .add("_token", csrfToken)
+                                .build(),
+                        )
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
+                        .addHeader("X-CSRF-TOKEN", csrfToken)
+                        .addHeader("Cookie", cookieString)
+                        .addHeader("Referer", response.request.url.toString())
+                        .addHeader("Accept", "application/json, text/plain, */*")
+                        .addHeader("Accept-Language", "es-ES,es;q=0.9")
+                        .addHeader("Origin", "https://www.verseriesonline.net")
+                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+                        .addHeader("sec-ch-ua", "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"")
+                        .addHeader("sec-ch-ua-mobile", "?0")
+                        .addHeader("sec-ch-ua-platform", "\"Windows\"")
+                        .addHeader("Sec-Fetch-Dest", "empty")
+                        .addHeader("Sec-Fetch-Mode", "cors")
+                        .addHeader("Sec-Fetch-Site", "same-origin")
+                        .build()
+
+                    Thread.sleep(1000)
+
+                    val responseBody = client.newCall(request).awaitSuccess().bodyString()
+                    val jsonResponse = JSONObject(responseBody)
+                    val videoUrl = jsonResponse.optString("link")
+                    if (videoUrl.isNotEmpty()) {
+                        when {
+                            videoUrl.contains("dood") -> doodExtractor.videosFromUrl(videoUrl, quality = "$language - ")
+                            videoUrl.contains("dwish") -> streamwishExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
+                            videoUrl.contains("streamtape") -> streamtapeExtractor.videosFromUrl(videoUrl, quality = "$language - StreamTape")
+                            videoUrl.contains("voe") -> voeExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
+                            videoUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
+                            videoUrl.contains("vudeo") -> vudeoExtractor.videosFromUrl(videoUrl, prefix = "$language - ")
+                            else -> emptyList()
+                        }
+                    } else {
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+            } ?: emptyList()
+        }
     }
 
     override fun videoListSelector() = ".undervideo .player-list li"

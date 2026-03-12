@@ -26,9 +26,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -57,7 +59,7 @@ class Animefenix :
         private const val PREF_SERVER_DEFAULT = "Mp4Upload"
         private val SERVER_LIST = arrayOf(
             "YourUpload", "Voe", "Mp4Upload", "Doodstream",
-            "Upload", "BurstCloud", "Upstream", "StreamTape",
+            "Uqload", "BurstCloud", "Upstream", "StreamTape",
             "Fastream", "Filemoon", "StreamWish", "Okru",
             "Amazon", "AmazonES", "Fireload", "FileLions",
         )
@@ -124,8 +126,15 @@ class Animefenix :
         val script = document.selectFirst("script:containsData(var tabsArray)") ?: return emptyList()
         return script.data().substringAfter("<iframe").split("src='")
             .map { it.substringBefore("'").substringAfter("redirect.php?id=").trim() }
-            .parallelCatchingFlatMapBlocking { url ->
-                serverVideoResolver(url)
+            .partition { url -> conventions.any { (_, names) -> names.any { it.lowercase() in url.lowercase() } } }
+            .let { (matched, unmatched) ->
+                val extractors = matched.parallelCatchingFlatMapBlocking { url ->
+                    serverVideoResolver(url)
+                }
+                val universal = unmatched.catchingFlatMapBlocking { url ->
+                    universalExtractor.videosFromUrl(url, headers)
+                }
+                extractors + universal
             }
     }
 
@@ -148,9 +157,9 @@ class Animefenix :
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val amazonExtractor by lazy { AmazonExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> = runCatching {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
-        when (matched) {
+        return when (matched) {
             "voe" -> voeExtractor.videosFromUrl(url)
 
             "amazon" -> amazonExtractor.videosFromUrl(url)
@@ -185,16 +194,16 @@ class Animefenix :
 
             "fireload" -> {
                 val video = url.substringAfter("/stream/fl.php?v=")
-                if (client.newCall(GET(video)).execute().code == 200) {
+                if (client.newCall(GET(video)).awaitSuccess().use { it.code } == 200) {
                     listOf(Video(video, "FireLoad", video))
                 } else {
                     emptyList()
                 }
             }
 
-            else -> universalExtractor.videosFromUrl(url, headers)
+            else -> emptyList()
         }
-    }.getOrElse { emptyList() }
+    }
 
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),

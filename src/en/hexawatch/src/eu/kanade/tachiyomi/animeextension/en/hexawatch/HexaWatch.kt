@@ -14,12 +14,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parallelMapNotNull
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
+import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

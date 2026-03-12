@@ -22,9 +22,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

@@ -10,8 +10,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -47,21 +49,21 @@ class Cineplus123 :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val players = document.select("ul#playeroptionsul li")
-        return players.parallelFlatMapBlocking { player ->
+        return players.catchingFlatMapBlocking { player ->
             val name = player.selectFirst("span.title")!!.text()
             val url = getPlayerUrl(player)
-                ?: return@parallelFlatMapBlocking emptyList<Video>()
+                ?: return@catchingFlatMapBlocking emptyList()
             extractVideos(url, name)
         }
     }
 
-    private fun extractVideos(url: String, lang: String): List<Video> = when {
+    private suspend fun extractVideos(url: String, lang: String): List<Video> = when {
         "uqload" in url -> uqloadExtractor.videosFromUrl(url, "$lang -")
         "strwish" in url -> streamWishExtractor.videosFromUrl(url, lang)
         else -> universalExtractor.videosFromUrl(url, headers, prefix = lang)
     }
 
-    private fun getPlayerUrl(player: Element): String? {
+    private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "doo_player_ajax")
             .add("post", player.attr("data-post"))
@@ -70,7 +72,7 @@ class Cineplus123 :
             .build()
 
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute().body.string()
+            .awaitSuccess().bodyString()
             .substringAfter("\"embed_url\":\"")
             .substringBefore("\",")
             .replace("\\", "")

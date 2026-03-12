@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.es.animemovil
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
@@ -25,8 +24,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -35,7 +38,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
-import java.io.UnsupportedEncodingException
 import java.net.URLEncoder
 
 class AnimeMovil :
@@ -150,7 +152,7 @@ class AnimeMovil :
             } catch (_: Exception) {
                 ""
             }
-            seasons.reversed().map {
+            seasons.reversed().forEach {
                 val sid = it.attr("data-sid")
                 val t = it.attr("data-t")
 
@@ -168,8 +170,8 @@ class AnimeMovil :
                     .header("Content-Type", "application/json")
                     .build()
 
-                client.newCall(request).execute().asJsoup().let {
-                    json.decodeFromString<EpisodesDto>(it.body().text()).episodios.forEachIndexed { idx, it ->
+                client.newCall(request).execute().parseAs<EpisodesDto>(json)
+                    .episodios.forEachIndexed { idx, it ->
                         val episode = SEpisode.create().apply {
                             setUrlWithoutDomain(it.url)
                             name = "T$t - " + it.epNombre.replace("Ver", "").trim()
@@ -177,7 +179,6 @@ class AnimeMovil :
                         }
                         episodes.add(episode)
                     }
-                }
             }
         } else {
             document.select("#eps li > a").reversed().forEachIndexed { idx, it ->
@@ -195,110 +196,97 @@ class AnimeMovil :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
-        document.select("#fuentes button").forEach {
-            try {
-                val url = it.attr("data-url").substringAfter("redirect.php?id=").trim()
-                if (url.contains("php?id=")) {
-                    val serverName = it.ownText().trim()
-                    val serverDocument = client.newCall(GET(url)).execute().asJsoup()
-                    val fileData = serverDocument.selectFirst("script:containsData(sources: [{file:)")?.data() ?: ""
-                    val genericFiles = fetchUrls(fileData)
-                    if (genericFiles.any()) {
-                        genericFiles.forEach { fileSrc ->
-                            if (fileSrc.contains(".m3u8")) {
-                                videoList.add(Video(fileSrc, "$serverName:HLS", fileSrc, headers = null))
-                            }
-                            if (fileSrc.contains(".mp4")) {
-                                videoList.add(Video(fileSrc, "$serverName:MP4", fileSrc, headers = null))
-                            }
+        return document.select("#fuentes button").catchingFlatMapBlocking { elm ->
+            val url = elm.attr("data-url").substringAfter("redirect.php?id=").trim()
+            if (url.contains("php?id=")) {
+                val serverName = elm.ownText().trim()
+                val serverDocument = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+                val fileData = serverDocument.selectFirst("script:containsData(sources: [{file:)")?.data() ?: ""
+                val genericFiles = fetchUrls(fileData)
+                if (genericFiles.any()) {
+                    return@catchingFlatMapBlocking genericFiles.map { fileSrc ->
+                        val type = when {
+                            fileSrc.contains(".m3u8") -> ":HLS"
+                            fileSrc.contains(".mp4") -> ":MP4"
+                            else -> ""
                         }
-                    } else {
-                        serverVideoResolver(url).let { videoList.addAll(it) }
+                        Video(fileSrc, "$serverName$type", fileSrc, headers = null)
                     }
-                } else {
-                    serverVideoResolver(url).let { videoList.addAll(it) }
-                }
-            } catch (_: Exception) {}
-        }
-        return videoList
-    }
-
-    private fun serverVideoResolver(url: String): List<Video> {
-        val videoList = mutableListOf<Video>()
-        val embedUrl = url.lowercase()
-        try {
-            return when {
-                embedUrl.contains("voe") -> {
-                    VoeExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
-                    FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:").also(videoList::addAll)
-                }
-
-                embedUrl.contains("uqload") -> {
-                    UqloadExtractor(client).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("mp4upload") -> {
-                    val newHeaders = headers.newBuilder().add("referer", "https://re.animepelix.net/").build()
-                    Mp4uploadExtractor(client).videosFromUrl(url, newHeaders).also(videoList::addAll)
-                }
-
-                embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("wish") -> {
-                    val docHeaders = headers.newBuilder()
-                        .add("Referer", "$baseUrl/")
-                        .build()
-                    StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" }).also(videoList::addAll)
-                }
-
-                embedUrl.contains("doodstream") || embedUrl.contains("dood.") -> {
-                    DoodExtractor(client).videosFromUrl(url, "DoodStream").also(videoList::addAll)
-                }
-
-                embedUrl.contains("streamlare") -> {
-                    StreamlareExtractor(client).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("yourupload") -> {
-                    YourUploadExtractor(client).videoFromUrl(url, headers = headers).also(videoList::addAll)
-                }
-
-                embedUrl.contains("burstcloud") || embedUrl.contains("burst") -> {
-                    BurstCloudExtractor(client).videoFromUrl(url, headers = headers).also(videoList::addAll)
-                }
-
-                embedUrl.contains("fastream") -> {
-                    FastreamExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("upstream") -> {
-                    UpstreamExtractor(client).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("streamtape") -> {
-                    StreamTapeExtractor(client).videosFromUrl(url).also(videoList::addAll)
-                }
-
-                embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
-                    StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" }).also(videoList::addAll)
-                }
-
-                else -> {
-                    UniversalExtractor(client).videosFromUrl(url, headers).also(videoList::addAll)
                 }
             }
-        } catch (_: Exception) {
-            Log.e("AnimeMovil", "Error: Server not supported")
+            serverVideoResolver(url)
         }
-        return videoList
+    }
+
+    private suspend fun serverVideoResolver(url: String): List<Video> {
+        val embedUrl = url.lowercase()
+        return when {
+            embedUrl.contains("voe") -> {
+                VoeExtractor(client, headers).videosFromUrl(url)
+            }
+
+            embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") -> {
+                FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:")
+            }
+
+            embedUrl.contains("uqload") -> {
+                UqloadExtractor(client).videosFromUrl(url)
+            }
+
+            embedUrl.contains("mp4upload") -> {
+                val newHeaders = headers.newBuilder().add("referer", "https://re.animepelix.net/").build()
+                Mp4uploadExtractor(client).videosFromUrl(url, newHeaders)
+            }
+
+            embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("wish") -> {
+                val docHeaders = headers.newBuilder()
+                    .add("Referer", "$baseUrl/")
+                    .build()
+                StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+            }
+
+            embedUrl.contains("doodstream") || embedUrl.contains("dood.") -> {
+                DoodExtractor(client).videosFromUrl(url, "DoodStream")
+            }
+
+            embedUrl.contains("streamlare") -> {
+                StreamlareExtractor(client).videosFromUrl(url)
+            }
+
+            embedUrl.contains("yourupload") -> {
+                YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+            }
+
+            embedUrl.contains("burstcloud") || embedUrl.contains("burst") -> {
+                BurstCloudExtractor(client).videoFromUrl(url, headers = headers)
+            }
+
+            embedUrl.contains("fastream") -> {
+                FastreamExtractor(client, headers).videosFromUrl(url)
+            }
+
+            embedUrl.contains("upstream") -> {
+                UpstreamExtractor(client).videosFromUrl(url)
+            }
+
+            embedUrl.contains("streamtape") -> {
+                StreamTapeExtractor(client).videosFromUrl(url)
+            }
+
+            embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
+                StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+            }
+
+            else -> {
+                UniversalExtractor(client).videosFromUrl(url, headers)
+            }
+        }
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -476,13 +464,9 @@ class AnimeMovil :
         val url: String,
     )
 
-    private fun urlEncodeUTF8(s: String?): String? = try {
-        URLEncoder.encode(s, "UTF-8")
-    } catch (e: UnsupportedEncodingException) {
-        throw UnsupportedOperationException()
-    }
+    private fun urlEncodeUTF8(s: String?): String? = URLEncoder.encode(s, "UTF-8")
 
-    private fun urlEncodeUTF8(map: Map<*, *>): String? {
+    private fun urlEncodeUTF8(map: Map<*, *>): String {
         val sb = StringBuilder()
         for ((key, value) in map) {
             if (sb.isNotEmpty()) {

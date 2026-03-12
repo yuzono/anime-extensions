@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeKhor'
     themePkg = 'animestream'
     baseUrl = 'https://animekhor.org'
-    overrideVersionCode = 12
+    overrideVersionCode = 13
 }
 
 apply from: "$rootDir/common.gradle"
@@ -11,5 +11,5 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:okruextractor'))
     implementation(project(':lib:streamwishextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

@@ -1,7 +1,7 @@
 ext {
     extName = 'Moflix-Stream'
     extClass = '.MoflixStream'
-    extVersionCode = 23
+    extVersionCode = 24
 }
 
 apply from: "$rootDir/common.gradle"
@@ -12,5 +12,5 @@ dependencies {
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:playlistutils'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

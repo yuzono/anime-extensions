@@ -20,6 +20,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Request
@@ -34,7 +37,7 @@ open class MhdFlix :
 
     override val name = "MhdFlix"
 
-    override val baseUrl = "https://ww2.mhdflix.com"
+    override val baseUrl = "https://ww1.mhdflix.com"
 
     override val lang = "es"
 
@@ -116,7 +119,7 @@ open class MhdFlix :
             status = SAnime.UNKNOWN
         }
 
-        document.select(".cast-lst li").map {
+        document.select(".cast-lst li").forEach {
             if (it.select("span").text().contains("Director", true)) {
                 animeDetails.author = it.selectFirst("p > a")?.text()
             }
@@ -157,36 +160,35 @@ open class MhdFlix :
                 .build()
 
             val request = Request.Builder()
-                .url("https://ww2.mhdflix.com/wp-admin/admin-ajax.php")
+                .url("$baseUrl/wp-admin/admin-ajax.php")
                 .post(formBody)
                 .header("Origin", baseUrl)
                 .header("Referer", referer)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .build()
 
-            val detailResponse = client.newCall(request).execute()
+            client.newCall(request).execute().use { detailResponse ->
+                if (detailResponse.isSuccessful) {
+                    val detailDocument = Jsoup.parse(detailResponse.body.string())
+                    val episodeElements = detailDocument.select("article.post.episodes")
 
-            if (detailResponse.isSuccessful) {
-                val detailDocument = Jsoup.parse(detailResponse.body.string())
-                val episodeElements = detailDocument.select("article.post.episodes")
-
-                episodeElements.forEach { element ->
-                    println(element) // Imprime el HTML del elemento
-
-                    val episode = SEpisode.create().apply {
-                        val url = element.selectFirst("a.lnk-blk")?.attr("href") ?: ""
-                        val headerElement = element.selectFirst("header.entry-header")
-                        val title = headerElement?.selectFirst("h2.entry-title")?.text() ?: "Episodio Desconocido"
-                        val episodeNumber = headerElement?.selectFirst("span.num-epi")?.text()?.substringAfter("x")?.toFloatOrNull() ?: 0F
-                        Log.d("MhdFlix", "Número de episodio: $episodeNumber")
-                        setUrlWithoutDomain(url)
-                        name = "- $title"
-                        episode_number = episodeNumber
+                    episodeElements.forEach { element ->
+                        val episode = SEpisode.create().apply {
+                            val url = element.selectFirst("a.lnk-blk")?.attr("href") ?: ""
+                            val headerElement = element.selectFirst("header.entry-header")
+                            val title = headerElement?.selectFirst("h2.entry-title")?.text() ?: "Episodio Desconocido"
+                            val episodeNumber =
+                                headerElement?.selectFirst("span.num-epi")?.text()?.substringAfter("x")?.toFloatOrNull() ?: 0F
+                            Log.d("MhdFlix", "Número de episodio: $episodeNumber")
+                            setUrlWithoutDomain(url)
+                            name = "- $title"
+                            episode_number = episodeNumber
+                        }
+                        allEpisodes.add(episode)
                     }
-                    allEpisodes.add(episode)
+                } else {
+                    Log.e("MhdFlix", "Error en la solicitud de detalles de la temporada: ${detailResponse.code}")
                 }
-            } else {
-                Log.e("MhdFlix", "Error en la solicitud de detalles de la temporada: ${detailResponse.code}")
             }
         }
 
@@ -195,13 +197,12 @@ open class MhdFlix :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
 
         val title = document.title()
         val seasonEpisodeRegex = Regex("""(\d+)x(\d+)""")
@@ -210,40 +211,33 @@ open class MhdFlix :
         val season = seasonEpisodeMatch?.groups?.get(1)?.value?.toIntOrNull()
         val episode = seasonEpisodeMatch?.groups?.get(2)?.value?.toIntOrNull()
 
-        document.select(".video-player iframe").forEach { iframe ->
-            try {
-                val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
-                val idRegex = Regex("""\/e\/(\d+)""")
-                val matchResult = idRegex.find(src)
-                val videoId = matchResult?.groupValues?.get(1) ?: return@forEach
+        return document.select(".video-player iframe").flatMapCatching { iframe ->
+            val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
+            val idRegex = Regex("""/e/(\d+)""")
+            val matchResult = idRegex.find(src)
+            val videoId = matchResult?.groupValues?.get(1) ?: return@flatMapCatching emptyList()
 
-                val videoUrl = if (season != null && episode != null) {
-                    "$baseUrl/wp-json/enlace/v1/e?id=$videoId&season=$season&episode=$episode"
-                } else {
-                    "$baseUrl/wp-json/enlace/v1/e?id=$videoId"
+            val videoUrl = if (season != null && episode != null) {
+                "$baseUrl/wp-json/enlace/v1/e?id=$videoId&season=$season&episode=$episode"
+            } else {
+                "$baseUrl/wp-json/enlace/v1/e?id=$videoId"
+            }
+
+            val jsonResponse = client.newCall(GET(videoUrl)).execute().bodyString()
+            val jsonArray = JSONArray(jsonResponse)
+            (0 until jsonArray.length()).catchingFlatMapBlocking { i ->
+                val videoObj = jsonArray.getJSONObject(i)
+                val videoLink = videoObj.getString("url")
+                val type = when (videoObj.getString("tipo")) {
+                    "Sub lat" -> "SUB"
+                    "Castellano" -> "CAST"
+                    "Latino" -> "LAT"
+                    else -> videoObj.getString("tipo")
                 }
 
-                val videoResponse = client.newCall(GET(videoUrl)).execute()
-                val jsonResponse = videoResponse.body.string()
-                val jsonArray = JSONArray(jsonResponse)
-                for (i in 0 until jsonArray.length()) {
-                    val videoObj = jsonArray.getJSONObject(i)
-                    val videoLink = videoObj.getString("url")
-                    val type = when (videoObj.getString("tipo")) {
-                        "Sub lat" -> "SUB"
-                        "Castellano" -> "CAST"
-                        "Latino" -> "LAT"
-                        else -> videoObj.getString("tipo")
-                    }
-
-                    serverVideoResolver(videoLink, type).forEach { videoList.add(it) }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                serverVideoResolver(videoLink, type)
             }
         }
-
-        return videoList
     }
 
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
@@ -255,9 +249,8 @@ open class MhdFlix :
     private val mixDropExtractor by lazy { MixDropExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
         val embedUrl = url.lowercase()
-        Log.d("MhdFlix", "URL: $url")
         return when {
             embedUrl.contains("vidhide") -> {
                 vidHideExtractor.videosFromUrl(url, videoNameGen = { "[$prefix] - VidHide: $it " })

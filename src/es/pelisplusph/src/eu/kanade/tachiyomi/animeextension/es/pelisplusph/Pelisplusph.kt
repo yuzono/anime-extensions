@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.Filters
 import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -20,7 +21,7 @@ class Pelisplusph : PelisPlus() {
 
     override val name = "PelisPlusPh"
 
-    override val baseUrl = "https://www25.pelisplushd.to"
+    override val baseUrl = "https://www.pelisplushd.la"
 
     override val id: Long = 4917265654298497443L
 
@@ -47,7 +48,7 @@ class Pelisplusph : PelisPlus() {
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
         document.selectFirst(".card-body h1")?.text()?.let { anime.title = it }
-        document.select(".card-body p").map { p ->
+        document.select(".card-body p").forEach { p ->
             if (p.text().contains("Sinopsis:")) {
                 anime.description = p.nextElementSibling()?.text()
             }
@@ -103,20 +104,21 @@ class Pelisplusph : PelisPlus() {
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         return document.select(".TbVideoNv").flatMap { serverItem ->
-            serverItem.select(".TbVideoNv li").map { videoItem ->
-                val langItem = videoItem.attr("data-name")
-                val lang = if (langItem.contains("Subtitulado")) {
-                    "[SUB]"
-                } else if (langItem.contains("Latino")) {
-                    "[LAT]"
-                } else {
-                    "[CAST]"
-                }
+            serverItem.select(".TbVideoNv li")
+                .catchingFlatMapBlocking { videoItem ->
+                    val langItem = videoItem.attr("data-name")
+                    val lang = if (langItem.contains("Subtitulado")) {
+                        "[SUB]"
+                    } else if (langItem.contains("Latino")) {
+                        "[LAT]"
+                    } else {
+                        "[CAST]"
+                    }
 
-                val url = videoItem.attr("data-url")
-                val name = videoItem.text()
-                serverVideoResolver(url, lang, name)
-            }.flatten()
+                    val url = videoItem.attr("data-url")
+                    val name = videoItem.text()
+                    serverVideoResolver(url, lang, name)
+                }
         }
     }
 

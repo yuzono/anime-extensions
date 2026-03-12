@@ -16,8 +16,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -86,7 +89,8 @@ class MyKdrama :
             doc.select(".gov-the-embed").parallelCatchingFlatMapBlocking { element ->
                 val name = element.text()
                 val pageUrl = element.attr("onClick").substringAfter("'").substringBefore("'")
-                val url = client.newCall(GET(pageUrl)).execute().use { it.asJsoup().select("#pembed iframe").attr("src") }
+                val url = client.newCall(GET(pageUrl)).awaitSuccess().useAsJsoup()
+                    .select("#pembed iframe").attr("src")
                 getVideoList(url, name)
             }
         }
@@ -97,12 +101,14 @@ class MyKdrama :
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val vudeoExtractor by lazy { VudeoExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = when {
-        "ok.ru" in url -> okruExtractor.videosFromUrl(url)
-        "uqload" in url -> uqloadExtractor.videosFromUrl(url)
-        "dood" in url || "doodstream" in url -> doodExtractor.videosFromUrl(url)
-        "vudeo" in url -> vudeoExtractor.videosFromUrl(url)
-        else -> emptyList()
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        when {
+            "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+            "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+            "dood" in url || "doodstream" in url -> doodExtractor.videosFromUrl(url)
+            "vudeo" in url -> vudeoExtractor.videosFromUrl(url)
+            else -> emptyList()
+        }
     }
 
     // ============================= Utilities ==============================

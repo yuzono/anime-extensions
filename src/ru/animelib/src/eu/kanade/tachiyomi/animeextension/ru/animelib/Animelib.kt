@@ -20,11 +20,12 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -255,18 +256,16 @@ class Animelib :
         } ?: preferredTeams
 
         val ignoreSubs = preferences.getBoolean(PREF_IGNORE_SUBS_KEY, PREF_IGNORE_SUBS_DEFAULT)
-        return videoInfoList?.parallelFlatMap { videoInfo ->
+        return videoInfoList?.parallelCatchingFlatMap { videoInfo ->
             if (ignoreSubs && videoInfo.translationInfo.id == 1) {
-                return@parallelFlatMap emptyList()
+                return@parallelCatchingFlatMap emptyList()
             }
             val playerName = videoInfo.player.lowercase()
-            runCatching {
-                when (playerName) {
-                    "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
-                    "animelib" -> animelibVideoLinks(videoInfo, videoServer)
-                    else -> emptyList()
-                }
-            }.getOrElse { emptyList() }
+            when (playerName) {
+                "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
+                "animelib" -> animelibVideoLinks(videoInfo, videoServer)
+                else -> emptyList()
+            }
         } ?: emptyList()
     }
 
@@ -375,13 +374,12 @@ class Animelib :
             return emptyList()
         }
 
-        val kodikPage = UrlUtils.fixUrl(playerUrl)
+        val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
         headers.add("Referer", baseUrl)
-        val kodikPageResponse = client.newCall(GET(kodikPage, headers.build())).awaitSuccess()
 
         // Parse form parameters for video link request
-        val page = kodikPageResponse.asJsoup()
+        val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
         val urlParams = page.selectFirst("script:containsData($domain)")?.data()
             ?: return emptyList()
 
@@ -408,13 +406,12 @@ class Animelib :
         formBody.add("hash", urlParts[5])
 
         val videoInfoRequest = POST("https://$kodikDomain/ftor", body = formBody.build())
-        val videoInfoResponse = client.newCall(videoInfoRequest).awaitSuccess()
-        val kodikData = videoInfoResponse.parseAs<KodikData>()
+        val kodikData = client.newCall(videoInfoRequest).awaitSuccess().parseAs<KodikData>()
 
         // Load js with encode algorithm and parse it
         val scriptUrl = page.selectFirst("script[src*=player_single]")?.attr("abs:src")
             ?: return emptyList()
-        val jsScript = client.newCall(GET(scriptUrl)).execute().body.string()
+        val jsScript = client.newCall(GET(scriptUrl)).awaitSuccess().bodyString()
         val atob = ATOB_REGEX.find(jsScript) ?: return emptyList()
 
         var encodeScript = ""
@@ -464,7 +461,7 @@ class Animelib :
             }.toString()
 
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
-            val playlistUrl = UrlUtils.fixUrl(hlsUrl)
+            val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
             playlistUtils.extractFromHls(
                 playlistUrl,
                 videoNameGen = { "$teamName (${quality}p Kodik)" },

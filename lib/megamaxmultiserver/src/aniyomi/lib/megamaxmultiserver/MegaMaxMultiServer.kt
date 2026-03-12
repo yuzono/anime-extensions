@@ -4,8 +4,8 @@ import android.util.Log
 import aniyomi.lib.megamaxmultiserver.dto.IframeResponse
 import aniyomi.lib.megamaxmultiserver.dto.LeechResponse
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import kotlin.math.abs
@@ -28,7 +28,7 @@ class MegaMaxMultiServer(private val client: OkHttpClient, private val headers: 
                 val quality = it.resolution.substringAfter("x").let(::stnQuality)
                 val size = it.size.let(::convertSize)
                 it.mirrors.forEach { mirror ->
-                    val link = UrlUtils.fixUrl(mirror.link)
+                    val link = UrlUtils.fixUrl(mirror.link) ?: return@forEach
                     urls += Provider(link, mirror.driver, quality, size)
                 }
             }

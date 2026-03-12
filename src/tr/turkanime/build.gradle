@@ -1,7 +1,7 @@
 ext {
     extName = 'Türk Anime TV'
     extClass = '.TurkAnime'
-    extVersionCode = 42
+    extVersionCode = 43
 }
 
 apply from: "$rootDir/common.gradle"
@@ -9,7 +9,7 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:vudeoextractor'))
     implementation(project(':lib:uqloadextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(":lib:cryptoaes"))
     implementation(project(":lib:doodextractor"))
     implementation(project(':lib:filemoonextractor'))

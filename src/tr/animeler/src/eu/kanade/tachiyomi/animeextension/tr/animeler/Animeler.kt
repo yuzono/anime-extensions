@@ -29,12 +29,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -54,7 +53,7 @@ class Animeler :
 
     override val name = "Animeler"
 
-    override val baseUrl = "https://animeler.me"
+    override val baseUrl = "https://animeler.pw"
 
     override val lang = "tr"
 
@@ -262,13 +261,13 @@ class Animeler :
 
         return filteredSources.parallelCatchingFlatMapBlocking {
             val body = playerBody(it.key)
-            val res = client.newCall(POST(actionUrl, headers, body)).await()
+            val res = client.newCall(POST(actionUrl, headers, body)).awaitSuccess()
                 .parseAs<VideoDto>()
             videosFromUrl(res.videoSrc)
         }
     }
 
-    private fun videosFromUrl(url: String): List<Video> = when {
+    private suspend fun videosFromUrl(url: String): List<Video> = when {
         "dood" in url -> doodExtractor.videosFromUrl(url)
 
         "drive.google" in url -> {

@@ -1,7 +1,7 @@
 ext {
     extName = 'Anime-Base'
     extClass = '.AnimeBase'
-    extVersionCode = 40
+    extVersionCode = 41
     isNsfw = true
 }
 
@@ -12,5 +12,5 @@ dependencies {
     implementation(project(":lib:streamwishextractor"))
     implementation(project(":lib:vidguardextractor"))
     implementation(project(":lib:playlistutils"))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

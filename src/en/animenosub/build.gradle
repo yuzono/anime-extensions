@@ -3,7 +3,7 @@ ext {
     extClass = '.Animenosub'
     themePkg = 'animestream'
     baseUrl = 'https://animenosub.com'
-    overrideVersionCode = 13
+    overrideVersionCode = 14
     isNsfw = true
 }
 
@@ -12,5 +12,5 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:streamwishextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

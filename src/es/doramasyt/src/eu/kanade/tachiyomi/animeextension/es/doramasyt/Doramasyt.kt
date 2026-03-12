@@ -20,10 +20,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -152,7 +154,7 @@ class Doramasyt :
         return client.newCall(request).execute().parseAs<EpisodesDto>()
     }
 
-    private fun getEpisodePage(paginateUrl: String, page: Int, token: String, referer: String): EpisodeInfoDto {
+    private suspend fun getEpisodePage(paginateUrl: String, page: Int, token: String, referer: String): EpisodeInfoDto {
         val formBodyEp = FormBody.Builder()
             .add("_token", token)
             .add("p", "$page")
@@ -168,14 +170,14 @@ class Doramasyt :
             .header("x-requested-with", "XMLHttpRequest")
             .build()
 
-        return client.newCall(requestEp).execute().parseAs<EpisodeInfoDto>()
+        return client.newCall(requestEp).awaitSuccess().parseAs<EpisodeInfoDto>()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         return document.select("[data-player]")
             .map { String(Base64.decode(it.attr("data-player"), Base64.DEFAULT)) }
-            .parallelCatchingFlatMapBlocking { serverVideoResolver(it) }
+            .catchingFlatMapBlocking { serverVideoResolver(it) }
     }
 
     override fun getFilterList(): AnimeFilterList = DoramasytFilters.FILTER_LIST
@@ -190,7 +192,7 @@ class Doramasyt :
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)

@@ -5,10 +5,10 @@ import eu.kanade.tachiyomi.animeextension.all.stremio.Stremio
 import eu.kanade.tachiyomi.animeextension.all.stremio.addon.dto.AddonDto
 import eu.kanade.tachiyomi.animeextension.all.stremio.addon.dto.AddonResultDto
 import eu.kanade.tachiyomi.animeextension.all.stremio.addon.dto.ManifestDto
-import eu.kanade.tachiyomi.util.parallelMapNotNull
 import keiyoushi.utils.PreferenceDelegate
 import keiyoushi.utils.Source
 import keiyoushi.utils.get
+import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toRequestBody

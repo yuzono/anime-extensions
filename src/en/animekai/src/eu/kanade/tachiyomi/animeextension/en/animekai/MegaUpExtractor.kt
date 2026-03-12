@@ -7,7 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject

@@ -21,9 +21,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -38,7 +41,7 @@ class Animerco :
 
     override val name = "Animerco"
 
-    override val baseUrl = "https://web.animerco.org"
+    override val baseUrl = "https://zeta.animerco.org"
 
     override val lang = "ar"
 
@@ -167,9 +170,9 @@ class Animerco :
             )
         }
 
-        return document.select(episodeListSelector()).flatMap { el ->
-            val doc = client.newCall(GET(el.attr("abs:href"), headers)).execute()
-                .asJsoup()
+        return document.select(episodeListSelector()).parallelCatchingFlatMapBlocking { el ->
+            val doc = client.newCall(GET(el.attr("abs:href"), headers))
+                .awaitSuccess().useAsJsoup()
             val seasonName = doc.selectFirst("div.media-title h1")?.text() ?: "Season"
             val seasonNum = seasonName.substringAfterLast(" ").toIntOrNull() ?: 1
             doc.select(episodeListSelector()).map {
@@ -209,7 +212,7 @@ class Animerco :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
-    private fun getPlayerVideos(player: Element): List<Video> {
+    private suspend fun getPlayerVideos(player: Element): List<Video> {
         val url = getPlayerUrl(player) ?: return emptyList()
         val name = player.selectFirst("span.server")?.text()?.lowercase() ?: "Unknown"
         return when {
@@ -240,7 +243,7 @@ class Animerco :
         } ?: emptyList()
     }
 
-    private fun getPlayerUrl(player: Element): String? {
+    private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "player_ajax")
             .add("post", player.attr("data-post"))
@@ -249,14 +252,12 @@ class Animerco :
             .build()
 
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute()
-            .use { response ->
-                response.body.string()
-                    .substringAfter("\"embed_url\":\"")
-                    .substringBefore("\",")
-                    .replace("\\", "")
-                    .takeIf(String::isNotBlank)
-            }
+            .awaitSuccess()
+            .bodyString()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
+            .takeIf(String::isNotBlank)
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()

@@ -1,7 +1,7 @@
 ext {
     extName = 'Jav Guru'
     extClass = '.JavGuru'
-    extVersionCode = 36
+    extVersionCode = 37
     isNsfw = true
 }
 
@@ -12,7 +12,7 @@ dependencies {
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:mixdropextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:javcoverfetcher'))
 }

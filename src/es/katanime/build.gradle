@@ -1,7 +1,7 @@
 ext {
     extName = 'Katanime'
     extClass = '.Katanime'
-    extVersionCode = 15
+    extVersionCode = 16
 }
 
 apply from: "$rootDir/common.gradle"
@@ -15,5 +15,5 @@ dependencies {
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:playlistutils'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

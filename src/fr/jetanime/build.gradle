@@ -3,12 +3,12 @@ ext {
     extClass = '.JetAnime'
     themePkg = 'dooplay'
     baseUrl = 'https://ssl.jetanimes.com'
-    overrideVersionCode = 14
+    overrideVersionCode = 15
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(':lib:playlistutils'))
 }

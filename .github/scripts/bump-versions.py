@@ -48,27 +48,41 @@ def replace_version(match: re.Match) -> str:
 def bump_version(file: Path):
     BUMPED_FILES.append(file)
     with file.open("r+") as f:
-        print(f"\n{file}: ", end="")
+        print(f"        {file}: ", end="")
         text = VERSION_REGEX.sub(replace_version, f.read())
         # Move the cursor to the start again, to prevent writing at the end
         f.seek(0)
         f.write(text)
 
-def bump_lib_multisrc(theme: str):
-    for file in find_files_with_match(f"themePkg = '{theme}'", include_multisrc=False):
-        bump_version(file)
+def bump_lib_multisrc(theme: str, should_bump: bool = True) -> list[Path]:
+    matched_files = find_files_with_match(f"themePkg = '{theme}'", include_multisrc=False)
+    target_file = Path("lib-multisrc") / theme / "build.gradle.kts"
+    if should_bump and target_file.exists():
+        bump_version(target_file)
+    return matched_files
 
 def commit_changes():
     paths = [str(path.resolve()) for path in BUMPED_FILES]
     subprocess.check_call(["git", "add"] + paths)
+    if sys.argv[1] == "--stage-changes":
+        print("\nProcessing complete. Changes have been staged but not committed due to --stage-changes flag.")
+        return
     commit_message = "[skip ci] chore: Mass-bump on extensions"
-    if len(sys.argv) > 1:
-        commit_message += f"\n\nCaused by: {sys.argv[1]}"
+    commit_message += f"\n\nCaused by: {sys.argv[1]}"
     subprocess.check_call(["git", "commit", "-m", commit_message])
     # 'git push' will be doing outside of this script so we can decide per workflow if we want to push or not.
     # subprocess.check_call(["git", "push"])
 
-if __name__ == "__main__" and len(sys.argv) > 2:
+if __name__ == "__main__":
+    if len(sys.argv) <= 2:
+        print("Usage: bump-versions.py [<COMMIT_MESSAGE> | --dry-run | --modify-only | --stage-changes] <file1> <file2> ...")
+        print("Examples:" \
+        "\n  Bump & commit:     bump-versions.py 'chore: Mass bump versions' lib/unpacker/build.gradle.kts src/unpacker/build.gradle" \
+        "\n  Dry run:           bump-versions.py --dry-run lib/unpacker/build.gradle.kts src/unpacker/build.gradle" \
+        "\n  Modify only:       bump-versions.py --modify-only lib/unpacker/build.gradle.kts src/unpacker/build.gradle" \
+        "\n  Stage changes:     bump-versions.py --stage-changes lib/unpacker/build.gradle.kts src/unpacker/build.gradle")
+        sys.exit(1)
+
     # Regex to match the lib name in the path, like "unpacker" or "dood-extractor".
     lib_name_extractor_regex = re.compile(r"lib/([a-z0-9-]+)/")
 
@@ -108,26 +122,48 @@ if __name__ == "__main__" and len(sys.argv) > 2:
         print(f"All libraries identified for version bumping: {all_libs_to_process}")
         print("\n--- Starting Version Bumping Phase ---")
         # Phase 2: Perform version bumping for all discovered libraries
+        should_bump_theme = sys.argv[1] != "--dry-run" # Don't actually bump if it's a dry run, but still show what would be bumped
+        files_to_skip_for_single = set()
         for lib_name_to_bump in all_libs_to_process:
             project_path_for_bumping = f":lib:{lib_name_to_bump}"
-            print(f"\nProcessing version bump for project: {project_path_for_bumping}")
+            print(f"\nProcessing multi-src version bump for library: {project_path_for_bumping}")
 
             files_to_check_for_bumping = find_files_with_match(project_path_for_bumping)
-            if not files_to_check_for_bumping:
-                print(f"  No files found matching query '{project_path_for_bumping}' for version bumping.")
+            multi_src_builds = [file for file in files_to_check_for_bumping if file.parent.parent.name == "lib-multisrc"]
 
-            for file_to_bump in files_to_check_for_bumping:
-                if file_to_bump.parent.parent.name == "lib-multisrc":
-                    theme_name = file_to_bump.parent.name
-                    print(f"    Bumping multisrc theme: {theme_name} (triggered by {project_path_for_bumping})")
-                    bump_lib_multisrc(theme_name)
-                else:
-                    print(f"    Bumping single extension: {file_to_bump} (triggered by {project_path_for_bumping})")
+            if not multi_src_builds:
+                print(f"  No files found matching query '{project_path_for_bumping}' for version bumping.")
+                continue
+
+            for file_to_bump in multi_src_builds:
+                theme_name = file_to_bump.parent.name
+                print(f"\n    Bumping multisrc theme: {theme_name} (triggered by {project_path_for_bumping})")
+                matched_files = bump_lib_multisrc(theme_name, should_bump=should_bump_theme)
+                files_to_skip_for_single.update(matched_files)
+
+        for lib_name_to_bump in all_libs_to_process:
+            project_path_for_bumping = f":lib:{lib_name_to_bump}"
+            print(f"\nProcessing single extension version bump for library: {project_path_for_bumping}")
+
+            files_to_check_for_bumping = find_files_with_match(project_path_for_bumping)
+            single_src_builds = [file for file in files_to_check_for_bumping if file.parent.parent.name != "lib-multisrc"]
+
+            if not single_src_builds:
+                print(f"  No files found matching query '{project_path_for_bumping}' for version bumping.")
+                continue
+
+            for file_to_bump in single_src_builds:
+                if file_to_bump in files_to_skip_for_single:
+                    continue
+                print(f"\n    Bumping single extension: {file_to_bump} (triggered by {project_path_for_bumping})")
+                if should_bump_theme:
                     bump_version(file_to_bump)
 
     if len(BUMPED_FILES) > 0:
-        print("\nCommitting changes...")
-        commit_changes()
+        if sys.argv[1] == "--modify-only":
+            print("\nProcessing complete. Files were modified but not staged or committed due to --modify-only flag.")
+        else:
+            commit_changes()
     elif all_libs_to_process: # If we processed something but bumped no files
         print("\nProcessing complete. No files were bumped.")
         # The case where all_libs_to_process is empty is handled above by the 'if not all_libs_to_process:' block

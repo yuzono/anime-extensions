@@ -1,8 +1,8 @@
 package aniyomi.lib.streamwishextractor
 
+import aniyomi.lib.jsunpacker.JsUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.synchrony.Deobfuscator
-import dev.datlag.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET

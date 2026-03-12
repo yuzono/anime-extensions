@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.animeextension.fr.animesama.extractors
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parallelFlatMap
+import keiyoushi.utils.parallelFlatMap
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
