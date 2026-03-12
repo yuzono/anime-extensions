@@ -72,7 +72,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
             POST(
                 "https://play.streamplay.co.in/api/",
                 headers = apiHeaders,
-                body = kaken.toRequestBody("application/x-www-form-urlencoded".toMediaType()),
+                body = kaken.toRequestBody("text/plain".toMediaType()),
             ),
         ).awaitSuccess().parseAs<APIResponse>()
 

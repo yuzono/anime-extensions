@@ -16,6 +16,8 @@ import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import okhttp3.Response
 import kotlin.getValue
 
@@ -34,7 +36,15 @@ class DonghuaStream :
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/pagg/$page/?s=$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("pagg")
+            addPathSegment(page.toString())
+            addPathSegment("")
+            addQueryParameter("s", query)
+        }.build()
+        return GET(url)
+    }
 
     private var SharedPreferences.ignorePreview
         by LazyMutable { preferences.getBoolean(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT) }
