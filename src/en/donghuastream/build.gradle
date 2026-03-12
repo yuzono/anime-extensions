@@ -12,4 +12,5 @@ dependencies {
     implementation(project(':lib:dailymotionextractor'))
     implementation(project(':lib:okruextractor'))
     implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:unpacker'))
 }
