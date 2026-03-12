@@ -18,7 +18,6 @@ class HexloadExtractor(private val client: OkHttpClient, private val headers: He
         val id = idRegex.find(url)?.groupValues?.getOrNull(1) ?: return emptyList()
 
         val formBody = FormBody.Builder()
-            .add("MIME Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .add("op", "download3")
             .add("id", id)
             .add("ajax", "1")
@@ -57,7 +56,7 @@ class HexloadExtractor(private val client: OkHttpClient, private val headers: He
         val md5: String?, // "VPHYYxNMLxKIxBZWE9hl+A",
         val thumb_url: String?, // "https://46ev7agtixoi.droply.top/i/01264/pbv78rlcsagr_t.jpg",
         val content_type: String?, // "video/mp4",
-        val size: Long, // "3065200640",
+        val size: Long, // 3065200640"
         val image_url: String?, // "https://46ev7agtixoi.droply.top/i/01264/pbv78rlcsagr.jpg",
         val folder: String?, // null,
         val file_name: String?, // "Avatar Fuego y ceniza LAT.mp4"

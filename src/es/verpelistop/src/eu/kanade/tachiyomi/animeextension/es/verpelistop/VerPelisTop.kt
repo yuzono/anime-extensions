@@ -62,7 +62,7 @@ class VerPelisTop :
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
         val sheader = doc.selectFirst("div.sheader")!!
-        val genres = GenreFilter().getGenreList().map { it.first }
+        val genres = GENRE_LIST.map { it.first }
         return SAnime.create().apply {
             setUrlWithoutDomain(doc.location())
             sheader.selectFirst("div.poster > img")!!.let {
@@ -113,10 +113,10 @@ class VerPelisTop :
         val frameDoc = client.newCall(GET(iframeSource)).awaitSuccess().useAsJsoup()
 
         return frameDoc.select(".OD li[onclick]")
-            .map {
-                val server = it.select("span").text()
-                val lang = it.select("p").text().substringBefore("-").trim()
-                val url = it.attr("onclick").substringAfter("('").substringBefore("')")
+            .map { hoster ->
+                val server = hoster.select("span").text()
+                val lang = hoster.select("p").text().substringBefore("-").trim()
+                val url = hoster.attr("onclick").substringAfter("('").substringBefore("')")
                 val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
                 Pair(url, matched) to Pair(lang, server)
             }
@@ -162,49 +162,14 @@ class VerPelisTop :
     override val fetchGenres = false
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("La búsqueda por texto ignora el filtro de año"),
+        AnimeFilter.Header("La búsqueda por texto ignora el filtro de género"),
         GenreFilter(),
     )
 
-    private class GenreFilter :
-        UriPartFilter(
-            "Géneros",
-            arrayOf(
-                Pair("<seleccionar>", ""),
-                Pair("accion", "genero/accion"),
-                Pair("amazon prime", "genero/amazon-prime"),
-                Pair("animacion", "genero/animacion"),
-                Pair("aventura", "genero/aventura"),
-                Pair("biografia", "genero/biografia"),
-                Pair("ciencia ficcion", "genero/ciencia-ficcion"),
-                Pair("comedia", "genero/comedia"),
-                Pair("corto", "genero/corto"),
-                Pair("crimen", "genero/crimen"),
-                Pair("deporte", "genero/deporte"),
-                Pair("disney", "genero/disney"),
-                Pair("documentales", "genero/documentales"),
-                Pair("drama", "genero/drama"),
-                Pair("familia", "genero/familia"),
-                Pair("fantasia", "genero/fantasia"),
-                Pair("hbo", "genero/hbo"),
-                Pair("historia", "genero/historia"),
-                Pair("horror", "genero/horror"),
-                Pair("marvel", "genero/marvel"),
-                Pair("misterio", "genero/misterio"),
-                Pair("musica", "genero/musica"),
-                Pair("netflix", "genero/netflix"),
-                Pair("reality", "genero/reality"),
-                Pair("romance", "genero/romance"),
-                Pair("suspenso", "genero/suspenso"),
-                Pair("terror", "genero/terror"),
-                Pair("thriller", "genero/thriller"),
-            ),
-        )
+    private class GenreFilter : UriPartFilter("Géneros", GENRE_LIST)
 
     open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
-
-        fun getGenreList() = vals
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -252,12 +217,10 @@ class VerPelisTop :
         )
     }
 
-    private fun String.redirectHgCloudHgLink(): String {
-        return hgCloudLinkDomains.firstOrNull(::contains)?.let {
-            val redirectingDomain = hgCloudLinkRedirected.random()
-            return replace(it, redirectingDomain)
-        } ?: this
-    }
+    private fun String.redirectHgCloudHgLink(): String = hgCloudLinkDomains.firstOrNull(::contains)?.let {
+        val redirectingDomain = hgCloudLinkRedirected.random()
+        replace(it, redirectingDomain)
+    } ?: this
 
     override fun String.toDate() = 0L
 
@@ -272,7 +235,7 @@ class VerPelisTop :
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedWith(
             compareBy(
-                { it.quality.contains(lang) },
+                { it.quality.contains(lang, true) },
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
             ),
@@ -290,5 +253,36 @@ class VerPelisTop :
         private val PREF_LANG_ENTRIES = arrayOf("Sub", "Latino", "Castellano")
         private val SERVER_LIST = arrayOf("VidHide", "StreamTape", "Uqload", "HexLoad", "StreamWish", "FileMoon")
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
+
+        val GENRE_LIST = arrayOf(
+            Pair("<seleccionar>", ""),
+            Pair("accion", "genero/accion"),
+            Pair("amazon prime", "genero/amazon-prime"),
+            Pair("animacion", "genero/animacion"),
+            Pair("aventura", "genero/aventura"),
+            Pair("biografia", "genero/biografia"),
+            Pair("ciencia ficcion", "genero/ciencia-ficcion"),
+            Pair("comedia", "genero/comedia"),
+            Pair("corto", "genero/corto"),
+            Pair("crimen", "genero/crimen"),
+            Pair("deporte", "genero/deporte"),
+            Pair("disney", "genero/disney"),
+            Pair("documentales", "genero/documentales"),
+            Pair("drama", "genero/drama"),
+            Pair("familia", "genero/familia"),
+            Pair("fantasia", "genero/fantasia"),
+            Pair("hbo", "genero/hbo"),
+            Pair("historia", "genero/historia"),
+            Pair("horror", "genero/horror"),
+            Pair("marvel", "genero/marvel"),
+            Pair("misterio", "genero/misterio"),
+            Pair("musica", "genero/musica"),
+            Pair("netflix", "genero/netflix"),
+            Pair("reality", "genero/reality"),
+            Pair("romance", "genero/romance"),
+            Pair("suspenso", "genero/suspenso"),
+            Pair("terror", "genero/terror"),
+            Pair("thriller", "genero/thriller"),
+        )
     }
 }
