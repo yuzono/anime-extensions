@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.de.aniworld
 
-import androidx.preference.ListPreference
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
@@ -18,6 +16,9 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -204,32 +205,30 @@ class AniWorld :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val redirectlink = document.select("ul.row li")
-        val hosterSelection = preferences.getStringSet(AWConstants.HOSTER_SELECTION, null)
-            ?: return emptyList()
         return redirectlink.parallelCatchingFlatMapBlocking {
             val langkey = it.attr("data-lang-key")
-            val language = getlanguage(langkey)
+            val language = getLanguage(langkey)
             val redirectgs = baseUrl + it.selectFirst("a.watchEpisode")!!.attr("href")
             val hoster = it.select("a h4").text()
             when {
-                hoster.contains("VOE") && hosterSelection.contains(AWConstants.NAME_VOE) -> {
+                hoster.contains(NAME_VOE, true) && enabledHosters.contains(NAME_VOE) -> {
                     val url = getRedirectedUrl(redirectgs)
                     VoeExtractor(client, headers).videosFromUrl(url, "($language) ")
                 }
 
-                hoster.contains("Doodstream") && hosterSelection.contains(AWConstants.NAME_DOOD) -> {
+                hoster.contains(NAME_DOOD, true) && enabledHosters.contains(NAME_DOOD) -> {
                     val quality = "Doodstream $language"
                     val url = getRedirectedUrl(redirectgs)
                     DoodExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
                 }
 
-                hoster.contains("Streamtape") && hosterSelection.contains(AWConstants.NAME_STAPE) -> {
+                hoster.contains(NAME_STAPE, true) && enabledHosters.contains(NAME_STAPE) -> {
                     val quality = "Streamtape $language"
                     val url = getRedirectedUrl(redirectgs)
                     StreamTapeExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
                 }
 
-                hoster.contains("Vidoza") && hosterSelection.contains(AWConstants.NAME_VIZ) -> {
+                hoster.contains(NAME_VIZ, true) && enabledHosters.contains(NAME_VIZ) -> {
                     val quality = "Vidoza $language"
                     val url = getRedirectedUrl(redirectgs)
                     VidozaExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
@@ -240,117 +239,75 @@ class AniWorld :
         }
     }
 
-    private suspend fun getRedirectedUrl(url: String) =
-        client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
+    private suspend fun getRedirectedUrl(url: String) = client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
 
-    private fun getlanguage(langkey: String): String? {
-        when {
-            langkey.contains("${AWConstants.KEY_GER_SUB}") -> {
-                return "Deutscher Sub"
-            }
-
-            langkey.contains("${AWConstants.KEY_GER_DUB}") -> {
-                return "Deutscher Dub"
-            }
-
-            langkey.contains("${AWConstants.KEY_ENG_SUB}") -> {
-                return "Englischer Sub"
-            }
-
-            else -> {
-                return null
-            }
-        }
-    }
+    private fun getLanguage(langKey: String) = LANGS.toList().firstOrNull { langKey.contains(it.first) }?.second
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> {
-        val hoster = preferences.getString(AWConstants.PREFERRED_HOSTER, null)
-        val subPreference = preferences.getString(AWConstants.PREFERRED_LANG, "Sub")!!
-        val hosterList = mutableListOf<Video>()
-        val otherList = mutableListOf<Video>()
-        if (hoster != null) {
-            for (video in this) {
-                if (video.url.contains(hoster)) {
-                    hosterList.add(video)
-                } else {
-                    otherList.add(video)
-                }
-            }
-        } else {
-            otherList += this
-        }
-        val newList = mutableListOf<Video>()
-        var preferred = 0
-        for (video in hosterList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-        for (video in otherList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-
-        return newList
-    }
+    override fun List<Video>.sort() = sortedWith(
+        compareByDescending<Video> { it.quality.contains(preferredHoster, true) }
+            .thenByDescending { it.quality.contains(preferredLang, true) },
+    )
 
     override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ===== PREFERENCES ======
-    @Suppress("UNCHECKED_CAST")
+    private val preferredLang by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
+    private val preferredHosterPref by preferences.delegate(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
+    private val preferredHoster = preferredHosterPref
+        .takeIf { it in PREF_HOSTER_NAMES }
+        ?: PREF_HOSTER_DEFAULT
+    private val enabledHosters by preferences.delegate(PREF_HOSTERS_SELECTION_KEY, PREF_HOSTER_NAMES.toSet())
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val hosterPref = ListPreference(screen.context).apply {
-            key = AWConstants.PREFERRED_HOSTER
-            title = "Standard-Hoster"
-            entries = AWConstants.HOSTER_NAMES
-            entryValues = AWConstants.HOSTER_URLS
-            setDefaultValue(AWConstants.URL_STAPE)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_LANG_KEY,
+            title = "Bevorzugte Sprache",
+            entries = PREF_LANGS,
+            entryValues = PREF_LANGS,
+            default = PREF_LANG_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_HOSTER_KEY,
+            title = "Bevorzugter hoster",
+            entries = PREF_HOSTER_NAMES,
+            entryValues = PREF_HOSTER_NAMES,
+            default = PREF_HOSTER_DEFAULT,
+            summary = "%s",
+        )
+        screen.addSetPreference(
+            key = PREF_HOSTERS_SELECTION_KEY,
+            title = "Hoster auswählen",
+            entries = PREF_HOSTER_NAMES,
+            entryValues = PREF_HOSTER_NAMES,
+            default = PREF_HOSTER_NAMES.toSet(),
+            summary = "Wählen Sie die Hoster aus, die aktiviert werden sollen.",
+        )
+    }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val subPref = ListPreference(screen.context).apply {
-            key = AWConstants.PREFERRED_LANG
-            title = "Bevorzugte Sprache"
-            entries = AWConstants.LANGS
-            entryValues = AWConstants.LANGS
-            setDefaultValue(AWConstants.LANG_GER_SUB)
-            summary = "%s"
+    companion object {
+        private const val PREF_HOSTER_KEY = "preferred_hoster"
+        private const val PREF_HOSTERS_SELECTION_KEY = "hoster_selection"
+        private const val NAME_DOOD = "Doodstream"
+        private const val NAME_STAPE = "Streamtape"
+        private const val NAME_VOE = "VOE"
+        private const val NAME_VIZ = "Vidoza"
+        private const val NAME_FILEMOON = "Filemoon"
+        private const val NAME_VIDMOLY = "Vidmoly"
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val hosterSelection = MultiSelectListPreference(screen.context).apply {
-            key = AWConstants.HOSTER_SELECTION
-            title = "Hoster auswählen"
-            entries = AWConstants.HOSTER_NAMES
-            entryValues = AWConstants.HOSTER_NAMES
-            setDefaultValue(AWConstants.HOSTER_NAMES.toSet())
+        private val PREF_HOSTER_NAMES = listOf(NAME_VOE, NAME_DOOD, NAME_STAPE, NAME_VIZ)
+        private val PREF_HOSTER_DEFAULT = PREF_HOSTER_NAMES.first()
 
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }
-        screen.addPreference(subPref)
-        screen.addPreference(hosterPref)
-        screen.addPreference(hosterSelection)
+        private const val PREF_LANG_KEY = "preferred_lang"
+        private val LANGS = mapOf(
+            "1" to "Deutscher Sub",
+            "2" to "Deutscher Dub",
+            "3" to "Englischer Sub",
+
+        )
+        private val PREF_LANGS = LANGS.values.toList()
+        private val PREF_LANG_DEFAULT = PREF_LANGS.first()
     }
 }
