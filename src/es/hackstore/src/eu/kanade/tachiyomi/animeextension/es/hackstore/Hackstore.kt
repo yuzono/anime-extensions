@@ -19,7 +19,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
@@ -34,7 +37,7 @@ class Hackstore :
 
     override val name = "Hackstore"
 
-    override val baseUrl = "https://hackstore.fo"
+    override val baseUrl = "https://www.hackstore.fo"
 
     override val lang = "es"
 
@@ -180,9 +183,8 @@ class Hackstore :
     override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
-    private fun extractUrlFromDonFunction(fullUrl: String): String {
-        val response = client.newCall(GET(fullUrl, headers)).execute()
-        val body = response.body.string()
+    private suspend fun extractUrlFromDonFunction(fullUrl: String): String {
+        val body = client.newCall(GET(fullUrl, headers)).awaitSuccess().bodyString()
         val document = Jsoup.parse(body)
         val scriptElement = document.selectFirst("script:containsData(function don())")
         val urlPattern = Regex("window\\.location\\.href\\s*=\\s*'([^']+)'")
@@ -202,50 +204,53 @@ class Hackstore :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("ul.TbVideoNv li.pres").parallelCatchingFlatMapBlocking { tab ->
-            val server = tab.select("a.playr").text()
-            val deco = tab.select("a.playr").attr("data-href")
-            val langs = tab.select("a.playr").attr("data-lang")
-            val fullUrl = baseUrl + deco
-            val url = extractUrlFromDonFunction(fullUrl)
-            val isLatino = langs.contains("latino")
-            val isSub = langs.contains("subtitulado") || langs.contains("sub") || langs.contains("japonés")
-            val prefix = if (isLatino) {
-                "[LAT]"
-            } else if (isSub) {
-                "[SUB]"
-            } else {
-                "[CAST]"
+        return document.select("ul.TbVideoNv li.pres")
+            .parallelCatchingFlatMapBlocking { tab ->
+                val server = tab.select("a.playr").text()
+                val deco = tab.select("a.playr").attr("data-href")
+                val langs = tab.select("a.playr").attr("data-lang")
+                val fullUrl = baseUrl + deco
+                val url = extractUrlFromDonFunction(fullUrl)
+                val isLatino = langs.contains("latino")
+                val isSub = langs.contains("subtitulado") || langs.contains("sub") || langs.contains("japonés")
+                val prefix = if (isLatino) {
+                    "[LAT]"
+                } else if (isSub) {
+                    "[SUB]"
+                } else {
+                    "[CAST]"
+                }
+                listOf(Triple(server, url, prefix))
             }
+            .catchingFlatMapBlocking { (server, url, prefix) ->
+                when {
+                    server.contains("streamtape") || server.contains("stp") || server.contains("stape") -> {
+                        listOf(streamTapeExtractor.videoFromUrl(url, quality = "$prefix StreamTape")!!)
+                    }
 
-            when {
-                server.contains("streamtape") || server.contains("stp") || server.contains("stape") -> {
-                    listOf(streamTapeExtractor.videoFromUrl(url, quality = "$prefix StreamTape")!!)
+                    server.contains("voe") -> voeExtractor.videosFromUrl(url, "$prefix ")
+
+                    server.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
+                    server.contains("wishembed") || server.contains("streamwish") || server.contains("strwish") || server.contains("wish") -> {
+                        streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+                    }
+
+                    server.contains("doodstream") || server.contains("dood.") || server.contains("ds2play") || server.contains("doods.") -> {
+                        doodExtractor.videosFromUrl(url, prefix)
+                    }
+
+                    server.contains("vidhide") || server.contains("vid.") -> {
+                        vidHideExtractor.videosFromUrl(url) { "$prefix - VidHide:$it" }
+                    }
+
+                    server.contains("goodstream") || server.contains("vidstream") -> {
+                        goodStreamExtractor.videosFromUrl(url, "$prefix GoodStream")
+                    }
+
+                    else -> universalExtractor.videosFromUrl(url, headers, prefix = prefix)
                 }
-
-                server.contains("voe") -> voeExtractor.videosFromUrl(url, "$prefix ")
-
-                server.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-
-                server.contains("wishembed") || server.contains("streamwish") || server.contains("strwish") || server.contains("wish") -> {
-                    streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                }
-
-                server.contains("doodstream") || server.contains("dood.") || server.contains("ds2play") || server.contains("doods.") -> {
-                    doodExtractor.videosFromUrl(url, prefix)
-                }
-
-                server.contains("vidhide") || server.contains("vid.") -> {
-                    vidHideExtractor.videosFromUrl(url) { "$prefix VidHide:$it" }
-                }
-
-                server.contains("goodstream") || server.contains("vidstream") -> {
-                    goodStreamExtractor.videosFromUrl(url, "$prefix GoodStream")
-                }
-
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = prefix)
             }
-        }
     }
 
     override fun videoListSelector(): String = "ul.TbVideoNv li.pres a.playr"

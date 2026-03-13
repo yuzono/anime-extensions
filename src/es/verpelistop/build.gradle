@@ -1,0 +1,19 @@
+ext {
+    extName = 'VerPelisTop'
+    extClass = '.VerPelisTop'
+    themePkg = 'dooplay'
+    baseUrl = 'https://www1.verpelis.top'
+    overrideVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:uqloadextractor"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:vidhideextractor"))
+    implementation(project(":lib:universalextractor"))
+    implementation(project(':lib:playlistutils'))
+}

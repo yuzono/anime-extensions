@@ -24,7 +24,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -227,9 +229,6 @@ class Torrentio :
 
         val variables = json.encodeToString(variablesObject)
 
-        println(anilistQuery())
-        println(variables)
-
         return makeGraphQLRequest(anilistQuery(), variables)
     }
 
@@ -247,7 +246,7 @@ class Torrentio :
         val variables = """{"id": ${anime.url}}"""
 
         val metaData = runCatching {
-            json.decodeFromString<DetailsById>(client.newCall(makeGraphQLRequest(getDetailsQuery(), variables)).execute().body.string())
+            json.decodeFromString<DetailsById>(client.newCall(makeGraphQLRequest(getDetailsQuery(), variables)).awaitSuccess().bodyString())
         }.getOrNull()?.data?.media
 
         anime.title = metaData?.title?.let { title ->
@@ -312,7 +311,7 @@ class Torrentio :
                         if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
                             episodes
                         } else {
-                            episodes.filter { (_, episode) -> (episode?.airDate?.let { parseDate(it) } ?: 0L) <= System.currentTimeMillis() }
+                            episodes.filter { (_, episode) -> episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis() }
                         }
                     }
                     ?.mapNotNull { (_, episode) ->
@@ -327,16 +326,16 @@ class Torrentio :
                         SEpisode.create().apply {
                             episode_number = episodeNumber
                             url = "/stream/series/kitsu:${aniZipResponse.mappings.kitsuId}:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                            date_upload = episode?.airDate?.let { parseDate(it) } ?: 0L
+                            date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
                             name = if (title == null) "Episode ${episode?.episode}" else "Episode ${episode.episode}: $title"
-                            scanlator = (episode?.airDate?.let { parseDate(it) } ?: 0L).takeIf { it > System.currentTimeMillis() }?.let { "Upcoming" } ?: ""
+                            scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }?.let { "Upcoming" } ?: ""
                         }
                     }.orEmpty().reversed()
             }
 
             "MOVIE" -> {
                 val dateUpload = if (!aniZipResponse.episodes.isNullOrEmpty()) {
-                    aniZipResponse.episodes["1"]?.airDate?.let { parseDate(it) } ?: 0L
+                    aniZipResponse.episodes["1"]?.airDate.let(DATE_FORMATTER::tryParse)
                 } else {
                     0L
                 }
@@ -354,12 +353,6 @@ class Torrentio :
             else -> emptyList()
         }
     }
-
-    private fun parseDateTime(dateStr: String): Long = runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
-        .getOrNull() ?: 0L
-
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-        .getOrNull() ?: 0L
 
     // ============================ Video Links =============================
 
@@ -904,10 +897,6 @@ class Torrentio :
             "other",
         )
         private val PREF_CODEC_DEFAULT = setOf<String>() // Empty by default to show all
-
-        private val DATE_TIME_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
-        }
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)

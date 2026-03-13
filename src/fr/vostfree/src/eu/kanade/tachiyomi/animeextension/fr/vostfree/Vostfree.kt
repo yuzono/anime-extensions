@@ -19,10 +19,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -114,7 +115,7 @@ class Vostfree :
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
         val epUrl = response.request.url.toString()
-        return doc.select("select.new_player_selector option").map { it ->
+        return doc.select("select.new_player_selector option").map {
             if (it.text() == "Film") {
                 SEpisode.create().apply {
                     episode_number = 1F
@@ -155,7 +156,7 @@ class Vostfree :
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val epNum = episode.url.substringAfter("=")
-        val document = client.newCall(GET(baseUrl + episode.url, headers)).await().asJsoup()
+        val document = client.newCall(GET(baseUrl + episode.url, headers)).awaitSuccess().useAsJsoup()
 
         val allPlayers = document.select("div#buttons_$epNum div")
 

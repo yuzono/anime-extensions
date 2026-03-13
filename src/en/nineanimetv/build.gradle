@@ -3,7 +3,7 @@ ext {
     extClass = '.NineAnimeTv'
     themePkg = 'zorotheme'
     baseUrl = 'https://9animetv.to'
-    overrideVersionCode = 6
+    overrideVersionCode = 7
 }
 
 apply from: "$rootDir/common.gradle"

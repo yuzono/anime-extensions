@@ -25,8 +25,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -38,7 +40,7 @@ open class PelisForte :
 
     override val name = "PelisForte"
 
-    override val baseUrl = "https://www1.pelisforte.se"
+    override val baseUrl = "https://www2.pelisforte.se"
 
     override val lang = "es"
 
@@ -118,7 +120,7 @@ open class PelisForte :
             status = SAnime.UNKNOWN
         }
 
-        document.select(".cast-lst li").map {
+        document.select(".cast-lst li").forEach {
             if (it.select("span").text().contains("Director", true)) {
                 animeDetails.author = it.selectFirst("p > a")?.text()
             }
@@ -139,17 +141,17 @@ open class PelisForte :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select(".video-player iframe").parallelCatchingFlatMapBlocking {
-            val id = it.parent()?.attr("id")
+        return document.select(".video-player iframe").parallelCatchingFlatMapBlocking { iframe ->
+            val id = iframe.parent()?.attr("id")
             val idTab = document.selectFirst("[href=\"#$id\"]")?.closest(".lrt")?.attr("id")
             val lang = document.select("[tab=$idTab]").text()
-            val src = it.attr("src").ifEmpty { it.attr("data-src") }
+            val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
             val key = src.substringAfter("/?h=")
             val player = "https://${src.toHttpUrl().host}/r.php?h=$key"
 
@@ -162,9 +164,9 @@ open class PelisForte :
 
             val locationsDdh = client.newCall(
                 GET(player, headers = headers.newBuilder().add("referer", src).build()),
-            ).execute().networkResponse.toString()
+            ).awaitSuccess().use { it.networkResponse.toString() }
 
-            fetchUrls(locationsDdh).flatMap { serverVideoResolver(it, prefix) }
+            fetchUrls(locationsDdh).parallelCatchingFlatMap { serverVideoResolver(it, prefix) }
         }
     }
 
@@ -184,44 +186,42 @@ open class PelisForte :
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = runCatching {
-        when {
-            arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = when {
+        arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
 
-            arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
+        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
 
-            arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+        arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
 
-            arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
+        arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
 
-            arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+        arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
 
-            arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
-                streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-            }
-
-            arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
-                val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
-                doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
-            }
-
-            arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
-
-            arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-            arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-            arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
-
-            arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-            arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
-
-            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-            else -> emptyList()
+        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
+            streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
         }
-    }.getOrNull() ?: emptyList()
+
+        arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
+            val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
+            doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
+        }
+
+        arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
+
+        arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+        arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+        arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
+        arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+        arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+        else -> emptyList()
+    }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

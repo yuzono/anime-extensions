@@ -28,7 +28,7 @@ class MegaMaxMultiServer(private val client: OkHttpClient, private val headers: 
                 val quality = it.resolution.substringAfter("x").let(::stnQuality)
                 val size = it.size.let(::convertSize)
                 it.mirrors.forEach { mirror ->
-                    val link = UrlUtils.fixUrl(mirror.link)
+                    val link = UrlUtils.fixUrl(mirror.link) ?: return@forEach
                     urls += Provider(link, mirror.driver, quality, size)
                 }
             }

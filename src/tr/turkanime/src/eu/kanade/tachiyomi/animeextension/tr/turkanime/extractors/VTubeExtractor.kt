@@ -2,13 +2,15 @@ package eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors
 
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 
 class VTubeExtractor(private val client: OkHttpClient, private val headers: Headers) {
-    fun videosFromUrl(url: String, baseUrl: String, prefix: String = ""): List<Video> {
+    suspend fun videosFromUrl(url: String, baseUrl: String, prefix: String = ""): List<Video> {
         val documentHeaders = headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
             .add("Host", url.toHttpUrl().host)
@@ -16,7 +18,7 @@ class VTubeExtractor(private val client: OkHttpClient, private val headers: Head
             .build()
         val document = client.newCall(
             GET(url, headers = documentHeaders),
-        ).execute().asJsoup()
+        ).awaitSuccess().useAsJsoup()
 
         val masterUrl = document.selectFirst("script:containsData(sources)")?.let {
             it.data().substringAfter("{file:\"").substringBefore("\"")
@@ -29,7 +31,7 @@ class VTubeExtractor(private val client: OkHttpClient, private val headers: Head
             .build()
         val masterPlaylist = client.newCall(
             GET(masterUrl, headers = masterHeaders),
-        ).execute().body.string()
+        ).awaitSuccess().bodyString()
         val videoList = mutableListOf<Video>()
         masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:")
             .forEach {

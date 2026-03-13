@@ -21,9 +21,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -36,7 +39,7 @@ class MonosChinos :
 
     override val name = "MonosChinos"
 
-    override val baseUrl = "https://monoschinos2.net"
+    override val baseUrl = "https://vww.monoschinos2.net"
 
     override val id = 6957694006954649296
 
@@ -148,7 +151,7 @@ class MonosChinos :
                 .build()
             pageIdx++
 
-            client.newCall(request).execute().getEpisodes()
+            client.newCall(request).awaitSuccess().use { it.getEpisodes() }
         }
     }
 
@@ -171,11 +174,15 @@ class MonosChinos :
             .header("x-requested-with", "XMLHttpRequest")
             .build()
 
-        val serverDocument = client.newCall(request).execute().asJsoup()
+        val serverDocument = client.newCall(request).execute().useAsJsoup()
 
         return serverDocument.select("[data-player]")
-            .map { String(Base64.decode(it.attr("data-player"), Base64.DEFAULT)) }
-            .parallelCatchingFlatMapBlocking { serverVideoResolver(it) }
+            .mapNotNull {
+                runCatching {
+                    String(Base64.decode(it.attr("data-player"), Base64.DEFAULT))
+                }.getOrNull()
+            }
+            .catchingFlatMapBlocking { serverVideoResolver(it) }
     }
 
     override fun getFilterList(): AnimeFilterList = MonosChinosFilters.FILTER_LIST
@@ -191,7 +198,7 @@ class MonosChinos :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
@@ -236,13 +243,10 @@ class MonosChinos :
     private fun Double.ceilPage(): Int = if (this % 1 == 0.0) this.toInt() else ceil(this).toInt()
 
     private fun Response.getEpisodes(): List<SEpisode> {
-        val document = this.asJsoup()
+        val document = asJsoup()
         return document.select(".ko").mapIndexed { idx, it ->
-            val episodeNumber = try {
-                it.select("h2").text().substringAfter("Capítulo").trim().toFloat()
-            } catch (e: Exception) {
-                idx + 1f
-            }
+            val episodeNumber = it.select("h2").text().substringAfter("Capítulo").trim()
+                .toFloatOrNull() ?: (idx + 1f)
 
             SEpisode.create().apply {
                 name = it.select(".fs-6").text()

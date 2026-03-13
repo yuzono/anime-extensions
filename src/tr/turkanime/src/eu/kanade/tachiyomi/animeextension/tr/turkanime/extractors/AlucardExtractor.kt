@@ -2,7 +2,8 @@ package eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors
 
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import kotlinx.serialization.decodeFromString
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -14,10 +15,10 @@ import okhttp3.OkHttpClient
 class AlucardExtractor(private val client: OkHttpClient, private val json: Json, private val baseUrl: String) {
     private val refererHeader = Headers.headersOf("referer", baseUrl)
 
-    fun extractVideos(hosterLink: String, subber: String): List<Video> = try {
+    suspend fun extractVideos(hosterLink: String, subber: String): List<Video> = try {
         val sourcesId = hosterLink.substringBeforeLast("/true").substringAfterLast("/")
         val playerJs = client.newCall(GET("$baseUrl/js/player.js"))
-            .execute().body.string()
+            .awaitSuccess().bodyString()
         val csrf = "(?<=')[a-zA-Z]{64}(?=')".toRegex().find(playerJs)!!.value
         val sourcesResponse = client.newCall(
             GET(
@@ -37,7 +38,7 @@ class AlucardExtractor(private val client: OkHttpClient, private val json: Json,
                 ),
             ),
         )
-            .execute().body.string()
+            .awaitSuccess().bodyString()
 
         val sources = json.decodeFromString<JsonObject>(sourcesResponse)["response"]!!
             .jsonObject["sources"]!!
@@ -46,7 +47,7 @@ class AlucardExtractor(private val client: OkHttpClient, private val json: Json,
             .jsonPrimitive.content
 
         val masterPlaylist = client.newCall(GET(sources, refererHeader))
-            .execute().body.string()
+            .awaitSuccess().bodyString()
         val separator = "#EXT-X-STREAM-INF"
         masterPlaylist.substringAfter(separator).split(separator).map {
             val quality = it.substringAfter("RESOLUTION=")
@@ -57,7 +58,7 @@ class AlucardExtractor(private val client: OkHttpClient, private val json: Json,
             // TODO: This gives 403 in MPV
             Video(videoUrl, "$subber: Alucard: $quality", videoUrl, refererHeader)
         }
-    } catch (e: Throwable) {
+    } catch (_: Throwable) {
         emptyList()
     }
 }

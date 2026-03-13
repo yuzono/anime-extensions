@@ -35,12 +35,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import keiyoushi.utils.parallelMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -62,7 +64,7 @@ class TurkAnime :
 
     override val name = "Türk Anime TV"
 
-    override val baseUrl = "https://www.turkanime.co"
+    override val baseUrl = "https://www.turkanime.tv"
 
     override val lang = "tr"
 
@@ -162,9 +164,7 @@ class TurkAnime :
         val params = TurkAnimeFilters.getSearchParameters(filters)
         return client.newCall(searchAnimeRequest(page, query, params))
             .awaitSuccess()
-            .let { response ->
-                searchAnimeParse(response)
-            }
+            .use(::searchAnimeParse)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -218,7 +218,7 @@ class TurkAnime :
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime): Request {
         val animeId = (baseUrl + anime.url).toHttpUrl().queryParameter("animeId")
-            ?: client.newCall(GET(baseUrl + anime.url)).execute().asJsoup()
+            ?: client.newCall(GET(baseUrl + anime.url)).execute().useAsJsoup()
                 .selectFirst("a[data-unique-id]")!!.attr("data-unique-id")
         return GET("$baseUrl/ajax/bolumler?animeId=$animeId", xmlHeader)
     }
@@ -246,7 +246,7 @@ class TurkAnime :
 
         val fansubbers = document.select("div#videodetay div.pull-right button")
         val videoList = if (fansubbers.size == 1) {
-            getVideosFromHosters(document, fansubbers.first()!!.text().trim())
+            runBlocking { getVideosFromHosters(document, fansubbers.first()!!.text()) }
         } else {
             val allFansubs = PREF_FANSUB_SELECTION_ENTRIES
             val chosenFansubs = preferences.getStringSet(PREF_FANSUB_SELECTION_KEY, allFansubs.toSet())!!
@@ -258,8 +258,8 @@ class TurkAnime :
 
             filteredSubs.parallelCatchingFlatMapBlocking {
                 val url = it.attr("onclick").trimOnClick()
-                val subDoc = client.newCall(GET(url, xmlHeader)).await().asJsoup()
-                getVideosFromHosters(subDoc, it.text().trim())
+                val subDoc = client.newCall(GET(url, xmlHeader)).awaitSuccess().useAsJsoup()
+                getVideosFromHosters(subDoc, it.text())
             }
         }
 
@@ -268,131 +268,126 @@ class TurkAnime :
         return videoList
     }
 
-    private fun getVideosFromHosters(document: Document, subber: String): List<Video> {
+    private suspend fun getVideosFromHosters(document: Document, subber: String): List<Video> {
         val selectedHoster = document.select("div#videodetay div.btn-group:not(.pull-right) > button.btn-danger")
         val hosters = document.select("div#videodetay div.btn-group:not(.pull-right) > button.btn-default[onclick*=videosec]")
 
         val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!!
 
         val videoList = buildList {
-            val selectedHosterName = selectedHoster.text().trim()
+            val selectedHosterName = selectedHoster.text()
             if (selectedHosterName in SUPPORTED_HOSTERS && selectedHosterName in hosterSelection) {
                 document.selectFirst("iframe")?.attr("src")?.also { src ->
-                    addAll(getVideosFromSource(src, selectedHosterName, subber))
+                    runCatching {
+                        getVideosFromSource(src, selectedHosterName, subber)
+                    }.getOrNull()?.let(::addAll)
                 }
             }
 
-            hosters.parallelMapBlocking {
-                val hosterName = it.text().trim()
-                if (hosterName !in SUPPORTED_HOSTERS) return@parallelMapBlocking
-                if (hosterName !in hosterSelection) return@parallelMapBlocking
+            hosters.parallelCatchingFlatMap {
+                val hosterName = it.text()
+                if (hosterName !in SUPPORTED_HOSTERS) return@parallelCatchingFlatMap emptyList()
+                if (hosterName !in hosterSelection) return@parallelCatchingFlatMap emptyList()
                 val url = it.attr("onclick").trimOnClick()
-                val videoDoc = client.newCall(GET(url, xmlHeader)).await().asJsoup()
+                val videoDoc = client.newCall(GET(url, xmlHeader)).awaitSuccess().useAsJsoup()
                 val src = videoDoc.selectFirst("iframe")?.attr("src")
                     ?.replace("^//".toRegex(), "https://")
-                    ?: return@parallelMapBlocking
-                addAll(getVideosFromSource(src, hosterName, subber))
-            }
+                    ?: return@parallelCatchingFlatMap emptyList()
+                getVideosFromSource(src, hosterName, subber)
+            }.let(::addAll)
         }
 
         return videoList
     }
 
-    private fun getVideosFromSource(src: String, hosterName: String, subber: String): List<Video> {
+    private suspend fun getVideosFromSource(src: String, hosterName: String, subber: String): List<Video> {
         val cipherParamsEncoded = src
             .substringAfter("/embed/#/url/")
             .substringBefore("?status")
 
-        val cipherParams = json.decodeFromString<CipherParams>(
-            String(
-                Base64.decode(cipherParamsEncoded, Base64.DEFAULT),
-            ),
-        )
+        val cipherParams = String(Base64.decode(cipherParamsEncoded, Base64.DEFAULT))
+            .parseAs<CipherParams>()
 
         val hosterLink = "https:" + decryptParams(cipherParams)
 
-        val videoList = runCatching {
-            when (hosterName) {
-                "ALUCARD(BETA)" -> {
-                    AlucardExtractor(client, json, baseUrl).extractVideos(hosterLink, subber)
-                }
-
-                "DOODSTREAM" -> {
-                    DoodExtractor(client).videosFromUrl(hosterLink, "$subber:")
-                }
-
-                "EMBEDGRAM" -> {
-                    EmbedgramExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "FILEMOON" -> {
-                    FilemoonExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ", headers = headers)
-                }
-
-                "GDRIVE" -> {
-                    Regex("""[\w-]{28,}""").find(hosterLink)?.groupValues?.get(0)?.let {
-                        GoogleDriveExtractor(client, headers).videosFromUrl("https://drive.google.com/uc?id=$it", "$subber: Gdrive")
-                    }
-                }
-
-                "MAIL" -> {
-                    MailRuExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "MP4UPLOAD" -> {
-                    Mp4uploadExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
-                }
-
-                "MVIDOO" -> {
-                    MVidooExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "ODNOKLASSNIKI" -> {
-                    OkruExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "SENDVID" -> {
-                    SendvidExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "SIBNET" -> {
-                    SibnetExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "STREAMVID" -> {
-                    StreamVidExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
-                }
-
-                "UQLOAD" -> {
-                    UqloadExtractor(client).videosFromUrl(hosterLink, "$subber:")
-                }
-
-                "VK" -> {
-                    val vkUrl = "https://vk.com" + hosterLink.substringAfter("vk.com")
-                    VkExtractor(client, headers).videosFromUrl(vkUrl, prefix = "$subber: ")
-                }
-
-                "VOE" -> {
-                    VoeExtractor(client, headers).videosFromUrl(hosterLink, "($subber) ")
-                }
-
-                "VTUBE" -> {
-                    VTubeExtractor(client, headers).videosFromUrl(hosterLink, baseUrl, prefix = "$subber: ")
-                }
-
-                "VUDEA" -> {
-                    VudeoExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                "WOLFSTREAM" -> {
-                    WolfstreamExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
-                }
-
-                else -> null
+        return when (hosterName) {
+            "ALUCARD(BETA)" -> {
+                AlucardExtractor(client, json, baseUrl).extractVideos(hosterLink, subber)
             }
-        }.getOrNull() ?: emptyList()
 
-        return videoList
+            "DOODSTREAM" -> {
+                DoodExtractor(client).videosFromUrl(hosterLink, "$subber:")
+            }
+
+            "EMBEDGRAM" -> {
+                EmbedgramExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "FILEMOON" -> {
+                FilemoonExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ", headers = headers)
+            }
+
+            "GDRIVE" -> {
+                Regex("""[\w-]{28,}""").find(hosterLink)?.groupValues?.get(0)?.let {
+                    GoogleDriveExtractor(client, headers).videosFromUrl("https://drive.google.com/uc?id=$it", "$subber: Gdrive")
+                }
+            }
+
+            "MAIL" -> {
+                MailRuExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "MP4UPLOAD" -> {
+                Mp4uploadExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
+            }
+
+            "MVIDOO" -> {
+                MVidooExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "ODNOKLASSNIKI" -> {
+                OkruExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "SENDVID" -> {
+                SendvidExtractor(client, headers).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "SIBNET" -> {
+                SibnetExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "STREAMVID" -> {
+                StreamVidExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
+            }
+
+            "UQLOAD" -> {
+                UqloadExtractor(client).videosFromUrl(hosterLink, "$subber:")
+            }
+
+            "VK" -> {
+                val vkUrl = "https://vk.com" + hosterLink.substringAfter("vk.com")
+                VkExtractor(client, headers).videosFromUrl(vkUrl, prefix = "$subber: ")
+            }
+
+            "VOE" -> {
+                VoeExtractor(client, headers).videosFromUrl(hosterLink, "($subber) ")
+            }
+
+            "VTUBE" -> {
+                VTubeExtractor(client, headers).videosFromUrl(hosterLink, baseUrl, prefix = "$subber: ")
+            }
+
+            "VUDEA" -> {
+                VudeoExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            "WOLFSTREAM" -> {
+                WolfstreamExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
+            }
+
+            else -> null
+        } ?: emptyList()
     }
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
@@ -424,7 +419,6 @@ class TurkAnime :
     private fun String.trimOnClick() = baseUrl + "/" + this.substringAfter("IndexIcerik('").substringBefore("'")
 
     private val xmlHeader = Headers.headersOf("X-Requested-With", "XMLHttpRequest")
-    private val refererHeader = Headers.headersOf("Referer", baseUrl)
 
     private val mutex = Mutex()
     private var shouldUpdateKey = false
@@ -459,14 +453,14 @@ class TurkAnime :
         return json.decodeFromString<String>(decrypted)
     }
 
-    private fun updateKey() {
-        val script4 = client.newCall(GET("$baseUrl/embed/#/")).execute().asJsoup()
+    private suspend fun updateKey() {
+        val script4 = client.newCall(GET("$baseUrl/embed/#/")).awaitSuccess().useAsJsoup()
             .select("script[defer]").getOrNull(1)
             ?.attr("src") ?: return
-        val embeds4 = client.newCall(GET(baseUrl + script4)).execute().body.string()
+        val embeds4 = client.newCall(GET(baseUrl + script4)).awaitSuccess().bodyString()
         val name = JS_NAME_REGEX.findAll(embeds4).toList().firstOrNull()?.value
 
-        val file5 = client.newCall(GET("$baseUrl/embed/js/embeds.$name.js")).execute().body.string()
+        val file5 = client.newCall(GET("$baseUrl/embed/js/embeds.$name.js")).awaitSuccess().bodyString()
         val embeds5 = Deobfuscator.deobfuscateScript(file5) ?: return
         val key = KEY_REGEX.find(embeds5)?.value ?: return
         preferences.edit().putString(PREF_KEY_KEY, key).apply()
