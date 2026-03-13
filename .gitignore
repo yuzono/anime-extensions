@@ -12,4 +12,3 @@ gen
 generated-src/
 .kotlin
 .history
-.direnv/
