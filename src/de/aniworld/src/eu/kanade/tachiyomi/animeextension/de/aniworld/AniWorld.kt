@@ -15,9 +15,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
@@ -165,14 +168,14 @@ class AniWorld :
 
     private fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
         val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().asJsoup()
+        val episodesHtml = client.newCall(GET(seasonId)).execute().useAsJsoup()
         val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
         return episodeElements.map { episodeFromElement(it) }
     }
 
     private fun parseMoviesFromSeries(element: Element): List<SEpisode> {
         val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().asJsoup()
+        val episodesHtml = client.newCall(GET(seasonId)).execute().useAsJsoup()
         val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
         return episodeElements.map { episodeFromElement(it) }
     }
@@ -201,51 +204,44 @@ class AniWorld :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val redirectlink = document.select("ul.row li")
-        val videoList = mutableListOf<Video>()
         val hosterSelection = preferences.getStringSet(AWConstants.HOSTER_SELECTION, null)
-        redirectlink.forEach {
+            ?: return emptyList()
+        return redirectlink.parallelCatchingFlatMapBlocking {
             val langkey = it.attr("data-lang-key")
             val language = getlanguage(langkey)
             val redirectgs = baseUrl + it.selectFirst("a.watchEpisode")!!.attr("href")
             val hoster = it.select("a h4").text()
-            if (hosterSelection != null) {
-                when {
-                    hoster.contains("VOE") && hosterSelection.contains(AWConstants.NAME_VOE) -> {
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        videoList.addAll(VoeExtractor(client, headers).videosFromUrl(url, "($language) "))
-                    }
-
-                    hoster.contains("Doodstream") && hosterSelection.contains(AWConstants.NAME_DOOD) -> {
-                        val quality = "Doodstream $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = DoodExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
-
-                    hoster.contains("Streamtape") && hosterSelection.contains(AWConstants.NAME_STAPE) -> {
-                        val quality = "Streamtape $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = StreamTapeExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
-
-                    hoster.contains("Vidoza") && hosterSelection.contains(AWConstants.NAME_VIZ) -> {
-                        val quality = "Vidoza $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = VidozaExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
+            when {
+                hoster.contains("VOE") && hosterSelection.contains(AWConstants.NAME_VOE) -> {
+                    val url = getRedirectedUrl(redirectgs)
+                    VoeExtractor(client, headers).videosFromUrl(url, "($language) ")
                 }
-            }
+
+                hoster.contains("Doodstream") && hosterSelection.contains(AWConstants.NAME_DOOD) -> {
+                    val quality = "Doodstream $language"
+                    val url = getRedirectedUrl(redirectgs)
+                    DoodExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                }
+
+                hoster.contains("Streamtape") && hosterSelection.contains(AWConstants.NAME_STAPE) -> {
+                    val quality = "Streamtape $language"
+                    val url = getRedirectedUrl(redirectgs)
+                    StreamTapeExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                }
+
+                hoster.contains("Vidoza") && hosterSelection.contains(AWConstants.NAME_VIZ) -> {
+                    val quality = "Vidoza $language"
+                    val url = getRedirectedUrl(redirectgs)
+                    VidozaExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                }
+
+                else -> null
+            } ?: emptyList()
         }
-        return videoList
     }
+
+    private suspend fun getRedirectedUrl(url: String) =
+        client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
 
     private fun getlanguage(langkey: String): String? {
         when {

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.de.aniworld
 
 import android.webkit.CookieManager
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.bodyString
 import okhttp3.Cookie
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
@@ -56,11 +57,11 @@ class DdosGuardInterceptor(private val client: OkHttpClient) : Interceptor {
             return ddg2Cookie
         }
         val wellKnown = client.newCall(GET(WELL_KNOWN_URL))
-            .execute().body.string()
+            .execute().bodyString()
             .substringAfter("'", "")
             .substringBefore("'", "")
         val checkUrl = "${url.scheme}://${url.host + wellKnown}"
-        return client.newCall(GET(checkUrl)).execute().header("set-cookie")?.let {
+        return client.newCall(GET(checkUrl)).execute().use { it.header("set-cookie") }?.let {
             Cookie.parse(url, it)
         }
     }
