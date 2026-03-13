@@ -16,18 +16,19 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
-import java.net.URLEncoder
 
 class AniWorld :
     ParsedAnimeHttpSource(),
@@ -95,7 +96,10 @@ class AniWorld :
             .add("accept", "*/*")
             .add("x-requested-with", "XMLHttpRequest")
             .build()
-        return GET("$baseUrl/ajax/seriesSearch?keyword=${URLEncoder.encode(query, "UTF-8")}", headers = headers)
+        val httpUrl = "$baseUrl/ajax/seriesSearch".toHttpUrl().newBuilder().apply {
+            addQueryParameter("keyword", query)
+        }.build()
+        return GET(httpUrl, headers = headers)
     }
     override fun searchAnimeSelector() = throw UnsupportedOperationException()
 
@@ -112,7 +116,8 @@ class AniWorld :
             SAnime.create().apply {
                 title = name
                 url = "/anime/stream/$link"
-                thumbnail_url = obj["cover"]?.jsonPrimitive?.content?.replace("150x225", "220x330")?.let { cover -> "$baseUrl$cover" }
+                thumbnail_url = obj["cover"]?.jsonPrimitive?.content?.replace("150x225", "220x330")
+                    ?.let { cover -> UrlUtils.fixUrl(cover, baseUrl) }
                 description = obj["description"]?.jsonPrimitive?.content
             }
         }
