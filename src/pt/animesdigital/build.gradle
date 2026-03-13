@@ -7,5 +7,6 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
+    implementation(project(":lib:bloggerextractor"))
     implementation(project(":lib:unpacker"))
 }
