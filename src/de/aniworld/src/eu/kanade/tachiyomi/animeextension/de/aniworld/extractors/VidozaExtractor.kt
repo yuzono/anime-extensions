@@ -11,7 +11,7 @@ class VidozaExtractor(private val client: OkHttpClient) {
     suspend fun videoFromUrl(url: String, quality: String): Video? {
         val document = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
         val script = document.select("script:containsData(window.pData = {)")
-            .firstOrNull()?.data()?.substringAfter("sourcesCode: [{ src: \"") ?: return null
+            .firstOrNull()?.data() ?: return null
         val videoUrl = script.substringAfter("sourcesCode: [{ src: \"").substringBefore("\", type:")
         return Video(videoUrl, quality, videoUrl)
     }
