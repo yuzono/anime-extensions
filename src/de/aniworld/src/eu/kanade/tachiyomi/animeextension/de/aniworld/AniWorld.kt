@@ -267,9 +267,9 @@ class AniWorld :
 
         private const val PREF_LANG_KEY = "preferred_lang"
         private val LANGS = mapOf(
-            "1" to "Deutscher Sub",
-            "2" to "Deutscher Dub",
-            "3" to "Englischer Sub",
+            "1" to "Deutscher Dub",
+            "2" to "Englischer Sub",
+            "3" to "Deutscher Sub",
         )
         private val PREF_LANGS = LANGS.values.toList()
         private val PREF_LANG_DEFAULT = PREF_LANGS.first()
