@@ -258,6 +258,8 @@ data class MediaDto(
     val id: String? = null,
     val bitrate: Int? = null,
     val transcodingUrl: String? = null,
+    val isRemote: Boolean = false,
+    val path: String? = null,
     val supportsTranscoding: Boolean,
     val supportsDirectStream: Boolean,
     val mediaStreams: List<MediaStreamDto>,
