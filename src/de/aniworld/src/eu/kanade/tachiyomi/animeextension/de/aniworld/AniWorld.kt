@@ -207,7 +207,7 @@ class AniWorld :
 
     private suspend fun getRedirectedUrl(url: String) = client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
 
-    private fun getLanguage(langKey: String) = LANGS.toList().firstOrNull { langKey.contains(it.first) }?.second
+    private fun getLanguage(langKey: String) = LANGS.keys.firstOrNull { langKey.contains(it) }?.let { LANGS[it] }
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
@@ -237,7 +237,7 @@ class AniWorld :
         )
         screen.addListPreference(
             key = PREF_HOSTER_KEY,
-            title = "Bevorzugter hoster",
+            title = "Bevorzugter Hoster",
             entries = PREF_HOSTER_NAMES,
             entryValues = PREF_HOSTER_NAMES,
             default = PREF_HOSTER_DEFAULT,
@@ -271,7 +271,6 @@ class AniWorld :
             "1" to "Deutscher Sub",
             "2" to "Deutscher Dub",
             "3" to "Englischer Sub",
-
         )
         private val PREF_LANGS = LANGS.values.toList()
         private val PREF_LANG_DEFAULT = PREF_LANGS.first()
