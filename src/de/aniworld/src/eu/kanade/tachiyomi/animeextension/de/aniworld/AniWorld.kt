@@ -220,9 +220,8 @@ class AniWorld :
     // ===== PREFERENCES ======
     private val preferredLang by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
     private val preferredHosterPref by preferences.delegate(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
-    private val preferredHoster = preferredHosterPref
-        .takeIf { it in PREF_HOSTER_NAMES }
-        ?: PREF_HOSTER_DEFAULT
+    private val preferredHoster
+        get() = preferredHosterPref.takeIf { it in PREF_HOSTER_NAMES } ?: PREF_HOSTER_DEFAULT
     private val excludedHosters by preferences.delegate(PREF_EXCLUDED_HOSTERS_KEY, emptySet<String>())
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
