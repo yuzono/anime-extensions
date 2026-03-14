@@ -194,10 +194,10 @@ class AniWorld :
                 .firstOrNull { hoster.contains(it, true) }?.let { name ->
                     when (name) {
                         NAME_VOE -> voeExtractor.videosFromUrl(url, "($language) ")
-                        NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)")?.let(::listOf)
-                        NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) ")?.let(::listOf)
-                        NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) ")?.let(::listOf)
-                        NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) ", headers)
+                        NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)", false)?.let(::listOf)
+                        NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) $NAME_STAPE")?.let(::listOf)
+                        NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) $NAME_VIZ")?.let(::listOf)
+                        NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) $NAME_FILEMOON ", headers)
                         NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language) ")
                         else -> null
                     }
