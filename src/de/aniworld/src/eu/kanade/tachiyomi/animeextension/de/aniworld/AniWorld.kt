@@ -63,12 +63,12 @@ class AniWorld :
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/beliebte-animes")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
         val linkElement = element.selectFirst("a")!!
-        anime.url = linkElement.attr("href")
-        anime.thumbnail_url = baseUrl + linkElement.selectFirst("img")!!.attr("data-src")
-        anime.title = element.selectFirst("h3")!!.text()
-        return anime
+        return SAnime.create().apply {
+            title = element.selectFirst("h3")!!.text()
+            setUrlWithoutDomain(linkElement.attr("abs:href"))
+            thumbnail_url = linkElement.selectFirst("img")?.attr("abs:data-src")
+        }
     }
 
     // ===== LATEST ANIME =====
@@ -78,26 +78,13 @@ class AniWorld :
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/neu")
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
-        val linkElement = element.selectFirst("a")!!
-        anime.url = linkElement.attr("href")
-        anime.thumbnail_url = baseUrl + linkElement.selectFirst("img")!!.attr("data-src")
-        anime.title = element.selectFirst("h3")!!.text()
-        return anime
-    }
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
     // ===== SEARCH =====
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val headers = Headers.Builder()
             .add("Referer", "$baseUrl/search")
             .add("origin", baseUrl)
-            .add("connection", "keep-alive")
-            .add("user-agent", "Mozilla/5.0 (Linux; Android 12; Pixel 5 Build/SP2A.220405.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/100.0.4896.127 Safari/537.36")
-            .add("Upgrade-Insecure-Requests", "1")
-            .add("cache-control", "")
-            .add("accept", "*/*")
             .add("x-requested-with", "XMLHttpRequest")
             .build()
         val httpUrl = "$baseUrl/ajax/seriesSearch".toHttpUrl().newBuilder().apply {
@@ -131,19 +118,15 @@ class AniWorld :
     override fun searchAnimeFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ===== ANIME DETAILS =====
-    override fun animeDetailsParse(document: Document): SAnime {
-        val anime = SAnime.create()
-        anime.title = document.selectFirst("div.series-title h1 span")!!.text()
-        anime.thumbnail_url = baseUrl +
-            document.selectFirst("div.seriesCoverBox img")!!.attr("data-src")
-        anime.genre = document.select("div.genres ul li").joinToString { it.text() }
-        anime.description = document.selectFirst("p.seri_des")!!.attr("data-full-description")
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.selectFirst("div.series-title h1 span")!!.text()
+        thumbnail_url = document.selectFirst("div.seriesCoverBox img")?.attr("abs:data-src")
+        genre = document.select("div.genres ul li").joinToString { it.text() }
+        description = document.selectFirst("p.seri_des")?.attr("data-full-description")
         document.selectFirst("div.cast li:contains(Produzent:) ul")?.let {
-            val author = it.select("li").joinToString { li -> li.text() }
-            anime.author = author
+            author = it.select("li").joinToString { li -> li.text() }
         }
-        anime.status = SAnime.UNKNOWN
-        return anime
+        status = SAnime.UNKNOWN
     }
 
     // ===== EPISODE =====
@@ -153,16 +136,9 @@ class AniWorld :
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
         val seasonsElements = document.select("#stream > ul:nth-child(1) > li > a")
-        if (seasonsElements.attr("href").contains("/filme")) {
-            seasonsElements.forEach {
-                val seasonEpList = parseMoviesFromSeries(it)
-                episodeList.addAll(seasonEpList)
-            }
-        } else {
-            seasonsElements.forEach {
-                val seasonEpList = parseEpisodesFromSeries(it)
-                episodeList.addAll(seasonEpList)
-            }
+        seasonsElements.forEach {
+            val seasonEpList = parseEpisodesFromSeries(it)
+            episodeList.addAll(seasonEpList)
         }
         return episodeList.reversed()
     }
@@ -171,30 +147,26 @@ class AniWorld :
         val seasonId = element.attr("abs:href")
         val episodesHtml = client.newCall(GET(seasonId)).execute().useAsJsoup()
         val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
-        return episodeElements.map { episodeFromElement(it) }
-    }
-
-    private fun parseMoviesFromSeries(element: Element): List<SEpisode> {
-        val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().useAsJsoup()
-        val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
-        return episodeElements.map { episodeFromElement(it) }
+        return episodeElements.mapNotNull { runCatching { episodeFromElement(it) }.getOrNull() }
     }
 
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
-        if (element.select("td.seasonEpisodeTitle a").attr("href").contains("/film")) {
-            val num = element.attr("data-episode-season-id")
-            episode.name = "Film $num" + " : " + element.select("td.seasonEpisodeTitle a span").text()
-            episode.episode_number = element.attr("data-episode-season-id").toFloat()
-            episode.url = element.selectFirst("td.seasonEpisodeTitle a")!!.attr("href")
-        } else {
-            val season = element.select("td.seasonEpisodeTitle a").attr("href")
-                .substringAfter("staffel-").substringBefore("/episode")
-            val num = element.attr("data-episode-season-id")
-            episode.name = "Staffel $season Folge $num" + " : " + element.select("td.seasonEpisodeTitle a span").text()
-            episode.episode_number = element.select("td meta").attr("content").toFloat()
-            episode.url = element.selectFirst("td.seasonEpisodeTitle a")!!.attr("href")
+        val num = element.attr("data-episode-season-id")
+        element.selectFirst("td.seasonEpisodeTitle a")!!.let { elm ->
+            val name = elm.select("span").text()
+            val url = elm.attr("href")
+            if (url.contains("/filme")) {
+                episode.name = "Film $num : $name"
+                num.toFloatOrNull()?.let { episode.episode_number = it }
+                episode.url = url
+            } else {
+                val season = url
+                    .substringAfter("staffel-").substringBefore("/episode")
+                episode.name = "Staffel $season Folge $num : $name"
+                element.select("td meta").attr("content").toFloatOrNull()?.let { episode.episode_number = it }
+                episode.url = url
+            }
         }
         return episode
     }
@@ -208,7 +180,7 @@ class AniWorld :
         return redirectlink.parallelCatchingFlatMapBlocking {
             val langkey = it.attr("data-lang-key")
             val language = getLanguage(langkey)
-            val redirectgs = baseUrl + it.selectFirst("a.watchEpisode")!!.attr("href")
+            val redirectgs = it.selectFirst("a.watchEpisode")!!.attr("abs:href")
             val hoster = it.select("a h4").text()
             when {
                 hoster.contains(NAME_VOE, true) && enabledHosters.contains(NAME_VOE) -> {
