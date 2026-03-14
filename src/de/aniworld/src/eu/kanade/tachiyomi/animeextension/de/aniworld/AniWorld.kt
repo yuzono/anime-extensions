@@ -207,7 +207,7 @@ class AniWorld :
 
     private suspend fun getRedirectedUrl(url: String) = client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
 
-    private fun getLanguage(langKey: String) = LANGS.keys.firstOrNull { langKey.contains(it) }?.let { LANGS[it] }
+    private fun getLanguage(langKey: String) = LANGS.keys.firstOrNull { langKey.contains(it) }?.let { LANGS[it] } ?: "?"
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
