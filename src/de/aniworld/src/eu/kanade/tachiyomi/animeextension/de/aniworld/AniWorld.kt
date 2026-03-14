@@ -187,49 +187,24 @@ class AniWorld :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val redirectlink = document.select("ul.row li")
-        return redirectlink.parallelCatchingFlatMapBlocking {
-            val langkey = it.attr("data-lang-key")
+        return redirectlink.parallelCatchingFlatMapBlocking { elm ->
+            val langkey = elm.attr("data-lang-key")
             val language = getLanguage(langkey)
-            val redirectgs = it.selectFirst("a.watchEpisode")!!.attr("abs:href")
-            val hoster = it.select("a h4").text()
-            when {
-                hoster.contains(NAME_VOE, true) && enabledHosters.contains(NAME_VOE) -> {
-                    val url = getRedirectedUrl(redirectgs)
-                    voeExtractor.videosFromUrl(url, "($language) ")
-                }
-
-                hoster.contains(NAME_DOOD, true) && enabledHosters.contains(NAME_DOOD) -> {
-                    val quality = "Doodstream $language"
-                    val url = getRedirectedUrl(redirectgs)
-                    doodExtractor.videoFromUrl(url, quality)?.let(::listOf)
-                }
-
-                hoster.contains(NAME_STAPE, true) && enabledHosters.contains(NAME_STAPE) -> {
-                    val quality = "Streamtape $language"
-                    val url = getRedirectedUrl(redirectgs)
-                    streamTapeExtractor.videoFromUrl(url, quality)?.let(::listOf)
-                }
-
-                hoster.contains(NAME_VIZ, true) && enabledHosters.contains(NAME_VIZ) -> {
-                    val quality = "Vidoza $language"
-                    val url = getRedirectedUrl(redirectgs)
-                    vidozaExtractor.videoFromUrl(url, quality)?.let(::listOf)
-                }
-
-                hoster.contains(NAME_FILEMOON, true) && enabledHosters.contains(NAME_FILEMOON) -> {
-                    val quality = "Filemoon $language"
-                    val url = getRedirectedUrl(redirectgs)
-                    filemoonExtractor.videosFromUrl(url, quality, headers)
-                }
-
-                hoster.contains(NAME_VIDMOLY, true) && enabledHosters.contains(NAME_VIDMOLY) -> {
-                    val quality = "Vidmoly $language"
-                    val url = getRedirectedUrl(redirectgs)
-                    vidmolyExtractor.videosFromUrl(url, quality)
-                }
-
-                else -> null
-            } ?: emptyList()
+            val redirectgs = elm.selectFirst("a.watchEpisode")!!.attr("abs:href")
+            val hoster = elm.select("a h4").text()
+            val url = getRedirectedUrl(redirectgs)
+            (PREF_HOSTER_NAMES - excludedHosters)
+                .firstOrNull { hoster.contains(it, true) }?.let { name ->
+                    when (name) {
+                        NAME_VOE -> voeExtractor.videosFromUrl(url, "($language) ")
+                        NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)")?.let(::listOf)
+                        NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) ")?.let(::listOf)
+                        NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) ")?.let(::listOf)
+                        NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) ", headers)
+                        NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language) ")
+                        else -> null
+                    }
+                } ?: emptyList()
         }
     }
 
@@ -252,7 +227,7 @@ class AniWorld :
     private val preferredHoster = preferredHosterPref
         .takeIf { it in PREF_HOSTER_NAMES }
         ?: PREF_HOSTER_DEFAULT
-    private val enabledHosters by preferences.delegate(PREF_HOSTERS_SELECTION_KEY, PREF_HOSTER_NAMES.toSet())
+    private val excludedHosters by preferences.delegate(PREF_EXCLUDED_HOSTERS_KEY, emptySet<String>())
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -272,18 +247,18 @@ class AniWorld :
             summary = "%s",
         )
         screen.addSetPreference(
-            key = PREF_HOSTERS_SELECTION_KEY,
-            title = "Hoster auswählen",
+            key = PREF_EXCLUDED_HOSTERS_KEY,
+            title = "Ausgeschlossene Hoster",
             entries = PREF_HOSTER_NAMES,
             entryValues = PREF_HOSTER_NAMES,
-            default = PREF_HOSTER_NAMES.toSet(),
-            summary = "Wählen Sie die Hoster aus, die aktiviert werden sollen.",
+            default = emptySet(),
+            summary = "Wählen Sie die Hoster aus, die Sie nicht wünschen.",
         )
     }
 
     companion object {
         private const val PREF_HOSTER_KEY = "preferred_hoster"
-        private const val PREF_HOSTERS_SELECTION_KEY = "hoster_selection"
+        private const val PREF_EXCLUDED_HOSTERS_KEY = "excluded_hosters"
         private const val NAME_DOOD = "Doodstream"
         private const val NAME_STAPE = "Streamtape"
         private const val NAME_VOE = "VOE"
