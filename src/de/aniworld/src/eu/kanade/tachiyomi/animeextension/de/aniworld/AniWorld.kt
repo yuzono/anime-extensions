@@ -188,19 +188,19 @@ class AniWorld :
             val language = getLanguage(langkey)
             val redirectgs = elm.selectFirst("a.watchEpisode")!!.attr("abs:href")
             val hoster = elm.select("a h4").text()
+            val matchedHoster = (PREF_HOSTER_NAMES - excludedHosters)
+                .firstOrNull { hoster.contains(it, true) }
+                ?: return@parallelCatchingFlatMapBlocking emptyList()
             val url = getRedirectedUrl(redirectgs)
-            (PREF_HOSTER_NAMES - excludedHosters)
-                .firstOrNull { hoster.contains(it, true) }?.let { name ->
-                    when (name) {
-                        NAME_VOE -> voeExtractor.videosFromUrl(url, "($language) ")
-                        NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)", false)?.let(::listOf)
-                        NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) $NAME_STAPE")?.let(::listOf)
-                        NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) $NAME_VIZ")?.let(::listOf)
-                        NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) $NAME_FILEMOON ", headers)
-                        NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language) ")
-                        else -> null
-                    }
-                } ?: emptyList()
+            when (matchedHoster) {
+                NAME_VOE -> voeExtractor.videosFromUrl(url, "($language) ")
+                NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)", false)?.let(::listOf)
+                NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) $NAME_STAPE")?.let(::listOf)
+                NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) $NAME_VIZ")?.let(::listOf)
+                NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) $NAME_FILEMOON ", headers)
+                NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language) ")
+                else -> null
+            } ?: emptyList()
         }
     }
 
