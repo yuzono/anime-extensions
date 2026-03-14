@@ -10,4 +10,6 @@ dependencies {
     implementation(project(':lib:voeextractor'))
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:vidmolyextractor'))
 }

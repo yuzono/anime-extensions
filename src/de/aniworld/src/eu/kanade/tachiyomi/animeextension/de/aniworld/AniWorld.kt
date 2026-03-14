@@ -2,7 +2,9 @@ package eu.kanade.tachiyomi.animeextension.de.aniworld
 
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.aniworld.extractors.VidozaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -33,6 +35,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
+import kotlin.getValue
 
 class AniWorld :
     ParsedAnimeHttpSource(),
@@ -172,6 +175,13 @@ class AniWorld :
     }
 
     // ===== VIDEO SOURCES =====
+    private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
+    private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
+    private val vidozaExtractor by lazy { VidozaExtractor(client) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client) }
+
     override fun videoListSelector() = throw UnsupportedOperationException()
 
     override fun videoListParse(response: Response): List<Video> {
@@ -185,25 +195,37 @@ class AniWorld :
             when {
                 hoster.contains(NAME_VOE, true) && enabledHosters.contains(NAME_VOE) -> {
                     val url = getRedirectedUrl(redirectgs)
-                    VoeExtractor(client, headers).videosFromUrl(url, "($language) ")
+                    voeExtractor.videosFromUrl(url, "($language) ")
                 }
 
                 hoster.contains(NAME_DOOD, true) && enabledHosters.contains(NAME_DOOD) -> {
                     val quality = "Doodstream $language"
                     val url = getRedirectedUrl(redirectgs)
-                    DoodExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                    doodExtractor.videoFromUrl(url, quality)?.let(::listOf)
                 }
 
                 hoster.contains(NAME_STAPE, true) && enabledHosters.contains(NAME_STAPE) -> {
                     val quality = "Streamtape $language"
                     val url = getRedirectedUrl(redirectgs)
-                    StreamTapeExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                    streamTapeExtractor.videoFromUrl(url, quality)?.let(::listOf)
                 }
 
                 hoster.contains(NAME_VIZ, true) && enabledHosters.contains(NAME_VIZ) -> {
                     val quality = "Vidoza $language"
                     val url = getRedirectedUrl(redirectgs)
-                    VidozaExtractor(client).videoFromUrl(url, quality)?.let(::listOf)
+                    vidozaExtractor.videoFromUrl(url, quality)?.let(::listOf)
+                }
+
+                hoster.contains(NAME_FILEMOON, true) && enabledHosters.contains(NAME_FILEMOON) -> {
+                    val quality = "Filemoon $language"
+                    val url = getRedirectedUrl(redirectgs)
+                    filemoonExtractor.videosFromUrl(url, quality, headers)
+                }
+
+                hoster.contains(NAME_VIDMOLY, true) && enabledHosters.contains(NAME_VIDMOLY) -> {
+                    val quality = "Vidmoly $language"
+                    val url = getRedirectedUrl(redirectgs)
+                    vidmolyExtractor.videosFromUrl(url, quality)
                 }
 
                 else -> null
@@ -269,7 +291,7 @@ class AniWorld :
         private const val NAME_FILEMOON = "Filemoon"
         private const val NAME_VIDMOLY = "Vidmoly"
 
-        private val PREF_HOSTER_NAMES = listOf(NAME_VOE, NAME_DOOD, NAME_STAPE, NAME_VIZ)
+        private val PREF_HOSTER_NAMES = listOf(NAME_VOE, NAME_DOOD, NAME_STAPE, NAME_VIZ, NAME_FILEMOON, NAME_VIDMOLY)
         private val PREF_HOSTER_DEFAULT = PREF_HOSTER_NAMES.first()
 
         private const val PREF_LANG_KEY = "preferred_lang"
