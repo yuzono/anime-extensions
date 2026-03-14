@@ -183,12 +183,13 @@ class AniWorld :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
         val redirectlink = document.select("ul.row li")
+        val allowedHosters = PREF_HOSTER_NAMES - excludedHosters
         return redirectlink.parallelCatchingFlatMapBlocking { elm ->
             val langkey = elm.attr("data-lang-key")
             val language = getLanguage(langkey)
             val redirectgs = elm.selectFirst("a.watchEpisode")!!.attr("abs:href")
             val hoster = elm.select("a h4").text()
-            val matchedHoster = (PREF_HOSTER_NAMES - excludedHosters)
+            val matchedHoster = allowedHosters
                 .firstOrNull { hoster.contains(it, true) }
                 ?: return@parallelCatchingFlatMapBlocking emptyList()
             val url = getRedirectedUrl(redirectgs)
