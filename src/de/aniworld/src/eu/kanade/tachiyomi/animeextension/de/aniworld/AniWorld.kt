@@ -125,8 +125,8 @@ class AniWorld :
         thumbnail_url = document.selectFirst("div.seriesCoverBox img")?.attr("abs:data-src")
         genre = document.select("div.genres ul li").joinToString { it.text() }
         description = document.selectFirst("p.seri_des")?.attr("data-full-description")
-        document.selectFirst("div.cast li:contains(Produzent:) ul")?.let {
-            author = it.select("li").joinToString { li -> li.text() }
+        document.selectFirst("div.cast li:contains(Produzent:) ul")?.let { producerList: Element ->
+            author = producerList.select("li").joinToString { li -> li.text() }
         }
         status = SAnime.UNKNOWN
     }
@@ -152,9 +152,9 @@ class AniWorld :
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
         val num = element.attr("data-episode-season-id")
-        element.selectFirst("td.seasonEpisodeTitle a")!!.let { elm ->
-            val name = elm.select("span").text()
-            val url = elm.attr("href")
+        element.selectFirst("td.seasonEpisodeTitle a")!!.let { seasonEpisode: Element ->
+            val name = seasonEpisode.select("span").text()
+            val url = seasonEpisode.attr("href")
             if (url.contains("/filme")) {
                 episode.name = "Film $num : $name"
                 num.toFloatOrNull()?.let { episode.episode_number = it }
