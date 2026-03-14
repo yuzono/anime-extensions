@@ -137,18 +137,15 @@ class AniWorld :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        val episodeList = mutableListOf<SEpisode>()
         val seasonsElements = document.select("#stream > ul:nth-child(1) > li > a")
-        seasonsElements.forEach {
-            val seasonEpList = parseEpisodesFromSeries(it)
-            episodeList.addAll(seasonEpList)
-        }
-        return episodeList.reversed()
+        return seasonsElements.parallelCatchingFlatMapBlocking {
+            parseEpisodesFromSeries(it)
+        }.reversed()
     }
 
-    private fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
+    private suspend fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
         val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().useAsJsoup()
+        val episodesHtml = client.newCall(GET(seasonId)).awaitSuccess().useAsJsoup()
         val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
         return episodeElements.mapNotNull { runCatching { episodeFromElement(it) }.getOrNull() }
     }
