@@ -16,10 +16,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -35,7 +35,6 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
-import kotlin.getValue
 
 class AniWorld :
     ParsedAnimeHttpSource(),
@@ -100,7 +99,7 @@ class AniWorld :
     override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val body = response.body.string()
+        val body = response.bodyString()
         val results = json.decodeFromString<JsonArray>(body)
         val animes = results.mapNotNull {
             val obj = it.jsonObject
@@ -136,7 +135,7 @@ class AniWorld :
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val seasonsElements = document.select("#stream > ul:nth-child(1) > li > a")
         return seasonsElements.parallelCatchingFlatMapBlocking {
             parseEpisodesFromSeries(it)
@@ -182,7 +181,7 @@ class AniWorld :
     override fun videoListSelector() = throw UnsupportedOperationException()
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val redirectlink = document.select("ul.row li")
         return redirectlink.parallelCatchingFlatMapBlocking { elm ->
             val langkey = elm.attr("data-lang-key")
