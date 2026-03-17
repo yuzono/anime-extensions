@@ -165,8 +165,6 @@ class SushiAnimes : ParsedAnimeHttpSource() {
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
-    private val playlistUtils by lazy { PlaylistUtils(client) }
-
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
@@ -182,6 +180,7 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         val videoUrl = body.substringAfterLast("playerEmbed", "")
             .substringAfter("\"")
             .substringBefore("\"")
+            .replace("\\", "")
 
         return listOf(Video(videoUrl, "Sushi Animes", videoUrl))
     }
