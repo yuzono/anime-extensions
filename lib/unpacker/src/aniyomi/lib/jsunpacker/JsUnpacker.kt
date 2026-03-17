@@ -78,7 +78,7 @@ object JsUnpacker {
      */
     fun unpackAndCombine(scriptBlock: String): String? {
         val unpacked = unpack(scriptBlock)
-        return unpacked.joinToString(" ").takeIf { it.isNotEmpty() }
+        return unpacked.joinToString(" ").takeIf(String::isNotBlank)
     }
 
     /**
