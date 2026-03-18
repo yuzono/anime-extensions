@@ -5,7 +5,7 @@ import aniyomi.lib.jsunpacker.JsUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
@@ -14,7 +14,7 @@ class StreamHideVidExtractor(private val client: OkHttpClient, private val heade
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "StreamHideVid - $quality" }): List<Video> {
-        val doc = client.newCall(GET(getEmbedUrl(url), headers)).execute().asJsoup()
+        val doc = client.newCall(GET(getEmbedUrl(url), headers)).execute().useAsJsoup()
 
         val scriptBody = doc.selectFirst("script:containsData(m3u8)")?.data()
             ?.let { script ->
@@ -26,7 +26,8 @@ class StreamHideVidExtractor(private val client: OkHttpClient, private val heade
             }
         val masterUrl = scriptBody
             ?.substringAfter("source", "")
-            ?.substringAfter("file:\"", "")
+            ?.substringAfter("file:\"") // StreamHide
+            ?.substringAfter("src:\"") // StreamVid
             ?.substringBefore("\"", "")
             ?.takeIf(String::isNotBlank)
             ?: return emptyList()
