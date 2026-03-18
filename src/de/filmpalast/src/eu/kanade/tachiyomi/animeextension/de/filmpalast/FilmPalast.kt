@@ -5,7 +5,6 @@ import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.EvoloadExtractor
-import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.UpstreamExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -84,9 +83,6 @@ class FilmPalast :
             when {
                 url.contains("voe") && hosterSelection.contains("voe") ->
                     VoeExtractor(client, headers).videosFromUrl(url)
-
-                url.contains("upstream") && hosterSelection.contains("up") ->
-                    UpstreamExtractor(client).videoFromUrl(url)
 
                 url.contains("streamtape") && hosterSelection.contains("stape") -> {
                     runCatching {
@@ -246,14 +242,12 @@ class FilmPalast :
             "Voe",
             "Streamtape",
             "Evoload",
-            "Upstream",
             "WolfStream",
         )
         private val PREF_HOSTER_VALUES = arrayOf(
             "https://voe.sx",
             "https://streamtape.com",
             "https://evoload.io",
-            "https://upstream.to",
             "https://wolfstream",
         )
 
@@ -264,7 +258,6 @@ class FilmPalast :
             "voe",
             "stape",
             "evo",
-            "up",
             "wolf",
         )
         private val PREF_SELECTION_DEFAULT = PREF_SELECTION_VALUES.toSet()

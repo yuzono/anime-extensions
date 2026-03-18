@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.es.mundodonghua.extractors
 
 import eu.kanade.tachiyomi.animesource.model.Video
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -23,10 +22,10 @@ class ProteaExtractor {
                 val jObject = json.decodeFromString<JsonObject>(responseString)
                 val sources = jObject["source"]!!.jsonArray
                 sources.forEach { source ->
-                    var item = source.jsonObject
-                    var quality = "$qualityPrefix:${ item["label"]!!.jsonPrimitive.content }"
-                    var urlVideo = item["file"]!!.jsonPrimitive.content.removePrefix("//")
-                    var newHeaders = Headers.Builder()
+                    val item = source.jsonObject
+                    val quality = "$qualityPrefix:${ item["label"]!!.jsonPrimitive.content }"
+                    val urlVideo = item["file"]!!.jsonPrimitive.content.removePrefix("//")
+                    val newHeaders = Headers.Builder()
                         .set("authority", "www.nemonicplayer.xyz")
                         .set("accept", "*/*")
                         .set("accept-language", "es-MX,es-419;q=0.9,es;q=0.8,en;q=0.7")
