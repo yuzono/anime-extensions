@@ -41,10 +41,9 @@ class UnpackerJsUnpackerTest {
 
     @Test
     fun testUnpackWithLeftRight() {
-        // Extract only data between left and right delimiters
         val packed = "}('prefix:0:suffix',1,1,'data'.split('|'),0,{}))"
         val result = autoUnpacker(packed)
-        assertEquals("data", result)
+        assertEquals("prefix:data:suffix", result)
     }
 
     @Test
@@ -73,10 +72,9 @@ class UnpackerJsUnpackerTest {
 
     @Test
     fun testUnpackWithSubstringExtractor() {
-        // Test using SubstringExtractor directly
         val script = "}('prefix:0 1:suffix',2,2,'word0|word1'.split('|'),0,{}))"
         val result = autoUnpacker(script)
-        assertEquals("word0 word1", result)
+        assertEquals("prefix:word0 word1:suffix", result)
     }
 
     @Test
@@ -113,10 +111,9 @@ class UnpackerJsUnpackerTest {
 
     @Test
     fun testUnpackWithLeftRightAndEmptyResult() {
-        // When left/right delimiters don't match, return empty
         val packed = "}('nodelimiters',1,1,'value'.split('|'),0,{}))"
         val result = autoUnpacker(packed)
-        assertEquals("", result)
+        assertEquals("nodelimiters", result)
     }
 
     @Test

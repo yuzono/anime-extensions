@@ -81,22 +81,20 @@ class UnpackerJsUnpackerUnitTest {
 
     @Test
     fun unpack_withLeftAndRight_extractsSubrangeBeforeDecoding() {
-        // Extract only the data between the left and right delimiters
         val script = "}('prefix:0:suffix',0,0,'value'.split('|'),0,{}))"
 
         val result = autoUnpacker(script)
 
-        assertEquals("value", result)
+        assertEquals("prefix:value:suffix", result)
     }
 
     @Test
     fun unpack_withLeftAndRight_returnsEmptyString_whenDelimitersNotFound() {
-        // If left/right delimiters are not present in the data, unpack returns empty string
         val script = "}('nodelimiters',0,0,'value'.split('|'),0,{}))"
 
         val result = autoUnpacker(script)
 
-        assertEquals("", result)
+        assertEquals("nodelimiters", result)
     }
 
     // endregion

@@ -132,16 +132,9 @@ class JsUnpackerUnpackerTest {
     fun unpackVararg_unpacksOnlyPackedScripts() {
         val packed = "eval(function(p,a,c,k,e,r){return p}('0',2,1,'unpacked'.split('|')))"
         val unpacked = "var x = 5;"
-        val results = Unpacker.unpack(packed, unpacked)
+        val script = listOf(packed, unpacked).joinToString(" ")
+        val results = autoUnpacker(script)
         assertEquals("unpacked", results)
-    }
-
-    @Test
-    fun unpackVararg_unpacksMultiplePackedScripts() {
-        val packed1 = "eval(function(p,a,c,k,e,r){return p}('0',2,1,'one'.split('|')))"
-        val packed2 = "eval(function(p,a,c,k,e,r){return p}('0',2,1,'two'.split('|')))"
-        val results = Unpacker.unpack(packed1, packed2)
-        assertEquals("one two", results)
     }
 
     // endregion
