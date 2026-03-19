@@ -12,7 +12,7 @@ class AutoUnpackerUnpackerTest {
     // region unpack(scriptBlock: String)
 
     @Test
-    fun autoUnpacker_returnsNull_whenScriptIsNotPacked() {
+    fun autoUnpack_returnsNull_whenScriptIsNotPacked() {
         val unpackedScript = "var x = 5; console.log(x);"
         val results = autoUnpacker(unpackedScript)
         assertNull(results)
@@ -56,7 +56,7 @@ class AutoUnpackerUnpackerTest {
     }
 
     @Test
-    fun autoUnpack_returnsEmptySequence_whenSymtabCountMismatch() {
+    fun autoUnpack_returnsNull_whenSymtabCountMismatch() {
         // symtab has 1 element, count says 2 - malformed, should be ignored
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('0 1',2,2,'only'.split('|')))"
         val results = autoUnpacker(packedScript)
@@ -151,7 +151,7 @@ class AutoUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpackCollection_returnsEmptyList_whenEmptyCollection() {
+    fun unpackCollection_returnsNull_whenEmptyCollection() {
         val results = autoUnpacker("")
         assertNull(results)
     }
