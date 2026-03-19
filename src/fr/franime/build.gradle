@@ -1,5 +1,5 @@
 ext {
-    extName = 'FrAnime'
+    extName = 'FRAnime'
     extClass = '.FrAnime'
     extVersionCode = 23
     isNsfw = true

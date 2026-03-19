@@ -4,18 +4,19 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VidMolyExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VtubeExtractor
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import kotlinx.coroutines.runBlocking
 import org.jsoup.nodes.Element
 
 class Animenosub :
     AnimeStream(
         "en",
         "Animenosub",
-        "https://animenosub.com",
+        "https://animenosub.to",
     ) {
     // ============================== Episodes ==============================
     override fun getEpisodeName(element: Element, epNum: String): String {
@@ -26,32 +27,35 @@ class Animenosub :
 
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        val prefix = "$name - "
-        return when {
-            url.contains("streamwish") -> {
-                StreamWishExtractor(client, headers).videosFromUrl(url, prefix)
-            }
+    override fun getVideoList(url: String, name: String): List<Video> = runCatching {
+        runBlocking {
+            val prefix = "$name - "
+            when {
+                url.contains("streamwish") -> {
+                    StreamWishExtractor(client, headers).videosFromUrl(url, prefix)
+                }
 
-            url.contains("vidmoly") -> {
-                VidMolyExtractor(client).getVideoList(url, name)
-            }
+                // Omega
+                url.contains("vidmoly") -> {
+                    VidMolyExtractor(client, headers).videosFromUrl(url, prefix.trim())
+                }
 
-            url.contains("https://vtbe") -> {
-                VtubeExtractor(client, headers).videosFromUrl(url, baseUrl, prefix)
-            }
+                url.contains("https://vtbe") -> {
+                    VtubeExtractor(client, headers).videosFromUrl(url, baseUrl, prefix)
+                }
 
-            url.contains("wolfstream") -> {
-                WolfstreamExtractor(client).videosFromUrl(url, prefix)
-            }
+                url.contains("wolfstream") -> {
+                    WolfstreamExtractor(client).videosFromUrl(url, prefix)
+                }
 
-            url.contains("filemoon") -> {
-                FilemoonExtractor(client).videosFromUrl(url, prefix, headers)
-            }
+                name.contains("FileMoon", true) || url.contains("filemoon") -> {
+                    FilemoonExtractor(client).videosFromUrl(url, prefix, headers)
+                }
 
-            else -> emptyList()
+                else -> emptyList()
+            }
         }
-    }
+    }.getOrElse { emptyList() }
 
     // ============================== Settings ==============================
 
@@ -64,13 +68,6 @@ class Animenosub :
             entryValues = PREF_TYPE_VALUES
             setDefaultValue(PREF_TYPE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         val videoServer = ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
@@ -79,13 +76,6 @@ class Animenosub :
             entryValues = PREF_SERVER_VALUES
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
 
         screen.addPreference(videoTypePref)

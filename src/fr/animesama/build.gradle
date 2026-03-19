@@ -10,4 +10,5 @@ dependencies {
     implementation(project(':lib:sibnetextractor'))
     implementation(project(':lib:vkextractor'))
     implementation(project(':lib:sendvidextractor'))
+    implementation(project(':lib:vidmolyextractor'))
 }
