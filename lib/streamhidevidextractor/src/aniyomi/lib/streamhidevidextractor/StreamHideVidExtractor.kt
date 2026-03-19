@@ -1,10 +1,10 @@
 package aniyomi.lib.streamhidevidextractor
 
-import android.util.Log
 import aniyomi.lib.jsunpacker.JsUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -12,6 +12,7 @@ import okhttp3.OkHttpClient
 class StreamHideVidExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val fileRegex by lazy { Regex("""(?:file|src):"([^"]+)"""") }
 
     fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "StreamHideVid - $quality" }): List<Video> {
         val doc = client.newCall(GET(getEmbedUrl(url), headers)).execute().useAsJsoup()
@@ -26,13 +27,13 @@ class StreamHideVidExtractor(private val client: OkHttpClient, private val heade
             }
         val masterUrl = scriptBody
             ?.substringAfter("source", "")
-            ?.substringAfter("file:\"") // StreamHide
-            ?.substringAfter("src:\"") // StreamVid
-            ?.substringBefore("\"", "")
+            ?.let {
+                fileRegex.find(it)?.groupValues?.get(1)
+            }
             ?.takeIf(String::isNotBlank)
+            ?.let { UrlUtils.fixUrl(it, url) }
             ?: return emptyList()
 
-        Log.d("StreamHideVidExtractor", "Playlist URL: $masterUrl")
         return playlistUtils.extractFromHls(masterUrl, url, videoNameGen = videoNameGen)
     }
 
