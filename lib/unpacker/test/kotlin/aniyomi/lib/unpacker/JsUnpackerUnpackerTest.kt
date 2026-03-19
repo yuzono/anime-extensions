@@ -12,7 +12,7 @@ class JsUnpackerUnpackerTest {
     // region unpack(scriptBlock: String)
 
     @Test
-    fun unpack_returnsEmptySequence_whenScriptIsNotPacked() {
+    fun autoUnpacker_returnsNull_whenScriptIsNotPacked() {
         val unpackedScript = "var x = 5; console.log(x);"
         val results = autoUnpacker(unpackedScript)
         assertNull(results)
