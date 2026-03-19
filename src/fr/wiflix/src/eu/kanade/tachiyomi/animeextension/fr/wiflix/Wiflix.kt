@@ -2,9 +2,9 @@ package eu.kanade.tachiyomi.animeextension.fr.wiflix
 
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.streamdavextractor.StreamDavExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.upstreamextractor.UpstreamExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.vidoextractor.VidoExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.vudeoextractor.VudeoExtractor
@@ -86,7 +86,7 @@ class Wiflix :
                     contains("uqload.co") -> UqloadExtractor(client).videosFromUrl(this)
                     contains("waaw1.tv") -> emptyList()
                     contains("vudeo.co") -> VudeoExtractor(client).videosFromUrl(this)
-                    contains("streamvid.net") -> StreamHideVidExtractor(client, headers).videosFromUrl(this)
+                    contains("streamvid.net") -> VidHideExtractor(client, headers).videosFromUrl(this)
                     contains("upstream.to") -> UpstreamExtractor(client).videosFromUrl(this)
                     contains("streamdav.com") -> StreamDavExtractor(client).videosFromUrl(this)
                     contains("voe.sx") -> VoeExtractor(client, headers).videosFromUrl(this)

@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.fr.hds
 
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
@@ -52,7 +52,7 @@ class Hds :
     data class VideoLinkDTO(@SerialName("embed_url") val url: String)
 
     private val fileMoonExtractor by lazy { FilemoonExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -68,7 +68,7 @@ class Hds :
             val playerUrl = client.newCall(GET(securedUrl, headers)).execute().use { it.request.url.toString() }
             when {
                 playerUrl.contains("sentinel") -> fileMoonExtractor.videosFromUrl(playerUrl)
-                playerUrl.contains("hdsplay") -> streamHideVidExtractor.videosFromUrl(playerUrl)
+                playerUrl.contains("hdsplay") -> vidHideExtractor.videosFromUrl(playerUrl)
                 else -> emptyList()
             }
         }

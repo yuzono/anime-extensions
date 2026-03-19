@@ -1,11 +1,12 @@
 package eu.kanade.tachiyomi.animeextension.pt.pifansubs
 
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animeextension.pt.pifansubs.extractors.BlembedExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -40,11 +41,11 @@ class PiFansubs :
         }
     }
 
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val blembedExtractor by lazy { BlembedExtractor(client, headers) }
 
     private fun getPlayerVideos(url: String): List<Video> = when {
-        "https://vidhide" in url -> streamHideVidExtractor.videosFromUrl(url)
+        "https://vidhide" in url -> runBlocking { vidHideExtractor.videosFromUrl(url) }
         "https://blembed" in url -> blembedExtractor.videosFromUrl(url)
         else -> emptyList<Video>()
     }

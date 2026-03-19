@@ -4,9 +4,9 @@ import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
-import aniyomi.lib.streamvidextractor.StreamVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.AnimeDetailsDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodeListDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodePageDto
@@ -26,6 +26,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.Response
@@ -147,7 +148,7 @@ class MoflixStream :
 
     // ============================ Video Links =============================
     private val streamtapeExtractor by lazy { StreamTapeExtractor(client) }
-    private val streamvidExtractor by lazy { StreamVidExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val luluExtractor by lazy { UnpackerExtractor(client, headers) }
@@ -169,11 +170,11 @@ class MoflixStream :
         }
 
         name.contains("Streamvid") && selection.contains("svid") -> {
-            streamvidExtractor.videosFromUrl(url)
+            runBlocking { vidHideExtractor.videosFromUrl(url) }
         }
 
         name.contains("Highstream") && selection.contains("hstream") -> {
-            streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
+            runBlocking { vidHideExtractor.videosFromUrl(url) { "Highstream - $it" } }
         }
 
         name.contains("VidGuard") && selection.contains("vidg") -> {

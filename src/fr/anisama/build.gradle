@@ -12,5 +12,5 @@ dependencies {
     implementation(project(':lib:sibnetextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:doodextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
 }

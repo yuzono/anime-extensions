@@ -5,11 +5,11 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -112,7 +112,7 @@ class Animejl :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
@@ -130,7 +130,7 @@ class Animejl :
                 url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
                 url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
                 url.contains("streamwish") || url.contains("playerwish") -> streamWishExtractor.videosFromUrl(url)
-                url.contains("streamhidevid") -> streamHideVidExtractor.videosFromUrl(url)
+                url.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(url)
                 url.contains("voe") -> voeExtractor.videosFromUrl(url)
                 url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
                 url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)

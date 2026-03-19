@@ -2,10 +2,10 @@ package eu.kanade.tachiyomi.animeextension.es.detodopeliculas
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -45,7 +45,7 @@ class DeTodoPeliculas :
 
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
@@ -71,7 +71,7 @@ class DeTodoPeliculas :
         val vidHideDomains = listOf("vidhide", "VidHidePro", "luluvdo", "vidhideplus")
         val vidHideDomain = vidHideDomains.firstOrNull { it in url }
         return when {
-            vidHideDomain != null -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$lang - $vidHideDomain : $it" })
+            vidHideDomain != null -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang - $vidHideDomain : $it" })
             "uqload" in url -> uqloadExtractor.videosFromUrl(url, "$lang - ")
             "strwish" in url -> streamWishExtractor.videosFromUrl(url, "$lang - ")
             "vidguard" in url || "listeamed" in url -> vidGuardExtractor.videosFromUrl(url, "$lang - ")

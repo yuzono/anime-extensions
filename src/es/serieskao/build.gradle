@@ -22,7 +22,7 @@ dependencies {
     implementation(project(':lib:burstcloudextractor'))
     implementation(project(':lib:fastreamextractor'))
     implementation(project(':lib:upstreamextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:streamsilkextractor'))
     implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:cryptoaes'))

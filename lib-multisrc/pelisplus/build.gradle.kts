@@ -20,7 +20,7 @@ dependencies {
     api(project(":lib:burstcloudextractor"))
     api(project(":lib:fastreamextractor"))
     api(project(":lib:upstreamextractor"))
-    api(project(":lib:streamhidevidextractor"))
+    api(project(":lib:vidhideextractor"))
     api(project(":lib:streamsilkextractor"))
     api(project(":lib:vidguardextractor"))
     api(project(":lib:universalextractor"))

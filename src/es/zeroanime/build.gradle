@@ -8,7 +8,7 @@ apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(':lib:universalextractor'))
-    implementation(project(':lib:streamvidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:mp4uploadextractor'))

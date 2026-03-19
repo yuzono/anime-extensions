@@ -5,7 +5,6 @@ import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.EvoloadExtractor
-import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.StreamHideVidExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.UpstreamExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -125,12 +124,6 @@ class FilmPalast :
                         }
                     }
                 }
-
-                url.contains("hide") && hosterSelection.contains("hide") ->
-                    StreamHideVidExtractor(client).videosFromUrl(url, "StreamHide")
-
-                url.contains("streamvid") && hosterSelection.contains("vid") ->
-                    StreamHideVidExtractor(client).videosFromUrl(url, "StreamVid")
 
                 "wolfstream" in url && hosterSelection.contains("wolf") -> {
                     client.newCall(GET(url, headers)).execute()
@@ -254,8 +247,6 @@ class FilmPalast :
             "Streamtape",
             "Evoload",
             "Upstream",
-            "StreamHide",
-            "StreamVid",
             "WolfStream",
         )
         private val PREF_HOSTER_VALUES = arrayOf(
@@ -263,8 +254,6 @@ class FilmPalast :
             "https://streamtape.com",
             "https://evoload.io",
             "https://upstream.to",
-            "hide.com",
-            "streamvid.net",
             "https://wolfstream",
         )
 
@@ -276,8 +265,6 @@ class FilmPalast :
             "stape",
             "evo",
             "up",
-            "hide",
-            "vid",
             "wolf",
         )
         private val PREF_SELECTION_DEFAULT = PREF_SELECTION_VALUES.toSet()

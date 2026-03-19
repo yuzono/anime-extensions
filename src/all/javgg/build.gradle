@@ -10,7 +10,7 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:okruextractor'))
     implementation(project(':lib:streamwishextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:voeextractor'))
     implementation(project(':lib:youruploadextractor'))
 }
