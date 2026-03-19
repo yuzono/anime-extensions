@@ -4,7 +4,7 @@ import aniyomi.lib.autoUnpacker
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-class JsUnpackerUnpackerUnitTest {
+class AutoUnpackerUnpackerUnitTest {
 
     @Test
     fun callUnpackedCorrectly() {

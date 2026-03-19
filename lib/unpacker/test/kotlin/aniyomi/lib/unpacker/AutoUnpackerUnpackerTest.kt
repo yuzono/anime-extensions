@@ -7,7 +7,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class JsUnpackerUnpackerTest {
+class AutoUnpackerUnpackerTest {
 
     // region unpack(scriptBlock: String)
 
@@ -19,7 +19,7 @@ class JsUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpack_unpacksSimplePackedScript() {
+    fun autoUnpack_unpacksSimplePackedScript() {
         // payload "0 1" with radix 2, symtab ["word0","word1"] -> "word0 word1"
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('0 1',2,2,'word0|word1'.split('|')))"
         val results = autoUnpacker(packedScript)
@@ -27,28 +27,28 @@ class JsUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpack_unpacksWithBase10() {
+    fun autoUnpack_unpacksWithBase10() {
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('0 1 2',10,3,'a|b|c'.split('|')))"
         val results = autoUnpacker(packedScript)
         assertEquals("a b c", results)
     }
 
     @Test
-    fun unpack_unpacksWithBase62() {
+    fun autoUnpack_unpacksWithBase62() {
         val packedScript = """eval(function(p,a,c,k,e,r){e=String;if(!''.replace(/^/,String)){while(c--)r[c]=k[c]||c;k=[function(e){return r[e]}];e=function(){return'\\w+'};c=1};while(c--)if(k[c])p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c]);return p}('0 1',2,2,'test|data'.split('|'),0,{}))"""
         val results = autoUnpacker(packedScript)
         assertEquals("test data", results)
     }
 
     @Test
-    fun unpack_unpacksWithEmptySymtab() {
+    fun autoUnpack_unpacksWithEmptySymtab() {
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('',1,1,''.split('|')))"
         val results = autoUnpacker(packedScript)
         assertNull(results)
     }
 
     @Test
-    fun unpack_unpacksWithEmptySymtabWithPayload() {
+    fun autoUnpack_unpacksWithEmptySymtabWithPayload() {
         // Return unchanged payload if malformed symtab
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('test data',1,1,''.split('|')))"
         val results = autoUnpacker(packedScript)
@@ -56,7 +56,7 @@ class JsUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpack_returnsEmptySequence_whenSymtabCountMismatch() {
+    fun autoUnpack_returnsEmptySequence_whenSymtabCountMismatch() {
         // symtab has 1 element, count says 2 - malformed, should be ignored
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('0 1',2,2,'only'.split('|')))"
         val results = autoUnpacker(packedScript)
@@ -64,7 +64,7 @@ class JsUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpack_unpacksMultipleOccurrencesInSameScript() {
+    fun autoUnpack_unpacksMultipleOccurrencesInSameScript() {
         val packedScript = """
             eval(function(p,a,c,k,e,r){return p}('0',2,1,'first'.split('|')))
             eval(function(p,a,c,k,e,r){return p}('0',2,1,'second'.split('|')))
@@ -74,7 +74,7 @@ class JsUnpackerUnpackerTest {
     }
 
     @Test
-    fun unpack_preservesUnknownWords() {
+    fun autoUnpack_preservesUnknownWords() {
         // Words not in symtab (e.g. invalid index) are preserved as-is
         val packedScript = "eval(function(p,a,c,k,e,r){return p}('0 1',2,2,'a|b'.split('|')))"
         val results = autoUnpacker(packedScript)

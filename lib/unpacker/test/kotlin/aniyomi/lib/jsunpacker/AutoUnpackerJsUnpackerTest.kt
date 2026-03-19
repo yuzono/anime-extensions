@@ -5,7 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class UnpackerJsUnpackerTest {
+class AutoUnpackerJsUnpackerTest {
 
     @Test
     fun testUnpackSimplePackedScript() {

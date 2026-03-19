@@ -5,12 +5,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class UnpackerJsUnpackerUnitTest {
+class AutoUnpackerJsUnpackerUnitTest {
 
     // region unpack(String)
 
     @Test
-    fun unpack_decodesNumericKeys_withDictionaryEntries() {
+    fun autoUnpack_decodesNumericKeys_withDictionaryEntries() {
         val script =
             "}('0 1 9',0,0,'zero|one|two|three|four|five|six|seven|eight|nine'.split('|'),0,{}))"
 
@@ -20,7 +20,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_decodesAlphaKeys_usingBase62Mapping() {
+    fun autoUnpack_decodesAlphaKeys_usingBase62Mapping() {
         val dict62 = (0..61).joinToString("|") { "v$it" }
         val script = "}('0 a z A Z',0,0,'$dict62'.split('|'),0,{}))"
 
@@ -30,7 +30,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_decodesAlphaKeys_inBase62AlphabetOrder() {
+    fun autoUnpack_decodesAlphaKeys_inBase62AlphabetOrder() {
         val dict62 = (0..61).joinToString("|") { "v$it" }
         val packed = "}('0 a z A Z',62,62,'$dict62'.split('|'),0,{}))"
 
@@ -40,7 +40,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_usesKeyWhenDictionaryEntryIsEmpty() {
+    fun autoUnpack_usesKeyWhenDictionaryEntryIsEmpty() {
         // When dictionary entry is empty, use the key itself
         val script = "}('0 1 2',0,0,'zero||two'.split('|'),0,{}))"
 
@@ -50,7 +50,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_usesKeyWhenIndexIsOutOfBounds() {
+    fun autoUnpack_usesKeyWhenIndexIsOutOfBounds() {
         // If the decoded index is >= dictionary size, keep the original key
         // "Z" decodes to 61 in base62; dictionary has only one entry.
         val script = "}('0 Z',0,0,'first'.split('|'),0,{}))"
@@ -61,7 +61,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_preservesNonWordCharacters() {
+    fun autoUnpack_preservesNonWordCharacters() {
         // Non-word characters (+-*/.) should be preserved
         val script = "}('0+1-2*3/4',0,0,'a|b|c|d|e'.split('|'),0,{}))"
 
@@ -71,7 +71,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_returnsEmptyString_whenDataSectionIsEmpty() {
+    fun autoUnpack_returnsNull_whenDataSectionIsEmpty() {
         val script = "}('',0,0,''.split('|'),0,{}))"
 
         val result = autoUnpacker(script)
@@ -80,7 +80,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_withLeftAndRight_extractsSubrangeBeforeDecoding() {
+    fun autoUnpack_decodesTokenWithinSurroundingText() {
         val script = "}('prefix:0:suffix',0,0,'value'.split('|'),0,{}))"
 
         val result = autoUnpacker(script)
@@ -89,7 +89,7 @@ class UnpackerJsUnpackerUnitTest {
     }
 
     @Test
-    fun unpack_withLeftAndRight_returnsEmptyString_whenDelimitersNotFound() {
+    fun autoUnpack_returnsOriginalString_whenNoDelimitersOrTokensFound() {
         val script = "}('nodelimiters',0,0,'value'.split('|'),0,{}))"
 
         val result = autoUnpacker(script)
