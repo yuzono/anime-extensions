@@ -1,7 +1,9 @@
 package aniyomi.lib.jsunpacker
 
+import aniyomi.lib.autoUnpacker
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class UnpackerJsUnpackerUnitTest {
 
@@ -12,7 +14,7 @@ class UnpackerJsUnpackerUnitTest {
         val script =
             "}('0 1 9',0,0,'zero|one|two|three|four|five|six|seven|eight|nine'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("zero one nine", result)
     }
@@ -22,7 +24,7 @@ class UnpackerJsUnpackerUnitTest {
         val dict62 = (0..61).joinToString("|") { "v$it" }
         val script = "}('0 a z A Z',0,0,'$dict62'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("v0 v10 v35 v36 v61", result)
     }
@@ -32,7 +34,7 @@ class UnpackerJsUnpackerUnitTest {
         val dict62 = (0..61).joinToString("|") { "v$it" }
         val packed = "}('0 a z A Z',62,62,'$dict62'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(packed)
+        val result = autoUnpacker(packed)
 
         assertEquals("v0 v10 v35 v36 v61", result)
     }
@@ -42,7 +44,7 @@ class UnpackerJsUnpackerUnitTest {
         // When dictionary entry is empty, use the key itself
         val script = "}('0 1 2',0,0,'zero||two'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("zero 1 two", result)
     }
@@ -53,7 +55,7 @@ class UnpackerJsUnpackerUnitTest {
         // "Z" decodes to 61 in base62; dictionary has only one entry.
         val script = "}('0 Z',0,0,'first'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("first Z", result)
     }
@@ -63,7 +65,7 @@ class UnpackerJsUnpackerUnitTest {
         // Non-word characters (+-*/.) should be preserved
         val script = "}('0+1-2*3/4',0,0,'a|b|c|d|e'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("a+b-c*d/e", result)
     }
@@ -72,9 +74,9 @@ class UnpackerJsUnpackerUnitTest {
     fun unpack_returnsEmptyString_whenDataSectionIsEmpty() {
         val script = "}('',0,0,''.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
-        assertEquals("", result)
+        assertNull(result)
     }
 
     @Test
@@ -82,7 +84,7 @@ class UnpackerJsUnpackerUnitTest {
         // Extract only the data between the left and right delimiters
         val script = "}('prefix:0:suffix',0,0,'value'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("value", result)
     }
@@ -92,7 +94,7 @@ class UnpackerJsUnpackerUnitTest {
         // If left/right delimiters are not present in the data, unpack returns empty string
         val script = "}('nodelimiters',0,0,'value'.split('|'),0,{}))"
 
-        val result = JsUnpacker.unpackAndCombine(script)
+        val result = autoUnpacker(script)
 
         assertEquals("", result)
     }

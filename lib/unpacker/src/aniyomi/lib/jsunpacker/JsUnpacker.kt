@@ -125,10 +125,11 @@ object JsUnpacker {
             val count = result.groups[3]?.value?.toIntOrNull()
             val unbaser = Unbaser(radix)
 
-            if (symtab == null || count == null || symtab.size != count) {
-                throw Exception("Unknown p.a.c.k.e.r. encoding")
+            if (payload == null || symtab == null || count == null || symtab.size != count) {
+                // Ignore this occurrence as it cannot be unpacked correctly
+                null
             } else {
-                payload?.replace(unpackReplaceRegex) { match ->
+                payload.replace(unpackReplaceRegex) { match ->
                     val word = match.value
                     val unbased = symtab.getOrNull(unbaser.unbase(word)) ?: ""
                     unbased.ifEmpty { word }
