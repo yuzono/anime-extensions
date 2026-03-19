@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors
 
+import aniyomi.lib.autoUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
-import aniyomi.lib.unpacker.Unpacker
+import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.base64Rot13ReverseUnmix
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.partsRegex
-import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.rot13ReverseUnmix
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -28,12 +28,10 @@ class RapidrameExtractor(private val client: OkHttpClient, private val headers: 
         val script = doc.selectFirst("script:containsData(eval)")?.data()
             ?: return emptyList()
 
-        val unpackedScript = Unpacker.unpack(script).takeIf(String::isNotBlank)
-            ?: return emptyList()
-
+        val unpackedScript = autoUnpacker(script) ?: return emptyList()
         val parts = partsRegex.find(unpackedScript)?.groupValues?.get(1)?.split(",")
             ?: return emptyList()
-        val playlistUrl = rot13ReverseUnmix(parts.toTypedArray())
+        val playlistUrl = base64Rot13ReverseUnmix(parts.toTypedArray())
 
         val hostUrl = "https://" + url.toHttpUrl().host
         val videoHeaders = headers.newBuilder()
