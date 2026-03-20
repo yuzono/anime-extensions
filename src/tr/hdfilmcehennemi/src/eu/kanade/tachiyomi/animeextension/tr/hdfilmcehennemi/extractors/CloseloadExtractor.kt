@@ -1,13 +1,16 @@
 package eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors
 
-import android.util.Base64
-import aniyomi.lib.unpacker.Unpacker
+import aniyomi.lib.autoUnpacker
+import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.base64Rot13ReverseUnmix
+import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.partsRegex
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -15,21 +18,19 @@ import okhttp3.OkHttpClient
 
 class CloseloadExtractor(private val client: OkHttpClient, private val headers: Headers) {
     suspend fun videosFromUrl(url: String, name: String): List<Video> {
-        val doc = client.newCall(GET(url, headers)).await().asJsoup()
+        val doc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
         val script = doc.selectFirst("script:containsData(eval):containsData(PlayerInit)")?.data()
             ?: return emptyList()
 
-        val unpackedScript = Unpacker.unpack(script).takeIf(String::isNotEmpty)
+        val unpackedScript = autoUnpacker(script) ?: return emptyList()
+        val parts = partsRegex.find(unpackedScript)?.groupValues?.get(1)?.split(",")
             ?: return emptyList()
-
-        val varName = unpackedScript.substringAfter("atob(").substringBefore(")")
-        val playlistUrl = unpackedScript.getProperty("$varName=")
-            .let { String(Base64.decode(it, Base64.DEFAULT)) }
+        val playlistUrl = base64Rot13ReverseUnmix(parts.toTypedArray())
 
         val hostUrl = "https://" + url.toHttpUrl().host
         val videoHeaders = headers.newBuilder()
             .set("Referer", url)
-            .set("origin", hostUrl)
+            .set("Origin", hostUrl)
             .build()
 
         runCatching { tryAjaxPost(unpackedScript, hostUrl) }
@@ -46,13 +47,8 @@ class CloseloadExtractor(private val client: OkHttpClient, private val headers: 
     private suspend fun tryAjaxPost(script: String, hostUrl: String) {
         val hash = script.getProperty("hash:")
         val url = script.getProperty("url:").let {
-            when {
-                it.startsWith("//") -> "https:$it"
-                it.startsWith("/") -> "https://" + hostUrl + it
-                !it.startsWith("https://") -> "https://$it"
-                else -> it
-            }
-        }
+            UrlUtils.fixUrl(it, hostUrl)
+        } ?: return
 
         val body = FormBody.Builder().add("hash", hash).build()
 

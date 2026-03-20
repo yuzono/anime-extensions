@@ -1,45 +1,52 @@
 package eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors
 
-import android.util.Base64
+import aniyomi.lib.autoUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
-import aniyomi.lib.unpacker.Unpacker
+import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.base64Rot13ReverseUnmix
+import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.partsRegex
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+
 @Serializable
-class TrackDto(val file: String, val label: String, val language: String)
+class TrackDto(val file: String, val label: String, val language: String, val kind: String)
 
 class RapidrameExtractor(private val client: OkHttpClient, private val headers: Headers) {
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val tracksRegex by lazy { Regex("""tracks:\s*(\[[^]]*?]),""") }
 
     suspend fun videosFromUrl(url: String, label: String): List<Video> {
-        val doc = client.newCall(GET(url, headers)).await().asJsoup()
-        val script = doc.selectFirst("script:containsData(eval):containsData(atob)")?.data()
+        val doc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+        val script = doc.selectFirst("script:containsData(eval)")?.data()
             ?: return emptyList()
 
-        val unpackedScript = Unpacker.unpack(script).takeIf(String::isNotEmpty)
+        val unpackedScript = autoUnpacker(script) ?: return emptyList()
+        val parts = partsRegex.find(unpackedScript)?.groupValues?.get(1)?.split(",")
             ?: return emptyList()
-
-        val varName = script.substringAfter("atob(").substringBefore(")")
-        val playlistUrl = unpackedScript.getProperty("$varName=")
-            .let { String(Base64.decode(it, Base64.DEFAULT)) }
+        val playlistUrl = base64Rot13ReverseUnmix(parts.toTypedArray())
 
         val hostUrl = "https://" + url.toHttpUrl().host
         val videoHeaders = headers.newBuilder()
             .set("Referer", url)
-            .set("origin", hostUrl)
+            .set("Origin", hostUrl)
             .build()
 
-        val subtitles = script.substringAfter("tracks:").substringBefore("],")
-            .parseAs<List<TrackDto>> { it + "]" }
-            .map { Track(hostUrl + it.file, "[${it.language}] ${it.label}") }
+        val subtitles = tracksRegex.find(script)?.groupValues?.get(1)
+            ?.parseAs<List<TrackDto>>()
+            ?.filter { track -> track.kind == "captions" }
+            ?.mapNotNull { track ->
+                UrlUtils.fixUrl(track.file, hostUrl)?.let { trackUrl ->
+                    Track(trackUrl, "[${track.language}] ${track.label}")
+                }
+            } ?: emptyList()
 
         return playlistUtils.extractFromHls(
             playlistUrl,
@@ -49,6 +56,4 @@ class RapidrameExtractor(private val client: OkHttpClient, private val headers: 
             videoNameGen = { "$label - $it" },
         )
     }
-
-    private fun String.getProperty(before: String) = substringAfter("$before\"").substringBefore('"')
 }
