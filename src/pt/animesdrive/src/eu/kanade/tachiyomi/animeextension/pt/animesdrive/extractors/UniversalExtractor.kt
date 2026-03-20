@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.pt.animeplay
+package eu.kanade.tachiyomi.animeextension.pt.animesdrive.extractors
 
 import android.annotation.SuppressLint
 import android.app.Application
@@ -9,8 +9,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient

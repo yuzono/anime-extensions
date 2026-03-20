@@ -10,6 +10,6 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:m3u8server"))
+    implementation(project(":lib:bloggerextractor"))
     implementation(project(":lib:playlistutils"))
 }
