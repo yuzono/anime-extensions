@@ -31,14 +31,7 @@ object Deobfuscator {
         val decoded = Base64.decode(result, Base64.DEFAULT)
 
         // unmix characters
-        val sb = StringBuilder()
-        for (i in decoded.indices) {
-            var charCode = decoded[i].toInt()
-            charCode = (charCode - (399756995 % (i + 5)) + 256) % 256
-            sb.append(charCode.toChar())
-        }
-
-        return sb.toString()
+        return decoded.unmix()
     }
 
     fun base64Rot13ReverseUnmix(valueParts: Array<String>): String {
@@ -63,18 +56,22 @@ object Deobfuscator {
         decoded = decoded.reversed().toByteArray()
 
         // unmix characters
-        val sb = StringBuilder()
-        for (i in decoded.indices) {
-            var charCode = decoded[i].toInt()
-            charCode = (charCode - (399756995 % (i + 5)) + 256) % 256
-            sb.append(charCode.toChar())
-        }
-
-        return sb.toString()
+        return decoded.unmix()
     }
 }
 
-fun Char.isAlphabet(): Boolean {
+private fun ByteArray.unmix(): String {
+    val sb = StringBuilder()
+    for (i in indices) {
+        var charCode = this[i].toInt()
+        charCode = (charCode - (399756995 % (i + 5)) + 256) % 256
+        sb.append(charCode.toChar())
+    }
+
+    return sb.toString()
+}
+
+private fun Char.isAlphabet(): Boolean {
     val code = this.code
     return code in 65..90 || code in 97..122
 }
