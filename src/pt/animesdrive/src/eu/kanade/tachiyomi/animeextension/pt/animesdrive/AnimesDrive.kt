@@ -22,7 +22,7 @@ class AnimesDrive :
     DooPlay(
         "pt-BR",
         "Animes Drive",
-        "https://animesdrive.blog",
+        "https://animesdrive.online",
     ) {
 
     // ============================== Popular ===============================
@@ -35,8 +35,8 @@ class AnimesDrive :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
 
-        val orderByFilter = filters.find { it is OrderByFilter } as OrderByFilter
-        val orderFilter = filters.find { it is OrderFilter } as OrderFilter
+        val orderByFilter = filterList.find { it is OrderByFilter } as? OrderByFilter
+        val orderFilter = filterList.find { it is OrderFilter } as? OrderFilter
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             filterList.firstOrNull { it is UriPartFilter && it.state != 0 }?.let {
@@ -52,9 +52,9 @@ class AnimesDrive :
             addPathSegment("")
             addQueryParameter("s", query)
 
-            // order
-            addQueryParameter("orderby", orderByFilter.selected)
-            addQueryParameter("order", orderFilter.selected)
+            // order (optional)
+            if (orderByFilter != null) addQueryParameter("orderby", orderByFilter.selected)
+            if (orderFilter != null) addQueryParameter("order", orderFilter.selected)
         }.build()
 
         return GET(url.toString(), headers)
@@ -124,7 +124,7 @@ class AnimesDrive :
                 }
             }
 
-        val url = getPlayerUrl(player) ?: return emptyList()
+        val url = getPlayerUrl(player)
 
         val videos = when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
@@ -158,13 +158,10 @@ class AnimesDrive :
         val id = player.attr("data-post")
         val num = player.attr("data-nume")
         return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/$type/$num"))
-            .execute()
-            .let { response ->
-                response.body.string()
-                    .substringAfter("\"embed_url\":\"")
-                    .substringBefore("\",")
-                    .replace("\\", "")
-            }
+            .execute().body.string()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
     }
 
     // ============================== Filters ===============================
@@ -269,7 +266,7 @@ class AnimesDrive :
         )
     }
 
-    override fun Element.getImageUrl(): String? {
+    override fun Element.getImageUrl(): String {
         val url = when {
             hasAttr("data-src") -> attr("abs:data-src")
             hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
