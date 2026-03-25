@@ -284,7 +284,7 @@ class Hstream :
 
     // ============================= Utilities ==============================
     private fun getSeriesBaseUrl(url: String): String {
-        return url.replace(Regex("-\\d+/?$"), "").trimEnd('/')
+        return url.replace(SERIES_URL_REGEX, "").trimEnd('/')
     }
 
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
