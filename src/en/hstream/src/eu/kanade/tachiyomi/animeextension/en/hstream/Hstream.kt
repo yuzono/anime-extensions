@@ -175,19 +175,20 @@ class Hstream :
         episodes.add(parseEpisodeFromDoc(doc, 1, "$seriesPath-1/"))
 
         // Probe for more episodes (2..50), break on first failure
-        for (epNum in 2..50) {
-            val epPath = "$seriesPath-$epNum/"
-            try {
-                val resp = client.newCall(GET("$baseUrl$epPath")).execute()
-                if (resp.code != 200) {
-                    resp.close()
-                    break
+        run loop@{
+            for (epNum in 2..50) {
+                val epPath = "$seriesPath-$epNum/"
+                try {
+                    client.newCall(GET("$baseUrl$epPath")).execute().use { resp ->
+                        if (resp.code != 200) {
+                            return@loop
+                        }
+                        val epDoc = resp.asJsoup()
+                        episodes.add(parseEpisodeFromDoc(epDoc, epNum, epPath))
+                    }
+                } catch (e: Exception) {
+                    return@loop
                 }
-                val epDoc = resp.asJsoup()
-                episodes.add(parseEpisodeFromDoc(epDoc, epNum, epPath))
-                resp.close()
-            } catch (e: Exception) {
-                break
             }
         }
 
