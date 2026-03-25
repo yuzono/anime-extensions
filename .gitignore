@@ -12,3 +12,5 @@ gen
 generated-src/
 .kotlin
 .history
+/.opencode/
+/.ocx/
