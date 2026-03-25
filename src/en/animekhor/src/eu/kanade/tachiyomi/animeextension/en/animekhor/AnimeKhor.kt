@@ -2,9 +2,10 @@ package eu.kanade.tachiyomi.animeextension.en.animekhor
 
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.animeextension.en.animekhor.extractors.StreamHideExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import kotlinx.coroutines.runBlocking
 
 class AnimeKhor :
     AnimeStream(
@@ -18,7 +19,7 @@ class AnimeKhor :
         val prefix = "$name - "
         return when {
             url.contains("ahvsh.com") || name.equals("streamhide", true) -> {
-                StreamHideExtractor(client, headers).videosFromUrl(url, prefix = prefix)
+                runBlocking { VidHideExtractor(client, headers).videosFromUrl(url) { "$prefix$it" } }
             }
 
             url.contains("ok.ru") -> {

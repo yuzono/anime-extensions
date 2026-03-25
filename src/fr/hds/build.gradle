@@ -3,12 +3,12 @@ ext {
     extClass = '.Hds'
     themePkg = 'dooplay'
     baseUrl = 'https://www.hds.quest'
-    overrideVersionCode = 9
+    overrideVersionCode = 11
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(':lib:filemoonextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
 }

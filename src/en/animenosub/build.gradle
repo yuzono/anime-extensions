@@ -3,7 +3,7 @@ ext {
     extClass = '.Animenosub'
     themePkg = 'animestream'
     baseUrl = 'https://animenosub.com'
-    overrideVersionCode = 14
+    overrideVersionCode = 16
     isNsfw = true
 }
 

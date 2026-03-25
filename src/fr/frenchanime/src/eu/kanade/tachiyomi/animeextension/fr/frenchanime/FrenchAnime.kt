@@ -3,11 +3,10 @@ package eu.kanade.tachiyomi.animeextension.fr.frenchanime
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamhubextractor.StreamHubExtractor
-import aniyomi.lib.streamvidextractor.StreamVidExtractor
 import aniyomi.lib.upstreamextractor.UpstreamExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import aniyomi.lib.vidoextractor.VidoExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -93,8 +92,7 @@ class FrenchAnime :
     private val upstreamExtractor by lazy { UpstreamExtractor(client) }
     private val vudeoExtractor by lazy { VudeoExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
-    private val streamVidExtractor by lazy { StreamVidExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidoExtractor by lazy { VidoExtractor(client) }
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -116,9 +114,8 @@ class FrenchAnime :
                     contains("uqload") -> uqloadExtractor.videosFromUrl(this)
 
                     contains("guccihide") ||
-                        contains("streamhide") -> streamHideVidExtractor.videosFromUrl(this)
-
-                    contains("streamvid") -> streamVidExtractor.videosFromUrl(this)
+                        contains("streamhide") ||
+                        contains("streamvid") -> vidHideExtractor.videosFromUrl(this)
 
                     contains("vido") -> vidoExtractor.videosFromUrl(this)
 

@@ -1,7 +1,7 @@
 ext {
     extName = 'Latanime'
     extClass = '.Latanime'
-    extVersionCode = 33
+    extVersionCode = 35
 }
 
 apply from: "$rootDir/common.gradle"

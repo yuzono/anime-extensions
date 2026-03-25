@@ -8,7 +8,6 @@ import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
@@ -16,6 +15,7 @@ import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.upstreamextractor.UpstreamExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -152,7 +152,7 @@ class Animefenix :
     private val burstcloudExtractor by lazy { BurstCloudExtractor(client) }
     private val upstreamExtractor by lazy { UpstreamExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val filelionsExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val amazonExtractor by lazy { AmazonExtractor(client) }
@@ -186,7 +186,7 @@ class Animefenix :
 
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
 
-            "vidhide" -> streamHideVidExtractor.videosFromUrl(url)
+            "vidhide" -> vidHideExtractor.videosFromUrl(url)
 
             "filelions" -> filelionsExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
 

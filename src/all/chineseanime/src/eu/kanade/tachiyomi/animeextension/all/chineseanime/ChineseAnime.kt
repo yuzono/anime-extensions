@@ -3,11 +3,12 @@ package eu.kanade.tachiyomi.animeextension.all.chineseanime
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
-import aniyomi.lib.streamvidextractor.StreamVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animeextension.all.chineseanime.extractors.VatchusExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import kotlinx.coroutines.runBlocking
 
 class ChineseAnime :
     AnimeStream(
@@ -28,7 +29,7 @@ class ChineseAnime :
     // ============================ Video Links =============================
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val streamvidExtractor by lazy { StreamVidExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vatchusExtractor by lazy { VatchusExtractor(client, headers) }
 
     override fun getVideoList(url: String, name: String): List<Video> {
@@ -37,7 +38,7 @@ class ChineseAnime :
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
             url.contains("embedwish") -> streamwishExtractor.videosFromUrl(url, prefix)
             url.contains("vatchus") -> vatchusExtractor.videosFromUrl(url, prefix)
-            url.contains("donghua.xyz/v/") -> streamvidExtractor.videosFromUrl(url, prefix, true)
+            url.contains("donghua.xyz/v/") -> runBlocking { vidHideExtractor.videosFromUrl(url) { "$prefix $it" } }
             else -> emptyList()
         }
     }

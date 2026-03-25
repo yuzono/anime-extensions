@@ -23,7 +23,6 @@ import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.AlucardExtract
 import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.EmbedgramExtractor
 import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.MVidooExtractor
 import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.MailRuExtractor
-import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.StreamVidExtractor
 import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.VTubeExtractor
 import eu.kanade.tachiyomi.animeextension.tr.turkanime.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -357,10 +356,6 @@ class TurkAnime :
                 SibnetExtractor(client).videosFromUrl(hosterLink, prefix = "$subber: ")
             }
 
-            "STREAMVID" -> {
-                StreamVidExtractor(client).videosFromUrl(hosterLink, headers, prefix = "$subber: ")
-            }
-
             "UQLOAD" -> {
                 UqloadExtractor(client).videosFromUrl(hosterLink, "$subber:")
             }
@@ -483,7 +478,6 @@ class TurkAnime :
             "ODNOKLASSNIKI",
             "SENDVID",
             "SIBNET",
-            "STREAMVID",
             "UQLOAD",
             "VK",
             "VOE",

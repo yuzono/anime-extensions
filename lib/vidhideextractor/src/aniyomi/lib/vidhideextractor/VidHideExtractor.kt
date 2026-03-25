@@ -1,5 +1,6 @@
 package aniyomi.lib.vidhideextractor
 
+import aniyomi.lib.autoUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -42,7 +43,7 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
         .select("script")
         .find { it.html().contains("eval(function(p,a,c,k,e,d)") }
         ?.html()
-        ?.let { JsUnpacker(it).unpack() }
+        ?.let(::autoUnpacker)
 
     private fun extractVideoUrl(script: String, baseUrl: String): List<String> = sourceRegex
         .findAll(script).mapNotNull {

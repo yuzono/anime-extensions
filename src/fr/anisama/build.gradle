@@ -1,7 +1,7 @@
 ext {
     extName = 'AniSama'
     extClass = '.AniSama'
-    extVersionCode = 19
+    extVersionCode = 21
 }
 
 apply from: "$rootDir/common.gradle"
@@ -12,5 +12,5 @@ dependencies {
     implementation(project(':lib:sibnetextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:doodextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
 }

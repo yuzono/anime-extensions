@@ -9,12 +9,12 @@ import aniyomi.lib.fastreamextractor.FastreamExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.upstreamextractor.UpstreamExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.vudeoextractor.VudeoExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
@@ -539,7 +539,7 @@ class Doramasflix :
 
             "streamtape" in embedUrl || "stp" in embedUrl || "stape" in embedUrl -> listOf(StreamTapeExtractor(client).videoFromUrl(url, quality = "$prefix StreamTape")!!)
 
-            "ahvsh" in embedUrl || "streamhide" in embedUrl -> StreamHideVidExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHide:$it" })
+            "ahvsh" in embedUrl || "streamhide" in embedUrl -> VidHideExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHide:$it" })
 
             "filelions" in embedUrl || "lion" in embedUrl -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix FileLions:$it" })
 

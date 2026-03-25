@@ -6,8 +6,8 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
-import aniyomi.lib.streamvidextractor.StreamVidExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -160,7 +161,7 @@ class Zeroanime :
                 }
 
                 embedUrl.contains("streamvid") -> {
-                    StreamVidExtractor(client).videosFromUrl(url).also { videoList.addAll(it) }
+                    runBlocking { VidHideExtractor(client, headers).videosFromUrl(url).also { videoList.addAll(it) } }
                 }
 
                 else -> {

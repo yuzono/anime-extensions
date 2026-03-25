@@ -3,9 +3,9 @@ package eu.kanade.tachiyomi.animeextension.es.lacartoons
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 
@@ -145,7 +146,9 @@ class Lacartoons :
             }
 
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
-                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url)
+                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> runBlocking {
+                VidHideExtractor(client, headers).videosFromUrl(url)
+            }
 
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
 

@@ -5,9 +5,9 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -164,7 +165,7 @@ class AnimeBum :
 
     // ============================ Video Extractor ==========================
 
-    private val vidHideExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
@@ -190,7 +191,7 @@ class AnimeBum :
             val vidHideDomains = listOf("vidhide", "VidHidePro", "luluvdo", "vidhideplus")
 
             val video = when {
-                vidHideDomains.any { videoUrl.contains(it, ignoreCase = true) } -> vidHideExtractor.videosFromUrl(videoUrl)
+                vidHideDomains.any { videoUrl.contains(it, ignoreCase = true) } -> runBlocking { vidHideExtractor.videosFromUrl(videoUrl) }
 
                 "drive.google" in videoUrl -> {
                     val newUrl = "https://gdriveplayer.to/embed2.php?link=$videoUrl"

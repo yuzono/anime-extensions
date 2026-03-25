@@ -1,7 +1,9 @@
 package aniyomi.lib.luluextractor
 
+import aniyomi.lib.autoUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.bodyString
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -19,7 +21,7 @@ class LuluExtractor(private val client: OkHttpClient, headers: Headers) {
         val videos = mutableListOf<Video>()
 
         try {
-            val html = client.newCall(GET(url, headers)).execute().use { it.body.string() }
+            val html = client.newCall(GET(url, headers)).execute().bodyString()
             val m3u8Url = extractM3u8Url(html) ?: return emptyList()
             val fixedUrl = fixM3u8Link(m3u8Url)
             val quality = getResolution(fixedUrl)
@@ -35,7 +37,7 @@ class LuluExtractor(private val client: OkHttpClient, headers: Headers) {
     private fun extractM3u8Url(html: String): String? {
         return when {
             html.contains("eval(function(p,a,c,k,e") -> {
-                val unpacked = JavaScriptUnpacker.unpack(html) ?: return null
+                val unpacked = autoUnpacker(html) ?: return null
                 Pattern.compile("sources:\\[\\{file:\"([^\"]+)\"")
                     .matcher(unpacked)
                     .takeIf { it.find() }
@@ -91,7 +93,7 @@ class LuluExtractor(private val client: OkHttpClient, headers: Headers) {
 
     private fun getResolution(m3u8Url: String): String = try {
         val content = client.newCall(GET(m3u8Url, headers)).execute()
-            .use { it.body.string() }
+            .bodyString()
 
         Pattern.compile("RESOLUTION=\\d+x(\\d+)")
             .matcher(content)
@@ -99,45 +101,7 @@ class LuluExtractor(private val client: OkHttpClient, headers: Headers) {
             ?.group(1)
             ?.let { "${it}p" }
             ?: "Unknown"
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         "Unknown"
-    }
-}
-
-object JavaScriptUnpacker {
-    private val UNPACK_REGEX by lazy {
-        Regex(
-            """\}\('(.*)', *(\d+), *(\d+), *'(.*?)'\.split\('\|'\)""",
-            RegexOption.DOT_MATCHES_ALL,
-        )
-    }
-    fun unpack(encodedJs: String): String? {
-        val match = UNPACK_REGEX.find(encodedJs) ?: return null
-        val (payload, radixStr, countStr, symtabStr) = match.destructured
-
-        val radix = radixStr.toIntOrNull() ?: return null
-        val count = countStr.toIntOrNull() ?: return null
-        val symtab = symtabStr.split('|')
-
-        if (symtab.size != count) throw IllegalArgumentException("Invalid symtab size")
-
-        val baseDict = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            .take(radix)
-            .withIndex()
-            .associate { it.value to it.index }
-
-        return Regex("""\b\w+\b""").replace(payload) { mr ->
-            symtab.getOrNull(unbase(mr.value, radix, baseDict)) ?: mr.value
-        }.replace("\\", "")
-    }
-    private fun unbase(value: String, radix: Int, dict: Map<Char, Int>): Int {
-        var result = 0
-        var multiplier = 1
-
-        for (char in value.reversed()) {
-            result += dict[char]?.times(multiplier) ?: 0
-            multiplier *= radix
-        }
-        return result
     }
 }

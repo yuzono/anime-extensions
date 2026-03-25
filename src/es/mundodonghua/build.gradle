@@ -1,7 +1,7 @@
 ext {
     extName = 'MundoDonghua'
     extClass = '.MundoDonghua'
-    extVersionCode = 38
+    extVersionCode = 40
 }
 
 apply from: "$rootDir/common.gradle"
@@ -9,6 +9,7 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:voeextractor'))
-    implementation(project(':lib:playlistutils'))
     implementation(project(':lib:dailymotionextractor'))
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:unpacker'))
 }

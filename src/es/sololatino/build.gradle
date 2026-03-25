@@ -3,7 +3,7 @@ ext {
     extClass = '.SoloLatino'
     themePkg = 'dooplay'
     baseUrl = 'https://sololatino.net'
-    overrideVersionCode = 16
+    overrideVersionCode = 18
 }
 
 apply from: "$rootDir/common.gradle"
@@ -11,7 +11,7 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(":lib:streamwishextractor"))
     implementation(project(":lib:uqloadextractor"))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:voeextractor'))
     implementation(project(":lib:doodextractor"))

@@ -3,9 +3,9 @@ package eu.kanade.tachiyomi.animeextension.es.estrenosdoramas
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 
@@ -134,7 +135,7 @@ class EstrenosDoramas :
     /*--------------------------------Video extractors------------------------------------*/
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
@@ -143,7 +144,7 @@ class EstrenosDoramas :
         arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
         arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
         arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> streamHideVidExtractor.videosFromUrl(url)
+        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> runBlocking { vidHideExtractor.videosFromUrl(url) }
         arrayOf("voe", "robertordercharacter", "donaldlineelse").any(url) -> voeExtractor.videosFromUrl(url)
         arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers)
         arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)

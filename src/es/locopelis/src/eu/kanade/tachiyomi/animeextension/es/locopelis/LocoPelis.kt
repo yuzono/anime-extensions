@@ -4,8 +4,8 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -98,7 +98,7 @@ class LocoPelis :
                     contains("ok.ru") || contains("okru") -> OkruExtractor(client).videosFromUrl(this)
 
                     contains("vidhide") || contains("streamhide") || contains("guccihide") || contains("streamvid")
-                    -> StreamHideVidExtractor(client, headers).videosFromUrl(this)
+                    -> VidHideExtractor(client, headers).videosFromUrl(this)
 
                     else -> emptyList()
                 }

@@ -7,10 +7,10 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
-import aniyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -230,7 +230,7 @@ class SoloLatino :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
 
@@ -244,7 +244,7 @@ class SoloLatino :
             "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix ")
             "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
             "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-            "vidhide" -> streamHideVidExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
+            "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix - VidHide:$it" })
             else -> emptyList()
         }
     }
