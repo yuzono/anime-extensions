@@ -46,7 +46,7 @@ class Hstream :
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
-    override val versionId = 2
+    override val versionId = 3
 
     private val preferences by getPreferencesLazy()
 
@@ -56,13 +56,24 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
+        val href = element.attr("href")
+        setUrlWithoutDomain(getSeriesBaseUrl(href))
         title = element.selectFirst("img")!!.attr("alt")
-        val episode = url.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        val episode = href.substringAfterLast("-").substringBefore("/")
+        thumbnail_url = "$baseUrl/images${href.substringBeforeLast("-")}/cover-ep-$episode.webp"
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val elements = document.select(popularAnimeSelector())
+        val animeList = elements.map(::popularAnimeFromElement)
+            .groupBy { it.title }
+            .map { (_, items) -> items.first() }
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
@@ -72,6 +83,16 @@ class Hstream :
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val elements = document.select(latestUpdatesSelector())
+        val animeList = elements.map(::latestUpdatesFromElement)
+            .groupBy { it.title }
+            .map { (_, items) -> items.first() }
+        val hasNextPage = document.selectFirst(latestUpdatesNextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
 
     // =============================== Search ===============================
     override fun getFilterList() = HstreamFilters.FILTER_LIST
@@ -114,6 +135,16 @@ class Hstream :
 
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val elements = document.select(searchAnimeSelector())
+        val animeList = elements.map(::searchAnimeFromElement)
+            .groupBy { it.title }
+            .map { (_, items) -> items.first() }
+        val hasNextPage = document.selectFirst(searchAnimeNextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
+
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = SAnime.COMPLETED
@@ -129,17 +160,47 @@ class Hstream :
     }
 
     // ============================== Episodes ==============================
+    override fun episodeListRequest(anime: SAnime): Request {
+        val seriesUrl = getSeriesBaseUrl(anime.url)
+        return GET("$baseUrl$seriesUrl-1/")
+    }
+
     override fun episodeListParse(response: Response): List<SEpisode> {
+        val currentUrl = response.request.url.encodedPath
+        val seriesPath = getSeriesBaseUrl(currentUrl)
+        val episodes = mutableListOf<SEpisode>()
+
+        // Parse episode 1 from the current response
         val doc = response.asJsoup()
-        val episode = SEpisode.create().apply {
-            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
-            setUrlWithoutDomain(doc.location())
-            val num = url.substringAfterLast("-").substringBefore("/")
-            episode_number = num.toFloatOrNull() ?: 1F
-            name = "Episode $num"
+        episodes.add(parseEpisodeFromDoc(doc, 1, "$seriesPath-1/"))
+
+        // Probe for more episodes (2..50), break on first failure
+        for (epNum in 2..50) {
+            val epPath = "$seriesPath-$epNum/"
+            try {
+                val resp = client.newCall(GET("$baseUrl$epPath")).execute()
+                if (resp.code != 200) {
+                    resp.close()
+                    break
+                }
+                val epDoc = resp.asJsoup()
+                episodes.add(parseEpisodeFromDoc(epDoc, epNum, epPath))
+                resp.close()
+            } catch (e: Exception) {
+                break
+            }
         }
 
-        return listOf(episode)
+        return episodes
+    }
+
+    private fun parseEpisodeFromDoc(doc: Document, epNum: Int, url: String): SEpisode {
+        return SEpisode.create().apply {
+            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
+            setUrlWithoutDomain(url)
+            episode_number = epNum.toFloat()
+            name = "Episode $epNum"
+        }
     }
 
     override fun episodeListSelector(): String = throw UnsupportedOperationException()
@@ -221,6 +282,10 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
+    private fun getSeriesBaseUrl(url: String): String {
+        return url.replace(Regex("-\\d+/?$"), "").trimEnd('/')
+    }
+
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
 
