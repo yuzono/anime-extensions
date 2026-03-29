@@ -4,7 +4,6 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.CloseloadExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.RapidrameExtractor
-import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.VidmolyExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.XBetExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -173,7 +172,7 @@ class HDFilmCehennemi :
 
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -237,7 +236,6 @@ class HDFilmCehennemi :
     }
 
     // ============================ Video Links =============================
-    private val vidmolyExtractor by lazy { VidmolyExtractor(client, headers) }
     private val closeloadExtractor by lazy { CloseloadExtractor(client, headers) }
     private val rapidrameExtractor by lazy { RapidrameExtractor(client, headers) }
     private val xbetExtractor by lazy { XBetExtractor(client, headers) }
@@ -270,8 +268,6 @@ class HDFilmCehennemi :
                 name,
             )
 
-            name.contains("vidmoly") -> vidmolyExtractor.videosFromUrl(url, name)
-
             url.contains("trstx.org") -> xbetExtractor.videosFromUrl(url)
 
             else -> emptyList()
@@ -293,13 +289,6 @@ class HDFilmCehennemi :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
