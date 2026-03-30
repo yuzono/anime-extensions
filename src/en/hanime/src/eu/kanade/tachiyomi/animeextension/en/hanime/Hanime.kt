@@ -148,14 +148,20 @@ class Hanime :
             .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
 
         return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
-            server.streams.map { stream -> Video(stream.url, stream.height + "p", stream.url) }
+            server.streams.mapNotNull { stream ->
+                val url = stream.url ?: return@mapNotNull null
+                val height = stream.height ?: return@mapNotNull null
+                Video(url, "${height}p", url)
+            }
         } ?: emptyList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
-        return responseString.parseAs<VideoModel>().videosManifest?.servers?.get(0)?.streams?.filter { it.kind != "premium_alert" }?.map {
-            Video(it.url, "${it.height}p", it.url)
+        return responseString.parseAs<VideoModel>().videosManifest?.servers?.firstOrNull()?.streams?.filter { it.kind != "premium_alert" }?.mapNotNull { stream ->
+            val url = stream.url ?: return@mapNotNull null
+            val height = stream.height ?: return@mapNotNull null
+            Video(url, "${height}p", url)
         } ?: emptyList()
     }
 
