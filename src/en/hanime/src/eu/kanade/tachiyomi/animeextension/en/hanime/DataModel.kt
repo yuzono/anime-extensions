@@ -228,7 +228,8 @@ data class WindowNuxt(
     ) {
         @Serializable
         data class Data(
-            val video: DataVideo,
+            val video: DataVideo? = null,
+            val hentai_videos: List<HentaiVideo> = emptyList(),
         ) {
             @Serializable
             data class DataVideo(
