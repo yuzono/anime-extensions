@@ -108,9 +108,18 @@ class Hanime :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
+        val slug = document.location().substringAfterLast("/")
+
+        val nuxtData = document.selectFirst("script:containsData(__NUXT__)")?.data()
+        val coverUrl = nuxtData?.let {
+            it.substringAfter("__NUXT__=").substringBeforeLast(";")
+                .parseAs<WindowNuxt>().state.data.hentai_videos
+                .firstOrNull { video -> video.slug == slug }?.coverUrl
+        }
+
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
-            thumbnail_url = document.select("img.hvpi-cover").attr("src")
+            thumbnail_url = coverUrl ?: document.select("img.hvpi-cover").attr("src")
             author = document.select("a.hvpimbc-text").text()
             description = document.select("div.hvpist-description p").joinToString("\n\n") { it.text() }
             status = SAnime.UNKNOWN
@@ -138,9 +147,9 @@ class Hanime :
         val parsed = document.selectFirst("script:containsData(__NUXT__)")!!.data()
             .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
 
-        return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
+        return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
             server.streams.map { stream -> Video(stream.url, stream.height + "p", stream.url) }
-        }
+        } ?: emptyList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
