@@ -66,8 +66,7 @@ class Hstream :
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
 
-    override fun popularAnimeParse(response: Response) =
-        parseAnimeList(response, ::popularAnimeSelector, ::popularAnimeFromElement, ::popularAnimeNextPageSelector)
+    override fun popularAnimeParse(response: Response) = parseAnimeList(response, ::popularAnimeSelector, ::popularAnimeFromElement, ::popularAnimeNextPageSelector)
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
@@ -78,8 +77,7 @@ class Hstream :
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesParse(response: Response) =
-        parseAnimeList(response, ::latestUpdatesSelector, ::latestUpdatesFromElement, ::latestUpdatesNextPageSelector)
+    override fun latestUpdatesParse(response: Response) = parseAnimeList(response, ::latestUpdatesSelector, ::latestUpdatesFromElement, ::latestUpdatesNextPageSelector)
 
     // =============================== Search ===============================
     override fun getFilterList() = HstreamFilters.FILTER_LIST
@@ -122,8 +120,7 @@ class Hstream :
 
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun searchAnimeParse(response: Response) =
-        parseAnimeList(response, ::searchAnimeSelector, ::searchAnimeFromElement, ::searchAnimeNextPageSelector)
+    override fun searchAnimeParse(response: Response) = parseAnimeList(response, ::searchAnimeSelector, ::searchAnimeFromElement, ::searchAnimeNextPageSelector)
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -174,13 +171,11 @@ class Hstream :
         return episodes
     }
 
-    private fun parseEpisodeFromDoc(doc: Document, epNum: Int, url: String): SEpisode {
-        return SEpisode.create().apply {
-            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
-            setUrlWithoutDomain(url)
-            episode_number = epNum.toFloat()
-            name = "Episode $epNum"
-        }
+    private fun parseEpisodeFromDoc(doc: Document, epNum: Int, url: String): SEpisode = SEpisode.create().apply {
+        date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
+        setUrlWithoutDomain(url)
+        episode_number = epNum.toFloat()
+        name = "Episode $epNum"
     }
 
     override fun episodeListSelector(): String = throw UnsupportedOperationException()
@@ -279,9 +274,7 @@ class Hstream :
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun getSeriesBaseUrl(url: String): String {
-        return url.replace(Regex("-\\d+/?$"), "").trimEnd('/')
-    }
+    private fun getSeriesBaseUrl(url: String): String = url.replace(Regex("-\\d+/?$"), "").trimEnd('/')
 
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
