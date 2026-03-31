@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.ResponseDto
@@ -16,13 +14,18 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
@@ -44,7 +47,16 @@ class AnimePahe :
     override val name = "AnimePahe"
 
     override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+        if (stored != null && stored in PREF_DOMAIN_VALUES) {
+            stored
+        } else {
+            // Normalize invalid or null value back to the default to keep preferences consistent
+            preferences.edit()
+                .putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+                .apply()
+            PREF_DOMAIN_DEFAULT
+        }
     }
 
     override val lang = "en"
@@ -64,14 +76,15 @@ class AnimePahe :
         ?: GET("$baseUrl${anime.url}")
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("div.title-wrapper > h1 > span")!!.text()
             author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studio:)")
                 ?.text()
                 ?.replace("Studio: ", "")
-            status = parseStatus(document.selectFirst("div.col-sm-4.anime-info p:contains(Status:) a")!!.text())
-            thumbnail_url = document.selectFirst("div.anime-poster a")!!.attr("href")
+            document.selectFirst("div.col-sm-4.anime-info p:contains(Status:) a")?.text()
+                ?.let { status = parseStatus(it) }
+            thumbnail_url = document.selectFirst("div.anime-poster a")?.attr("href")
             genre = document.select(
                 "div.anime-genre ul li, " +
                     "div.col-sm-4.anime-info p:contains(Demographic:) a, " +
@@ -190,7 +203,7 @@ class AnimePahe :
             }
             return AnimesPage(animeList, false)
         } else if (url.pathSegments.contains("anime")) {
-            val document = response.asJsoup()
+            val document = response.useAsJsoup()
             val entries = document.select("div.index div > a").mapNotNull { a ->
                 a.attr("href").takeIf { it.isNotBlank() }
                     ?.let {
@@ -216,11 +229,11 @@ class AnimePahe :
     override fun relatedAnimeListRequest(anime: SAnime) = animeDetailsRequest(anime)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val relationAnimes = document.select("div.anime-content div.anime-relation .mx-n1")
         val recommendationAnimes = document.select("div.anime-content div.anime-recommendation .mx-n1")
         return (relationAnimes + recommendationAnimes).mapNotNull { entry ->
-            entry.selectFirst("h5 > a")?.let {
+            entry.selectFirst("h5 > a")?.let { it: Element ->
                 SAnime.create().apply {
                     // Related animes URL using sessionId, it doesn't come with animeId
                     setUrlWithoutDomain(it.attr("href"))
@@ -253,7 +266,8 @@ class AnimePahe :
         val url = response.request.url.toString()
         val session = animeSessionRegex.find(url)?.groupValues?.get(1)
             ?: throw IllegalStateException("Anime session not found in URL: $url")
-        val episodeList = recursivePages(response, session)
+        val episodeList = mutableListOf<SEpisode>()
+        recursivePages(episodeList, response, session)
 
         return episodeList
             .mapIndexed { index, episode ->
@@ -280,16 +294,16 @@ class AnimePahe :
         }
     }.toMutableList()
 
-    private fun recursivePages(response: Response, animeSession: String): List<SEpisode> {
+    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String) {
         val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
         val page = episodesData.currentPage
         val hasNextPage = page < episodesData.lastPage
-        val returnList = parseEpisodePage(episodesData.items, animeSession)
+        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
         if (hasNextPage) {
-            val nextPage = nextPageRequest(response.request.url.toString(), page + 1)
-            returnList += recursivePages(nextPage, animeSession)
+            nextPageRequest(response.request.url.toString(), page + 1).use { nextPage ->
+                recursivePages(episodeList, nextPage, animeSession)
+            }
         }
-        return returnList
     }
 
     private fun nextPageRequest(url: String, page: Int): Response {
@@ -299,27 +313,31 @@ class AnimePahe :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        return document.select("div#resolutionMenu > button").mapIndexed { index, btn ->
-            val kwikLink = btn.attr("data-src")
-            val quality = btn.text()
-            val paheWinLink = downloadLinks[index].attr("href")
-            getVideo(paheWinLink, kwikLink, quality)
+        return runBlocking {
+            document.select("div#resolutionMenu > button").withIndex().parallelCatchingMapNotNull { (index, btn) ->
+                val kwikLink = btn.attr("data-src")
+                val quality = btn.text()
+                val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
+                    ?: return@parallelCatchingMapNotNull null
+                getVideo(paheWinLink, kwikLink, quality)
+            }
         }
     }
 
-    private fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-        val videoUrl = KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = baseUrl)
-        Video(
+    private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
+        val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
+            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = baseUrl)
+        } else {
+            KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
+        }
+        return Video(
             videoUrl,
             quality,
             videoUrl,
             headers = Headers.headersOf("referer", "https://kwik.cx"),
         )
-    } else {
-        val videoUrl = KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
-        Video(videoUrl, quality, videoUrl)
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -351,78 +369,43 @@ class AnimePahe :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_ENTRIES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val domainPref = ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            entries = PREF_DOMAIN_ENTRIES
-            entryValues = PREF_DOMAIN_VALUES
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val subPref = ListPreference(screen.context).apply {
-            key = PREF_SUB_KEY
-            title = PREF_SUB_TITLE
-            entries = PREF_SUB_ENTRIES
-            entryValues = PREF_SUB_VALUES
-            setDefaultValue(PREF_SUB_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val linkPref = SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_LINK_TYPE_KEY
-            title = PREF_LINK_TYPE_TITLE
-            summary = PREF_LINK_TYPE_SUMMARY
-            setDefaultValue(PREF_LINK_TYPE_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val new = newValue as Boolean
-                preferences.edit().putBoolean(key, new).commit()
-            }
-        }
-        val av1Pref = SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_AV1_KEY
-            title = PREF_AV1_TITLE
-            summary = PREF_AV1_SUMMARY
-            setDefaultValue(PREF_AV1_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val new = newValue as Boolean
-                preferences.edit().putBoolean(key, new).commit()
-            }
-        }
-        screen.addPreference(videoQualityPref)
-        screen.addPreference(domainPref)
-        screen.addPreference(subPref)
-        screen.addPreference(linkPref)
-        screen.addPreference(av1Pref)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_DOMAIN_KEY,
+            title = PREF_DOMAIN_TITLE,
+            entries = PREF_DOMAIN_ENTRIES,
+            entryValues = PREF_DOMAIN_VALUES,
+            default = PREF_DOMAIN_DEFAULT,
+            summary = "%s",
+            restartRequired = true,
+        )
+        screen.addListPreference(
+            key = PREF_SUB_KEY,
+            title = PREF_SUB_TITLE,
+            entries = PREF_SUB_ENTRIES,
+            entryValues = PREF_SUB_VALUES,
+            default = PREF_SUB_DEFAULT,
+            summary = "%s",
+        )
+        screen.addSwitchPreference(
+            key = PREF_LINK_TYPE_KEY,
+            title = PREF_LINK_TYPE_TITLE,
+            summary = PREF_LINK_TYPE_SUMMARY,
+            default = PREF_LINK_TYPE_DEFAULT,
+        )
+        screen.addSwitchPreference(
+            key = PREF_AV1_KEY,
+            title = PREF_AV1_TITLE,
+            summary = PREF_AV1_SUMMARY,
+            default = PREF_AV1_DEFAULT,
+        )
     }
 
     // ============================= Utilities ==============================
@@ -432,8 +415,9 @@ class AnimePahe :
      * so we need to fetch the anime session every time.
      */
     private fun fetchSession(animeId: String): String {
-        val resolveAnimeRequest = client.newCall(GET("$baseUrl/a/$animeId")).execute()
-        val sessionId = resolveAnimeRequest.request.url.pathSegments.last()
+        val sessionId = client.newCall(GET("$baseUrl/a/$animeId")).execute().use {
+            it.request.url.pathSegments.last()
+        }
         return sessionId
     }
 
@@ -458,26 +442,27 @@ class AnimePahe :
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
 
-        private const val PREF_QUALITY_KEY = "preffered_quality"
+        private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "360p")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
 
-        private const val PREF_DOMAIN_KEY = "preffered_domain"
+        private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
-        private const val PREF_DOMAIN_DEFAULT = "https://animepahe.si"
-        private val PREF_DOMAIN_ENTRIES = arrayOf("animepahe.si")
-        private val PREF_DOMAIN_VALUES by lazy {
-            PREF_DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
-        }
+        private val PREF_DOMAIN_ENTRIES = listOf(
+            "animepahe.com",
+            "animepahe.org",
+        )
+        private val PREF_DOMAIN_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }
+        private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
-        private const val PREF_SUB_KEY = "preffered_sub"
+        private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_TITLE = "Prefer subs or dubs?"
         private const val PREF_SUB_DEFAULT = "jpn"
-        private val PREF_SUB_ENTRIES = arrayOf("sub", "dub")
-        private val PREF_SUB_VALUES = arrayOf("jpn", "eng")
+        private val PREF_SUB_ENTRIES = listOf("sub", "dub")
+        private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
-        private const val PREF_LINK_TYPE_KEY = "preffered_link_type"
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
         private const val PREF_LINK_TYPE_DEFAULT = false
         private val PREF_LINK_TYPE_SUMMARY by lazy {
@@ -487,7 +472,7 @@ class AnimePahe :
         }
 
         // Big slap to whoever misspelled `preferred`
-        private const val PREF_AV1_KEY = "preffered_av1"
+        private const val PREF_AV1_KEY = "preferred_av1"
         private const val PREF_AV1_TITLE = "Use AV1 codec"
         private const val PREF_AV1_DEFAULT = false
         private val PREF_AV1_SUMMARY by lazy {
