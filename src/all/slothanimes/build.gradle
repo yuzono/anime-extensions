@@ -1,0 +1,12 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+ext {
+    extName = 'Sloth Animes'
+    pkgNameSuffix = 'all.slothanimes'
+    extClass = '.SlothAnimes'
+    extVersionCode = 1
+    libVersion = '14'
+}
+
+apply from: "$reactNativeRootDir/common.gradle"
