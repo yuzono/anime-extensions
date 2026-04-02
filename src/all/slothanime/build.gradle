@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
 ext {
-    extName = 'Sloth Anime'
+    extName = 'slothanime'
     pkgNameSuffix = 'all.slothanime'
     extClass = '.SlothAnime'
     extVersionCode = 1
