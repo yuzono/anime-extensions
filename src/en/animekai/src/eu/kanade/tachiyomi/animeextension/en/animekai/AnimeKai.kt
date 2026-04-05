@@ -457,13 +457,13 @@ class AnimeKai :
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
 
-        // Domain list: https://animekai.ws
+        // Domain list: https://animekai.pw
         private val DOMAIN_ENTRIES = listOf(
             "animekai.to",
-            "animekai.im",
+            "animekai.fi",
+            "animekai.fo",
+            "animekai.gs",
             "animekai.la",
-            "animekai.nl",
-            "animekai.vc",
             "anikai.to",
         )
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
