@@ -450,6 +450,7 @@ class AnimePahe :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
         private val PREF_DOMAIN_ENTRIES = listOf(
+            "animepahe.pw",
             "animepahe.com",
             "animepahe.org",
         )
