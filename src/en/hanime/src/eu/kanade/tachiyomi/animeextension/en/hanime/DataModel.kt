@@ -194,13 +194,13 @@ data class Stream(
     @SerialName("mime_type")
     val mimeType: String? = null,
     val width: Long? = null,
-    val height: String,
+    val height: String? = null,
     @SerialName("duration_in_ms")
     val durationInMs: Long? = null,
     @SerialName("filesize_mbs")
     val filesizeMbs: Long? = null,
     val filename: String? = null,
-    val url: String,
+    val url: String? = null,
     @SerialName("is_guest_allowed")
     val isGuestAllowed: Boolean? = false,
     @SerialName("is_member_allowed")
@@ -228,7 +228,8 @@ data class WindowNuxt(
     ) {
         @Serializable
         data class Data(
-            val video: DataVideo,
+            val video: DataVideo? = null,
+            val hentai_videos: List<HentaiVideo> = emptyList(),
         ) {
             @Serializable
             data class DataVideo(
@@ -244,8 +245,8 @@ data class WindowNuxt(
                     ) {
                         @Serializable
                         data class Stream(
-                            val height: String,
-                            val url: String,
+                            val height: String? = null,
+                            val url: String? = null,
                         )
                     }
                 }

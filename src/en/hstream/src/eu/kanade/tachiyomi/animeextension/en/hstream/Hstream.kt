@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -56,13 +57,16 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
+        val href = element.attr("href")
+        setUrlWithoutDomain(getSeriesBaseUrl(href))
         title = element.selectFirst("img")!!.attr("alt")
-        val episode = url.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        val episode = href.substringAfterLast("-").substringBefore("/")
+        thumbnail_url = "$baseUrl/images${href.substringBeforeLast("-")}/cover-ep-$episode.webp"
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
+
+    override fun popularAnimeParse(response: Response) = parseAnimeList(response, ::popularAnimeSelector, ::popularAnimeFromElement, ::popularAnimeNextPageSelector)
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
@@ -72,6 +76,8 @@ class Hstream :
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+
+    override fun latestUpdatesParse(response: Response) = parseAnimeList(response, ::latestUpdatesSelector, ::latestUpdatesFromElement, ::latestUpdatesNextPageSelector)
 
     // =============================== Search ===============================
     override fun getFilterList() = HstreamFilters.FILTER_LIST
@@ -114,6 +120,8 @@ class Hstream :
 
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
+    override fun searchAnimeParse(response: Response) = parseAnimeList(response, ::searchAnimeSelector, ::searchAnimeFromElement, ::searchAnimeNextPageSelector)
+
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = SAnime.COMPLETED
@@ -129,17 +137,45 @@ class Hstream :
     }
 
     // ============================== Episodes ==============================
+    override fun episodeListRequest(anime: SAnime): Request {
+        val seriesUrl = getSeriesBaseUrl(anime.url)
+        return GET("$baseUrl$seriesUrl-1/")
+    }
+
     override fun episodeListParse(response: Response): List<SEpisode> {
+        val currentUrl = response.request.url.encodedPath
+        val seriesPath = getSeriesBaseUrl(currentUrl)
+        val episodes = mutableListOf<SEpisode>()
+
+        // Parse episode 1 from the current response
         val doc = response.asJsoup()
-        val episode = SEpisode.create().apply {
-            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
-            setUrlWithoutDomain(doc.location())
-            val num = url.substringAfterLast("-").substringBefore("/")
-            episode_number = num.toFloatOrNull() ?: 1F
-            name = "Episode $num"
+        episodes.add(parseEpisodeFromDoc(doc, 1, "$seriesPath-1/"))
+
+        // Probe for more episodes (2..50), break on first failure
+        for (epNum in 2..MAX_EPISODE_PROBE) {
+            val epPath = "$seriesPath-$epNum/"
+            try {
+                val resp = client.newCall(GET("$baseUrl$epPath")).execute()
+                if (resp.code != 200) {
+                    resp.close()
+                    break
+                }
+                val epDoc = resp.asJsoup()
+                episodes.add(parseEpisodeFromDoc(epDoc, epNum, epPath))
+                resp.close()
+            } catch (e: Exception) {
+                break
+            }
         }
 
-        return listOf(episode)
+        return episodes
+    }
+
+    private fun parseEpisodeFromDoc(doc: Document, epNum: Int, url: String): SEpisode = SEpisode.create().apply {
+        date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
+        setUrlWithoutDomain(url)
+        episode_number = epNum.toFloat()
+        name = "Episode $epNum"
     }
 
     override fun episodeListSelector(): String = throw UnsupportedOperationException()
@@ -163,7 +199,7 @@ class Hstream :
             set("X-XSRF-TOKEN", URLDecoder.decode(token, "utf-8"))
         }.build()
 
-        val body = """{"episode_id": "$episodeId"}""".toRequestBody("application/json".toMediaType())
+        val body = json.encodeToString(EpisodeRequest(episodeId)).toRequestBody("application/json".toMediaType())
         val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
             .parseAs<PlayerApiResponse>()
 
@@ -186,6 +222,9 @@ class Hstream :
     } else {
         "/$resolution/manifest.mpd"
     }
+
+    @Serializable
+    data class EpisodeRequest(val episode_id: String)
 
     @Serializable
     data class PlayerApiResponse(
@@ -221,6 +260,22 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
+    private fun parseAnimeList(
+        response: Response,
+        selector: () -> String,
+        fromElement: (Element) -> SAnime,
+        nextPageSelector: () -> String,
+    ): AnimesPage {
+        val document = response.asJsoup()
+        val animeList = document.select(selector())
+            .map(fromElement)
+            .distinctBy { it.title }
+        val hasNextPage = document.selectFirst(nextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
+
+    private fun getSeriesBaseUrl(url: String): String = url.replace(Regex("-\\d+/?$"), "").trimEnd('/')
+
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
 
@@ -228,8 +283,8 @@ class Hstream :
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
-        ).reversed()
+            compareByDescending { it.quality.contains(quality) },
+        )
     }
 
     companion object {
@@ -239,6 +294,7 @@ class Hstream :
 
         const val PREFIX_SEARCH = "id:"
 
+        private const val MAX_EPISODE_PROBE = 50
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
