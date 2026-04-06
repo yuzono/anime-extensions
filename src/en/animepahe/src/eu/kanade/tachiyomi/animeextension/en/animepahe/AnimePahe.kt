@@ -42,6 +42,7 @@ class AnimePahe :
 
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
+        .protocols(listOf(Protocol.HTTP_1_1))
         .build()
 
     override val name = "AnimePahe"
