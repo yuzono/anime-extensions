@@ -170,7 +170,7 @@ class AnimeOnsen :
     }
 }
 
-const val AO_USER_AGENT = "Aniyomi/App (mobile)"
+const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
 private const val PREF_SUB_KEY = "preferred_subLang"
 private const val PREF_SUB_TITLE = "Preferred sub language"
 const val PREF_SUB_DEFAULT = "en-US"
