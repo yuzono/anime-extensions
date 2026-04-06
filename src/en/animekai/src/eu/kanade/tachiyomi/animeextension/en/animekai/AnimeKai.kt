@@ -565,6 +565,7 @@ class AnimeKai :
             docHeaders = headersBuilder().build()
             client = network.client.newBuilder()
                 .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1, unit = TimeUnit.SECONDS)
+                .protocols(listOf(Protocol.HTTP_1_1))
                 .build()
             megaUpExtractor = MegaUpExtractor(client, docHeaders)
         }
