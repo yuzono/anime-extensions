@@ -92,7 +92,6 @@ class KickAssAnime :
         .parseAs()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
-        // Fetch what languages are available for this anime
         val languages = client.newCall(
             GET("$apiUrl${anime.url}/language"),
         ).awaitSuccess().parseAs<LanguagesDto>().result
@@ -100,7 +99,6 @@ class KickAssAnime :
         val prefLang = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)!!
         val pref2ndLang = preferences.getString(PREF_AUDIO_LANG_KEY_2ND, PREF_AUDIO_LANG_DEFAULT_2ND)!!
 
-        // Try preferred language first, then others
         val langOrder = languages
             .sortedWith(
                 compareBy(
@@ -139,7 +137,6 @@ class KickAssAnime :
             }
         }
 
-        // If nothing was found, return empty list
         foundEpisodes ?: emptyList()
     }
 
@@ -227,8 +224,9 @@ class KickAssAnime :
     private fun searchAnimeRequest(page: Int, query: String, filters: KickAssAnimeFilters.FilterSearchParams): Request {
         val newHeaders = headers.newBuilder()
             .add("Accept", "application/json, text/plain, */*")
+            .add("Content-Type", "application/json")
             .add("Host", baseUrl.toHttpUrl().host)
-            .add("Referer", "$baseUrl/anime")
+            .add("Referer", "$baseUrl/fsearch?q=$query")
             .build()
 
         if (filters.subPage.isNotBlank()) return GET("$baseUrl/api/${filters.subPage}?page=$page", headers = newHeaders)
@@ -256,7 +254,7 @@ class KickAssAnime :
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        return if (query.startsWith(PREFIX_SEARCH)) {
             val slug = query.removePrefix(PREFIX_SEARCH)
             client.newCall(GET("$baseUrl/api/show/$slug"))
                 .awaitSuccess()
@@ -364,7 +362,6 @@ class KickAssAnime :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
 
-        // Check domains here: https://kickassanime.cx/
         private val DOMAINS = listOf(
             "kickass-anime.ru" to "kickass-anime.ru",
             "kickass-anime.ro" to "kickass-anime.ro",
