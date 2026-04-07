@@ -593,12 +593,15 @@ class Jellyfin(private val suffix: String) :
             )
         }
 
+        val sessionMediaSource = sessionData.mediaSources.firstOrNull()
+            ?: return emptyList()
+
         // Build video list
-        if (mediaSource.supportsDirectStream) {
+        if (sessionMediaSource.supportsDirectStream) {
             videoList.add(staticVideo)
         }
 
-        if (!mediaSource.supportsTranscoding) {
+        if (!sessionMediaSource.supportsTranscoding) {
             return videoList
         }
 
