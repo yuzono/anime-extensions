@@ -178,19 +178,7 @@ fun getDeviceProfile(
         ),
         responseProfiles = emptyList(),
         containerProfiles = emptyList(),
-        codecProfiles = listOf(
-            DeviceProfileDto.ProfileDto(
-                type = "Video",
-                codec = videoCodec,
-                conditions = listOf(
-                    DeviceProfileDto.ProfileDto.ProfileConditionDto(
-                        condition = "Equals",
-                        property = "Width",
-                        value = "0",
-                    ),
-                ),
-            ),
-        ),
+        codecProfiles = emptyList(),
         subtitleProfiles = subtitleProfilesList,
     )
 }
