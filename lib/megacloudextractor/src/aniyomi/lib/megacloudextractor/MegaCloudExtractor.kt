@@ -31,9 +31,17 @@ class MegaCloudExtractor(
     }
 
     fun getVideosFromUrl(url: String, type: String, name: String): List<Video> {
-        val fixedUrl = url.replace("megacloud.blog", "megacloud.tv")
-        val videos = getVideoDto(fixedUrl)
-        if (videos.isEmpty()) return emptyList()
+               val fixedUrl = try {
+            url.toHttpUrl().let {
+                if (it.host == "megacloud.blog") {
+                    it.newBuilder().host("megacloud.tv").build().toString()
+                } else {
+                    url
+                }
+            }
+        } catch (_: Exception) {
+            url
+        }
 
         val subtitles = videos.first().tracks
             ?.filter { it.kind == "captions" }
