@@ -42,10 +42,10 @@ class HexaWatch :
 
     override val baseUrl = "https://hexa.su"
     private val animeUrl = "$baseUrl/details"
-    private val apiUrl = "https://themoviedb.hexa.su/api/tmdb"
-    private val subtitleUrl = "https://sub.wyzie.ru"
+    private val apiUrl = "https://theemoviedb.hexa.su/api/tmdb"
+    private val subtitleUrl = "https://sub.wyzie.io"
     private val decryptionApiUrl = "https://enc-dec.app/api/dec-hexa"
-
+    //Fixed a few API's. Now can load the various movies/TV shows, but videos need a way to get rid of error 403 to open,caused by Cap captcha authentication failure.
     override val lang = "en"
 
     override val supportsLatest = true
