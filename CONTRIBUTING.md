@@ -585,7 +585,7 @@ you can use the `adb` command below.
 ```console
 $ adb shell am start -d "<your-link>" -a android.intent.action.VIEW
 ```
-You can find a complete example of how URLs work in the [Riztranslation extension](https://github.com/keiyoushi/extensions-source/tree/main/src/id/riztranslation).
+You can find a complete example of how URLs work in the [Riztranslation extension](https://github.com/yuzono/cursed-manga-extensions/tree/main/src/id/riztranslation).
 
 #### Update strategy
 
