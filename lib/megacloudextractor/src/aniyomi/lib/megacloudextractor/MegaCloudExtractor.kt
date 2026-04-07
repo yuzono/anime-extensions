@@ -31,7 +31,8 @@ class MegaCloudExtractor(
     }
 
     fun getVideosFromUrl(url: String, type: String, name: String): List<Video> {
-        val videos = getVideoDto(url)
+        val fixedUrl = url.replace("megacloud.blog", "megacloud.tv")
+        val videos = getVideoDto(fixedUrl)
         if (videos.isEmpty()) return emptyList()
 
         val subtitles = videos.first().tracks
@@ -45,7 +46,7 @@ class MegaCloudExtractor(
                 video.m3u8,
                 videoNameGen = { "$name - $it - $type" },
                 subtitleList = subtitles,
-                referer = "https://${url.toHttpUrl().host}/",
+                referer = "https://${fixedUrl.toHttpUrl().host}/",
             )
         }
     }
