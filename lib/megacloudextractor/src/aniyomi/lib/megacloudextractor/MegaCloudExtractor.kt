@@ -24,13 +24,11 @@ class MegaCloudExtractor(
 
     companion object {
         private const val SOURCES_URL = "/embed-2/v3/e-1/getSources?id="
-        private val MEGACLOUD_REGEX = Regex("""megacloud\.\w+""")
         private val SOURCES_SPLITTER_REGEX = Regex("""/e-\d+/""")
     }
 
     fun getVideosFromUrl(url: String, type: String, name: String): List<Video> {
-        val fixedUrl = MEGACLOUD_REGEX.replace(url, "megacloud.tv")
-        val videos = getVideoDto(fixedUrl)
+        val videos = getVideoDto(url)
         if (videos.isEmpty()) return emptyList()
 
         val subtitles = videos.first().tracks
@@ -44,7 +42,7 @@ class MegaCloudExtractor(
                 video.m3u8,
                 videoNameGen = { "$name - $it - $type" },
                 subtitleList = subtitles,
-                referer = "https://${fixedUrl.toHttpUrl().host}/",
+                referer = "https://${url.toHttpUrl().host}/",
             )
         }
     }
@@ -72,7 +70,7 @@ class MegaCloudExtractor(
             .execute().use { it.body.string() }
 
         val match1 = Regex("""[a-zA-Z0-9]{48}""").find(responseNonce)
-        val match2 = Regex("""([a-zA-Z0-9]{16})[a-zA-Z0-9\s\-"'=]+?([a-zA-Z0-9]{16})[a-zA-Z0-9\s\-"'=]+?([a-zA-Z0-9]{16})""").find(responseNonce)
+        val match2 = Regex("""([a-zA-Z0-9]{16})[^a-zA-Z0-9]+([a-zA-Z0-9]{16})[^a-zA-Z0-9]+([a-zA-Z0-9]{16})""").find(responseNonce)
 
         val nonce = match1?.value ?: match2?.let {
             it.groupValues[1] + it.groupValues[2] + it.groupValues[3]
@@ -80,6 +78,11 @@ class MegaCloudExtractor(
 
         val srcRes = client.newCall(GET("${megaCloudServerUrl}${SOURCES_URL}$id&_k=$nonce", megaCloudHeaders))
             .execute().use { it.body.string() }
+
+        if (!srcRes.trimStart().startsWith("{")) {
+            throw IllegalStateException("MegaCloud API returned non-JSON response (likely blocked or changed)")
+        }
+
         val data = json.decodeFromString<SourceResponseDto>(srcRes)
 
         val key by lazy { requestNewKey() }
@@ -99,6 +102,11 @@ class MegaCloudExtractor(
 
                 val decryptedResponse = client.newCall(GET(fullUrl))
                     .execute().use { it.body.string() }
+
+                if (!decryptedResponse.trimStart().startsWith("{")) {
+                    throw IllegalStateException("Decryption API returned non-JSON response")
+                }
+
                 Regex(""""file"\s*:\s*"([^"]+)"""")
                     .find(decryptedResponse)
                     ?.groupValues?.get(1)
