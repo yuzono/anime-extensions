@@ -61,7 +61,7 @@ class Animelib :
     companion object {
         private const val PREF_DOMAIN_KEY = "pref_domain"
         private val PREF_DOMAIN_ENTRIES = arrayOf("animelib.org", "v3.animelib.org", "v4.animelib.org", "v5.animelib.org")
-        private const val PREF_DOMAIN_DEFAULT = "v5.animelib.org"
+        private const val PREF_DOMAIN_DEFAULT = "animelib.org"
 
         private const val PREF_QUALITY_KEY = "pref_quality"
         private val PREF_QUALITY_ENTRIES = arrayOf("360", "720", "1080", "2160")
@@ -108,10 +108,6 @@ class Animelib :
             entryValues = PREF_DOMAIN_ENTRIES
             summary = "Текущий домен: %s"
             setDefaultValue(PREF_DOMAIN_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
