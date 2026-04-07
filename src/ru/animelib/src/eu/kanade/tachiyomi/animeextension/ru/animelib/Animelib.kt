@@ -45,12 +45,8 @@ class Animelib :
 
     override val supportsLatest = true
 
-    private val domain: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-
-    override val baseUrl: String
-        get() = "https://$domain/ru"
-
+    private val domain = "animelib.org"
+    override val baseUrl = "https://$domain/ru"
     private val apiSite = "https://hapi.hentaicdn.org"
     private val apiUrl = "$apiSite/api"
     private val coverDomain = "cover.imglib.info"
@@ -59,10 +55,6 @@ class Animelib :
     private val dateFormatter by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
 
     companion object {
-        private const val PREF_DOMAIN_KEY = "pref_domain"
-        private val PREF_DOMAIN_ENTRIES = arrayOf("animelib.org", "v3.animelib.org", "v4.animelib.org", "v5.animelib.org")
-        private const val PREF_DOMAIN_DEFAULT = "v5.animelib.org"
-
         private const val PREF_QUALITY_KEY = "pref_quality"
         private val PREF_QUALITY_ENTRIES = arrayOf("360", "720", "1080", "2160")
 
@@ -101,19 +93,6 @@ class Animelib :
     private val preferences by getPreferencesLazy()
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = "Домен"
-            entries = PREF_DOMAIN_ENTRIES
-            entryValues = PREF_DOMAIN_ENTRIES
-            summary = "Текущий домен: %s"
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
-        }.also(screen::addPreference)
-
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Предпочитаемый сервер плеера Animelib"
@@ -397,7 +376,7 @@ class Animelib :
 
         val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
-        headers.add("Referer", "https://$domain/")
+        headers.add("Referer", baseUrl)
 
         // Parse form parameters for video link request
         val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
