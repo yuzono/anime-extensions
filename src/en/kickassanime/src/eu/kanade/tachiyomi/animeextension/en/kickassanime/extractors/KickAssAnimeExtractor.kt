@@ -21,13 +21,31 @@ class KickAssAnimeExtractor(
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     fun videosFromUrl(url: String, name: String): List<Video> {
-        val host = url.toHttpUrl().host
+        val finalUrl = if (url.contains("/vast")) {
+            url.toHttpUrl().newBuilder()
+                .encodedPath("/cat-player/player")
+                .build()
+                .toString()
+        } else {
+            url
+        }
+
+        val html = client.newCall(GET(finalUrl, headers)).execute().body.string()
+        val cleanHtml = html.replace("&quot;", "\"")
+
+        if ("""manifest":\[0,""".toRegex().containsMatchIn(cleanHtml)) {
+            return parseNewPlayer(cleanHtml, finalUrl, name)
+        }
+
+        if (!html.contains("cid: '")) {
+            return emptyList()
+        }
+
+        val host = finalUrl.toHttpUrl().host
         val mid = if (name == "DuckStream") "mid" else "id"
         val isBird = name == "BirdStream"
 
-        val query = url.toHttpUrl().queryParameter(mid)!!
-
-        val html = client.newCall(GET(url, headers)).execute().body.string()
+        val query = finalUrl.toHttpUrl().queryParameter(mid) ?: return emptyList()
 
         val key = when (name) {
             "VidStreaming" -> "e13d38099bf562e8b9851a652d2043d3"
@@ -46,7 +64,7 @@ class KickAssAnimeExtractor(
             append("&s=$sig")
         }
 
-        val request = GET(sourceUrl, headers.newBuilder().add("Referer", url).build())
+        val request = GET(sourceUrl, headers.newBuilder().add("Referer", finalUrl).build())
         val response = client.newCall(request).execute()
             .body.string()
 
@@ -103,6 +121,50 @@ class KickAssAnimeExtractor(
         }
     }
 
+    private fun parseNewPlayer(cleanHtml: String, url: String, name: String): List<Video> {
+        val host = url.toHttpUrl().host
+
+        val manifestUrl = (
+            """manifest":\[0,"(//[^"]+)"\]""".toRegex()
+                .find(cleanHtml)?.groupValues?.get(1)
+                ?.let { "https:$it" }
+                ?: """manifest":\[0,"(https?://[^"]+)"\]""".toRegex()
+                    .find(cleanHtml)?.groupValues?.get(1)
+            )
+            ?: return emptyList()
+
+        val subtitleRegex = """"format":\[0,"srt"\],"language":\[0,"([^"]+)"\],"filename":\[0,"[^"]+"\],"name":\[0,"([^"]+)"\],"source":\[0,"[^"]+"\],"src":\[0,"([^"]+)"\]""".toRegex()
+
+        val subtitles = subtitleRegex.findAll(cleanHtml).map { match ->
+            val srcUrl = match.groupValues[3].replace("https:///", "https://")
+            Track(srcUrl, "${match.groupValues[2]} (${match.groupValues[1]})")
+        }.let { playlistUtils.fixSubtitles(it.toList()) }
+
+        fun getVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers = baseHeaders.newBuilder().apply {
+            add("Accept", "*/*")
+            add("Accept-Language", "en-US,en;q=0.5")
+            add("Origin", "https://$host")
+            add("Sec-Fetch-Dest", "empty")
+            add("Sec-Fetch-Mode", "cors")
+            add("Sec-Fetch-Site", "cross-site")
+        }.build()
+
+        return if (manifestUrl.contains(".m3u8")) {
+            playlistUtils.extractFromHls(
+                manifestUrl,
+                videoNameGen = { "$name - $it" },
+                videoHeadersGen = ::getVideoHeaders,
+                subtitleList = subtitles,
+            )
+        } else {
+            playlistUtils.extractFromDash(
+                manifestUrl,
+                videoNameGen = { "$name - $it" },
+                subtitleList = subtitles,
+            )
+        }
+    }
+
     private fun getSignature(html: String, server: String, query: String, key: ByteArray): Triple<String, String, String>? {
         val order = when (server) {
             "VidStreaming" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY")
@@ -140,6 +202,4 @@ class KickAssAnimeExtractor(
     } catch (e: Exception) {
         throw Exception("Attempt to create the signature failed miserably.")
     }
-
-    // ============================= Utilities ==============================
 }

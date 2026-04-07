@@ -59,11 +59,11 @@ class KickAssAnime :
 
     private val preferences by getPreferencesLazy {
         clearBaseUrl()
+        fixHosterSelection()
     }
 
     private val json: Json by injectLazy()
 
-    // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$apiUrl/popular?page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
@@ -84,7 +84,6 @@ class KickAssAnime :
         thumbnail_url = "$baseUrl/${anime.poster.url}"
     }
 
-    // ============================== Episodes ==============================
     private fun episodeListRequest(anime: SAnime, page: Int, lang: String) = GET("$apiUrl${anime.url}/episodes?page=$page&lang=$lang")
 
     private fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
@@ -92,7 +91,6 @@ class KickAssAnime :
         .parseAs()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
-        // Fetch what languages are available for this anime
         val languages = client.newCall(
             GET("$apiUrl${anime.url}/language"),
         ).awaitSuccess().parseAs<LanguagesDto>().result
@@ -100,7 +98,6 @@ class KickAssAnime :
         val prefLang = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)!!
         val pref2ndLang = preferences.getString(PREF_AUDIO_LANG_KEY_2ND, PREF_AUDIO_LANG_DEFAULT_2ND)!!
 
-        // Try preferred language first, then others
         val langOrder = languages
             .sortedWith(
                 compareBy(
@@ -139,7 +136,6 @@ class KickAssAnime :
             }
         }
 
-        // If nothing was found, return empty list
         foundEpisodes ?: emptyList()
     }
 
@@ -147,7 +143,6 @@ class KickAssAnime :
         TODO("Not yet implemented")
     }
 
-    // ============================ Video Links =============================
     override fun videoListRequest(episode: SEpisode): Request {
         val url = apiUrl + episode.url.replace("/ep-", "/episode/ep-")
         return GET(url)
@@ -168,7 +163,6 @@ class KickAssAnime :
         return videoList
     }
 
-    // =========================== Anime Details ============================
     override fun getAnimeUrl(anime: SAnime) = "$baseUrl${anime.url}"
 
     override fun animeDetailsRequest(anime: SAnime) = GET(apiUrl + anime.url)
@@ -207,7 +201,6 @@ class KickAssAnime :
         }
     }
 
-    // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
     override fun searchAnimeParse(response: Response) = throw UnsupportedOperationException()
 
@@ -227,8 +220,9 @@ class KickAssAnime :
     private fun searchAnimeRequest(page: Int, query: String, filters: KickAssAnimeFilters.FilterSearchParams): Request {
         val newHeaders = headers.newBuilder()
             .add("Accept", "application/json, text/plain, */*")
+            .add("Content-Type", "application/json")
             .add("Host", baseUrl.toHttpUrl().host)
-            .add("Referer", "$baseUrl/anime")
+            .add("Referer", "$baseUrl/search?q=$query")
             .build()
 
         if (filters.subPage.isNotBlank()) return GET("$baseUrl/api/${filters.subPage}?page=$page", headers = newHeaders)
@@ -256,7 +250,7 @@ class KickAssAnime :
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        return if (query.startsWith(PREFIX_SEARCH)) {
             val slug = query.removePrefix(PREFIX_SEARCH)
             client.newCall(GET("$baseUrl/api/show/$slug"))
                 .awaitSuccess()
@@ -280,10 +274,8 @@ class KickAssAnime :
         return AnimesPage(listOf(details), false)
     }
 
-    // ============================== Filters ===============================
     override fun getFilterList(): AnimeFilterList = KickAssAnimeFilters.FILTER_LIST
 
-    // =============================== Latest ===============================
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val data = response.parseAs<RecentsResponseDto>()
         val animes = data.result.map(::popularAnimeFromObject)
@@ -291,8 +283,6 @@ class KickAssAnime :
     }
 
     override fun latestUpdatesRequest(page: Int) = GET("$apiUrl/recent?type=all&page=$page")
-
-    // ============================= Utilities ==============================
 
     private fun String.getLocale(): String = LOCALE.firstOrNull { it.first == this }?.second ?: ""
 
@@ -326,9 +316,18 @@ class KickAssAnime :
         return this
     }
 
-    companion object {
-        private val SERVERS = arrayOf("VidStreaming", "DuckStream", "BirdStream")
+    private fun SharedPreferences.fixHosterSelection(): SharedPreferences {
+        val currentSelection = getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!!
+        if (!currentSelection.contains("CatStream")) {
+            edit()
+                .putStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
+                .apply()
+        }
+        return this
+    }
 
+    companion object {
+        private val SERVERS = arrayOf("VidStreaming", "CatStream", "DuckStream", "BirdStream")
         private val LOCALE = listOf(
             Pair("ja-JP", "Japanese"),
             Pair("en-US", "English"),
@@ -364,11 +363,10 @@ class KickAssAnime :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
 
-        // Check domains here: https://kickassanime.cx/
         private val DOMAINS = listOf(
+            "kaa.lt" to "kaa.lt (Search)",
             "kickass-anime.ru" to "kickass-anime.ru",
             "kickass-anime.ro" to "kickass-anime.ro",
-            "kaa.lt" to "kaa.lt",
             "kaa.to" to "kaa.to",
             "kaa.rs" to "kaa.rs",
             "kaa.si" to "kaa.si (May have SSLHandshakeException error)",
@@ -382,7 +380,6 @@ class KickAssAnime :
         private val PREF_HOSTER_DEFAULT = SERVERS.toSet()
     }
 
-    // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
