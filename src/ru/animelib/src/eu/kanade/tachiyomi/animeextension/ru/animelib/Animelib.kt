@@ -45,9 +45,9 @@ class Animelib :
 
     override val supportsLatest = true
 
-    private val domain = "v3.animelib.org"
+    private val domain = "animelib.org"
     override val baseUrl = "https://$domain/ru"
-    private val apiSite = "https://api.cdnlibs.org"
+    private val apiSite = "https://hapi.hentaicdn.org"
     private val apiUrl = "$apiSite/api"
     private val coverDomain = "cover.imglib.info"
 
