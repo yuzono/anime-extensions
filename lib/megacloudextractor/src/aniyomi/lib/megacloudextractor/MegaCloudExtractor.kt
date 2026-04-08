@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
@@ -28,11 +29,41 @@ class MegaCloudExtractor(
     companion object {
         private const val SOURCES_URL = "/embed-2/v3/e-1/getSources?id="
         private const val SOURCES_SPLITTER = "/e-1/"
+
+        private val DOMAINS_TO_TRY = listOf(
+            "megacloud.tv",
+        )
     }
 
     fun getVideosFromUrl(url: String, type: String, name: String): List<Video> {
-        val fixedUrl = url.replace("megacloud.blog", "megacloud.tv")
-        val videos = getVideoDto(fixedUrl)
+        val parsedUrl = url.toHttpUrlOrNull() ?: return emptyList()
+        val originalHost = parsedUrl.host
+
+        var videos = emptyList<VideoDto>()
+        var workingHostUrl = url
+
+        val isMegaCloud = originalHost.matches(Regex("(?i).*megacloud.*"))
+
+        val domainsQueue = if (isMegaCloud) {
+            (listOf(originalHost) + DOMAINS_TO_TRY).distinct()
+        } else {
+            listOf(originalHost)
+        }
+
+        for (domain in domainsQueue) {
+            val tryUrl = parsedUrl.newBuilder().host(domain).build().toString()
+
+            try {
+                videos = getVideoDto(tryUrl)
+                if (videos.isNotEmpty()) {
+                    workingHostUrl = tryUrl
+                    break
+                }
+            } catch (e: Exception) {
+                Log.d("MegaCloudExtractor", "Domain failed: $domain", e)
+            }
+        }
+
         if (videos.isEmpty()) return emptyList()
 
         val subtitles = videos.first().tracks
@@ -46,7 +77,7 @@ class MegaCloudExtractor(
                 video.m3u8,
                 videoNameGen = { "$name - $it - $type" },
                 subtitleList = subtitles,
-                referer = "https://${fixedUrl.toHttpUrl().host}/",
+                referer = "https://${workingHostUrl.toHttpUrl().host}/",
             )
         }
     }
