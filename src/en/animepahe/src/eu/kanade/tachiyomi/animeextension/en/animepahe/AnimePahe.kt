@@ -327,14 +327,8 @@ class AnimePahe :
     }
 
     private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        val normalizedKwikUrl = when {
-            kwikUrl.startsWith("//") -> "https:$kwikUrl"
-            kwikUrl.startsWith("http") -> kwikUrl
-            else -> "https://$kwikUrl"
-        }
-
         val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            KwikExtractor(client).getHlsStreamUrl(normalizedKwikUrl, referer = baseUrl)
+            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
         } else {
             KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
         }
@@ -343,16 +337,7 @@ class AnimePahe :
             videoUrl,
             quality,
             videoUrl,
-            headers = Headers.headersOf(
-                "referer",
-                normalizedKwikUrl,
-                "origin",
-                "https://kwik.cx",
-                "user-agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "accept",
-                "*/*",
-            ),
+            headers = Headers.headersOf("referer", "https://kwik.cx/"),
         )
     }
 
@@ -479,13 +464,11 @@ class AnimePahe :
         private val PREF_SUB_ENTRIES = listOf("sub", "dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type_" // Temporary renamed to use HLS
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
-        private const val PREF_LINK_TYPE_DEFAULT = false
+        private const val PREF_LINK_TYPE_DEFAULT = true // Temporary set to `true` to use HLS
         private val PREF_LINK_TYPE_SUMMARY by lazy {
-            """Enable this if you are having Cloudflare issues.
-            |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
-            """.trimMargin()
+            """Enable this if you are having Cloudflare issues.""".trimMargin()
         }
 
         // Big slap to whoever misspelled `preferred`
