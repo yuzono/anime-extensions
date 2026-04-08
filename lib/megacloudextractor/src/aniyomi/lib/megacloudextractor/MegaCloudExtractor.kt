@@ -31,11 +31,8 @@ class MegaCloudExtractor(
         private const val SOURCES_SPLITTER = "/e-1/"
 
         private val DOMAINS_TO_TRY = listOf(
-            "megacloud.com", // Just testing
-            "megacloud.robberybob", // the automatic
-            "megacloud.heavenlysmile", // domain selector
-            "megacloud.blog", // don't mind me
-            "megacloud.tv", // ;)
+            "megacloud.blog", //All good, will automatically adjust link if it's dead
+            "megacloud.tv", // Will now work dynamically, but all domains need to be added here to avoid future issues
         )
     }
 
