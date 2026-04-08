@@ -21,7 +21,6 @@ import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.runBlocking
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -317,45 +316,30 @@ class AnimePahe :
         val downloadLinks = document.select("div#pickDownload > a")
         return runBlocking {
             document.select("div#resolutionMenu > button").withIndex().parallelCatchingMapNotNull { (index, btn) ->
-                val kwikLink = btn.attr("data-src")
                 val quality = btn.text()
                 val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
                     ?: return@parallelCatchingMapNotNull null
-                getVideo(paheWinLink, kwikLink, quality)
+
+                // Fixed: Removed kwikLink from the call to match the new signature
+                getVideo(paheWinLink, quality)
             }
         }
     }
 
-    private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        val normalizedKwikUrl = when {
-            kwikUrl.startsWith("//") -> "https:$kwikUrl"
-            kwikUrl.startsWith("http") -> kwikUrl
-            else -> "https://$kwikUrl"
-        }
-
-        val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            KwikExtractor(client).getHlsStreamUrl(normalizedKwikUrl, referer = baseUrl)
-        } else {
-            KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
-        }
+    private suspend fun getVideo(paheUrl: String, quality: String): Video {
+        // Temporarily forcing the MP4 extraction as HLS is currently broken.
+        // Also bypasses the PREF_LINK_TYPE_KEY preference check.
+        val videoUrl = KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
 
         return Video(
             videoUrl,
             quality,
             videoUrl,
-            headers = Headers.headersOf(
-                "referer",
-                normalizedKwikUrl,
-                "origin",
-                "https://kwik.cx",
-                "user-agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "accept",
-                "*/*",
-            ),
+            headers = headers.newBuilder()
+                .set("referer", "https://kwik.cx/")
+                .build(),
         )
     }
-
     override fun List<Video>.sort(): List<Video> {
         val subPreference = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
