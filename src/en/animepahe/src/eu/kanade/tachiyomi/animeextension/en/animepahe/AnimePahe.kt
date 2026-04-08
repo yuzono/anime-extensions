@@ -327,16 +327,32 @@ class AnimePahe :
     }
 
     private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
+        val normalizedKwikUrl = when {
+            kwikUrl.startsWith("//") -> "https:$kwikUrl"
+            kwikUrl.startsWith("http") -> kwikUrl
+            else -> "https://$kwikUrl"
+        }
+
         val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = baseUrl)
+            KwikExtractor(client).getHlsStreamUrl(normalizedKwikUrl, referer = baseUrl)
         } else {
             KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
         }
+
         return Video(
             videoUrl,
             quality,
             videoUrl,
-            headers = Headers.headersOf("referer", "https://kwik.cx"),
+            headers = Headers.headersOf(
+                "referer",
+                normalizedKwikUrl,
+                "origin",
+                "https://kwik.cx",
+                "user-agent",
+                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "accept",
+                "*/*",
+            ),
         )
     }
 
