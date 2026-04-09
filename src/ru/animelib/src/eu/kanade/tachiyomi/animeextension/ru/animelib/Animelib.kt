@@ -25,6 +25,7 @@ import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -117,10 +118,6 @@ class Animelib :
             entryValues = PREF_SERVER_ENTRIES
             summary = "%s"
             setDefaultValue(PREF_SERVER_ENTRIES[0])
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -151,11 +148,6 @@ class Animelib :
                 entryValues = PREF_QUALITY_ENTRIES
                 summary = "При отсутствии нужного качества могут возникать ошибки!"
                 setDefaultValue(PREF_QUALITY_ENTRIES.toSet())
-
-                setOnPreferenceChangeListener { _, newValue ->
-                    @Suppress("UNCHECKED_CAST")
-                    preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-                }
             }.also(screen::addPreference)
         }
 
@@ -164,10 +156,6 @@ class Animelib :
             title = "Включить парсинг видео из плеера Kodik"
             summary = "Некоторые видео доступны только в нем, но он может работать нестабильно"
             setDefaultValue(PREF_USE_KODIK_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -175,10 +163,6 @@ class Animelib :
             title = "Игнорировать субтитры"
             summary = "Исключает видео с субтитрами"
             setDefaultValue(PREF_IGNORE_SUBS_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
@@ -186,10 +170,6 @@ class Animelib :
             title = "Предпочитаемые студии озвучки"
             summary = "Список студий или ключевых слов через запятую (экспериментальная функция)"
             setDefaultValue("")
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
     }
 
@@ -368,8 +348,8 @@ class Animelib :
         url.addPathSegment("constants")
         url.addQueryParameter("fields[]", "videoServers")
 
-        val videoServerResponse = client.newCall(GET(url.build())).awaitSuccess()
-        val videoServers = videoServerResponse.parseAs<VideoServerData>()
+        val videoServers = client.newCall(GET(url.build())).awaitSuccess()
+            .parseAs<VideoServerData>()
 
         val serverPreference = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_ENTRIES[0])
         if (serverPreference.isNullOrEmpty()) {
@@ -558,6 +538,6 @@ class Animelib :
         url = "api/episodes/$id"
         name = "Сезон $season Серия $number $episodeName"
         episode_number = number.toFloat()
-        date_upload = dateFormatter.parse(date)?.time ?: 0L
+        date_upload = dateFormatter.tryParse(date)
     }
 }
