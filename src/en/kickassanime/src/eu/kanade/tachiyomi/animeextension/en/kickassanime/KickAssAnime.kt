@@ -110,7 +110,6 @@ class KickAssAnime :
                 ),
             )
 
-        // If nothing was found, return empty list
         var foundEpisodes: List<SEpisode>? = null
 
         for (lang in langOrder) {
