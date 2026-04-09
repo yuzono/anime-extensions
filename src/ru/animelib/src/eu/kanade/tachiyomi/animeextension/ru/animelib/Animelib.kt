@@ -373,7 +373,7 @@ class Animelib :
 
         val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
-        headers.add("Referer", "https://$domain/")
+        headers.add("Referer", "$baseUrl/")
 
         // Parse form parameters for video link request
         val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
