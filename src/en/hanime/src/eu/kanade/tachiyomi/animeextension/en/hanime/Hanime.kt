@@ -108,7 +108,7 @@ class Hanime :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
-        val slug = document.location().substringAfterLast("/")
+        val slug = document.location().removeSuffix("/").substringAfterLast("/")
 
         val nuxtData = document.selectFirst("script:containsData(__NUXT__)")?.data()
         val coverUrl = nuxtData?.let {
