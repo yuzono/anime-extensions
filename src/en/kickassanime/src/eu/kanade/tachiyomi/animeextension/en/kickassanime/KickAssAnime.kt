@@ -371,6 +371,7 @@ class KickAssAnime :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
 
+        // Check domains here: https://kickassanime.cx/
         private val DOMAINS = listOf(
             "kaa.lt" to "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
             "kickass-anime.ru" to "kickass-anime.ru",
