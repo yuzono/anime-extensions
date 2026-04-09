@@ -60,8 +60,8 @@ class Hstream :
         val href = element.attr("href")
         setUrlWithoutDomain(getSeriesBaseUrl(href))
         title = element.selectFirst("img")!!.attr("alt")
-        val episode = href.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${href.substringBeforeLast("-")}/cover-ep-$episode.webp"
+            .replace(SERIES_REGEX, "")
+        thumbnail_url = "$baseUrl/images$url/cover-ep-1.webp"
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
@@ -268,7 +268,7 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
-    private fun getSeriesBaseUrl(url: String): String = url.replace(SERIES_URL_REGEX, "").trimEnd('/')
+    private fun getSeriesBaseUrl(url: String): String = url.replace(SERIES_REGEX, "").trimEnd('/')
 
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
@@ -288,7 +288,7 @@ class Hstream :
 
         const val PREFIX_SEARCH = "id:"
 
-        private val SERIES_URL_REGEX by lazy { Regex("-\\d+/?$") }
+        private val SERIES_REGEX by lazy { Regex("""\s*-\s*\d+/?$""") }
         private const val MAX_EPISODE_PROBE = 50
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
