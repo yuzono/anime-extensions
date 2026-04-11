@@ -43,6 +43,7 @@ class MegaCloudExtractor(
         var videos = emptyList<VideoDto>()
         var workingHostUrl = url
 
+        // Regex to use any domains in the domain list above in case one dies or expires.
         val isMegaCloud = originalHost.matches(Regex("(?i).*megacloud.*"))
 
         val domainsQueue = if (isMegaCloud) {
@@ -51,6 +52,8 @@ class MegaCloudExtractor(
             listOf(originalHost)
         }
 
+        // Tries all domains in the domain list. You can tinker with it and add any random MegaCloud domain that doesn't necessarily exist.
+        // It will still use the one that has videos, as long as you have one working domain.
         for (domain in domainsQueue) {
             val tryUrl = parsedUrl.newBuilder().host(domain).build().toString()
 
@@ -73,6 +76,7 @@ class MegaCloudExtractor(
             .orEmpty()
             .let(playlistUtils::fixSubtitles)
 
+        // Use the working host URL (the URL that actually does have videos) for the referer.
         return videos.flatMap { video ->
             playlistUtils.extractFromHls(
                 video.m3u8,
