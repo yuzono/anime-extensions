@@ -59,6 +59,7 @@ class KickAssAnime :
 
     private val preferences by getPreferencesLazy {
         clearBaseUrl()
+        fixHosterSelection()
     }
 
     private val json: Json by injectLazy()
@@ -143,9 +144,7 @@ class KickAssAnime :
         foundEpisodes ?: emptyList()
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        TODO("Not yet implemented")
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     override fun videoListRequest(episode: SEpisode): Request {
@@ -191,18 +190,18 @@ class KickAssAnime :
             description = buildString {
                 anime.synopsis?.let { append(it + "\n\n") }
                 append("Available Dub Languages: ${languages.result.joinToString(", ") { t -> t.getLocale() }}\n")
-                append(
-                    "Season: ${anime.season.replaceFirstChar {
-                        if (it.isLowerCase()) {
-                            it.titlecase(
-                                Locale.ROOT,
-                            )
-                        } else {
-                            it.toString()
-                        }
-                    }}\n",
-                )
-                append("Year: ${anime.year}")
+
+                // Append season if it exists, saw errors in i.e. Black Cat without fix.
+                anime.season?.let { seasonStr ->
+                    append(
+                        "Season: ${seasonStr.replaceFirstChar {
+                            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
+                        }}\n",
+                    )
+                }
+
+                // Safely append year if it exists
+                anime.year?.let { append("Year: $it") }
             }
         }
     }
@@ -227,17 +226,18 @@ class KickAssAnime :
     private fun searchAnimeRequest(page: Int, query: String, filters: KickAssAnimeFilters.FilterSearchParams): Request {
         val newHeaders = headers.newBuilder()
             .add("Accept", "application/json, text/plain, */*")
-            .add("Host", baseUrl.toHttpUrl().host)
-            .add("Referer", "$baseUrl/anime")
+            .add("Content-Type", "application/json")
+            .add("Host", SEARCH_BASE_URL.toHttpUrl().host) // Only the primary URL does the search, other domains are redirects to it.
+            .add("Referer", "$SEARCH_BASE_URL/search?q=$query")
             .build()
 
-        if (filters.subPage.isNotBlank()) return GET("$baseUrl/api/${filters.subPage}?page=$page", headers = newHeaders)
+        if (filters.subPage.isNotBlank()) return GET("$SEARCH_BASE_URL/api/${filters.subPage}?page=$page", headers = newHeaders)
 
         val encodedFilters = if (filters.filters == "{}") "" else Base64.encodeToString(filters.filters.encodeToByteArray(), Base64.NO_WRAP)
 
         return if (query.isBlank()) {
             val url = buildString {
-                append(baseUrl)
+                append(SEARCH_BASE_URL) // Fixes redirect search
                 append("/api/anime")
                 append("?page=$page")
                 if (encodedFilters.isNotEmpty()) append("&filters=$encodedFilters")
@@ -251,24 +251,24 @@ class KickAssAnime :
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
             }.toString().toRequestBody("application/json".toMediaType())
 
-            POST("$baseUrl/api/fsearch", body = data, headers = newHeaders)
+            // Again, primary URL search only.
+            POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-            val slug = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/api/show/$slug"))
-                .awaitSuccess()
-                .use(::searchAnimeBySlugParse)
-        } else {
-            val params = KickAssAnimeFilters.getSearchParameters(filters)
-            return client.newCall(searchAnimeRequest(page, query, params))
-                .awaitSuccess()
-                .let { response ->
-                    searchAnimeParse(response, page)
-                }
-        }
+    // Same thing here. Rewrote to use main URL instead of using URLs that redirect to main URL.
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
+        val slug = query.removePrefix(PREFIX_SEARCH)
+        client.newCall(GET("$SEARCH_BASE_URL/api/show/$slug"))
+            .awaitSuccess()
+            .use(::searchAnimeBySlugParse)
+    } else {
+        val params = KickAssAnimeFilters.getSearchParameters(filters)
+        client.newCall(searchAnimeRequest(page, query, params))
+            .awaitSuccess()
+            .let { response ->
+                searchAnimeParse(response, page)
+            }
     }
 
     private fun searchAnimeBySlugParse(response: Response): AnimesPage {
@@ -293,7 +293,6 @@ class KickAssAnime :
     override fun latestUpdatesRequest(page: Int) = GET("$apiUrl/recent?type=all&page=$page")
 
     // ============================= Utilities ==============================
-
     private fun String.getLocale(): String = LOCALE.firstOrNull { it.first == this }?.second ?: ""
 
     private fun String.parseStatus() = when (this) {
@@ -326,9 +325,23 @@ class KickAssAnime :
         return this
     }
 
-    companion object {
-        private val SERVERS = arrayOf("VidStreaming", "DuckStream", "BirdStream")
+    private fun SharedPreferences.fixHosterSelection(): SharedPreferences { // CatStream is a new player/server on the KAA website.
+        val currentSelection = getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!!
+        if (!currentSelection.contains("CatStream")) {
+            edit()
+                .putStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
+                .apply()
+        }
+        return this
+    }
 
+    companion object {
+        // KAA has .lt domain as primary, and others are redirects.
+        // This change is necessary as it forces all search traffic to go through primary domain to ensure all domains have searching abilities.
+
+        private const val SEARCH_BASE_URL = "https://kaa.lt"
+
+        private val SERVERS = arrayOf("VidStreaming", "CatStream", "DuckStream", "BirdStream")
         private val LOCALE = listOf(
             Pair("ja-JP", "Japanese"),
             Pair("en-US", "English"),
@@ -365,14 +378,18 @@ class KickAssAnime :
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
 
         // Check domains here: https://kickassanime.cx/
-        private val PREF_DOMAIN_ENTRIES = arrayOf(
-            "kickass-anime.ru",
-            "kickass-anime.ro",
-            "kaa.to",
-            "kaa.rs",
-            "kaa.si",
+        private val DOMAINS = listOf(
+            "kaa.lt" to "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
+            "kickass-anime.ru" to "kickass-anime.ru",
+            "kickass-anime.ro" to "kickass-anime.ro",
+            "kaa.to" to "kaa.to",
+            "kaa.rs" to "kaa.rs",
+            "kaa.si" to "kaa.si (May have SSL errors)",
         )
-        private val PREF_DOMAIN_ENTRY_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
+        private val PREF_DOMAIN_ENTRIES = DOMAINS.map { it.second }.toTypedArray()
+        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://${it.first}" }.toTypedArray()
+
+        // Default is automatically https://kaa.lt since it's the first in the DOMAINS list above.
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]
 
         private const val PREF_HOSTER_KEY = "hoster_selection"

@@ -39,13 +39,13 @@ data class RecentsResponseDto(
 data class AnimeInfoDto(
     val genres: List<String>,
     val poster: PosterDto,
-    val season: String,
+    val season: String? = null, // Fix of non-existant field i.e. Black Cat (Filters: Year 1972)
     val slug: String,
     val status: String,
     val synopsis: String?,
     val title: String,
     val title_en: String = "",
-    val year: Int,
+    val year: Int? = null, // To avoid possible issues as well, just like season string above
 )
 
 @Serializable

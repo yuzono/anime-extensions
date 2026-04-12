@@ -8,7 +8,7 @@ import android.util.Log
 import kotlin.system.exitProcess
 
 /**
- * Springboard that accepts https://kaas.am/<item> intents
+ * Springboard that accepts https://kaa.lt/<item> intents
  * and redirects them to the main Aniyomi process.
  */
 class KickAssAnimeUrlActivity : Activity() {

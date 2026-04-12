@@ -20,14 +20,32 @@ class KickAssAnimeExtractor(
 ) {
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    fun videosFromUrl(url: String, name: String): List<Video> {
-        val host = url.toHttpUrl().host
+    fun videosFromUrl(url: String, name: String): List<Video> { // Video player path
+        val finalUrl = if (url.contains("/vast")) {
+            url.toHttpUrl().newBuilder()
+                .encodedPath("/cat-player/player")
+                .build()
+                .toString()
+        } else {
+            url
+        }
+
+        val html = client.newCall(GET(finalUrl, headers)).execute().body.string()
+        val cleanHtml = html.replace("&quot;", "\"")
+
+        if ("""manifest":\[0,"""".toRegex().containsMatchIn(cleanHtml)) {
+            return parseNewPlayer(cleanHtml, finalUrl, name)
+        }
+
+        if (!html.contains("cid: '")) {
+            return emptyList()
+        }
+
+        val host = finalUrl.toHttpUrl().host
         val mid = if (name == "DuckStream") "mid" else "id"
         val isBird = name == "BirdStream"
 
-        val query = url.toHttpUrl().queryParameter(mid)!!
-
-        val html = client.newCall(GET(url, headers)).execute().body.string()
+        val query = finalUrl.toHttpUrl().queryParameter(mid) ?: return emptyList()
 
         val key = when (name) {
             "VidStreaming" -> "e13d38099bf562e8b9851a652d2043d3"
@@ -46,9 +64,8 @@ class KickAssAnimeExtractor(
             append("&s=$sig")
         }
 
-        val request = GET(sourceUrl, headers.newBuilder().add("Referer", url).build())
-        val response = client.newCall(request).execute()
-            .body.string()
+        val request = GET(sourceUrl, headers.newBuilder().add("Referer", finalUrl).build())
+        val response = client.newCall(request).execute().body.string()
 
         val (encryptedData, ivhex) = response.substringAfter(":\"")
             .substringBefore('"')
@@ -65,29 +82,29 @@ class KickAssAnimeExtractor(
             return emptyList()
         }
 
-        val subtitles = videoObject.subtitles.map {
+        val subHeaders = headers.newBuilder().set("Referer", finalUrl).build()
+        val subtitleUtils = PlaylistUtils(client, subHeaders)
+
+        val rawSubtitles = videoObject.subtitles.map {
             val subUrl: String = it.src.let { src ->
-                if (src.startsWith("//")) {
-                    "https:$src"
-                } else if (src.startsWith("/")) {
-                    "https://$host$src"
-                } else {
-                    src
+                when {
+                    src.startsWith("//") -> "https:$src" // Fixed subtitles
+                    src.startsWith("/") -> "https://$host$src"
+                    else -> src
                 }
             }
+            Track(subUrl, "${it.name} (${it.language})")
+        }
 
-            val language = "${it.name} (${it.language})"
-
-            Track(subUrl, language)
-        }.let { playlistUtils.fixSubtitles(it) }
-
+        val subtitles = if (name == "CatStream") {
+            subtitleUtils.fixSubtitles(rawSubtitles)
+        } else {
+            rawSubtitles
+        }
         fun getVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers = baseHeaders.newBuilder().apply {
             add("Accept", "*/*")
-            add("Accept-Language", "en-US,en;q=0.5")
             add("Origin", "https://$host")
-            add("Sec-Fetch-Dest", "empty")
-            add("Sec-Fetch-Mode", "cors")
-            add("Sec-Fetch-Site", "cross-site")
+            add("Referer", finalUrl)
         }.build()
 
         return when {
@@ -103,10 +120,60 @@ class KickAssAnimeExtractor(
         }
     }
 
+    private fun parseNewPlayer(cleanHtml: String, url: String, name: String): List<Video> { // New video players used on KickAssAnime
+        val host = url.toHttpUrl().host
+        val playerHeaders = headers.newBuilder()
+            .set("Referer", url)
+            .set("Origin", "https://$host")
+            .build()
+        val localPlaylistUtils = PlaylistUtils(client, playerHeaders)
+
+        val manifestUrl = (
+            """manifest":\[0,"(//[^"]+)"\]""".toRegex()
+                .find(cleanHtml)?.groupValues?.get(1)
+                ?.let { "https:$it" }
+                ?: """manifest":\[0,"(https?://[^"]+)"\]""".toRegex()
+                    .find(cleanHtml)?.groupValues?.get(1)
+            ) ?: return emptyList()
+
+        // FIX: Allow other properties (like "filename" and "source") between language, name, and src
+        val trackRegex = """"language":\[\d+,"([^"]+)"\][^}]+?"name":\[\d+,"([^"]+)"\][^}]+?"src":\[\d+,"([^"]+)"\]""".toRegex()
+
+        val subtitles = trackRegex.findAll(cleanHtml).map { match ->
+            val lang = match.groupValues[1]
+            val subName = match.groupValues[2]
+            val subUrl = match.groupValues[3]
+                .replace("https:///", "https://") // Fixes CatStream subtitles not appearing
+                .replace("\\/", "/")
+
+            Track(subUrl, "$subName ($lang)")
+        }.toList()
+
+        fun getVideoHeaders(baseHeaders: Headers, referer: String, videoUrl: String): Headers = baseHeaders.newBuilder().apply {
+            add("Accept", "*/*")
+            add("Origin", "https://$host")
+            add("Referer", url)
+        }.build()
+
+        return if (manifestUrl.contains(".m3u8")) {
+            localPlaylistUtils.extractFromHls(
+                manifestUrl,
+                videoNameGen = { "$name - $it" },
+                videoHeadersGen = ::getVideoHeaders,
+                subtitleList = subtitles,
+            )
+        } else {
+            localPlaylistUtils.extractFromDash(
+                manifestUrl,
+                videoNameGen = { "$name - $it" },
+                subtitleList = subtitles,
+            )
+        }
+    }
+
     private fun getSignature(html: String, server: String, query: String, key: ByteArray): Triple<String, String, String>? {
         val order = when (server) {
-            "VidStreaming" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY")
-            "DuckStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY")
+            "VidStreaming", "DuckStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY") // Combined them as they were identical
             "BirdStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "KEY")
             else -> return null
         }
@@ -124,7 +191,6 @@ class KickAssAnimeExtractor(
                     "MID" -> append(query)
                     "TIMESTAMP" -> append(timeStamp)
                     "KEY" -> append(String(key))
-                    "SIG" -> append(html.substringAfter("signature: '").substringBefore("'"))
                     else -> {}
                 }
             }
@@ -138,8 +204,6 @@ class KickAssAnimeExtractor(
         val bytes = md.digest(value.toByteArray())
         bytes.joinToString("") { "%02x".format(it) }
     } catch (e: Exception) {
-        throw Exception("Attempt to create the signature failed miserably.")
+        throw Exception("Attempt to create the signature failed.")
     }
-
-    // ============================= Utilities ==============================
 }
