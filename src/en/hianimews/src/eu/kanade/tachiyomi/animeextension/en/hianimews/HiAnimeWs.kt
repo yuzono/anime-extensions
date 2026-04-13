@@ -206,9 +206,8 @@ class HiAnimeWs :
             val scoreDouble = score?.toDoubleOrNull() ?: return ""
             if (scoreDouble == 0.0) return ""
 
-            val scoreBig = BigDecimal(score)
-            val stars = scoreBig.divide(BigDecimal(2))
-                .setScale(0, RoundingMode.HALF_UP)
+            val scoreBig = BigDecimal(score!!)
+            val stars = scoreBig.divide(BigDecimal(2), 0, RoundingMode.HALF_UP)
                 .toInt()
                 .coerceIn(0, 5)
 
@@ -251,7 +250,7 @@ class HiAnimeWs :
 
         val chapterListRequest = GET("$baseUrl/ajax/episodes/list?ani_id=$animeId&_=$enc", docHeaders)
         val document = client.newCall(chapterListRequest)
-            .awaitSuccess().parseAs<ResultResponse>().toDocument()
+            .awaitSuccess().use { it.parseAs<ResultResponse>().toDocument() }
 
         val episodeElements = document.select(episodeListSelector())
         return episodeElements.mapNotNull {
@@ -300,7 +299,7 @@ class HiAnimeWs :
             .awaitSuccess().use { response ->
                 val document = response.parseAs<ResultResponse>().toDocument()
 
-                    document.select("div.ps_-block").flatMap { typeBlock ->
+                document.select("div.ps_-block").flatMap { typeBlock ->
                     val typeClass = typeBlock.classNames().find { it.startsWith("ps_-block-") }
                     val type = typeClass?.removePrefix("ps_-block-") ?: return@flatMap emptyList()
 
@@ -345,7 +344,6 @@ class HiAnimeWs :
     private var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
 
     private suspend fun extractIframe(server: VideoCode): VideoData {
-
         val (type, serverId, serverName) = server
 
         val enc = encDecEndpoints(serverId)
@@ -360,7 +358,7 @@ class HiAnimeWs :
         val payload = postBody.toRequestBody()
 
         val iframe = client.newCall(POST("https://enc-dec.app/api/dec-kai", body = payload))
-            .awaitSuccess().parseAs<IframeResponse>()
+            .awaitSuccess().use { it.parseAs<IframeResponse>() }
             .result.url
 
         val typeSuffix = when (type) {
@@ -384,8 +382,15 @@ class HiAnimeWs :
         emptyList()
     }
 
-    private suspend fun encDecEndpoints(enc: String): String = client.newCall(GET("https://enc-dec.app/api/enc-kai?text=$enc", docHeaders))
-        .awaitSuccess().body.string()
+    private suspend fun encDecEndpoints(enc: String): String {
+        val url = "https://enc-dec.app/api/enc-kai".toHttpUrl().newBuilder()
+            .addQueryParameter("text", enc)
+            .build()
+
+        return client.newCall(GET(url, docHeaders)).awaitSuccess().use {
+            it.body.string()
+        }
+    }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.prefQuality
