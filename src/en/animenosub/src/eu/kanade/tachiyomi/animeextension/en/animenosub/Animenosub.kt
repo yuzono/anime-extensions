@@ -29,19 +29,12 @@ class Animenosub :
     override fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
         return when {
-            // Moon server — React-based Filemoon fork (bysesayeveum.com and mirrors)
-            url.contains("bysesayeveum") || url.contains("moonembed") ||
-                url.contains("filemoon") || url.contains("fmoon") -> {
+            url.contains("bysesayeveum") || url.contains("filemoon") ||
+                url.contains("fmoon") || url.contains("moonembed") -> {
                 MoonExtractor(client, headers, baseUrl).videosFromUrl(url, prefix)
             }
-            // Omega server — VidMoly
             url.contains("vidmoly") -> {
                 VidMolyExtractor(client, headers).videosFromUrl(url, prefix)
-            }
-            // Nova server — upn.one redirector, base class already resolved the iframe
-            // Falls through to MoonExtractor since Nova resolves to same Filemoon CDN
-            url.contains("upn.one") -> {
-                MoonExtractor(client, headers, baseUrl).videosFromUrl(url, prefix)
             }
             url.contains("streamwish") || url.contains("swdyu") -> {
                 val wishHeaders = headers.newBuilder()
@@ -105,7 +98,7 @@ class Animenosub :
             compareBy(
                 { it.quality.contains(type, ignoreCase = true) },
                 { it.quality.contains(quality, ignoreCase = true) },
-                { it.quality.contains(server, ignoreCase = true) },
+                { it.quality.contains(mapPreferredServer(server), ignoreCase = true) },
             ),
         ).reversed()
     }
@@ -122,11 +115,15 @@ class Animenosub :
         private val PREF_SERVER_VALUES = arrayOf(
             "Moon",
             "Omega",
-            "Nova",
             "StreamWish",
             "VidMoly",
             "Vtube",
             "WolfStream",
         )
+
+        private fun mapPreferredServer(server: String): String = when (server) {
+            "Omega" -> "VidMoly"
+            else -> server
+        }
     }
 }

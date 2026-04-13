@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -33,16 +34,11 @@ class MoonExtractor(
 
     fun videosFromUrl(url: String, prefix: String): List<Video> {
         return try {
-            // Grab Aniyomi's dynamic User-Agent once, with a safe fallback
-            val userAgent = headers["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            val userAgent = headers["User-Agent"]
+                ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
             val httpUrl = url.toHttpUrl()
             val host = httpUrl.host
-
-            if (host.contains("upn.one")) {
-                Log.d(tag, "Skipping Nova (unsupported): $url")
-                return emptyList()
-            }
 
             val videoId = httpUrl.pathSegments
                 .lastOrNull { it.isNotEmpty() } ?: run {
@@ -60,18 +56,17 @@ class MoonExtractor(
                 .build()
 
             val detailsBody = client.newCall(
-                eu.kanade.tachiyomi.network.GET(
-                    "https://$host/api/videos/$videoId/embed/details",
-                    detailsHeaders,
-                ),
+                GET("https://$host/api/videos/$videoId/embed/details", detailsHeaders),
             ).execute().body.string()
 
-            val embedUrl = detailsBody
-                .substringAfter("embed_frame_url", "")
-                .substringAfter(":")
-                .substringAfter("\"")
-                .substringBefore("\"")
-                .takeIf { it.isNotBlank() } ?: run {
+            val detailsResponse = try {
+                json.decodeFromString<DetailsResponse>(detailsBody)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to parse details JSON: ${e.message}")
+                return emptyList()
+            }
+
+            val embedUrl = detailsResponse.embedFrameUrl?.takeIf { it.isNotBlank() } ?: run {
                 Log.e(tag, "No embed_frame_url in: ${detailsBody.take(300)}")
                 return emptyList()
             }
@@ -84,15 +79,11 @@ class MoonExtractor(
             val nowSec = System.currentTimeMillis() / 1000
             val expSec = nowSec + 600
 
-            // Build fingerprint payload (base64url encoded JSON)
             val fingerprintPayload = """{"viewer_id":"$viewerId","device_id":"$deviceId","confidence":0.93,"iat":$nowSec,"exp":$expSec}"""
             val payloadB64 = Base64.encodeToString(
                 fingerprintPayload.toByteArray(),
                 Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING,
             )
-
-            // The token format the server expects: base64url(payload).dummy_sig
-            // We use a fixed dummy signature since the server validates domain via x-embed-origin
             val fingerprintToken = "$payloadB64.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
             val fingerprintBody = FingerprintRequest(
@@ -119,8 +110,6 @@ class MoonExtractor(
                 .build()
 
             val bodyString = json.encodeToString(fingerprintBody)
-            Log.d(tag, "POST body: $bodyString")
-
             val requestBody = bodyString.toRequestBody("application/json".toMediaType())
             val playbackUrl = "https://$embedHost/api/videos/$videoId/embed/playback"
 
@@ -128,11 +117,9 @@ class MoonExtractor(
             val playbackResponse = client.newCall(POST(playbackUrl, playbackHeaders, requestBody)).execute()
             Log.d(tag, "Playback code: ${playbackResponse.code}")
             val playbackBodyStr = playbackResponse.body.string()
-            Log.d(tag, "Playback body: ${playbackBodyStr.take(400)}")
 
             val response = json.decodeFromString<PlaybackResponse>(playbackBodyStr)
 
-            // Decrypt AES-256-GCM payload
             val masterUrl = when {
                 !response.sources.isNullOrEmpty() -> {
                     response.sources.firstOrNull()?.let { it.url ?: it.file }
@@ -174,7 +161,6 @@ class MoonExtractor(
         val keyBytes = decodeB64Url(pb.keyParts[0]) + decodeB64Url(pb.keyParts[1])
         val ivBytes = decodeB64Url(pb.iv)
         val cipherBytes = decodeB64Url(pb.payload)
-
         val key = SecretKeySpec(keyBytes, "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, ivBytes))
@@ -190,6 +176,11 @@ class MoonExtractor(
         }
         return Base64.decode(base64 + padding, Base64.DEFAULT)
     }
+
+    @Serializable
+    data class DetailsResponse(
+        @SerialName("embed_frame_url") val embedFrameUrl: String? = null,
+    )
 
     @Serializable
     data class FingerprintRequest(val fingerprint: FingerprintData)
