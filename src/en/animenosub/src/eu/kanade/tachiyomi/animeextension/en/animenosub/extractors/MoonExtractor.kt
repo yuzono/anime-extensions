@@ -108,7 +108,7 @@ class MoonExtractor(
 
             // Fix: use .use{} to prevent connection leaks
             val playbackBodyStr = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))
-                .execute().use { it.body.string() }
+                .execute().bodyString()
 
             val response = json.decodeFromString<PlaybackResponse>(playbackBodyStr)
 
