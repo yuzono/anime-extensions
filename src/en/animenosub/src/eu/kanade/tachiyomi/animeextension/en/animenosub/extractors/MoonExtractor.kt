@@ -53,7 +53,7 @@ class MoonExtractor(
             // Fix: use .use{} to prevent connection leaks
             val detailsBody = client.newCall(
                 GET("https://$host/api/videos/$videoId/embed/details", detailsHeaders),
-            ).execute().use { it.body.string() }
+            ).execute().bodyString()
 
             val detailsResponse = try {
                 json.decodeFromString<DetailsResponse>(detailsBody)
