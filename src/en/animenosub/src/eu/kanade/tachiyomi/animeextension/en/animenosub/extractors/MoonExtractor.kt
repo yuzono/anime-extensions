@@ -56,7 +56,7 @@ class MoonExtractor(
             ).execute().bodyString()
 
             val detailsResponse = try {
-                json.decodeFromString<DetailsResponse>(detailsBody)
+                detailsBody.parseAs<DetailsResponse>(json)
             } catch (e: Exception) {
                 Log.e("MoonExtractor", "Failed to parse details JSON: ${e.message}")
                 return emptyList()
