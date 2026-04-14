@@ -33,6 +33,7 @@ class MoonExtractor(
 
     fun videosFromUrl(url: String, prefix: String): List<Video> {
         return try {
+            // Using standard Kotlin instead of getOrNull
             val userAgent = headers["User-Agent"]
                 ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
