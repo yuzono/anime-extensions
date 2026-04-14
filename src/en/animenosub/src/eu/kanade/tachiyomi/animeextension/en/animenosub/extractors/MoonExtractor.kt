@@ -6,6 +6,8 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -33,8 +35,8 @@ class MoonExtractor(
 
     fun videosFromUrl(url: String, prefix: String): List<Video> {
         return try {
-            // Using standard Kotlin instead of getOrNull
-            val userAgent = headers.getOrNull("User-Agent")?.takeIf(String::isNotBlank)
+            val userAgent = headers["User-Agent"]
+                ?.takeIf(String::isNotBlank)
                 ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
             val httpUrl = url.toHttpUrl()
@@ -47,10 +49,8 @@ class MoonExtractor(
                 .set("Referer", "$siteUrl/")
                 .set("Origin", siteUrl)
                 .set("User-Agent", userAgent)
-                .set("Accept", "application/json, text/plain, */*")
                 .build()
 
-            // Fix: use .use{} to prevent connection leaks
             val detailsBody = client.newCall(
                 GET("https://$host/api/videos/$videoId/embed/details", detailsHeaders),
             ).execute().bodyString()
@@ -92,40 +92,31 @@ class MoonExtractor(
                 .set("Referer", embedUrl)
                 .set("Origin", "https://$embedHost")
                 .set("User-Agent", userAgent)
-                .set("Accept", "application/json, text/plain, */*")
-                .set("Content-Type", "application/json")
                 .set("X-Embed-Origin", siteUrl.removePrefix("https://"))
                 .set("X-Embed-Parent", "https://$host/e/$videoId")
                 .set("X-Embed-Referer", "$siteUrl/")
-                .set("Sec-Fetch-Dest", "empty")
-                .set("Sec-Fetch-Mode", "cors")
-                .set("Sec-Fetch-Site", "same-origin")
                 .build()
 
             val requestBody = json.encodeToString(fingerprintBody)
                 .toRequestBody("application/json".toMediaType())
             val playbackUrl = "https://$embedHost/api/videos/$videoId/embed/playback"
 
-            // Fix: use .use{} to prevent connection leaks
-            val playbackBodyStr = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))
-                .execute().bodyString()
+            val response = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))
+                .execute()
+                .parseAs<PlaybackResponse>(json)
 
-            val response = playbackBodyStr.parseAs<PlaybackResponse>(json)
-
-            val masterUrl = when {
-                !response.sources.isNullOrEmpty() -> {
-                    response.sources.firstOrNull()?.let { it.url ?: it.file }
+            val masterUrl = (
+                response.sources?.firstOrNull()?.let { it.url ?: it.file }
+                    ?: response.playback?.let { playback ->
+                        val decrypted = decryptPayload(playback)
+                        decrypted.parseAs<InnerResponse>(json)
+                            .sources?.firstOrNull()?.let { it.url ?: it.file }
+                    }
+                )?.takeIf(String::isNotBlank)
+                ?: run {
+                    Log.e("MoonExtractor", "No masterUrl found.")
+                    return emptyList()
                 }
-                response.playback != null -> {
-                    val decrypted = decryptPayload(response.playback)
-                    json.decodeFromString<InnerResponse>(decrypted)
-                        .sources?.firstOrNull()?.let { it.url ?: it.file }
-                }
-                else -> null
-            }?.takeIf { it.isNotBlank() } ?: run {
-                Log.e("MoonExtractor", "No masterUrl found in: ${playbackBodyStr.take(300)}")
-                return emptyList()
-            }
 
             val videoHeaders = Headers.Builder()
                 .set("Referer", "https://$embedHost/")
@@ -135,10 +126,15 @@ class MoonExtractor(
 
             playlistUtils.extractFromHls(
                 playlistUrl = masterUrl,
-                referer = "https://$embedHost/",
                 masterHeaders = videoHeaders,
                 videoHeaders = videoHeaders,
-                videoNameGen = { quality -> "${prefix}Moon - $quality" },
+                videoNameGen = { quality ->
+                    listOfNotNull(
+                        prefix.trim().takeIf(String::isNotBlank),
+                        "Moon -".takeIf { !prefix.contains("Moon", true) },
+                        quality.trim(),
+                    ).joinToString(" ")
+                },
             )
         } catch (e: Exception) {
             Log.e("MoonExtractor", "MoonExtractor failed: ${e.message}", e)
