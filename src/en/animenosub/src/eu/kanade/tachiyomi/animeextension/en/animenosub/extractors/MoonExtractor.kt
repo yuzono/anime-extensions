@@ -110,7 +110,7 @@ class MoonExtractor(
             val playbackBodyStr = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))
                 .execute().bodyString()
 
-            val response = json.decodeFromString<PlaybackResponse>(playbackBodyStr)
+            val response = playbackBodyStr.parseAs<PlaybackResponse>(json)
 
             val masterUrl = when {
                 !response.sources.isNullOrEmpty() -> {
