@@ -68,14 +68,24 @@ override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
 
 	override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
 
-	override fun popularAnimeParse(response: Response): AnimesPage {
-		val document = response.asJsoup()
-		val animeList = document.select(popularAnimeSelector())
-			.map(::popularAnimeFromElement)
-			.distinctBy { it.title }
-		val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
-		return AnimesPage(animeList, hasNextPage)
-	}
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animeList = document.select(popularAnimeSelector())
+            .map(::popularAnimeFromElement)
+            .distinctBy { it.title }
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
+
+    /**
+     * Parse search results without deduplication.
+     * Returns raw entries where each episode appears as a separate result.
+     */
+    private fun parseSearchResultsRaw(document: Document): AnimesPage {
+        val animeList = document.select(popularAnimeSelector()).map(::popularAnimeFromElement)
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animeList, hasNextPage)
+    }
 
 	// =============================== Latest ===============================
 	override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
@@ -100,13 +110,13 @@ override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
 		super.getSearchAnime(page, query, filters)
 	}
 
-	private fun searchAnimeByIdParse(response: Response): AnimesPage {
-		val details = animeDetailsParse(response.asJsoup()).apply {
-			setUrlWithoutDomain(response.request.url.toString())
-			initialized = true
-		}
-		return AnimesPage(listOf(details), false)
-	}
+    private fun searchAnimeByIdParse(response: Response): AnimesPage {
+        val details = animeDetailsParse(response.asJsoup()).apply {
+            setUrlWithoutDomain(response.request.url.encodedPath)
+            initialized = true
+        }
+        return AnimesPage(listOf(details), false)
+    }
 
 	override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
 		val params = HstreamFilters.getSearchParameters(filters)
@@ -129,7 +139,16 @@ override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
 
 	override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
-	override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val groupSeries = preferences.getBoolean(PREF_GROUP_SERIES_KEY, PREF_GROUP_SERIES_DEFAULT)
+        return if (groupSeries) {
+            // Group episodes under one series entry (deduplicated)
+            popularAnimeParse(response)
+        } else {
+            // Each episode is a separate entry (raw results)
+            parseSearchResultsRaw(response.asJsoup())
+        }
+    }
 
 	// =========================== Anime Details ============================
 	override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -158,24 +177,30 @@ override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
 		return GET("$baseUrl$seriesUrl-1/")
 	}
 
-	override fun episodeListParse(response: Response): List<SEpisode> {
-		val currentUrl = response.request.url.encodedPath
-		val seriesSlug = getSeriesBaseUrl(currentUrl).removePrefix("/hentai/")
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val currentUrl = response.request.url.encodedPath
+        val seriesSlug = getSeriesBaseUrl(currentUrl).removePrefix("/hentai/")
+        val groupSeries = preferences.getBoolean(PREF_GROUP_SERIES_KEY, PREF_GROUP_SERIES_DEFAULT)
 
-		// Try fetching the series page for episode list (1 request instead of up to 50)
-		return try {
-			val seriesResponse = client.newCall(GET("$baseUrl/hentai/$seriesSlug/")).execute()
-			if (seriesResponse.isSuccessful) {
-				parseEpisodesFromSeriesPage(seriesResponse.asJsoup())
-			} else {
-				seriesResponse.close()
-				parseEpisodesFromEpisodePage(response.asJsoup(), currentUrl)
-			}
-		} catch (e: Exception) {
-			// Fallback on any error
-			parseEpisodesFromEpisodePage(response.asJsoup(), currentUrl)
-		}
-	}
+        // When grouping is OFF, each entry is a single episode - no series page fetch needed
+        if (!groupSeries) {
+            return parseEpisodesFromEpisodePage(response.asJsoup(), currentUrl)
+        }
+
+        // When grouping is ON, try fetching the series page for episode list (1 request instead of up to 50)
+        return try {
+            val seriesResponse = client.newCall(GET("$baseUrl/hentai/$seriesSlug/")).execute()
+            if (seriesResponse.isSuccessful) {
+                parseEpisodesFromSeriesPage(seriesResponse.asJsoup())
+            } else {
+                seriesResponse.close()
+                parseEpisodesFromEpisodePage(response.asJsoup(), currentUrl)
+            }
+        } catch (e: Exception) {
+            // Fallback on any error
+            parseEpisodesFromEpisodePage(response.asJsoup(), currentUrl)
+        }
+    }
 
 	private fun parseEpisodesFromSeriesPage(doc: Document): List<SEpisode> {
 		val episodes = mutableListOf<SEpisode>()
@@ -294,12 +319,19 @@ setOnPreferenceChangeListener { _, newValue ->
         }
 		}.also(screen::addPreference)
 
-		screen.addSwitchPreference(
-			key = PREF_REVERSE_EPISODES_KEY,
-			title = "Reverse episode order",
-			summary = "Show newest episodes first",
-			defaultValue = PREF_REVERSE_EPISODES_DEFAULT,
-		)
+	screen.addSwitchPreference(
+		key = PREF_REVERSE_EPISODES_KEY,
+		title = "Reverse episode order",
+		summary = "Show newest episodes first",
+		defaultValue = PREF_REVERSE_EPISODES_DEFAULT,
+	)
+
+        screen.addSwitchPreference(
+            key = PREF_GROUP_SERIES_KEY,
+            title = "Group series episodes",
+            summary = "ON: Episodes grouped under one series entry (recommended).\nOFF: Each episode appears as a separate search result.",
+            defaultValue = PREF_GROUP_SERIES_DEFAULT,
+        )
 	}
 
 	// ============================= Utilities ==============================
@@ -331,7 +363,9 @@ override fun List<Video>.sort(): List<Video> {
 		private const val PREF_QUALITY_DEFAULT = "720p"
 		private val PREF_QUALITY_ENTRIES = arrayOf("720p (HD)", "1080p (FULLHD)", "2160p (4K)")
 		private val PREF_QUALITY_VALUES = arrayOf("720p", "1080p", "2160p")
-		private const val PREF_REVERSE_EPISODES_KEY = "pref_reverse_episodes_key"
-		private const val PREF_REVERSE_EPISODES_DEFAULT = true
+	private const val PREF_REVERSE_EPISODES_KEY = "pref_reverse_episodes_key"
+	private const val PREF_REVERSE_EPISODES_DEFAULT = true
+	private const val PREF_GROUP_SERIES_KEY = "pref_group_series_key"
+	private const val PREF_GROUP_SERIES_DEFAULT = true
 	}
 }
