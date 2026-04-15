@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import org.jsoup.Jsoup
 
 class StreamWishExtractor(private val client: OkHttpClient, private val headers: Headers) {
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -29,57 +30,76 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
 
     fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "StreamWish - $quality" }): List<Video> {
         val embedUrl = getEmbedUrl(url).toHttpUrl()
-        var doc = client.newCall(GET(embedUrl, headers)).execute().asJsoup()
+        val id = getEmbedId(url)
+        for (domain in DOMAINS) {
+            val fullUrl = if (id.startsWith("https://")) id else "https://$domain/$id"
+            try {
 
-        val scriptElement = doc.selectFirst("body > script[src*=/main.js]")
-        if (scriptElement != null) {
-            val scriptUrl = scriptElement.absUrl("src")
-            val scriptContent = client.newCall(GET(scriptUrl, headers)).execute().body.string()
+                val response = client.newCall(GET(fullUrl, headers)).execute()
+                if (!response.isSuccessful) continue
 
-            val deobfuscatedScript = runCatching { Deobfuscator.deobfuscateScript(scriptContent) }.getOrNull()
-                ?: return emptyList()
+                val body = response.body.string()
+                if (body.isEmpty()) continue
+                var doc = Jsoup.parse(body)
 
-            val dmcaServers = extractServerList(dmcaServersRegex, deobfuscatedScript)
+                val scriptElement = doc.selectFirst("body > script[src*=/main.js]")
+                if (scriptElement != null) {
+                    val scriptUrl = scriptElement.absUrl("src")
+                    val scriptContent = client.newCall(GET(scriptUrl, headers)).execute().body.string()
 
-            val mainServers = extractServerList(mainServersRegex, deobfuscatedScript)
+                    val deobfuscatedScript = runCatching { Deobfuscator.deobfuscateScript(scriptContent) }.getOrNull()
+                        ?: return emptyList()
 
-            val rulesServers = extractServerList(rulesServersRegex, deobfuscatedScript)
+                    val dmcaServers = extractServerList(dmcaServersRegex, deobfuscatedScript)
 
-            val destination = if (embedUrl.host in rulesServers) {
-                mainServers.randomOrNull()
-            } else {
-                dmcaServers.randomOrNull()
-            } ?: return emptyList()
+                    val mainServers = extractServerList(mainServersRegex, deobfuscatedScript)
 
-            val redirectedUrl = embedUrl.newBuilder()
-                .host(destination)
-                .build()
-                .toString()
+                    val rulesServers = extractServerList(rulesServersRegex, deobfuscatedScript)
 
-            doc = client.newCall(GET(getEmbedUrl(redirectedUrl), headers)).execute().asJsoup()
-        }
+                    val destination = if (embedUrl.host in rulesServers) {
+                        mainServers.randomOrNull()
+                    } else {
+                        dmcaServers.randomOrNull()
+                    } ?: return emptyList()
 
-        val scriptBody = doc.selectFirst("script:containsData(m3u8)")?.data()
-            ?.let { script ->
-                if (script.contains("eval(function(p,a,c")) {
-                    JsUnpacker.unpackAndCombine(script)
-                } else {
-                    script
+                    val redirectedUrl = embedUrl.newBuilder()
+                        .host(destination)
+                        .build()
+                        .toString()
+
+                    doc = client.newCall(GET(getEmbedUrl(redirectedUrl), headers)).execute().asJsoup()
                 }
+
+
+                val scriptBody = doc.selectFirst("script:containsData(m3u8)")?.data()
+                    ?.let { script ->
+                        if (script.contains("eval(function(p,a,c")) {
+                            JsUnpacker.unpackAndCombine(script)
+                        } else {
+                            script
+                        }
+                    }
+
+                val masterUrl = scriptBody?.let {
+                    M3U8_REGEX.find(it)?.value
+                }
+
+                if (masterUrl != null) {
+                    val subtitleList = extractSubtitles(scriptBody)
+
+                    return playlistUtils.extractFromHls(
+                        playlistUrl = masterUrl,
+                        referer = "https://${url.toHttpUrl().host}/",
+                        videoNameGen = videoNameGen,
+                        subtitleList = playlistUtils.fixSubtitles(subtitleList),
+                    )
+                }
+            } catch (_: Exception) {
+                if (id.startsWith("https://")) return emptyList()
             }
-        val masterUrl = scriptBody?.let {
-            M3U8_REGEX.find(it)?.value
         }
-            ?: return emptyList()
 
-        val subtitleList = extractSubtitles(scriptBody)
-
-        return playlistUtils.extractFromHls(
-            playlistUrl = masterUrl,
-            referer = "https://${url.toHttpUrl().host}/",
-            videoNameGen = videoNameGen,
-            subtitleList = playlistUtils.fixSubtitles(subtitleList),
-        )
+        return emptyList()
     }
 
     private fun extractServerList(regex: Regex, script: String): List<String> = regex.find(script)?.groupValues?.get(1)
@@ -93,6 +113,17 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
         "https://streamwish.com/$videoId"
     } else {
         url
+    }
+
+    private fun getEmbedId(url: String): String {
+        val regex = Regex(""".*/[efd]/([a-zA-Z0-9]+)""")
+        val match = regex.find(url)
+
+        val id = match?.groupValues?.get(1)
+            ?: return url
+
+        // Prevent redirect
+        return id
     }
 
     private fun extractSubtitles(script: String): List<Track> = try {
@@ -117,5 +148,10 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
     companion object {
         private val M3U8_REGEX by lazy { Regex("""https[^"]*m3u8[^"]*""") }
         private val FIX_TRACKS_REGEX by lazy { Regex("""(?<!")(file|kind|label)(?!")""") }
+        private val DOMAINS = listOf(
+            "streamwish.com",
+            "niramirus.com",
+            "medixiru.com"
+        )
     }
 }
