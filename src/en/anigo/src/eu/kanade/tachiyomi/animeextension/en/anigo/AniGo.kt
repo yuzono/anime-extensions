@@ -122,7 +122,7 @@ class AniGo :
 
     override fun popularAnimeNextPageSelector() = "ul.pagination a[rel=next]"
 
-// =============================== Latest ===============================
+    // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
 
@@ -130,7 +130,7 @@ class AniGo :
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-// =============================== Search ===============================
+    // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
