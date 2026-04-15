@@ -24,6 +24,21 @@ class MegaUpExtractor(
     private val tag by lazy { javaClass.simpleName }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
+    private fun encDecHeaders(): Headers {
+        val referer = headers["Referer"] ?: ""
+        val origin = runCatching { referer.toHttpUrl().let { "${it.scheme}://${it.host}" } }.getOrDefault("")
+
+        return Headers.Builder()
+            .set("User-Agent", headers["User-Agent"] ?: "")
+            .set("Accept", "application/json, text/plain, */*")
+            .set("Origin", origin)
+            .set("Referer", referer)
+            .set("Sec-Fetch-Dest", "empty")
+            .set("Sec-Fetch-Mode", "cors")
+            .set("Sec-Fetch-Site", "cross-site")
+            .build()
+    }
+
     suspend fun videosFromUrl(
         url: String,
         serverName: String? = null,
@@ -36,7 +51,7 @@ class MegaUpExtractor(
 
         val userAgent = headers["User-Agent"] ?: ""
 
-        val token = parsedUrl.pathSegments.lastOrNull()
+        val token = parsedUrl.pathSegments.lastOrNull { it.isNotEmpty() }
             ?: throw IllegalArgumentException("No token found in URL: $url")
 
         val megaUrl = "$megaHost/media/$token"
@@ -58,10 +73,11 @@ class MegaUpExtractor(
             put("agent", userAgent)
         }.toRequestBody()
 
-        val megaUpResult = client.newCall(POST("https://enc-dec.app/api/dec-mega", body = tokenBody))
-            .awaitSuccess().use { response ->
-                response.parseAs<TokenResponse>().result
-            }
+        val megaUpResult = client.newCall(
+            POST("https://enc-dec.app/api/dec-mega", body = tokenBody, headers = encDecHeaders()),
+        ).awaitSuccess().use { response ->
+            response.parseAs<TokenResponse>().result
+        }
 
         val subtitleTracks = megaUpResult.subtitleTracks()
 

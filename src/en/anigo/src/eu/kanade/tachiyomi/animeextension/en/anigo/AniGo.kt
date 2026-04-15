@@ -108,7 +108,10 @@ class AniGo :
     override fun popularAnimeFromElement(element: Element): SAnime {
         val href = element.selectFirst("a.poster")?.attr("href")
             ?.takeIf { it.startsWith("/watch/") }
-            ?: throw Exception("Invalid anime URL found in element")
+            ?: return SAnime.create().apply {
+                setUrlWithoutDomain("")
+                title = ""
+            }
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
@@ -119,7 +122,7 @@ class AniGo :
 
     override fun popularAnimeNextPageSelector() = "ul.pagination a[rel=next]"
 
-    // =============================== Latest ===============================
+// =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
 
@@ -127,7 +130,7 @@ class AniGo :
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    // =============================== Search ===============================
+// =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
@@ -161,7 +164,10 @@ class AniGo :
         val linkEl = if (element.tagName() == "a") element else element.selectFirst("a")
         val href = linkEl?.attr("href")
             ?.takeIf { it.startsWith("/watch/") }
-            ?: throw Exception("Invalid related anime URL found in element")
+            ?: return SAnime.create().apply {
+                setUrlWithoutDomain("")
+                title = ""
+            }
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
@@ -181,7 +187,11 @@ class AniGo :
             }
         }
 
-        val related = document.select(relatedAnimeListSelector()).map { relatedAnimeFromElement(it) }
+        val related = document.select(relatedAnimeListSelector()).mapNotNull {
+            val anime = relatedAnimeFromElement(it)
+            if (anime.url.isNotBlank()) anime else null
+        }
+
         return seasons + related
     }
 
@@ -403,8 +413,24 @@ class AniGo :
     private var megaUpExtractor: MegaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
 
     private val jTitleRegex by lazy { """JTitle\(`([^`]*)`\)""".toRegex() }
-
     private val idRegex by lazy { Regex("""id:\s*'([^']+)'""") }
+
+    /**
+     * Uses external service (enc-dec.app) for endpoint encryption/decryption.
+     * This is a shared community dependency as the site uses heavily obfuscated,
+     * constantly changing JS crypto that is impractical to maintain locally.
+     */
+    private fun encDecHeaders(addContentType: Boolean = false): Headers = headersBuilder()
+        .set("Accept", "application/json, text/plain, */*")
+        .apply { if (addContentType) set("Content-Type", "application/json") }
+        .set("Origin", baseUrl)
+        .set("Referer", "$baseUrl/watch")
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "cross-site")
+        .removeAll("Sec-Fetch-User")
+        .removeAll("Upgrade-Insecure-Requests")
+        .build()
 
     private suspend fun extractIframe(server: VideoCode): VideoData {
         val (type, lid, serverName) = server
@@ -424,21 +450,9 @@ class AniGo :
         }
         val payload = postBody.toRequestBody()
 
-        val reqHeaders = headersBuilder()
-            .set("Accept", "application/json, text/plain, */*")
-            .set("Content-Type", "application/json")
-            .set("Origin", baseUrl)
-            .set("Referer", "$baseUrl/watch")
-            .set("Sec-Fetch-Dest", "empty")
-            .set("Sec-Fetch-Mode", "cors")
-            .set("Sec-Fetch-Site", "cross-site")
-            .removeAll("Sec-Fetch-User")
-            .removeAll("Upgrade-Insecure-Requests")
-            .build()
-
-        val iframe = client.newCall(POST("https://enc-dec.app/api/dec-kai", body = payload, headers = reqHeaders))
-            .awaitSuccess().parseAs<IframeResponse>()
-            .result.url
+        val iframe = client.newCall(
+            POST("https://enc-dec.app/api/dec-kai", body = payload, headers = encDecHeaders(addContentType = true)),
+        ).awaitSuccess().parseAs<IframeResponse>().result.url
 
         val typeSuffix = when (type) {
             "sub" -> "Hard Sub"
@@ -462,17 +476,11 @@ class AniGo :
     }
 
     private suspend fun encDecEndpoints(enc: String): String {
-        val reqHeaders = headersBuilder()
-            .set("Accept", "application/json, text/plain, */*")
-            .set("Origin", baseUrl)
-            .set("Referer", "$baseUrl/watch")
-            .set("Sec-Fetch-Dest", "empty")
-            .set("Sec-Fetch-Mode", "cors")
-            .set("Sec-Fetch-Site", "cross-site")
-            .removeAll("Sec-Fetch-User")
-            .removeAll("Upgrade-Insecure-Requests")
+        val url = "https://enc-dec.app/api/enc-kai".toHttpUrl().newBuilder()
+            .addQueryParameter("text", enc)
             .build()
-        return client.newCall(GET("https://enc-dec.app/api/enc-kai?text=$enc", reqHeaders))
+
+        return client.newCall(GET(url, encDecHeaders()))
             .awaitSuccess().parseAs<AniGoEncryptedResponse>().result
     }
 
