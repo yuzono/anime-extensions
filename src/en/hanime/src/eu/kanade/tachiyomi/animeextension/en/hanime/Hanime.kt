@@ -44,6 +44,15 @@ class Hanime :
 
     private val preferences by getPreferencesLazy()
 
+    private fun fixThumbnailUrl(url: String?): String? {
+        if (url.isNullOrEmpty()) return null
+        return if (url.contains("hanime-cdn.com") && !url.contains("Referer=")) {
+            "$url|Referer=https://hanime.tv/"
+        } else {
+            url
+        }
+    }
+
     private fun searchRequestBody(query: String, page: Int, filters: AnimeFilterList): RequestBody {
         val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
 
@@ -76,7 +85,7 @@ class Hanime :
         val animeList = array.groupBy { getTitle(it.name) }.map { (_, items) -> items.first() }.map { item ->
             SAnime.create().apply {
                 title = getTitle(item.name)
-                thumbnail_url = item.coverUrl
+                thumbnail_url = fixThumbnailUrl(item.coverUrl)
                 author = item.brand
                 description = item.description?.replace(Regex("<[^>]*>"), "")
                 status = SAnime.UNKNOWN
@@ -119,7 +128,7 @@ class Hanime :
 
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
-            thumbnail_url = coverUrl ?: document.select("img.hvpi-cover").attr("src")
+            thumbnail_url = fixThumbnailUrl(coverUrl) ?: fixThumbnailUrl(document.select("img.hvpi-cover").attr("src"))
             author = document.select("a.hvpimbc-text").text()
             description = document.select("div.hvpist-description p").joinToString("\n\n") { it.text() }
             status = SAnime.UNKNOWN
@@ -140,30 +149,43 @@ class Hanime :
     }
 
     private fun fetchVideoListPremium(episode: SEpisode): List<Video> {
+        val cookie = authCookie ?: return emptyList()
         val id = episode.url.substringAfter("?id=")
-        val headers = headers.newBuilder().add("cookie", authCookie!!)
-        val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).execute().asJsoup()
+        val headers = headers.newBuilder().add("cookie", cookie).build()
+        val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers)).execute().asJsoup()
 
-        val parsed = document.selectFirst("script:containsData(__NUXT__)")!!.data()
-            .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
+        val scriptElement = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
+        val scriptData = scriptElement.data()
+        val nuxtJson = scriptData.substringAfter("__NUXT__=").substringBeforeLast(";")
+        val parsed = nuxtJson.parseAs<WindowNuxt>()
 
-        return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
-            server.streams.mapNotNull { stream ->
-                val url = stream.url ?: return@mapNotNull null
-                val height = stream.height ?: return@mapNotNull null
-                Video(url, "${height}p", url)
-            }
-        } ?: emptyList()
+	val videoHeaders = Headers.headersOf(
+		"Referer", "https://hanime.tv/",
+		"Accept", "*/*",
+		"Accept-Language", "en-US,en;q=0.5"
+	)
+	return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
+		server.streams.mapNotNull { stream ->
+			val url = stream.url ?: return@mapNotNull null
+			val height = stream.height ?: return@mapNotNull null
+			Video(url, "${height}p", url, videoHeaders)
+		}
+	} ?: emptyList()
     }
 
-    override fun videoListParse(response: Response): List<Video> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
-        return responseString.parseAs<VideoModel>().videosManifest?.servers?.firstOrNull()?.streams?.filter { it.kind != "premium_alert" }?.mapNotNull { stream ->
-            val url = stream.url ?: return@mapNotNull null
-            val height = stream.height ?: return@mapNotNull null
-            Video(url, "${height}p", url)
-        } ?: emptyList()
-    }
+	override fun videoListParse(response: Response): List<Video> {
+		val responseString = response.body.string().ifEmpty { return emptyList() }
+		val videoHeaders = Headers.headersOf(
+			"Referer", "https://hanime.tv/",
+			"Accept", "*/*",
+			"Accept-Language", "en-US,en;q=0.5"
+		)
+		return responseString.parseAs<VideoModel>().videosManifest?.servers?.firstOrNull()?.streams?.filter { it.kind != "premium_alert" }?.mapNotNull { stream ->
+			val url = stream.url ?: return@mapNotNull null
+			val height = stream.height ?: return@mapNotNull null
+			Video(url, "${height}p", url, videoHeaders)
+		} ?: emptyList()
+	}
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
