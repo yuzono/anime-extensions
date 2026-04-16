@@ -14,7 +14,7 @@ class VidMolyExtractor(private val client: OkHttpClient, headers: Headers = comm
 
     companion object {
         const val BASE_URL = "https://vidmoly.biz"
-        private val hostRegex by lazy { Regex("""https?://(?:www\.)?[^/]+/""") }
+        private val hostRegex by lazy { Regex("""^https?://(?:www\.)?[^/]+/""") }
 
         private val sourcesRegex by lazy { Regex("""sources\s*:\s*(.+?]),""") }
         private val urlsRegex by lazy { Regex("""file\s*:\s*["'](.+?)["']""") }
