@@ -14,8 +14,8 @@ import okhttp3.OkHttpClient
 class VtubeExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private val playlistUtils by lazy { PlaylistUtils(client) }
-    private val sourcesRegex by lazy { Regex("""sources\s*:\s*(.+?]),""") }
-    private val urlsRegex by lazy { Regex("""file\s*:\s*["'](.+?)["']""") }
+    private val sourcesRegex by lazy { Regex("""sources\s*:\s*(.+?]),""", RegexOption.DOT_MATCHES_ALL) }
+    private val urlsRegex by lazy { Regex("""file\s*:\s*["']([^"']+)["']""") }
 
     suspend fun videosFromUrl(url: String, baseUrl: String, prefix: String): List<Video> {
         val docHeaders = headers.newBuilder()

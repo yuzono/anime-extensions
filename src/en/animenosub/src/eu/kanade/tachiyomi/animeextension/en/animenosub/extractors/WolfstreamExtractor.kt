@@ -8,8 +8,8 @@ import okhttp3.OkHttpClient
 
 class WolfstreamExtractor(private val client: OkHttpClient) {
 
-    private val sourcesRegex by lazy { Regex("""sources\s*:\s*(.+?]),""") }
-    private val urlsRegex by lazy { Regex("""file\s*:\s*["'](.+?)["']""") }
+    private val sourcesRegex by lazy { Regex("""sources\s*:\s*(.+?]),""", RegexOption.DOT_MATCHES_ALL) }
+    private val urlsRegex by lazy { Regex("""file\s*:\s*["']([^"']+)["']""") }
 
     suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val urls = client.newCall(
