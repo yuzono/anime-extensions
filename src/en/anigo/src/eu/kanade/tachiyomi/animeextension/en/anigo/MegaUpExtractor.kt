@@ -154,21 +154,21 @@ class MegaUpExtractor(
         val download: String? = null,
     ) {
         fun subtitleTracks(): List<Track> = tracks
-            .filter { it.kind == "captions" && it.file.endsWith(".vtt") }
+            .filter { it.kind == "captions" && it.file.endsWith(".vtt", ignoreCase = true) }
             .sortedByDescending { it.default }
             .map { Track(it.file, it.label ?: "Unknown") }
+
+        @Serializable
+        data class MegaUpSource(
+            val file: String,
+        )
+
+        @Serializable
+        data class MegaUpTrack(
+            val file: String,
+            val label: String? = null,
+            val kind: String,
+            val default: Boolean = false,
+        )
     }
-
-    @Serializable
-    data class MegaUpSource(
-        val file: String,
-    )
-
-    @Serializable
-    data class MegaUpTrack(
-        val file: String,
-        val label: String? = null,
-        val kind: String,
-        val default: Boolean = false,
-    )
 }
