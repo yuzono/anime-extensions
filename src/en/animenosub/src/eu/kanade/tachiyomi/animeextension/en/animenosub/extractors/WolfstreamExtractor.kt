@@ -2,16 +2,20 @@ package eu.kanade.tachiyomi.animeextension.en.animenosub.extractors
 
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.useAsJsoup
 import okhttp3.OkHttpClient
+import org.jsoup.nodes.Element
 
 class WolfstreamExtractor(private val client: OkHttpClient) {
-    fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
+    suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val url = client.newCall(
             GET(url),
-        ).execute().asJsoup().selectFirst("script:containsData(sources)")?.let {
-            it.data().substringAfter("{file:\"").substringBefore("\"")
-        } ?: return emptyList()
+        ).awaitSuccess().useAsJsoup()
+            .selectFirst("script:containsData(sources)")
+            ?.let { it: Element ->
+                it.data().substringAfter("{file:\"").substringBefore("\"")
+            } ?: return emptyList()
         return listOf(
             Video(url, "${prefix}WolfStream", url),
         )
