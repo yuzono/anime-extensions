@@ -23,6 +23,8 @@ import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -363,10 +365,16 @@ class HexaWatch :
         val path = episode.url.split("/").drop(1)
         val mediaType = path.first()
 
+        // Spoofed User Agent is required for the CAP and decryption APIs
+        val spoofedHeaders = headers.newBuilder()
+            .set("User-Agent", "Mozilla/5.0 (Linux, Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+            .build()
+
         val capToken = client.newCall(
-            GET(encryptionApiUrl, headers),
+            GET(encryptionApiUrl, spoofedHeaders),
         ).awaitSuccess().use { it.parseAs<EncryptionResponseDto>() }.result.token
 
+        // Use default Aniyomi headers for TMDB to avoid TLS fingerprint mismatches
         val videoHeaders = headers.newBuilder()
             .add("X-Api-Key", key)
             .add("X-Cap-Token", capToken)
@@ -380,14 +388,23 @@ class HexaWatch :
             else -> throw Exception("Invalid media type for video request")
         }
 
-        val encryptedText = client.newCall(GET(requestUrl, videoHeaders))
+        val rawEncryptedText = client.newCall(GET(requestUrl, videoHeaders))
             .awaitSuccess()
             .use { it.body.string() }
 
-        if (encryptedText.isBlank()) {
-            throw Exception("Empty response from video API. Token may be invalid.")
+        // Detect Cloudflare blocks or empty payloads before sending to decryption
+        if (rawEncryptedText.isBlank() || rawEncryptedText.contains("<!DOCTYPE") || rawEncryptedText.contains("<html")) {
+            throw Exception("Cloudflare blocked the TMDB API request. Please try again.")
         }
 
+        // Clean the text to ensure no literal quotes break the decryption API
+        val encryptedText = rawEncryptedText.trim('"', ' ', '\n', '\r')
+
+        if (encryptedText.length < 50) {
+            throw Exception("Invalid response from video API. Snippet: ${encryptedText.take(100)}")
+        }
+
+        // Decrypt Data
         val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText, "key" to key))
         val decRequestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
 
@@ -397,19 +414,29 @@ class HexaWatch :
             add("Accept", "application/json")
         }.build()
 
-        val extractorData = client.newCall(
+        val decResponse = client.newCall(
             Request.Builder()
                 .url(decryptionApiUrl)
                 .post(decRequestBody)
                 .headers(decHeaders)
                 .build(),
-        ).awaitSuccess().use { decryptionResponse ->
-            decryptionResponse.parseAs<DecryptionResponseDto>()
+        ).awaitSuccess().use { it.parseAs<DecryptionResponseDto>() }
+
+        // Check if result is a valid object. If it's a string (e.g., ""), decryption failed on their end.
+        val resultElement = decResponse.result
+        if (resultElement == null || resultElement !is JsonObject) {
+            throw Exception("The server failed to decrypt the video payload. API returned: $resultElement")
+        }
+
+        val extractorData = runCatching {
+            json.decodeFromJsonElement<ExtractorResultDto>(resultElement)
+        }.getOrElse {
+            throw Exception("Failed to parse decrypted video data.", it)
         }
 
         val subtitles = getSubtitles(requestUrl)
 
-        val videos = extractorData.result.sources.parallelFlatMap { source ->
+        val videos = extractorData.sources.parallelFlatMap { source ->
             runCatching {
                 playlistUtils.extractFromHls(
                     playlistUrl = source.url,
@@ -427,9 +454,8 @@ class HexaWatch :
         }
 
         val preferredQuality = preferences.videoQualityPref
-        return videos.sortedByDescending { preferredQuality.let(it.quality::contains) }
+        return videos.sortedByDescending { it.quality.contains(preferredQuality) }
     }
-
     private suspend fun getSubtitles(requestUrl: String): List<Track> {
         val match = GET_SUBTITLES_REGEX.find(requestUrl)
             ?: return emptyList()
@@ -571,9 +597,7 @@ class HexaWatch :
 
         fun parseDate(dateStr: String?): Long = runCatching {
             val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            synchronized(formatter) {
-                formatter.parse(dateStr ?: "")?.time ?: 0L
-            }
+            formatter.parse(dateStr ?: "")?.time ?: 0L
         }.getOrDefault(0L)
     }
 

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.hexawatch
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 // ============================== General ===============================
 
@@ -121,7 +122,8 @@ data class EncryptionResultDto(
 
 @Serializable
 data class DecryptionResponseDto(
-    val result: ExtractorResultDto,
+    val status: Int? = null,
+    val result: JsonElement? = null,
 )
 
 @Serializable
