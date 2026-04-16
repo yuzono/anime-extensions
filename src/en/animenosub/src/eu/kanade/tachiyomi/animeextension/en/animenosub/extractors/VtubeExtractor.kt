@@ -26,7 +26,9 @@ class VtubeExtractor(private val client: OkHttpClient, private val headers: Head
         val doc = client.newCall(GET(url, headers = docHeaders)).awaitSuccess().useAsJsoup()
 
         val jsEval = doc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
-        val unpacked = jsEval?.let(::autoUnpacker) ?: doc.toString()
+        val unpacked = jsEval?.let(::autoUnpacker)
+            ?: doc.selectFirst("script:containsData(sources)")?.data()
+            ?: return emptyList()
 
         val sources = sourcesRegex.find(unpacked)?.groupValues[1] ?: return emptyList()
         val urls = urlsRegex.findAll(sources)
