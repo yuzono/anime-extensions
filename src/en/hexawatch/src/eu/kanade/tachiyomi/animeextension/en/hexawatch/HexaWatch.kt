@@ -44,6 +44,7 @@ class HexaWatch :
     private val animeUrl = "$baseUrl/details"
     private val apiUrl = "https://theemoviedb.hexa.su/api/tmdb"
     private val subtitleUrl = "https://sub.wyzie.io"
+    private val encryptionApiUrl = "https://enc-dec.app/api/enc-hexa"
     private val decryptionApiUrl = "https://enc-dec.app/api/dec-hexa"
 
     override val lang = "en"
@@ -98,8 +99,8 @@ class HexaWatch :
             addQueryParameter("language", "en-US")
             addQueryParameter("sort_by", "primary_release_date.desc")
             addQueryParameter("page", page.toString())
-            addQueryParameter("vote_count.gte", "50") // Minimum votes to avoid low-rated content
-            addQueryParameter("primary_release_date.lte", date) // Only released content
+            addQueryParameter("vote_count.gte", "50")
+            addQueryParameter("primary_release_date.lte", date)
         }.build()
         return GET(url, headers)
     }
@@ -167,7 +168,6 @@ class HexaWatch :
                 addQueryParameter("with_genres", genres)
             }
 
-            // ====== Watch Provider Filter ======
             val providers = filters.filterIsInstance<HexaWatchFilters.WatchProviderFilter>()
                 .firstOrNull()
                 ?.state
@@ -280,7 +280,7 @@ class HexaWatch :
 
                 val details = listOfNotNull(
                     "**Type:** TV Show",
-                    tv.voteAverage.takeIf { it > 0f }?.let { "**Score:** ★ $${String.format(Locale.US, "%.1f", it)}" },
+                    tv.voteAverage.takeIf { it > 0f }?.let { "**Score:** ★ ${String.format(Locale.US, "%.1f", it)}" },
                     tv.tagline?.takeIf(String::isNotBlank)?.let { "**Tag Line**: *$it*" },
                     tv.firstAirDate?.takeIf(String::isNotBlank)?.let { "**First Air Date:** $it" },
                     tv.lastAirDate?.takeIf(String::isNotBlank)?.let { "**Last Air Date:** $it" },
@@ -328,7 +328,8 @@ class HexaWatch :
                         episodes.map { episode ->
                             SEpisode.create().apply {
                                 name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
-                                episode_number = episode.episodeNumber.toFloat()
+                                // Encode season into episode_number so S2E1 (2001.0f) sorts above S1E10 (1010.0f)
+                                episode_number = (season.seasonNumber * 1000.0f) + episode.episodeNumber.toFloat()
                                 date_upload = parseDate(episode.airDate)
                                 url = "/tv/${tv.id}/${season.seasonNumber}/${episode.episodeNumber}"
                             }
@@ -351,44 +352,62 @@ class HexaWatch :
     }
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
-        .awaitSuccess()
-        .use { response ->
-            videoListParseAsync(response)
-        }
+    override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
 
-    override fun videoListRequest(episode: SEpisode): Request {
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val key = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }
             .joinToString("") { "%02x".format(it) }
 
+        val path = episode.url.split("/").drop(1)
+        val mediaType = path.first()
+
+        val capToken = client.newCall(
+            GET(encryptionApiUrl, headers),
+        ).awaitSuccess().use { it.parseAs<EncryptionResponseDto>() }.result.token
+
         val videoHeaders = headers.newBuilder()
             .add("X-Api-Key", key)
+            .add("X-Cap-Token", capToken)
+            .add("X-Fingerprint-Lite", "e9136c41504646444")
+            .add("Accept", "text/plain")
             .build()
 
-        val path = episode.url.split("/").drop(1)
-        val requestUrl = when (path.first()) {
+        val requestUrl = when (mediaType) {
             "movie" -> "$apiUrl/movie/${path[1]}/images"
             "tv" -> "$apiUrl/tv/${path[1]}/season/${path[2]}/episode/${path[3]}/images"
             else -> throw Exception("Invalid media type for video request")
         }
-        return GET(requestUrl, videoHeaders)
-    }
 
-    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
-    private suspend fun videoListParseAsync(response: Response): List<Video> {
-        val encryptedText = response.body.string()
-        val key = response.request.header("X-Api-Key") ?: throw Exception("API Key was not sent in the request")
+        val encryptedText = client.newCall(GET(requestUrl, videoHeaders))
+            .awaitSuccess()
+            .use { it.body.string() }
 
-        val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText, "key" to key))
-        val requestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
-
-        val extractorData = client.newCall(
-            Request.Builder().url(decryptionApiUrl).post(requestBody).build(),
-        ).awaitSuccess().use { decryptionResponse ->
-            decryptionResponse.parseAs<ExtractorResponseDto>()
+        if (encryptedText.isBlank()) {
+            throw Exception("Empty response from video API. Token may be invalid.")
         }
 
-        val subtitles = getSubtitles(response.request.url.toString())
+        val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText, "key" to key))
+        val decRequestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
+
+        val decHeaders = okhttp3.Headers.Builder().apply {
+            add("User-Agent", "Mozilla/5.0 (Linux, Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+            add("Content-Type", "application/json")
+            add("Accept", "application/json")
+        }.build()
+
+        val extractorData = client.newCall(
+            Request.Builder()
+                .url(decryptionApiUrl)
+                .post(decRequestBody)
+                .headers(decHeaders)
+                .build(),
+        ).awaitSuccess().use { decryptionResponse ->
+            decryptionResponse.parseAs<DecryptionResponseDto>()
+        }
+
+        val subtitles = getSubtitles(requestUrl)
 
         val videos = extractorData.result.sources.parallelFlatMap { source ->
             runCatching {
@@ -417,23 +436,36 @@ class HexaWatch :
 
         val (mediaType, mediaId, season, episode) = match.destructured
 
-        val subtitleRequestUrl = when (mediaType) {
-            "movie" -> "$subtitleUrl/search?id=$mediaId"
-            "tv" -> "$subtitleUrl/search?id=$mediaId&season=$season&episode=$episode"
-            else -> return emptyList()
-        }
+        val subtitleRequestUrl = "$subtitleUrl/search".toHttpUrl().newBuilder().apply {
+            addQueryParameter("id", mediaId)
+            if (mediaType == "tv") {
+                addQueryParameter("season", season)
+                addQueryParameter("episode", episode)
+            }
+            addQueryParameter("format", "srt")
+            addQueryParameter("key", "wyzie-c906fb1acd0204957b95582dfdaa498f")
+        }.build()
+
+        val subHeaders = okhttp3.Headers.Builder().apply {
+            add("User-Agent", "Mozilla/5.0 (Linux, Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+            add("Accept", "*/*")
+            add("Accept-Language", "en-US,en;q=0.9")
+            add("Referer", "https://hexa.su/")
+            add("Origin", "https://hexa.su")
+        }.build()
 
         return try {
             val preferredSubLang = preferences.subLangPref
 
             val subLimit = preferences.subLimitPref.toIntOrNull() ?: PREF_SUB_LIMIT_DEFAULT.toInt()
-            val subtitles = client.newCall(GET(subtitleRequestUrl, headers))
+            val subtitles = client.newCall(GET(subtitleRequestUrl, subHeaders))
                 .awaitSuccess().use { it.parseAs<List<SubtitleDto>>() }
             subtitles
                 .take(subLimit)
                 .map { sub ->
-                    val langLabel = if (sub.isHearingImpaired) "${sub.language} (CC)" else sub.language
-                    Track(sub.url, langLabel)
+                    val langLabel = sub.display ?: sub.language // Use full name if available
+                    val ccLabel = if (sub.isHearingImpaired) "$langLabel (CC)" else langLabel
+                    Track(sub.url, ccLabel)
                 }
                 .sortedByDescending { preferredSubLang.let(it.lang::startsWith) }
         } catch (_: Exception) {
@@ -538,7 +570,10 @@ class HexaWatch :
         }
 
         fun parseDate(dateStr: String?): Long = runCatching {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
+            val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            synchronized(formatter) {
+                formatter.parse(dateStr ?: "")?.time ?: 0L
+            }
         }.getOrDefault(0L)
     }
 

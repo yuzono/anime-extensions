@@ -109,7 +109,18 @@ data class EpisodeDto(
 // ============================ Video Extractor ===========================
 
 @Serializable
-data class ExtractorResponseDto(
+data class EncryptionResponseDto(
+    val result: EncryptionResultDto,
+)
+
+@Serializable
+data class EncryptionResultDto(
+    val token: String,
+    val expires: String? = null,
+)
+
+@Serializable
+data class DecryptionResponseDto(
     val result: ExtractorResultDto,
 )
 
@@ -130,5 +141,6 @@ data class ExtractorSourceDto(
 data class SubtitleDto(
     val url: String,
     val language: String,
+    val display: String? = null,
     @SerialName("isHearingImpaired") val isHearingImpaired: Boolean = false,
 )
