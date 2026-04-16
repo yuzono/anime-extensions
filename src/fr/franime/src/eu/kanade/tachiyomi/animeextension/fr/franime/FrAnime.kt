@@ -126,7 +126,7 @@ class FrAnime : AnimeHttpSource() {
         val sendvidExtractor by lazy { SendvidExtractor(client, headers) }
         val sibnetExtractor by lazy { SibnetExtractor(client) }
         val vkExtractor by lazy { VkExtractor(client, headers) }
-        val vidMolyExtractor by lazy { VidMolyExtractor(client) }
+        val vidMolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
         val videos = players.withIndex().parallelCatchingFlatMap { (index, playerName) ->
             val apiUrl = "$videoBaseUrl/$episodeLang/$index"
