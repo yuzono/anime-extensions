@@ -28,12 +28,16 @@ class VidMolyExtractor(private val client: OkHttpClient, headers: Headers = comm
         .build()
 
     suspend fun videosFromUrl(iframeUrl: String, prefix: String = ""): List<Video> {
-        val fixedUrl = if (iframeUrl.startsWith(BASE_URL, true)) iframeUrl else iframeUrl.replace(hostRegex, "$BASE_URL/")
+        val fixedUrl = if (iframeUrl.startsWith(BASE_URL, true)) {
+            iframeUrl
+        } else {
+            iframeUrl.replaceFirst(hostRegex, "$BASE_URL/")
+        }
 
         val document = client.newCall(
             GET(fixedUrl, headers),
         ).awaitSuccess().useAsJsoup()
-        val script = document.selectFirst("script:containsData(sources)")!!.data()
+        val script = document.selectFirst("script:containsData(sources)")?.data() ?: return emptyList()
         val sources = sourcesRegex.find(script)?.groupValues[1] ?: return emptyList()
         val urls = urlsRegex.findAll(sources)
             .mapNotNull { match -> match.groupValues[1].takeIf { it.isNotBlank() } }.toList()
