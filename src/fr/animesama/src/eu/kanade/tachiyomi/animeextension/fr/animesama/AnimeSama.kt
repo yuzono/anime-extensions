@@ -7,9 +7,9 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.sendvidextractor.SendvidExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import aniyomi.lib.vkextractor.VkExtractor
 import app.cash.quickjs.QuickJs
-import eu.kanade.tachiyomi.animeextension.fr.animesama.extractors.VidMolyExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -172,8 +172,7 @@ class AnimeSama :
 
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
 
-                        // .to doesn't work, and it's .biz that's used on the site
-                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl.replace(".to", ".biz"), prefix)
+                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
 
                         else -> emptyList()
                     }
@@ -337,7 +336,7 @@ class AnimeSama :
         private const val PREF_URL_TITLE = "URL de base"
 
         // Domain info at: https://anime-sama.pw
-        private const val PREF_URL_DEFAULT = "https://anime-sama.tv"
+        private const val PREF_URL_DEFAULT = "https://anime-sama.to"
         private const val PREF_URL_SUMMARY = "Pour changer le domaine de l'extension. Voir https://anime-sama.pw"
 
         private val voicesMap = mapOf(
