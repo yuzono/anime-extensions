@@ -41,6 +41,7 @@ class MegaUpExtractor(
             addPathSegment(token)
         }.build().toString()
 
+        // Specific headers for the /media/ endpoint validation
         val mediaHeaders = Headers.headersOf(
             "User-Agent",
             userAgent,
@@ -67,6 +68,7 @@ class MegaUpExtractor(
 
         val subtitleTracks = megaUpResult.subtitleTracks()
 
+        // Headers for actual video segment requests
         val videoHeaders = Headers.headersOf(
             "User-Agent",
             userAgent,

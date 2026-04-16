@@ -546,7 +546,7 @@ class HiAnimeWs :
             key = PREF_TYPE_KEY,
             title = "Preferred Type",
             entries = TYPES_ENTRIES,
-            entryValues = TYPES_ENTRIES,
+            entryValues = TYPES_ENTRIES, // Using entries directly for parsing Quality string
             default = PREF_TYPE_DEFAULT,
             summary = "%s",
         )
