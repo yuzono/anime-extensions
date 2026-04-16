@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.hianimews
 
-import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -21,7 +20,6 @@ class MegaUpExtractor(
     private val headers: Headers,
 ) {
 
-    private val tag by lazy { javaClass.simpleName }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     suspend fun videosFromUrl(
@@ -31,7 +29,6 @@ class MegaUpExtractor(
         val parsedUrl = url.toHttpUrl()
         val host = extractHoster(parsedUrl.host).proper()
         val prefix = serverName ?: host
-        Log.d(tag, "Fetching videos for $prefix from: $url")
 
         val userAgent = headers["User-Agent"] ?: ""
         val iframeHost = "${parsedUrl.scheme}://${parsedUrl.host}/"
@@ -44,7 +41,6 @@ class MegaUpExtractor(
             addPathSegment(token)
         }.build().toString()
 
-        // Specific headers for the /media/ endpoint validation
         val mediaHeaders = Headers.headersOf(
             "User-Agent",
             userAgent,
@@ -71,7 +67,6 @@ class MegaUpExtractor(
 
         val subtitleTracks = megaUpResult.subtitleTracks()
 
-        // Headers for actual video segment requests
         val videoHeaders = Headers.headersOf(
             "User-Agent",
             userAgent,
@@ -83,7 +78,6 @@ class MegaUpExtractor(
             val videoUrl = it.file
             when {
                 m3u8Regex.containsMatchIn(videoUrl) -> {
-                    Log.d(tag, "m3u8 URL: $videoUrl")
                     playlistUtils.extractFromHls(
                         playlistUrl = videoUrl,
                         referer = iframeHost,
@@ -93,7 +87,6 @@ class MegaUpExtractor(
                 }
 
                 mpdRegex.containsMatchIn(videoUrl) -> {
-                    Log.d(tag, "mpd URL: $videoUrl")
                     playlistUtils.extractFromDash(
                         mpdUrl = videoUrl,
                         videoNameGen = { quality -> "$prefix: $quality" },
@@ -103,7 +96,6 @@ class MegaUpExtractor(
                 }
 
                 mp4Regex.containsMatchIn(videoUrl) -> {
-                    Log.d(tag, "mp4 URL: $videoUrl")
                     Video(
                         url = videoUrl,
                         quality = "$prefix: MP4",
@@ -122,10 +114,6 @@ class MegaUpExtractor(
     private val mpdRegex by lazy { Regex(".*\\.mpd(\\?.*)?$", RegexOption.IGNORE_CASE) }
     private val mp4Regex by lazy { Regex(".*\\.mp4(\\?.*)?$", RegexOption.IGNORE_CASE) }
 
-    /**
-     * Extracts the main domain segment from a host string.
-     * For example, "www.megaup.live" -> "megaup"
-     */
     private fun extractHoster(host: String): String {
         val parts = host.split(".")
         return when {

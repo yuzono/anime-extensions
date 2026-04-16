@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hianimews
 
 import android.content.SharedPreferences
-import android.util.Log
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.hianimews.HiAnimeWsFilters.CountriesFilter
 import eu.kanade.tachiyomi.animeextension.en.hianimews.HiAnimeWsFilters.GenresFilter
@@ -44,8 +43,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 class HiAnimeWs :
     ParsedAnimeHttpSource(),
@@ -74,7 +73,7 @@ class HiAnimeWs :
 
     override var client by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1.seconds)
             .build()
     }
 
@@ -86,13 +85,7 @@ class HiAnimeWs :
 
     override fun popularAnimeSelector() = "div.flw-item"
 
-    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        element.selectFirst("a.film-poster-ahref")?.attr("href")?.let {
-            setUrlWithoutDomain(it)
-        }
-        title = element.selectFirst("a.dynamic-name")?.getTitle() ?: ""
-        thumbnail_url = element.selectFirst("img.film-poster-img")?.attr("data-src") ?: ""
-    }
+    override fun popularAnimeFromElement(element: Element): SAnime = element.toSAnime()
 
     override fun popularAnimeNextPageSelector() = "nav > ul.pagination > li.active ~ li"
 
@@ -134,25 +127,11 @@ class HiAnimeWs :
 
     override fun relatedAnimeListSelector() = "div.flw-item"
 
-    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        element.selectFirst("a.film-poster-ahref")?.attr("href")?.let {
-            setUrlWithoutDomain(it)
-        }
-        title = element.selectFirst("a.dynamic-name")?.getTitle() ?: ""
-        thumbnail_url = element.selectFirst("img.film-poster-img")?.attr("data-src") ?: ""
-    }
+    override fun relatedAnimeFromElement(element: Element): SAnime = element.toSAnime()
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val document = response.asJsoup()
-        val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { season ->
-            SAnime.create().apply {
-                val url = season.selectFirst("a")?.attr("href") ?: return@mapNotNull null
-                setUrlWithoutDomain(url)
-                thumbnail_url = season.selectFirst("img")?.attr("src")
-                title = season.select("div.detail span").text()
-            }
-        }
-
+        val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { it.toSeasonSAnime() }
         val related = document.select(relatedAnimeListSelector()).map { relatedAnimeFromElement(it) }
         return seasons + related
     }
@@ -173,7 +152,7 @@ class HiAnimeWs :
             else -> ""
         }
 
-        document.selectFirst("div.anisc-detail")?.let { info ->
+        document.selectFirst("div.anisc-detail")?.let { info: Element ->
             title = info.selectFirst("h2.film-name a.dynamic-name")?.getTitle() ?: ""
 
             val producers = info.select("div.film-text a[href*=/producers/]").eachText().joinToString()
@@ -202,11 +181,12 @@ class HiAnimeWs :
     }
 
     private fun getFancyScore(score: String?): String {
-        return try {
-            val scoreDouble = score?.toDoubleOrNull() ?: return ""
-            if (scoreDouble == 0.0) return ""
+        if (score.isNullOrBlank()) return ""
 
-            val scoreBig = BigDecimal(score!!)
+        return try {
+            val scoreBig = score.toBigDecimalOrNull() ?: return ""
+            if (scoreBig.signum() <= 0) return ""
+
             val stars = scoreBig.divide(BigDecimal(2), 0, RoundingMode.HALF_UP)
                 .toInt()
                 .coerceIn(0, 5)
@@ -215,10 +195,14 @@ class HiAnimeWs :
 
             buildString {
                 append("★".repeat(stars))
-                if (stars < 5) append("☆".repeat(5 - stars))
+                append("☆".repeat(5 - stars))
                 append(" $scoreString")
             }
-        } catch (_: Exception) {
+        } catch (e: ArithmeticException) {
+            // Catch division errors if they occur
+            ""
+        } catch (e: NumberFormatException) {
+            // Catch formatting errors
             ""
         }
     }
@@ -261,8 +245,9 @@ class HiAnimeWs :
     }
 
     override fun episodeFromElement(element: Element): SEpisode {
-        val token = element.attr("token").takeIf { it.isNotEmpty() }
-            ?: throw IllegalStateException("Token not found")
+        val token = element.attr("token").ifEmpty {
+            throw IllegalStateException("Token not found")
+        }
         val epNum = element.attr("num")
         val subdubType = element.attr("langs").toIntOrNull() ?: 0
         val subdub = when (subdubType) {
@@ -317,19 +302,9 @@ class HiAnimeWs :
             }
 
         return servers.parallelMapNotNull { server ->
-            try {
-                extractIframe(server)
-            } catch (e: Exception) {
-                Log.e("HiAnimeWs", "Failed to extract iframe from server: $server", e)
-                null
-            }
+            runCatching { extractIframe(server) }.getOrNull()
         }.parallelFlatMap { server ->
-            try {
-                extractVideo(server)
-            } catch (e: Exception) {
-                Log.e("HiAnimeWs", "Failed to extract video from server: $server", e)
-                emptyList()
-            }
+            runCatching { extractVideo(server) }.getOrElse { emptyList() }
         }
     }
 
@@ -372,15 +347,10 @@ class HiAnimeWs :
         return VideoData(iframe, name)
     }
 
-    private suspend fun extractVideo(server: VideoData): List<Video> = try {
-        megaUpExtractor.videosFromUrl(
-            server.iframe,
-            server.serverName,
-        )
-    } catch (e: Exception) {
-        Log.e("HiAnimeWs", "Error extracting videos for ${server.serverName}", e)
-        emptyList()
-    }
+    private suspend fun extractVideo(server: VideoData): List<Video> = megaUpExtractor.videosFromUrl(
+        url = server.iframe,
+        serverName = server.serverName,
+    )
 
     private suspend fun encDecEndpoints(enc: String): String {
         val url = "https://enc-dec.app/api/enc-kai".toHttpUrl().newBuilder()
@@ -404,6 +374,27 @@ class HiAnimeWs :
                 .thenByDescending { it.quality.contains(server, true) }
                 .thenByDescending { it.quality.contains(type, true) },
         )
+    }
+
+    /**
+     * Builds an SAnime from a standard flw-item element.
+     */
+    private fun Element.toSAnime(): SAnime = SAnime.create().apply {
+        selectFirst("a.film-poster-ahref")?.attr("href")?.let {
+            setUrlWithoutDomain(it)
+        }
+        title = selectFirst("a.dynamic-name")?.getTitle() ?: ""
+        thumbnail_url = selectFirst("img.film-poster-img")?.attr("data-src") ?: ""
+    }
+
+    /**
+     * Builds an SAnime from a season item element (different structure than flw-item).
+     */
+    private fun Element.toSeasonSAnime(): SAnime? = SAnime.create().apply {
+        val url = selectFirst("a")?.attr("href") ?: return null
+        setUrlWithoutDomain(url)
+        thumbnail_url = selectFirst("img")?.attr("src")
+        title = select("div.detail span").text()
     }
 
     private fun Element.getTitle(): String {
@@ -517,7 +508,7 @@ class HiAnimeWs :
             baseUrl = it
             docHeaders = headersBuilder().build()
             client = network.client.newBuilder()
-                .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1, unit = TimeUnit.SECONDS)
+                .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1.seconds)
                 .build()
             megaUpExtractor = MegaUpExtractor(client, docHeaders)
         }
@@ -555,7 +546,7 @@ class HiAnimeWs :
             key = PREF_TYPE_KEY,
             title = "Preferred Type",
             entries = TYPES_ENTRIES,
-            entryValues = TYPES_ENTRIES, // Using entries directly for parsing Quality string
+            entryValues = TYPES_ENTRIES,
             default = PREF_TYPE_DEFAULT,
             summary = "%s",
         )
