@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VtubeExtracto
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import kotlinx.coroutines.runBlocking
 import org.jsoup.nodes.Element
 
 class Animenosub :
@@ -29,9 +30,9 @@ class Animenosub :
 
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
         val prefix = "$name - "
-        return when {
+        when {
             listOf(
                 "bysesayeveum",
                 "filemoon",
@@ -41,7 +42,7 @@ class Animenosub :
                 MoonExtractor(client, headers, baseUrl).videosFromUrl(url, prefix)
             }
             url.contains("vidmoly") -> {
-                VidMolyExtractor(client, headers).videosFromUrl(url, prefix)
+                VidMolyExtractor(client, headers).videosFromUrl(url, prefix.trim())
             }
             listOf(
                 "streamwish",
@@ -116,7 +117,6 @@ class Animenosub :
         private const val PREF_SERVER_DEFAULT = "Moon"
         private val PREF_SERVER_VALUES = arrayOf(
             "Moon",
-            "Omega",
             "StreamWish",
             "VidMoly",
             "Vtube",
