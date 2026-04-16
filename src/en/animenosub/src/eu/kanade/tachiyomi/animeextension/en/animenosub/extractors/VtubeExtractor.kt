@@ -37,14 +37,13 @@ class VtubeExtractor(private val client: OkHttpClient, private val headers: Head
         return urls.parallelCatchingFlatMap { videoUrl ->
             playlistUtils.extractFromHls(
                 videoUrl,
+                referer = url,
                 videoNameGen = { quality ->
                     listOfNotNull(
                         prefix.takeIf { it.isNotBlank() },
                         quality,
                     ).joinToString(" ")
                 },
-                masterHeaders = headers,
-                videoHeaders = headers,
             )
         }
     }
