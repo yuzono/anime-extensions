@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -24,7 +25,6 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
-import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -40,6 +40,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class AllAnime :
     AnimeHttpSource(),
@@ -75,7 +79,7 @@ class AllAnime :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val parsed = response.parseAs<PopularResult>()
+        val parsed = parseResponse<PopularResult>(response)
 
         val animeList = parsed.data.queryPopular.recommendations.filter { it.anyCard != null }.map {
             SAnime.create().apply {
@@ -209,7 +213,7 @@ class AllAnime :
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val show = response.parseAs<DetailsResult>().data.show
+        val show = parseResponse<DetailsResult>(response).data.show
 
         return SAnime.create().apply {
             genre = show.genres?.joinToString(separator = ", ") ?: ""
@@ -243,7 +247,7 @@ class AllAnime :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val subPref = preferences.subPref
-        val medias = response.parseAs<SeriesResult>()
+        val medias = parseResponse<SeriesResult>(response)
 
         val episodesDetail = if (subPref == "sub") {
             medias.data.show.availableEpisodesDetail.sub!!
@@ -302,7 +306,7 @@ class AllAnime :
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val response = client.newCall(videoListRequest(episode)).await()
 
-        val videoJson = response.parseAs<EpisodeResult>()
+        val videoJson = parseResponse<EpisodeResult>(response)
         val videoList = mutableListOf<Pair<Video, Float>>()
         val serverList = mutableListOf<Server>()
 
@@ -354,8 +358,8 @@ class AllAnime :
                     }
 
                     sName.startsWith("player@") -> {
-                        val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).await()
-                            .parseAs<AllAnimeExtractor.VersionResponse>()
+                        val versionResponse = client.newCall(GET("${preferences.siteUrl}/getVersion")).await()
+                        val endPoint = parseResponse<AllAnimeExtractor.VersionResponse>(versionResponse)
                             .episodeIframeHead
 
                         val videoHeaders = headers.newBuilder().apply {
@@ -411,6 +415,46 @@ class AllAnime :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Parses an API response, handling potential AES-GCM encryption.
+     * If the response contains a `data.tobeparsed` field, it decrypts it
+     * and re-wraps the result for normal parsing.
+     */
+    private inline fun <reified T> parseResponse(response: Response): T {
+        val rawBody = response.body.string()
+
+        val wrapper = json.decodeFromString<EncryptedWrapper>(rawBody)
+        val encrypted = wrapper.data?.tobeparsed
+
+        val bodyToParse = if (encrypted != null) {
+            val decrypted = decryptAesGcm(encrypted)
+            "{\"data\":$decrypted}"
+        } else {
+            rawBody
+        }
+
+        return json.decodeFromString<T>(bodyToParse)
+    }
+
+    private fun decryptAesGcm(encoded: String): String {
+        val keyBytes = MessageDigest.getInstance("SHA-256")
+            .digest(AES_KEY.toByteArray(Charsets.UTF_8))
+
+        val data = Base64.decode(encoded, Base64.DEFAULT)
+        val iv = data.copyOfRange(0, 12)
+        val ciphertext = data.copyOfRange(12, data.size)
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(keyBytes, "AES"),
+                GCMParameterSpec(128, iv),
+            )
+        }
+
+        return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+    }
 
     private fun String.decryptSource(): String {
         if (!this.startsWith("-")) return this
@@ -471,7 +515,7 @@ class AllAnime :
         .lowercase()
 
     private fun parseAnime(response: Response): AnimesPage {
-        val parsed = response.parseAs<SearchResult>()
+        val parsed = parseResponse<SearchResult>(response)
 
         val animeList = parsed.data.shows.edges.map { ani ->
             SAnime.create().apply {
@@ -498,6 +542,8 @@ class AllAnime :
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
+        private const val AES_KEY = "SimtVuagFbGR2K7P"
+
         private val INTERAL_HOSTER_NAMES = arrayOf(
             "Default", "Ac", "Ak", "Kir", "Rab", "Luf-mp4",
             "Si-Hls", "S-mp4", "Ac-Hls", "Uv-mp4", "Pn-Hls",

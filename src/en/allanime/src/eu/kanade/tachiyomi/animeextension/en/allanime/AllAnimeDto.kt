@@ -133,3 +133,11 @@ data class EpisodeResult(
         }
     }
 }
+
+// Wrapper for detecting encrypted API responses.
+// The API now returns `{"data":{"tobeparsed":"<encrypted>"}}`
+@Serializable
+data class EncryptedWrapper(val data: EncryptedInner? = null)
+
+@Serializable
+data class EncryptedInner(val tobeparsed: String? = null)
