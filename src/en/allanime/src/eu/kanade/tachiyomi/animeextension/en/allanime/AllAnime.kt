@@ -621,13 +621,6 @@ class AllAnime :
             entryValues = arrayOf("https://allmanga.to")
             setDefaultValue(PREF_SITE_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -637,13 +630,6 @@ class AllAnime :
             entryValues = arrayOf("https://api.allanime.day")
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -653,13 +639,6 @@ class AllAnime :
             entryValues = PREF_SERVER_ENTRY_VALUES
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -668,10 +647,6 @@ class AllAnime :
             entries = INTERAL_HOSTER_NAMES
             entryValues = PREF_HOSTER_ENTRY_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -680,10 +655,6 @@ class AllAnime :
             entries = ALT_HOSTER_NAMES
             entryValues = ALT_HOSTER_NAMES
             setDefaultValue(ALT_HOSTER_NAMES.toSet())
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -693,13 +664,6 @@ class AllAnime :
             entryValues = PREF_QUALITY_ENTRY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -709,13 +673,6 @@ class AllAnime :
             entryValues = arrayOf("romaji", "eng", "native")
             setDefaultValue(PREF_TITLE_STYLE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -725,13 +682,6 @@ class AllAnime :
             entryValues = arrayOf("sub", "dub")
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
