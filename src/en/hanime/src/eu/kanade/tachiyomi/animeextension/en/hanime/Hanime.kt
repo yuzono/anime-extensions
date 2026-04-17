@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
@@ -106,22 +107,23 @@ class Hanime :
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseSearchJson(response)
 
+    private fun parseNuxtData(document: Document): WindowNuxt? {
+        val nuxtScript = document.selectFirst("script:containsData(__NUXT__)")?.data() ?: return null
+        return nuxtScript.substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
+    }
+
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         val slug = document.location().substringAfterLast("/")
 
-        val nuxtData = document.selectFirst("script:containsData(__NUXT__)")?.data()
-        val coverUrl = nuxtData?.let {
-            it.substringAfter("__NUXT__=").substringBeforeLast(";")
-                .parseAs<WindowNuxt>().state.data.hentai_videos
-                .firstOrNull { video -> video.slug == slug }?.coverUrl
-        }
+        val coverUrl = parseNuxtData(document)?.state?.data?.hentai_videos
+            ?.firstOrNull { video -> video.slug == slug }?.coverUrl
 
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
             thumbnail_url = coverUrl ?: document.select("img.hvpi-cover").attr("src")
             author = document.select("a.hvpimbc-text").text()
-            description = document.select("div.hvpist-description p").joinToString("\n\n") { it.text() }
+            description = document.select("div.hvpist-description p").joinToString("\\n\\n") { it.text() }
             status = SAnime.UNKNOWN
             genre = document.select("div.hvpis-text div.btn__content").joinToString { it.text() }
             initialized = true
@@ -144,8 +146,7 @@ class Hanime :
         val headers = headers.newBuilder().add("cookie", authCookie!!)
         val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).execute().asJsoup()
 
-        val parsed = document.selectFirst("script:containsData(__NUXT__)")!!.data()
-            .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
+        val parsed = parseNuxtData(document) ?: return emptyList()
 
         return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
             server.streams.mapNotNull { stream ->

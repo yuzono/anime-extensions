@@ -230,27 +230,27 @@ data class WindowNuxt(
         data class Data(
             val video: DataVideo? = null,
             val hentai_videos: List<HentaiVideo> = emptyList(),
-        ) {
-            @Serializable
-            data class DataVideo(
-                val videos_manifest: VideosManifest,
-            ) {
-                @Serializable
-                data class VideosManifest(
-                    val servers: List<Server>,
-                ) {
-                    @Serializable
-                    data class Server(
-                        val streams: List<Stream>,
-                    ) {
-                        @Serializable
-                        data class Stream(
-                            val height: String? = null,
-                            val url: String? = null,
-                        )
-                    }
-                }
-            }
-        }
+        )
     }
 }
+
+@Serializable
+data class DataVideo(
+    val videos_manifest: NuxtVideosManifest,
+)
+
+@Serializable
+data class NuxtVideosManifest(
+    val servers: List<NuxtServer>,
+)
+
+@Serializable
+data class NuxtServer(
+    val streams: List<NuxtStream>,
+)
+
+@Serializable
+data class NuxtStream(
+    val height: String? = null,
+    val url: String? = null,
+)
