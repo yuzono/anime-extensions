@@ -313,7 +313,7 @@ class AllAnime :
         // 2. Determine the source URLs list by decrypting if necessary
         val sourceUrls = encryptedJson?.data?.tobeparsed?.takeIf(String::isNotBlank)
             ?.runCatching {
-                val decryptedString = decryptTobeparsed(encryptedJson.data.tobeparsed)
+                val decryptedString = decryptTobeparsed(this)
                 decryptedString.parseAs<DecryptedEpisodeResult>().episode.sourceUrls
             }?.getOrNull()
             // Malformed encrypted payload — fall back to old plain-text parsing
