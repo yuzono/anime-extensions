@@ -1,0 +1,14 @@
+ext {
+    extName = 'AniGo'
+    extClass = '.AniGo'
+    themePkg = 'animekaitheme'
+    baseUrl = 'https://anigo.to'
+    overrideVersionCode = 0
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(":lib:megaupextractor"))
+    implementation(project(":lib:playlistutils"))
+}
