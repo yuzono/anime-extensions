@@ -28,9 +28,9 @@ import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -42,7 +42,10 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
-import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class AllAnime :
     AnimeHttpSource(),
@@ -57,8 +60,6 @@ class AllAnime :
     override val lang = "en"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -146,10 +147,10 @@ class AllAnime :
                         if (filters.season != "all") put("season", filters.season)
                         if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
                         if (filters.genres != "all") {
-                            put("genres", json.decodeFromString(filters.genres))
+                            put("genres", filters.genres.parseAs<JsonElement>())
                             put("excludeGenres", buildJsonArray { })
                         }
-                        if (filters.types != "all") put("types", json.decodeFromString(filters.types))
+                        if (filters.types != "all") put("types", filters.types.parseAs<JsonElement>())
                         if (filters.sortBy != "update") put("sortBy", filters.sortBy)
                     }
                     put("limit", PAGE_SIZE)
@@ -174,7 +175,7 @@ class AllAnime :
                 putJsonObject("search") {
                     put("allowAdult", true)
                     put("allowUnknown", true)
-                    put("genres", json.decodeFromString(genres))
+                    put("genres", genres.parseAs<JsonElement>())
                 }
                 put("limit", PAGE_SIZE)
                 put("page", 1)
@@ -260,16 +261,14 @@ class AllAnime :
             SEpisode.create().apply {
                 episode_number = ep.toFloatOrNull() ?: 0F
                 name = "Episode $numName ($subPref)"
-                url = json.encodeToString(
-                    buildJsonObject {
-                        putJsonObject("variables") {
-                            put("showId", medias.data.show.id)
-                            put("translationType", subPref)
-                            put("episodeString", ep)
-                        }
-                        put("query", STREAMS_QUERY)
-                    },
-                )
+                url = buildJsonObject {
+                    putJsonObject("variables") {
+                        put("showId", medias.data.show.id)
+                        put("translationType", subPref)
+                        put("episodeString", ep)
+                    }
+                    put("query", STREAMS_QUERY)
+                }.toJsonString()
             }
         }
     }
@@ -308,22 +307,17 @@ class AllAnime :
 
         // 1. Try parsing the encrypted wrapper
         val encryptedJson = runCatching {
-            json.decodeFromString<EncryptedEpisodeResult>(responseBody)
+            responseBody.parseAs<EncryptedEpisodeResult>()
         }.getOrNull()
 
         // 2. Determine the source URLs list by decrypting if necessary
-        val sourceUrls = if (!encryptedJson?.data?.tobeparsed.isNullOrBlank()) {
-            runCatching {
-                val decryptedString = decryptTobeparsed(encryptedJson!!.data.tobeparsed!!)
-                json.decodeFromString<DecryptedEpisodeResult>(decryptedString).episode.sourceUrls
-            }.getOrElse {
-                // Malformed encrypted payload — fall back to plain-text parsing
-                json.decodeFromString<EpisodeResult>(responseBody).data.episode.sourceUrls
-            }
-        } else {
-            // Fallback to old plain-text parsing
-            json.decodeFromString<EpisodeResult>(responseBody).data.episode.sourceUrls
-        }
+        val sourceUrls = encryptedJson?.data?.tobeparsed?.takeIf(String::isNotBlank)
+            ?.runCatching {
+                val decryptedString = decryptTobeparsed(encryptedJson.data.tobeparsed)
+                decryptedString.parseAs<DecryptedEpisodeResult>().episode.sourceUrls
+            }?.getOrNull()
+            // Malformed encrypted payload — fall back to old plain-text parsing
+            ?: responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
 
         val videoList = mutableListOf<Pair<Video, Float>>()
         val serverList = mutableListOf<Server>()
@@ -459,8 +453,7 @@ class AllAnime :
     }
 
     private fun buildPost(dataObject: JsonObject): Request {
-        val payload = json.encodeToString(dataObject)
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val payload = dataObject.toJsonString().toJsonBody()
 
         val siteUrl = preferences.siteUrl
         val postHeaders = headers.newBuilder().apply {
