@@ -1,16 +1,21 @@
 package eu.kanade.tachiyomi.multisrc.animekaitheme
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.preference.PreferenceScreen
+import eu.kanade.aniyomi.lib.megaupextractor.MegaUpExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.animekaitheme.AnimeKaiThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.animekaitheme.AnimeKaiThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.IframeResponse
+import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.ResultResponse
+import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoCode
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoData
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
@@ -22,6 +27,8 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.json.buildJsonObject
@@ -32,6 +39,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -56,7 +64,6 @@ abstract class AnimeKaiTheme(
 
     override var baseUrl: String by preferences.delegate(PREF_DOMAIN_KEY, defaultBaseUrl)
 
-    // Open value so sub-extensions can overwrite as it sees fit
     protected open val rateLimit = 5
 
     protected var docHeaders by LazyMutable { headersBuilder().build() }
@@ -67,6 +74,11 @@ abstract class AnimeKaiTheme(
             .build()
     }
     private val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
+
+    // ============================ Headers & Client =========================
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
+        .add("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
@@ -143,10 +155,10 @@ abstract class AnimeKaiTheme(
         val document = response.asJsoup()
         val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { season ->
             SAnime.create().apply {
-                val url = season.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
+                val url = season.selectFirst("a")?.attr("href") ?: return@mapNotNull null
                 setUrlWithoutDomain(url)
-                thumbnail_url = season.selectFirst("img")?.attr("abs:src")
-                title = season.select("div.detail span").text().ifBlank { return@mapNotNull null }
+                thumbnail_url = season.selectFirst("img")?.attr("src")
+                title = season.select("div.detail span").text()
             }
         }
 
@@ -190,6 +202,10 @@ abstract class AnimeKaiTheme(
         return coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
     }
 
+    protected open val coverSelector: String? = null
+
+    protected fun Document.getCover(): String? = coverSelector?.let { selectFirst(it)?.getBackgroundImage() }
+
     protected open fun Element.getInfo(
         tag: String,
         isList: Boolean = false,
@@ -203,11 +219,122 @@ abstract class AnimeKaiTheme(
         return if (full && value != null) "\n**$tag** $value" else value
     }
 
+    override fun videoListSelector() = throw UnsupportedOperationException()
+    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
+    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
+
+    protected open suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use {
+        it.asJsoup().selectFirst("div[data-id]")?.attr("data-id")
+            ?: throw IllegalStateException("Anime ID not found")
+    }
+
+    override fun episodeListSelector() = "div.eplist a"
+
+    override fun episodeFromElement(element: Element): SEpisode {
+        val token = element.attr("token").takeIf { it.isNotEmpty() }
+            ?: throw IllegalStateException("Token not found")
+        val epNum = element.attr("num")
+        val subdubType = element.attr("langs").toIntOrNull() ?: 0
+        val subdub = when (subdubType) {
+            1 -> "Sub"
+            3 -> "Dub & Sub"
+            else -> ""
+        }
+
+        val namePrefix = "Episode $epNum"
+        val name = element.selectFirst("span")?.text()
+            ?.takeIf { it.isNotBlank() && it != namePrefix }
+            ?.let { ": $it" }
+            .orEmpty()
+
+        return SEpisode.create().apply {
+            this.name = namePrefix + name
+            this.url = token
+            episode_number = epNum.toFloat()
+            scanlator = subdub
+        }
+    }
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val animeId = fetchEpisodeAnimeId(anime)
+        val enc = encDecEndpoints(animeId)
+        val episodeDocument = client.newCall(
+            GET("$baseUrl/ajax/episodes/list?ani_id=$animeId&_=$enc", docHeaders),
+        ).awaitSuccess().parseAs<ResultResponse>().toDocument()
+        return episodeDocument.select(episodeListSelector()).mapNotNull {
+            runCatching { episodeFromElement(it) }.getOrNull()
+        }.reversed()
+    }
+
+    // ============================ Video List ==============================
+
+    protected open suspend fun fetchServers(token: String, enc: String): List<VideoCode> {
+        val document = client.newCall(
+            GET("$baseUrl/ajax/links/list?token=$token&_=$enc", docHeaders),
+        ).awaitSuccess().parseAs<ResultResponse>().toDocument()
+        return parseServersFromHtml(document)
+    }
+
+    protected open fun parseServersFromHtml(document: Document): List<VideoCode> = throw UnsupportedOperationException()
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val token = episode.url
+        val enc = encDecEndpoints(token)
+        val servers = fetchServers(token, enc)
+        return servers.parallelCatchingMapNotNull { extractIframe(it) }
+            .parallelCatchingFlatMap { extractVideo(it) }
+    }
+
+    protected open suspend fun fetchEncodedLink(lid: String, enc: String): String = client.newCall(
+        GET("$baseUrl/ajax/links/view?id=$lid&_=$enc", docHeaders),
+    ).awaitSuccess().parseAs<ResultResponse>().result
+
+    protected open suspend fun extractIframe(server: VideoCode): VideoData {
+        val (type, lid, serverName) = server
+        val enc = encDecEndpoints(lid)
+        val encodedLink = fetchEncodedLink(lid, enc)
+        val iframe = decryptIframeData(encodedLink, encDecHeaders())
+        val typeSuffix = getTypeSuffix(type)
+        val name = "$serverName | [$typeSuffix]"
+        return VideoData(iframe, name)
+    }
+
+    protected open fun Element.getTitle(): String {
+        val enTitle = attr("title")
+        val jpTitle = attr("data-jp")
+        return if (useEnglish) {
+            enTitle.ifBlank { text() }
+        } else {
+            jpTitle.ifBlank { text() }
+        }
+    }
+
+    protected open suspend fun encDecEndpoints(enc: String): String {
+        val url = "https://enc-dec.app/api/enc-kai".toHttpUrl().newBuilder()
+            .addQueryParameter("text", enc)
+            .build()
+
+        return client.newCall(GET(url, encDecHeaders()))
+            .awaitSuccess().parseAs<ResultResponse>().result
+    }
+
     protected open suspend fun decryptIframeData(encryptedText: String, headers: Headers): String {
         val postBody = buildJsonObject { put("text", encryptedText) }.toRequestBody()
         return client.newCall(POST("https://enc-dec.app/api/dec-kai", body = postBody, headers = headers))
             .awaitSuccess().parseAs<IframeResponse>().result.url
     }
+
+    protected open fun encDecHeaders(): Headers = headersBuilder()
+        .set("Accept", "application/json, text/plain, */*")
+        .set("Content-Type", "application/json")
+        .set("Origin", baseUrl)
+        .set("Referer", "$baseUrl/watch")
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "cross-site")
+        .removeAll("Sec-Fetch-User")
+        .removeAll("Upgrade-Insecure-Requests")
+        .build()
 
     protected open fun getTypeSuffix(type: String): String = when (type) {
         "sub" -> "Hard Sub"
@@ -216,9 +343,24 @@ abstract class AnimeKaiTheme(
         else -> type
     }
 
-    // ============================ Abstract Video ==========================
+    // ============================ Extractor ==============================
 
-    protected abstract suspend fun extractVideo(server: VideoData): List<Video>
+    protected var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
+
+    protected open fun updateDomainConfig() {
+        client = network.client.newBuilder()
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
+            .build()
+        docHeaders = headersBuilder().build()
+        megaUpExtractor = MegaUpExtractor(client, docHeaders)
+    }
+
+    protected open suspend fun extractVideo(server: VideoData): List<Video> = try {
+        megaUpExtractor.videosFromUrl(server.iframe, server.serverName)
+    } catch (e: Exception) {
+        Log.e(name, "Error extracting videos for ${server.serverName}", e)
+        emptyList()
+    }
 
     // ============================== Video Sort ============================
 
@@ -346,13 +488,6 @@ abstract class AnimeKaiTheme(
             entryValues = TYPES_VALUES,
             default = DEFAULT_TYPES,
         )
-    }
-
-    protected open fun updateDomainConfig() {
-        client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
-            .build()
-        docHeaders = headersBuilder().build()
     }
 
     companion object {

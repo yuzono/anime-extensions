@@ -1,26 +1,18 @@
 package eu.kanade.tachiyomi.animeextension.en.anigo
 
-import android.util.Log
-import eu.kanade.aniyomi.lib.megaupextractor.MegaUpExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animekaitheme.AnimeKaiTheme
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.AniGoEpTokenResponse
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.AniGoEpisodesResponse
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.AniGoLinkResponse
-import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.ResultResponse
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoCode
-import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoData
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.LazyMutable
-import keiyoushi.utils.parallelCatchingFlatMap
-import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -52,22 +44,6 @@ class AniGo :
         .removeAll("Sec-Fetch-User")
         .removeAll("Upgrade-Insecure-Requests")
         .build()
-
-    // ============================== Extractor ==============================
-
-    private var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
-
-    override fun updateDomainConfig() {
-        super.updateDomainConfig()
-        megaUpExtractor = MegaUpExtractor(client, docHeaders)
-    }
-
-    override suspend fun extractVideo(server: VideoData): List<Video> = try {
-        megaUpExtractor.videosFromUrl(server.iframe, server.serverName)
-    } catch (e: Exception) {
-        Log.e(name, "Error extracting videos for ${server.serverName}", e)
-        emptyList()
-    }
 
     // ============================== Popular ===============================
 
@@ -103,12 +79,29 @@ class AniGo :
         }
     }
 
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { season ->
+            SAnime.create().apply {
+                val url = season.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
+                setUrlWithoutDomain(url)
+                thumbnail_url = season.selectFirst("img")?.attr("abs:src")
+                title = season.select("div.detail span").text().ifBlank { return@mapNotNull null }
+            }
+        }
+
+        val related = document.select(relatedAnimeListSelector()).mapNotNull {
+            runCatching { relatedAnimeFromElement(it) }.getOrNull()
+        }
+        return seasons + related
+    }
+
     // =========================== Anime Details ============================
 
     private val jTitleRegex by lazy { """JTitle\(`([^`]*)`\)""".toRegex() }
-    private val coverSelector by lazy { "div.playerBG" }
+    override val coverSelector = "div.playerBG"
 
-    private fun Element.getTitle(): String {
+    override fun Element.getTitle(): String {
         val enTitle = text().trim()
         val xData = attr("x-data")
         val romajiTitle = jTitleRegex.find(xData)?.groupValues?.getOrNull(1)?.trim()
@@ -118,8 +111,6 @@ class AniGo :
             romajiTitle?.ifBlank { enTitle } ?: enTitle
         }
     }
-
-    private fun Document.getCover(): String? = selectFirst(coverSelector)?.getBackgroundImage()
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.select(".poster img").attr("abs:src")
@@ -177,16 +168,17 @@ class AniGo :
     override fun episodeListSelector() = throw UnsupportedOperationException()
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
+    override suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use {
+        val document = it.asJsoup()
+        val xData = document.selectFirst("div.playZone")?.attr("x-data")
+            ?: throw IllegalStateException("Anime ID not found (no playZone element)")
+        idRegex.find(xData)?.groupValues?.getOrNull(1)
+            ?: throw IllegalStateException("Anime ID not found in x-data")
+    }
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = "$baseUrl${anime.url}"
-        val animeId = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use {
-            val document = it.asJsoup()
-            val xData = document.selectFirst("div.playZone")?.attr("x-data")
-                ?: throw IllegalStateException("Anime ID not found (no playZone element)")
-            idRegex.find(xData)?.groupValues?.getOrNull(1)
-                ?: throw IllegalStateException("Anime ID not found in x-data")
-        }
-
+        val animeId = fetchEpisodeAnimeId(anime)
         val enc = encDecEndpoints(animeId)
 
         val episodesResponse = client.newCall(
@@ -219,14 +211,7 @@ class AniGo :
 
     // ============================ Video List ==============================
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val token = episode.url
-        val enc = encDecEndpoints(token)
-
+    override suspend fun fetchServers(token: String, enc: String): List<VideoCode> {
         val typeSelection = typeToggle
         val hosterSelection = hostToggle
 
@@ -236,65 +221,22 @@ class AniGo :
 
         if (epTokenResponse.status != "ok") return emptyList()
 
-        val servers = epTokenResponse.result.flatMap { epToken ->
+        return epTokenResponse.result.flatMap { epToken ->
             if (epToken.lang !in typeSelection) return@flatMap emptyList()
             epToken.links.mapNotNull { link ->
                 if (link.serverTitle !in hosterSelection) return@mapNotNull null
                 VideoCode(epToken.lang, link.id, link.serverTitle)
             }
         }
-
-        return servers.parallelCatchingMapNotNull { server ->
-            try {
-                extractIframe(server)
-            } catch (e: Exception) {
-                null
-            }
-        }.parallelCatchingFlatMap { server ->
-            try {
-                extractVideo(server)
-            } catch (e: Exception) {
-                emptyList()
-            }
-        }
     }
 
-    // ============================= Utilities ==============================
-
-    private suspend fun encDecEndpoints(enc: String): String {
-        val url = "https://enc-dec.app/api/enc-kai".toHttpUrl().newBuilder()
-            .addQueryParameter("text", enc).build()
-
-        return client.newCall(GET(url, encDecHeaders()))
-            .awaitSuccess().parseAs<ResultResponse>().result
-    }
-
-    private fun encDecHeaders(addContentType: Boolean = false): Headers = headersBuilder()
-        .set("Accept", "application/json, text/plain, */*")
-        .apply { if (addContentType) set("Content-Type", "application/json") }
-        .set("Origin", baseUrl)
-        .set("Referer", "$baseUrl/watch")
-        .set("Sec-Fetch-Dest", "empty")
-        .set("Sec-Fetch-Mode", "cors")
-        .set("Sec-Fetch-Site", "cross-site")
-        .removeAll("Sec-Fetch-User")
-        .removeAll("Upgrade-Insecure-Requests")
-        .build()
-
-    private suspend fun extractIframe(server: VideoCode): VideoData {
-        val (type, lid, serverName) = server
-        val enc = encDecEndpoints(lid)
-
+    override suspend fun fetchEncodedLink(lid: String, enc: String): String {
         val linkResponse = client.newCall(
             GET("$baseUrl/api/v1/links/$lid?_=$enc", apiHeaders("$baseUrl/watch")),
         ).awaitSuccess().parseAs<AniGoLinkResponse>()
 
         if (linkResponse.status != "ok") throw Exception("Failed to fetch link: ${linkResponse.status}")
 
-        val iframe = decryptIframeData(linkResponse.result, encDecHeaders(addContentType = true))
-        val typeSuffix = getTypeSuffix(type)
-        val name = "$serverName | [$typeSuffix]"
-
-        return VideoData(iframe, name)
+        return linkResponse.result
     }
 }
