@@ -6,7 +6,8 @@ This document provides comprehensive documentation of all URL patterns and routi
 
 ## Overview
 
-hanime.tv uses Vue Router with HTML5 History mode for client-side routing. All routes are handled by the single-page application (SPA) architecture.
+hanime.tv uses Vue Router with HTML5 History mode for client-side routing. All routes are handled by the single-page
+application (SPA) architecture.
 
 ---
 
@@ -19,12 +20,14 @@ URL: https://hanime.tv/home
 ```
 
 The main landing page featuring:
+
 - Featured video carousel
 - Recent uploads grid
 - Trending content
 - Brand spotlights
 
 **Example:**
+
 ```
 https://hanime.tv/home
 ```
@@ -41,16 +44,18 @@ Video viewing page with full details.
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug identifier |
+| Parameter | Type   | Description           |
+|-----------|--------|-----------------------|
+| `slug`    | string | Video slug identifier |
 
 **Example:**
+
 ```
 https://hanime.tv/videos/hentai/ojousama-gakuen-garcon-eres-tuhan-1
 ```
 
 **Page Components:**
+
 - Video player
 - Video information
 - Tag list
@@ -69,15 +74,16 @@ Content discovery and filtering page.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `page` | integer | Page number (0-indexed) |
-| `tags` | string | Comma-separated tag slugs |
-| `brands` | string | Comma-separated brand slugs |
-| `order` | string | Sort order |
-| `search` | string | Search query |
+| Parameter | Type    | Description                 |
+|-----------|---------|-----------------------------|
+| `page`    | integer | Page number (0-indexed)     |
+| `tags`    | string  | Comma-separated tag slugs   |
+| `brands`  | string  | Comma-separated brand slugs |
+| `order`   | string  | Sort order                  |
+| `search`  | string  | Search query                |
 
 **Examples:**
+
 ```
 https://hanime.tv/browse
 https://hanime.tv/browse?page=2&order=-created_at
@@ -96,15 +102,16 @@ Search interface with advanced filtering.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `q` | string | Search query |
-| `page` | integer | Page number |
-| `tags[]` | string[] | Tag filters (repeated) |
+| Parameter  | Type     | Description              |
+|------------|----------|--------------------------|
+| `q`        | string   | Search query             |
+| `page`     | integer  | Page number              |
+| `tags[]`   | string[] | Tag filters (repeated)   |
 | `brands[]` | string[] | Brand filters (repeated) |
-| `ordering` | string | Sort order |
+| `ordering` | string   | Sort order               |
 
 **Examples:**
+
 ```
 https://hanime.tv/search?q=example
 https://hanime.tv/search?q=example&tags[]=ahegao&ordering=-views
@@ -122,11 +129,12 @@ Videos filtered by specific tag.
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `tag` | string | Tag slug |
+| Parameter | Type   | Description |
+|-----------|--------|-------------|
+| `tag`     | string | Tag slug    |
 
 **Examples:**
+
 ```
 https://hanime.tv/tags/ahegao
 https://hanime.tv/tags/big-boobs
@@ -135,10 +143,10 @@ https://hanime.tv/tags/incest
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `page` | integer | Page number |
-| `ordering` | string | Sort order |
+| Parameter  | Type    | Description |
+|------------|---------|-------------|
+| `page`     | integer | Page number |
+| `ordering` | string  | Sort order  |
 
 ---
 
@@ -152,11 +160,12 @@ Videos from a specific studio/brand.
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `brand` | string | Brand slug |
+| Parameter | Type   | Description |
+|-----------|--------|-------------|
+| `brand`   | string | Brand slug  |
 
 **Examples:**
+
 ```
 https://hanime.tv/brand/pink-pineapple
 https://hanime.tv/brand/poison
@@ -209,11 +218,12 @@ User profile page showing uploads and favorites.
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
+| Parameter  | Type   | Description         |
+|------------|--------|---------------------|
 | `username` | string | User's display name |
 
 **Example:**
+
 ```
 https://hanime.tv/user/example_user
 ```
@@ -252,11 +262,12 @@ View a specific playlist.
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `id` | integer | Playlist ID |
+| Parameter | Type    | Description |
+|-----------|---------|-------------|
+| `id`      | integer | Playlist ID |
 
 **Example:**
+
 ```
 https://hanime.tv/playlist/500
 ```
@@ -274,6 +285,7 @@ URL: https://hanime.tv/country_code
 Returns user's country code for localization.
 
 **Response:**
+
 ```json
 {
   "country_code": "US",
@@ -293,12 +305,13 @@ Standalone video player iframe.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `poster_url` | string | URL-encoded poster URL |
-| `c` | integer | Cache-busting timestamp |
+| Parameter    | Type    | Description             |
+|--------------|---------|-------------------------|
+| `poster_url` | string  | URL-encoded poster URL  |
+| `c`          | integer | Cache-busting timestamp |
 
 **Example:**
+
 ```
 https://hanime.tv/omni-player/index.html?poster_url=https%3A%2F%2Fhanime-cdn.com%2Fimages%2Fposters%2Fvideo-pv1.webp&c=1704067200000
 ```
@@ -313,13 +326,13 @@ https://hanime.tv/omni-player/index.html?poster_url=https%3A%2F%2Fhanime-cdn.com
 Base: https://cached.freeanimehentai.net
 ```
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v10/search_hvs` | GET | Search videos |
-| `/api/v8/hentai_videos/{slug}` | GET | Get video details |
-| `/api/v8/hentai_videos/{slug}/play` | POST | Track play event |
-| `/api/v8/playlists` | GET | Get playlists |
-| `/rapi/v7/users` | GET | Get user profiles |
+| Endpoint                            | Method | Description       |
+|-------------------------------------|--------|-------------------|
+| `/api/v10/search_hvs`               | GET    | Search videos     |
+| `/api/v8/hentai_videos/{slug}`      | GET    | Get video details |
+| `/api/v8/hentai_videos/{slug}/play` | POST   | Track play event  |
+| `/api/v8/playlists`                 | GET    | Get playlists     |
+| `/rapi/v7/users`                    | GET    | Get user profiles |
 
 ---
 
@@ -329,10 +342,10 @@ Base: https://cached.freeanimehentai.net
 Base: https://hanime.tv
 ```
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/country_code` | GET | Geo-location |
-| `/rapi/v7/preroll_ad_event` | POST | Ad tracking |
+| Endpoint                    | Method | Description  |
+|-----------------------------|--------|--------------|
+| `/country_code`             | GET    | Geo-location |
+| `/rapi/v7/preroll_ad_event` | POST   | Ad tracking  |
 
 ---
 
@@ -342,9 +355,9 @@ Base: https://hanime.tv
 Base: https://community-uploads.highwinds-cdn.com
 ```
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v9/community_uploads` | GET | Community content |
+| Endpoint                    | Method | Description       |
+|-----------------------------|--------|-------------------|
+| `/api/v9/community_uploads` | GET    | Community content |
 
 ---
 
@@ -364,12 +377,13 @@ Base: https://hanime-cdn.com
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
+| Parameter | Type    | Description                |
+|-----------|---------|----------------------------|
+| `slug`    | string  | Video slug                 |
 | `variant` | integer | Poster number (1, 2, etc.) |
 
 **Example:**
+
 ```
 https://hanime-cdn.com/images/posters/example-video-pv1.webp
 https://hanime-cdn.com/images/posters/example-video-pv2.webp
@@ -385,12 +399,13 @@ https://hanime-cdn.com/images/posters/example-video-pv2.webp
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
+| Parameter | Type    | Description               |
+|-----------|---------|---------------------------|
+| `slug`    | string  | Video slug                |
 | `variant` | integer | Cover number (1, 2, etc.) |
 
 **Example:**
+
 ```
 https://hanime-cdn.com/images/covers/example-video-cv1.webp
 ```
@@ -405,13 +420,14 @@ https://hanime-cdn.com/images/covers/example-video-cv1.webp
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
-| `resolution` | string | Resolution (720p, 1080p) |
-| `index` | integer | Horizontal tile index |
+| Parameter    | Type    | Description              |
+|--------------|---------|--------------------------|
+| `slug`       | string  | Video slug               |
+| `resolution` | string  | Resolution (720p, 1080p) |
+| `index`      | integer | Horizontal tile index    |
 
 **Example:**
+
 ```
 https://hanime-cdn.com/images/storyboards/example-video-720p-h1x.webp
 https://hanime-cdn.com/images/storyboards/example-video-720p-h2x.webp
@@ -427,6 +443,7 @@ https://hanime-cdn.com/images/storyboards/example-video-1080p-h1x.webp
 ```
 
 **Example:**
+
 ```
 https://hanime-cdn.com/avatars/10042.webp
 ```
@@ -442,6 +459,7 @@ https://hanime-cdn.com/avatars/10042.webp
 Returns environment configuration.
 
 **Response:**
+
 ```json
 {
   "vhtv2_version": 1704067200000
@@ -458,11 +476,11 @@ Returns environment configuration.
 
 **Common Bundles:**
 
-| Bundle | Description |
-|--------|-------------|
+| Bundle          | Description           |
+|-----------------|-----------------------|
 | `vendor.min.js` | Third-party libraries |
-| `app.min.js` | Application code |
-| `chunk.*.js` | Lazy-loaded modules |
+| `app.min.js`    | Application code      |
+| `chunk.*.js`    | Lazy-loaded modules   |
 
 ---
 
@@ -600,22 +618,22 @@ const isValidBrand = (brand) => {
 
 ## URL Routing Table
 
-| Path | Component | Meta |
-|------|-----------|------|
-| `/` | Redirect | → `/home` |
-| `/home` | Home | title: 'Home' |
-| `/videos/hentai/:slug` | VideoDetail | title: 'Video' |
-| `/browse` | Browse | title: 'Browse' |
-| `/search` | Search | title: 'Search' |
-| `/tags/:tag` | TagVideos | title: 'Tag' |
-| `/brand/:brand` | BrandVideos | title: 'Brand' |
-| `/login` | Login | title: 'Login' |
-| `/register` | Register | title: 'Register' |
-| `/forgot-password` | ForgotPassword | title: 'Reset Password' |
-| `/user/:username` | UserProfile | title: 'Profile' |
-| `/user/:username/favorites` | UserFavorites | title: 'Favorites' |
-| `/user/:username/playlists` | UserPlaylists | title: 'Playlists' |
-| `/playlist/:id` | PlaylistDetail | title: 'Playlist' |
+| Path                        | Component      | Meta                    |
+|-----------------------------|----------------|-------------------------|
+| `/`                         | Redirect       | → `/home`               |
+| `/home`                     | Home           | title: 'Home'           |
+| `/videos/hentai/:slug`      | VideoDetail    | title: 'Video'          |
+| `/browse`                   | Browse         | title: 'Browse'         |
+| `/search`                   | Search         | title: 'Search'         |
+| `/tags/:tag`                | TagVideos      | title: 'Tag'            |
+| `/brand/:brand`             | BrandVideos    | title: 'Brand'          |
+| `/login`                    | Login          | title: 'Login'          |
+| `/register`                 | Register       | title: 'Register'       |
+| `/forgot-password`          | ForgotPassword | title: 'Reset Password' |
+| `/user/:username`           | UserProfile    | title: 'Profile'        |
+| `/user/:username/favorites` | UserFavorites  | title: 'Favorites'      |
+| `/user/:username/playlists` | UserPlaylists  | title: 'Playlists'      |
+| `/playlist/:id`             | PlaylistDetail | title: 'Playlist'       |
 
 ---
 
@@ -623,32 +641,32 @@ const isValidBrand = (brand) => {
 
 ### Pagination
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `page` | integer | 0 | Page number (0-indexed) |
-| `page_size` | integer | 24 | Items per page |
+| Parameter   | Type    | Default | Description             |
+|-------------|---------|---------|-------------------------|
+| `page`      | integer | 0       | Page number (0-indexed) |
+| `page_size` | integer | 24      | Items per page          |
 
 ### Sorting
 
-| Value | Description |
-|-------|-------------|
-| `-created_at` | Newest first |
-| `-views` | Most viewed |
-| `-likes` | Most liked |
-| `-downloads` | Most downloaded |
-| `name` | Alphabetical A-Z |
-| `-name` | Alphabetical Z-A |
-| `-released_at` | Newest release |
+| Value          | Description      |
+|----------------|------------------|
+| `-created_at`  | Newest first     |
+| `-views`       | Most viewed      |
+| `-likes`       | Most liked       |
+| `-downloads`   | Most downloaded  |
+| `name`         | Alphabetical A-Z |
+| `-name`        | Alphabetical Z-A |
+| `-released_at` | Newest release   |
 
 ### Filters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `tags` | string | Comma-separated tag slugs |
-| `tags[]` | string | Single tag (repeatable) |
-| `brands` | string | Comma-separated brand slugs |
-| `brands[]` | string | Single brand (repeatable) |
-| `q` | string | Search query |
+| Parameter  | Type   | Description                 |
+|------------|--------|-----------------------------|
+| `tags`     | string | Comma-separated tag slugs   |
+| `tags[]`   | string | Single tag (repeatable)     |
+| `brands`   | string | Comma-separated brand slugs |
+| `brands[]` | string | Single brand (repeatable)   |
+| `q`        | string | Search query                |
 
 ---
 

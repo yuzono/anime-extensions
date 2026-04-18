@@ -4,7 +4,8 @@ This document provides comprehensive documentation of the hanime.tv video player
 
 ## Overview
 
-hanime.tv uses a custom-built video player system called **omni-player** that combines multiple technologies for video playback, advertising, and streaming.
+hanime.tv uses a custom-built video player system called **omni-player** that combines multiple technologies for video
+playback, advertising, and streaming.
 
 ---
 
@@ -49,10 +50,10 @@ The video player is loaded via an iframe from the hanime.tv domain:
 
 ### Query Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `poster_url` | string | URL-encoded poster image URL |
-| `c` | integer | Cache-busting timestamp (Unix ms) |
+| Parameter    | Type    | Description                       |
+|--------------|---------|-----------------------------------|
+| `poster_url` | string  | URL-encoded poster image URL      |
+| `c`          | integer | Cache-busting timestamp (Unix ms) |
 
 ### Example
 
@@ -268,13 +269,13 @@ const adEvents = {
 
 Videos are available in multiple quality levels:
 
-| Quality | Resolution | Bitrate |
-|---------|------------|---------|
-| 240p | 426x240 | ~500 kbps |
-| 360p | 640x360 | ~1000 kbps |
-| 480p | 854x480 | ~2000 kbps |
-| 720p | 1280x720 | ~4000 kbps |
-| 1080p | 1920x1080 | ~8000 kbps |
+| Quality | Resolution | Bitrate    |
+|---------|------------|------------|
+| 240p    | 426x240    | ~500 kbps  |
+| 360p    | 640x360    | ~1000 kbps |
+| 480p    | 854x480    | ~2000 kbps |
+| 720p    | 1280x720   | ~4000 kbps |
+| 1080p   | 1920x1080  | ~8000 kbps |
 
 ### Playback Controls
 
@@ -296,17 +297,17 @@ const playerControls = {
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Space` | Play/Pause |
-| `K` | Play/Pause |
-| `F` | Toggle fullscreen |
-| `M` | Toggle mute |
-| `Left Arrow` | Seek backward 10s |
-| `Right Arrow` | Seek forward 10s |
-| `Up Arrow` | Volume up |
-| `Down Arrow` | Volume down |
-| `0-9` | Seek to percentage |
+| Key           | Action             |
+|---------------|--------------------|
+| `Space`       | Play/Pause         |
+| `K`           | Play/Pause         |
+| `F`           | Toggle fullscreen  |
+| `M`           | Toggle mute        |
+| `Left Arrow`  | Seek backward 10s  |
+| `Right Arrow` | Seek forward 10s   |
+| `Up Arrow`    | Volume up          |
+| `Down Arrow`  | Volume down        |
+| `0-9`         | Seek to percentage |
 
 ---
 

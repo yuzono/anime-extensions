@@ -6,20 +6,21 @@ This document provides comprehensive documentation of the hanime.tv API endpoint
 
 hanime.tv uses a distributed API architecture with multiple backend services:
 
-| Service | Base URL | Purpose |
-|---------|----------|---------|
-| Primary API | `https://cached.freeanimehentai.net` | Main content delivery |
-| hanime.tv Domain | `https://hanime.tv` | Web application and geo services |
-| Community API | `https://community-uploads.highwinds-cdn.com` | User-generated content |
-| CDN | `https://hanime-cdn.com` | Static assets and media files |
-| HLS Streaming | `https://m3u8s.highwinds-cdn.com` | HLS playlist delivery |
-| Video Segments | `https://p{server_id}.htv-hydaelyn.com` | Encrypted video segment delivery |
+| Service          | Base URL                                      | Purpose                          |
+|------------------|-----------------------------------------------|----------------------------------|
+| Primary API      | `https://cached.freeanimehentai.net`          | Main content delivery            |
+| hanime.tv Domain | `https://hanime.tv`                           | Web application and geo services |
+| Community API    | `https://community-uploads.highwinds-cdn.com` | User-generated content           |
+| CDN              | `https://hanime-cdn.com`                      | Static assets and media files    |
+| HLS Streaming    | `https://m3u8s.highwinds-cdn.com`             | HLS playlist delivery            |
+| Video Segments   | `https://p{server_id}.htv-hydaelyn.com`       | Encrypted video segment delivery |
 
 ---
 
 ## Primary API Endpoints
 
 ### Base URL
+
 ```
 https://cached.freeanimehentai.net
 ```
@@ -32,28 +33,42 @@ https://cached.freeanimehentai.net
 
 **Endpoint:** `GET /api/v8/guest/videos/{hv_id}/manifest`
 
-Retrieve the complete video manifest containing all available servers, streams, and quality options for a specific video. This endpoint returns the full streaming infrastructure configuration needed to play a video.
+Retrieve the complete video manifest containing all available servers, streams, and quality options for a specific
+video. This endpoint returns the full streaming infrastructure configuration needed to play a video.
 
 **Path Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `hv_id` | integer | Hentai video ID |
+| Parameter | Type    | Description     |
+|-----------|---------|-----------------|
+| `hv_id`   | integer | Hentai video ID |
 
 **Example Request:**
+
 ```http
 GET /api/v8/guest/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
-x-signature: <hmac_signature>
+x-signature: <sha256_signature>
 x-time: 1704067200
 x-signature-version: web2
 ```
 
 **Response Structure:**
 
+The manifest response wraps the servers array in a `videos_manifest` object:
+
+```json
+{
+  "videos_manifest": {
+    "servers": [...]
+  }
+}
+```
+
 ```typescript
 interface ManifestResponse {
-  servers: Server[];
+  videos_manifest: {
+    servers: Server[];
+  };
 }
 
 interface Server {
@@ -72,11 +87,11 @@ interface Stream {
   id: number;
   server_id: number;
   slug: string;
-  kind: \'hls\';
-  extension: \'m3u8\';
-  mime_type: \'application/x-mpegURL\';
+  kind: 'hls';
+  extension: 'm3u8';
+  mime_type: 'application/x-mpegURL';
   width: number;
-  height: number;
+  height: string; // API returns string (e.g., "720"), not number
   duration_in_ms: number;
   filesize_mbs: number;
   filename: string;
@@ -85,7 +100,7 @@ interface Stream {
   is_member_allowed: boolean;
   is_premium_allowed: boolean;
   is_downloadable: boolean;
-  compatibility: \'all\';
+  compatibility: 'all';
   hv_id: number;
   server_sequence: number;
   video_stream_group_id: number;
@@ -100,166 +115,176 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ManifestResponse(
-    val servers: List<Server>
+  @SerialName("videos_manifest")
+  val videosManifest: ManifestVideosManifest
+)
+
+@Serializable
+data class ManifestVideosManifest(
+  val servers: List<Server>
 )
 
 @Serializable
 data class Server(
-    val id: Int,
-    val name: String,
-    val slug: String,
-    @SerialName("na_rating")
-    val naRating: Int,
-    @SerialName("eu_rating")
-    val euRating: Int,
-    @SerialName("asia_rating")
-    val asiaRating: Int,
-    val sequence: Int,
-    @SerialName("is_permanent")
-    val isPermanent: Boolean,
-    val streams: List<Stream>
+  val id: Int,
+  val name: String,
+  val slug: String,
+  @SerialName("na_rating")
+  val naRating: Int,
+  @SerialName("eu_rating")
+  val euRating: Int,
+  @SerialName("asia_rating")
+  val asiaRating: Int,
+  val sequence: Int,
+  @SerialName("is_permanent")
+  val isPermanent: Boolean,
+  val streams: List<Stream>
 )
 
 @Serializable
 data class Stream(
-    val id: Int,
-    @SerialName("server_id")
-    val serverId: Int,
-    val slug: String,
-    val kind: String,
-    val extension: String,
-    @SerialName("mime_type")
-    val mimeType: String,
-    val width: Int,
-    val height: Int,
-    @SerialName("duration_in_ms")
-    val durationInMs: Long,
-    @SerialName("filesize_mbs")
-    val filesizeMbs: Int,
-    val filename: String,
-    val url: String,
-    @SerialName("is_guest_allowed")
-    val isGuestAllowed: Boolean,
-    @SerialName("is_member_allowed")
-    val isMemberAllowed: Boolean,
-    @SerialName("is_premium_allowed")
-    val isPremiumAllowed: Boolean,
-    @SerialName("is_downloadable")
-    val isDownloadable: Boolean,
-    val compatibility: String,
-    @SerialName("hv_id")
-    val hvId: Int,
-    @SerialName("server_sequence")
-    val serverSequence: Int,
-    @SerialName("video_stream_group_id")
-    val videoStreamGroupId: Int
+  val id: Int,
+  @SerialName("server_id")
+  val serverId: Int,
+  val slug: String,
+  val kind: String,
+  val extension: String,
+  @SerialName("mime_type")
+  val mimeType: String,
+  val width: Int,
+  val height: String, // API returns string (e.g., "720"), not number
+  @SerialName("duration_in_ms")
+  val durationInMs: Long,
+  @SerialName("filesize_mbs")
+  val filesizeMbs: Int,
+  val filename: String,
+  val url: String,
+  @SerialName("is_guest_allowed")
+  val isGuestAllowed: Boolean,
+  @SerialName("is_member_allowed")
+  val isMemberAllowed: Boolean,
+  @SerialName("is_premium_allowed")
+  val isPremiumAllowed: Boolean,
+  @SerialName("is_downloadable")
+  val isDownloadable: Boolean,
+  val compatibility: String,
+  @SerialName("hv_id")
+  val hvId: Int,
+  @SerialName("server_sequence")
+  val serverSequence: Int,
+  @SerialName("video_stream_group_id")
+  val videoStreamGroupId: Int
 )
 ```
 
 **Example Response:**
+
 ```json
 {
-  "servers": [
-    {
-      "id": 14,
-      "name": "Golem",
-      "slug": "golem",
-      "na_rating": 3,
-      "eu_rating": 3,
-      "asia_rating": 3,
-      "sequence": 1,
-      "is_permanent": true,
-      "streams": [
-        {
-          "id": 1001,
-          "server_id": 14,
-          "slug": "720p",
-          "kind": "hls",
-          "extension": "m3u8",
-          "mime_type": "application/x-mpegURL",
-          "width": 1280,
-          "height": 720,
-          "duration_in_ms": 1200000,
-          "filesize_mbs": 450,
-          "filename": "video_720p.m3u8",
-          "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/abc123def.m3u8",
-          "is_guest_allowed": true,
-          "is_member_allowed": true,
-          "is_premium_allowed": true,
-          "is_downloadable": true,
-          "compatibility": "all",
-          "hv_id": 12345,
-          "server_sequence": 1,
-          "video_stream_group_id": 42
-        },
-        {
-          "id": 1002,
-          "server_id": 14,
-          "slug": "480p",
-          "kind": "hls",
-          "extension": "m3u8",
-          "mime_type": "application/x-mpegURL",
-          "width": 854,
-          "height": 480,
-          "duration_in_ms": 1200000,
-          "filesize_mbs": 280,
-          "filename": "video_480p.m3u8",
-          "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/def456ghi.m3u8",
-          "is_guest_allowed": true,
-          "is_member_allowed": true,
-          "is_premium_allowed": true,
-          "is_downloadable": true,
-          "compatibility": "all",
-          "hv_id": 12345,
-          "server_sequence": 2,
-          "video_stream_group_id": 42
-        },
-        {
-          "id": 1003,
-          "server_id": 14,
-          "slug": "360p",
-          "kind": "hls",
-          "extension": "m3u8",
-          "mime_type": "application/x-mpegURL",
-          "width": 640,
-          "height": 360,
-          "duration_in_ms": 1200000,
-          "filesize_mbs": 150,
-          "filename": "video_360p.m3u8",
-          "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/ghi789jkl.m3u8",
-          "is_guest_allowed": true,
-          "is_member_allowed": true,
-          "is_premium_allowed": true,
-          "is_downloadable": true,
-          "compatibility": "all",
-          "hv_id": 12345,
-          "server_sequence": 3,
-          "video_stream_group_id": 42
-        }
-      ]
-    }
-  ]
+  "videos_manifest": {
+    "servers": [
+      {
+        "id": 14,
+        "name": "Golem",
+        "slug": "golem",
+        "na_rating": 3,
+        "eu_rating": 3,
+        "asia_rating": 3,
+        "sequence": 1,
+        "is_permanent": true,
+        "streams": [
+          {
+            "id": 1001,
+            "server_id": 14,
+            "slug": "720p",
+            "kind": "hls",
+            "extension": "m3u8",
+            "mime_type": "application/x-mpegURL",
+            "width": 1280,
+            "height": "720",
+            "duration_in_ms": 1200000,
+            "filesize_mbs": 450,
+            "filename": "video_720p.m3u8",
+            "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/abc123def.m3u8",
+            "is_guest_allowed": true,
+            "is_member_allowed": true,
+            "is_premium_allowed": true,
+            "is_downloadable": true,
+            "compatibility": "all",
+            "hv_id": 12345,
+            "server_sequence": 1,
+            "video_stream_group_id": 42
+          },
+          {
+            "id": 1002,
+            "server_id": 14,
+            "slug": "480p",
+            "kind": "hls",
+            "extension": "m3u8",
+            "mime_type": "application/x-mpegURL",
+            "width": 854,
+            "height": "480",
+            "duration_in_ms": 1200000,
+            "filesize_mbs": 280,
+            "filename": "video_480p.m3u8",
+            "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/def456ghi.m3u8",
+            "is_guest_allowed": true,
+            "is_member_allowed": true,
+            "is_premium_allowed": true,
+            "is_downloadable": true,
+            "compatibility": "all",
+            "hv_id": 12345,
+            "server_sequence": 2,
+            "video_stream_group_id": 42
+          },
+          {
+            "id": 1003,
+            "server_id": 14,
+            "slug": "360p",
+            "kind": "hls",
+            "extension": "m3u8",
+            "mime_type": "application/x-mpegURL",
+            "width": 640,
+            "height": "360",
+            "duration_in_ms": 1200000,
+            "filesize_mbs": 150,
+            "filename": "video_360p.m3u8",
+            "url": "https://m3u8s.highwinds-cdn.com/api/v9/m3u8s/ghi789jkl.m3u8",
+            "is_guest_allowed": true,
+            "is_member_allowed": true,
+            "is_premium_allowed": true,
+            "is_downloadable": true,
+            "compatibility": "all",
+            "hv_id": 12345,
+            "server_sequence": 3,
+            "video_stream_group_id": 42
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
 **Server Rating Values:**
 
-The `na_rating`, `eu_rating`, and `asia_rating` fields indicate server performance/reliability for each geographic region. Higher values indicate better performance. Common servers include:
+The `na_rating`, `eu_rating`, and `asia_rating` fields indicate server performance/reliability for each geographic
+region. Higher values indicate better performance. Common servers include:
 
-| Server ID | Name | Typical Ratings |
-|-----------|------|-----------------|
-| 14 | Golem | 3 (all regions) |
-| 15 | Hydra | 3 (all regions) |
-| 16 | Phoenix | 2-3 (varies by region) |
-| 17 | Titan | 2-3 (varies by region) |
+| Server ID | Name    | Typical Ratings        |
+|-----------|---------|------------------------|
+| 14        | Golem   | 3 (all regions)        |
+| 15        | Hydra   | 3 (all regions)        |
+| 16        | Phoenix | 2-3 (varies by region) |
+| 17        | Titan   | 2-3 (varies by region) |
 
 **Quality Level Reference:**
 
 | Quality | Width | Height | Typical File Size (20 min) |
 |---------|-------|--------|----------------------------|
-| 720p | 1280 | 720 | ~400-500 MB |
-| 480p | 854 | 480 | ~250-300 MB |
-| 360p | 640 | 360 | ~140-160 MB |
+| 720p    | 1280  | 720    | ~400-500 MB                |
+| 480p    | 854   | 480    | ~250-300 MB                |
+| 360p    | 640   | 360    | ~140-160 MB                |
 
 ---
 
@@ -273,11 +298,12 @@ The HLS (HTTP Live Streaming) playlists are served from Highwinds CDN and contai
 
 **Path Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `hash` | string | Unique playlist identifier hash |
+| Parameter | Type   | Description                     |
+|-----------|--------|---------------------------------|
+| `hash`    | string | Unique playlist identifier hash |
 
 **Example Request:**
+
 ```http
 GET /api/v9/m3u8s/abc123def456ghi789.m3u8 HTTP/1.1
 Host: m3u8s.highwinds-cdn.com
@@ -304,17 +330,17 @@ https://p34.htv-hydaelyn.com/3/4/2/6/h1x/segs/b0/2/0002.html
 
 ### HLS Tag Reference
 
-| Tag | Description |
-|-----|-------------|
-| `#EXTM3U` | Required file header identifying the file as an HLS playlist |
-| `#EXT-X-VERSION:3` | Playlist format version (version 3 supports floating-point durations) |
-| `#EXT-X-PLAYLIST-TYPE:VOD` | Video-on-Demand playlist (static, complete playlist) |
-| `#EXT-X-INDEPENDENT-SEGMENTS` | Each segment can be decoded without preceding segments |
-| `#EXT-X-TARGETDURATION:14` | Maximum segment duration in seconds |
-| `#EXT-X-MEDIA-SEQUENCE:0` | Starting sequence number for segments |
-| `#EXT-X-KEY` | Encryption method and key URI |
-| `#EXTINF` | Duration and title for the following segment |
-| `#EXT-X-ENDLIST` | Marks the end of the playlist |
+| Tag                           | Description                                                           |
+|-------------------------------|-----------------------------------------------------------------------|
+| `#EXTM3U`                     | Required file header identifying the file as an HLS playlist          |
+| `#EXT-X-VERSION:3`            | Playlist format version (version 3 supports floating-point durations) |
+| `#EXT-X-PLAYLIST-TYPE:VOD`    | Video-on-Demand playlist (static, complete playlist)                  |
+| `#EXT-X-INDEPENDENT-SEGMENTS` | Each segment can be decoded without preceding segments                |
+| `#EXT-X-TARGETDURATION:14`    | Maximum segment duration in seconds                                   |
+| `#EXT-X-MEDIA-SEQUENCE:0`     | Starting sequence number for segments                                 |
+| `#EXT-X-KEY`                  | Encryption method and key URI                                         |
+| `#EXTINF`                     | Duration and title for the following segment                          |
+| `#EXT-X-ENDLIST`              | Marks the end of the playlist                                         |
 
 ### AES-128 Encryption
 
@@ -326,12 +352,12 @@ https://hanime.tv/sign.bin
 
 **Key Properties:**
 
-| Property | Value |
-|----------|-------|
-| Method | AES-128 |
-| Key URI | `https://hanime.tv/sign.bin` |
-| IV | Typically null (uses sequence number) |
-| Key Format | Raw 16-byte binary key |
+| Property   | Value                                 |
+|------------|---------------------------------------|
+| Method     | AES-128                               |
+| Key URI    | `https://hanime.tv/sign.bin`          |
+| IV         | Typically null (uses sequence number) |
+| Key Format | Raw 16-byte binary key                |
 
 **Decryption Implementation (TypeScript):**
 
@@ -405,14 +431,14 @@ https://p{server_id}.htv-hydaelyn.com/{hv_id_digits}/{video_stream_group_id}/seg
 
 **URL Components:**
 
-| Component | Description | Example |
-|-----------|-------------|---------|
-| `p{server_id}` | Server identifier prefix | `p34` for server 34 |
-| `{hv_id_digits}` | Video ID split into path segments | `3/4/2/6` for hv_id 3426 |
-| `{video_stream_group_id}` | Stream group identifier | `42` |
-| `b0/2` | Quality/bitrate path segment | `b0/2` for standard quality |
-| `{segment_number}` | Zero-padded segment index | `0000`, `0001`, `0002` |
-| `.html` | File extension (segments are served as HTML) | `.html` |
+| Component                 | Description                                  | Example                     |
+|---------------------------|----------------------------------------------|-----------------------------|
+| `p{server_id}`            | Server identifier prefix                     | `p34` for server 34         |
+| `{hv_id_digits}`          | Video ID split into path segments            | `3/4/2/6` for hv_id 3426    |
+| `{video_stream_group_id}` | Stream group identifier                      | `42`                        |
+| `b0/2`                    | Quality/bitrate path segment                 | `b0/2` for standard quality |
+| `{segment_number}`        | Zero-padded segment index                    | `0000`, `0001`, `0002`      |
+| `.html`                   | File extension (segments are served as HTML) | `.html`                     |
 
 **Example URL Breakdown:**
 
@@ -497,22 +523,49 @@ val url = buildSegmentUrl(
 
 ### Search Hentai Videos
 
-**Endpoint:** `GET /api/v10/search_hvs`
+**Endpoint:** `POST https://search.htv-services.com/`
 
-Search for hentai videos with various filters and pagination.
+Search for hentai videos with various filters and pagination. Note that this uses a POST request with a JSON body, not a
+GET request with query parameters.
 
-**Query Parameters:**
+**Request Headers:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `q` | string | Search query (optional) |
-| `page` | integer | Page number (default: 0) |
-| `tags[]` | string[] | Tag filters (can be repeated) |
-| `brands[]` | string[] | Brand/studio filters (can be repeated) |
-| `ordering` | string | Sort order (e.g., `-created_at`, `-views`) |
-| `page_size` | integer | Results per page |
+```http
+authority: search.htv-services.com
+accept: application/json, text/plain, */*
+content-type: application/json;charset=UTF-8
+```
 
-**Important:** The search response returns a **flat JSON array** without a pagination wrapper. All video objects are returned directly in the array.
+**Request Body:**
+
+```json
+{
+  "search_text": "query",
+  "tags": ["tag1", "tag2"],
+  "tags_mode": "AND",
+  "brands": ["brand1"],
+  "blacklist": ["excluded_tag"],
+  "order_by": "likes",
+  "ordering": "desc",
+  "page": 0
+}
+```
+
+**Request Body Parameters:**
+
+| Parameter     | Type     | Description                                                                                  |
+|---------------|----------|----------------------------------------------------------------------------------------------|
+| `search_text` | string   | Search query (optional, empty string for browsing)                                           |
+| `tags`        | string[] | Tag filters (array of tag slugs)                                                             |
+| `tags_mode`   | string   | Tag combination mode: `"AND"` or `"OR"`                                                      |
+| `brands`      | string[] | Brand/studio filters (array of brand slugs)                                                  |
+| `blacklist`   | string[] | Excluded tags                                                                                |
+| `order_by`    | string   | Sort field (e.g., `likes`, `views`, `created_at_unix`, `released_at_unix`, `title_sortable`) |
+| `ordering`    | string   | Sort order: `"asc"` or `"desc"`                                                              |
+| `page`        | integer  | Page number (0-indexed)                                                                      |
+
+**Important:** The search response returns a **flat JSON array** without a pagination wrapper. All video objects are
+returned directly in the array.
 
 ### Response Structure
 
@@ -602,32 +655,34 @@ typealias SearchHvsResponse = List<HentaiVideo>
 
 ### Field Reference (20 Fields per Video Object)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | number | Unique video identifier |
-| `name` | string | Video title (primary language) |
-| `search_titles` | string | Multi-language title concatenation |
-| `slug` | string | URL-safe identifier |
-| `description` | string | Video description text |
-| `views` | number | Total view count |
-| `cover_url` | string | Cover image URL (wide format) |
-| `poster_url` | string | Poster image URL (portrait format) |
-| `brand` | string | Studio/brand name |
-| `brand_id` | number | Studio/brand identifier |
-| `likes` | number | Like count |
-| `dislikes` | number | Dislike count |
-| `downloads` | number | Download count |
-| `tags` | Tag[] | Array of tag objects |
-| `created_at_unix` | number | Upload timestamp (Unix seconds) |
-| `released_at_unix` | number | Release timestamp (Unix seconds) |
-| `created_at` | string | Upload date (ISO 8601) |
-| `released_at` | string | Release date (ISO 8601) |
+| Field              | Type   | Description                        |
+|--------------------|--------|------------------------------------|
+| `id`               | number | Unique video identifier            |
+| `name`             | string | Video title (primary language)     |
+| `search_titles`    | string | Multi-language title concatenation |
+| `slug`             | string | URL-safe identifier                |
+| `description`      | string | Video description text             |
+| `views`            | number | Total view count                   |
+| `cover_url`        | string | Cover image URL (wide format)      |
+| `poster_url`       | string | Poster image URL (portrait format) |
+| `brand`            | string | Studio/brand name                  |
+| `brand_id`         | number | Studio/brand identifier            |
+| `likes`            | number | Like count                         |
+| `dislikes`         | number | Dislike count                      |
+| `downloads`        | number | Download count                     |
+| `tags`             | Tag[]  | Array of tag objects               |
+| `created_at_unix`  | number | Upload timestamp (Unix seconds)    |
+| `released_at_unix` | number | Release timestamp (Unix seconds)   |
+| `created_at`       | string | Upload date (ISO 8601)             |
+| `released_at`      | string | Release date (ISO 8601)            |
 
 ### Multi-Language Titles
 
-The `search_titles` field contains a concatenation of titles in multiple languages. This enables search across all language variants.
+The `search_titles` field contains a concatenation of titles in multiple languages. This enables search across all
+language variants.
 
 **Example:**
+
 ```json
 {
   "name": "Example Video Title",
@@ -636,6 +691,7 @@ The `search_titles` field contains a concatenation of titles in multiple languag
 ```
 
 In the example above:
+
 - English: "Example Video Title"
 - Japanese: "サンプル動画"
 - Korean: "예시 비디오"
@@ -644,13 +700,14 @@ In the example above:
 
 Tags follow specific formatting conventions:
 
-| Rule | Example |
-|------|---------|
-| Lowercase only | `"blow job"`, `"big boobs"` |
+| Rule                           | Example                       |
+|--------------------------------|-------------------------------|
+| Lowercase only                 | `"blow job"`, `"big boobs"`   |
 | Space-separated for multi-word | `"school girl"`, `"big tits"` |
-| Hyphenated when appropriate | `"titty fuck"`, `"paizuri"` |
+| Hyphenated when appropriate    | `"titty fuck"`, `"paizuri"`   |
 
 **Common Tag Examples:**
+
 ```json
 {
   "tags": [
@@ -668,24 +725,27 @@ Tags follow specific formatting conventions:
 Images follow predictable URL patterns on the CDN:
 
 **Cover Images:**
+
 ```
 https://hanime-cdn.com/images/covers/{slug}-cv{version}.{format}
 ```
 
 **Poster Images:**
+
 ```
 https://hanime-cdn.com/images/posters/{slug}-pv{version}.{format}
 ```
 
 **URL Components:**
 
-| Component | Description | Values |
-|-----------|-------------|--------|
-| `{slug}` | Video slug | URL-safe identifier |
+| Component   | Description          | Values                     |
+|-------------|----------------------|----------------------------|
+| `{slug}`    | Video slug           | URL-safe identifier        |
 | `{version}` | Image version number | `cv1`, `cv2`, `pv1`, `pv2` |
-| `{format}` | Image format | `png`, `webp`, `jpg` |
+| `{format}`  | Image format         | `png`, `webp`, `jpg`       |
 
 **Example URLs:**
+
 ```
 https://hanime-cdn.com/images/covers/example-video-slug-cv1.png
 https://hanime-cdn.com/images/covers/example-video-slug-cv1.webp
@@ -754,21 +814,22 @@ All API requests to protected endpoints require specific headers for authenticat
 
 ### Required Headers
 
-| Header | Type | Description | Guest Value | Authenticated Value |
-|--------|------|-------------|-------------|---------------------|
-| `x-signature` | string | HMAC-SHA256 signature | Required | Required |
-| `x-time` | integer | Unix timestamp (seconds) | Required | Required |
-| `x-signature-version` | string | Signature algorithm version | `web2` | `web2` |
-| `x-session-token` | string | Session authentication token | Empty string `""` | Token from login |
-| `x-user-license` | string | User license tier | Empty string `""` | License identifier |
-| `x-csrf-token` | string | CSRF protection token | Empty string `""` | Token from cookies |
-| `x-license` | string | License verification | Empty string `""` | License string |
-| `Content-Type` | string | Request content type | `application/json` | `application/json` |
-| `Accept` | string | Expected response type | `application/json` | `application/json` |
+| Header                | Type    | Description                  | Guest Value        | Authenticated Value |
+|-----------------------|---------|------------------------------|--------------------|---------------------|
+| `x-signature`         | string  | SHA-256 signature            | Required           | Required            |
+| `x-time`              | integer | Unix timestamp (seconds)     | Required           | Required            |
+| `x-signature-version` | string  | Signature algorithm version  | `web2`             | `web2`              |
+| `x-session-token`     | string  | Session authentication token | Empty string `""`  | Token from login    |
+| `x-user-license`      | string  | User license tier            | Empty string `""`  | License identifier  |
+| `x-csrf-token`        | string  | CSRF protection token        | Empty string `""`  | Token from cookies  |
+| `x-license`           | string  | License verification         | Empty string `""`  | License string      |
+| `Content-Type`        | string  | Request content type         | `application/json` | `application/json`  |
+| `Accept`              | string  | Expected response type       | `application/json` | `application/json`  |
 
 ### Header Examples
 
 **Guest Request Headers:**
+
 ```http
 GET /api/v8/guest/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
@@ -784,6 +845,7 @@ Accept: application/json
 ```
 
 **Authenticated Request Headers:**
+
 ```http
 GET /api/v8/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
@@ -800,118 +862,98 @@ Accept: application/json
 
 ### Signature Generation
 
-The `x-signature` header is generated using HMAC-SHA256:
+The `x-signature` header is generated using plain SHA-256 (not HMAC). The secret key "Xkdi29" is hardcoded in the
+hanime.tv web client JavaScript.
+
+**Signature Input Format:**
+
+```
+{timestamp},Xkdi29,https://hanime.tv,mn2,{timestamp}
+```
+
+**Example:**
+For timestamp `1704067200`, the input string would be:
+
+```
+1704067200,Xkdi29,https://hanime.tv,mn2,1704067200
+```
 
 **TypeScript Implementation:**
 
 ```javascript
-import crypto from \'crypto\';
+import crypto from 'crypto';
 
-interface SignatureParams {
-  method: string;
-  path: string;
-  timestamp: number;
-  body?: string;
-  secretKey: string;
-}
+/**
+ * Generate SHA-256 signature for API authentication.
+ *
+ * @param timestamp Unix timestamp in seconds
+ * @return Hex-encoded signature string
+ */
+function generateSignature(timestamp: number): string {
+  // Secret key "Xkdi29" extracted from hanime.tv web client JavaScript
+  const input = `${timestamp},Xkdi29,https://hanime.tv,mn2,${timestamp}`;
 
-function generateSignature(params: SignatureParams): string {
-  const { method, path, timestamp, body = \'\', secretKey } = params;
-
-  // Construct the payload for signing
-  const payload = `${method.toUpperCase()}:${path}:${timestamp}:${body}`;
-
-  // Generate HMAC-SHA256 signature
+  // Generate SHA-256 hash (not HMAC)
   const signature = crypto
-  .createHmac(\'sha256\', secretKey)
-  .update(payload)
-  .digest(\'hex\');
+    .createHash('sha256')
+    .update(input)
+    .digest('hex');
 
   return signature;
 }
 
 // Example usage
-const signature = generateSignature({
-  method: \'GET\',
-  path: \'/api/v8/guest/videos/12345/manifest\',
-  timestamp: 1704067200,
-  secretKey: \'your_secret_key_here\'
-});
+const timestamp = Math.floor(Date.now() / 1000);
+const signature = generateSignature(timestamp);
 ```
 
 **Kotlin Implementation:**
 
 ```kotlin
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
+import java.security.MessageDigest
 
 /**
- * Generate HMAC-SHA256 signature for API authentication.
- * 
- * @param method HTTP method (GET, POST, etc.)
- * @param path API endpoint path
+ * Secret key "Xkdi29" extracted from hanime.tv web client JavaScript.
+ * Used for signature generation in x-signature header for API authentication.
+ *
  * @param timestamp Unix timestamp in seconds
- * @param body Request body (empty string for GET requests)
- * @param secretKey The secret key for signing
  * @return Hex-encoded signature string
  */
-fun generateSignature(
-    method: String,
-    path: String,
-    timestamp: Long,
-    body: String = "",
-    secretKey: String
-): String {
-    // Construct the payload: METHOD:PATH:TIMESTAMP:BODY
-    val payload = "${method.uppercase()}:$path:$timestamp:$body"
-
-    // Generate HMAC-SHA256
-    val mac = Mac.getInstance("HmacSHA256")
-    val secretKeySpec = SecretKeySpec(secretKey.toByteArray(Charsets.UTF_8), "HmacSHA256")
-    mac.init(secretKeySpec)
-
-    val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
-    
-    // Convert to hex string
-    return signatureBytes.joinToString("") { "%02x".format(it) }
+private fun generateSignature(timestamp: Long): String {
+  val input = "$timestamp,Xkdi29,https://hanime.tv,mn2,$timestamp"
+  val md = MessageDigest.getInstance("SHA-256")
+  val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+  return digest.joinToString("") { "%02x".format(it) }
 }
 
 /**
  * Build the complete headers map for an API request.
  */
 fun buildRequestHeaders(
-    method: String,
-    path: String,
-    secretKey: String,
-    sessionToken: String = "",
-    userLicense: String = "",
-    csrfToken: String = "",
-    license: String = "",
-    body: String = ""
+  sessionToken: String = "",
+  userLicense: String = "",
+  csrfToken: String = "",
+  license: String = ""
 ): Map<String, String> {
-    val timestamp = System.currentTimeMillis() / 1000
-    val signature = generateSignature(method, path, timestamp, body, secretKey)
+  val timestamp = System.currentTimeMillis() / 1000
+  val signature = generateSignature(timestamp)
 
-    return mapOf(
-        "x-signature" to signature,
-        "x-time" to timestamp.toString(),
-        "x-signature-version" to "web2",
-        "x-session-token" to sessionToken,
-        "x-user-license" to userLicense,
-        "x-csrf-token" to csrfToken,
-        "x-license" to license,
-        "Content-Type" to "application/json",
-        "Accept" to "application/json"
-    )
+  return mapOf(
+    "x-signature" to signature,
+    "x-time" to timestamp.toString(),
+    "x-signature-version" to "web2",
+    "x-session-token" to sessionToken,
+    "x-user-license" to userLicense,
+    "x-csrf-token" to csrfToken,
+    "x-license" to license,
+    "Content-Type" to "application/json",
+    "Accept" to "application/json"
+  )
 }
 
 // Example usage
-val signature = generateSignature(
-    method = "GET",
-    path = "/api/v8/guest/videos/12345/manifest",
-    timestamp = 1704067200,
-    secretKey = "your_secret_key_here"
-)
+val timestamp = System.currentTimeMillis() / 1000
+val signature = generateSignature(timestamp)
 ```
 
 ### Timestamp Format
@@ -967,21 +1009,24 @@ function extractTokens(document: Document): SessionTokens {
 
 **Endpoint:** `GET /rapi/v7/hentai_video_storyboards`
 
-Retrieve preview storyboards for video scrubbing. Storyboards provide thumbnail previews at various timestamps for timeline navigation.
+Retrieve preview storyboards for video scrubbing. Storyboards provide thumbnail previews at various timestamps for
+timeline navigation.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `hv_id` | integer | Hentai video ID |
+| Parameter | Type    | Description     |
+|-----------|---------|-----------------|
+| `hv_id`   | integer | Hentai video ID |
 
 **Example Request:**
+
 ```http
 GET /rapi/v7/hentai_video_storyboards?hv_id=12345 HTTP/1.1
 Host: cached.freeanimehentai.net
 ```
 
 **Response Structure:**
+
 ```typescript
 interface StoryboardResponse {
   storyboards: Storyboard[];
@@ -1040,6 +1085,7 @@ data class HentaiVideoStoryboard(
 ```
 
 **Example Response:**
+
 ```json
 {
   "storyboards": [
@@ -1069,18 +1115,20 @@ Retrieve user profile information by IDs.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `source` | string | Data source type (e.g., `simple`) |
+| Parameter    | Type      | Description                         |
+|--------------|-----------|-------------------------------------|
+| `source`     | string    | Data source type (e.g., `simple`)   |
 | `user_ids[]` | integer[] | User IDs to fetch (can be repeated) |
 
 **Example Request:**
+
 ```http
 GET /rapi/v7/users?source=simple&user_ids[]=1&user_ids[]=2 HTTP/1.1
 Host: cached.freeanimehentai.net
 ```
 
 **Response Structure:**
+
 ```typescript
 interface UsersResponse {
   users: User[];
@@ -1117,6 +1165,7 @@ data class User(
 ```
 
 **Example Response:**
+
 ```json
 {
   "users": [
@@ -1146,18 +1195,20 @@ Retrieve playlists related to a specific video.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `source` | string | Source type (e.g., `related`) |
-| `hv_id` | integer | Hentai video ID reference |
+| Parameter | Type    | Description                   |
+|-----------|---------|-------------------------------|
+| `source`  | string  | Source type (e.g., `related`) |
+| `hv_id`   | integer | Hentai video ID reference     |
 
 **Example Request:**
+
 ```http
 GET /api/v8/playlists?source=related&hv_id=12345 HTTP/1.1
 Host: cached.freeanimehentai.net
 ```
 
 **Response Structure:**
+
 ```typescript
 interface PlaylistsResponse {
   playlists: Playlist[];
@@ -1204,6 +1255,7 @@ data class PlaylistVideo(
 ```
 
 **Example Response:**
+
 ```json
 {
   "playlists": [
@@ -1230,11 +1282,12 @@ Record a video play event for analytics.
 
 **Path Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug identifier |
+| Parameter | Type   | Description           |
+|-----------|--------|-----------------------|
+| `slug`    | string | Video slug identifier |
 
 **Request Body:**
+
 ```typescript
 interface PlayRequestBody {
   width: number;
@@ -1265,13 +1318,14 @@ data class AdEventRequest(
 
 **Body Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `width` | integer | Player viewport width |
-| `height` | integer | Player viewport height |
-| `ab` | string | A/B test variant identifier (e.g., `kh`) |
+| Parameter | Type    | Description                              |
+|-----------|---------|------------------------------------------|
+| `width`   | integer | Player viewport width                    |
+| `height`  | integer | Player viewport height                   |
+| `ab`      | string  | A/B test variant identifier (e.g., `kh`) |
 
 **Example Request:**
+
 ```http
 POST /api/v8/hentai_videos/example-video-slug/play HTTP/1.1
 Host: cached.freeanimehentai.net
@@ -1298,24 +1352,25 @@ Track preroll advertisement events for analytics and ad performance measurement.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `kind` | string | Event type |
-| `url` | string | URL-encoded ad URL |
+| Parameter | Type   | Description        |
+|-----------|--------|--------------------|
+| `kind`    | string | Event type         |
+| `url`     | string | URL-encoded ad URL |
 
 **Event Types (`kind`):**
 
-| Type | Description |
-|------|-------------|
-| `impression` | Ad was displayed |
-| `click` | User clicked the ad |
-| `complete` | Ad playback completed |
-| `skip` | User skipped the ad |
-| `first_quartile` | 25% of ad played |
-| `midpoint` | 50% of ad played |
-| `third_quartile` | 75% of ad played |
+| Type             | Description           |
+|------------------|-----------------------|
+| `impression`     | Ad was displayed      |
+| `click`          | User clicked the ad   |
+| `complete`       | Ad playback completed |
+| `skip`           | User skipped the ad   |
+| `first_quartile` | 25% of ad played      |
+| `midpoint`       | 50% of ad played      |
+| `third_quartile` | 75% of ad played      |
 
 **Example Request:**
+
 ```http
 POST /rapi/v7/preroll_ad_event?kind=impression&url=https%3A%2F%2Fad-provider.com%2Fad HTTP/1.1
 Host: hanime.tv
@@ -1337,12 +1392,14 @@ Content-Type: application/json
 Detect user's country for content localization and regional server selection.
 
 **Example Request:**
+
 ```http
 GET /country_code HTTP/1.1
 Host: hanime.tv
 ```
 
 **Response Structure:**
+
 ```typescript
 interface GeoLocationResponse {
   country_code: string;
@@ -1351,6 +1408,7 @@ interface GeoLocationResponse {
 ```
 
 **Example Response:**
+
 ```json
 {
   "country_code": "US",
@@ -1368,12 +1426,13 @@ Load the omni-player video player interface.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `poster_url` | string | URL-encoded poster image URL |
-| `c` | integer | Cache-busting timestamp |
+| Parameter    | Type    | Description                  |
+|--------------|---------|------------------------------|
+| `poster_url` | string  | URL-encoded poster image URL |
+| `c`          | integer | Cache-busting timestamp      |
 
 **Example Request:**
+
 ```http
 GET /omni-player/index.html?poster_url=https%3A%2F%2Fhanime-cdn.com%2Fimages%2Fposters%2Fvideo-pv1.webp&c=1704067200000 HTTP/1.1
 Host: hanime.tv
@@ -1384,6 +1443,7 @@ Host: hanime.tv
 ## Community API
 
 ### Base URL
+
 ```
 https://community-uploads.highwinds-cdn.com
 ```
@@ -1396,13 +1456,14 @@ Retrieve user-uploaded community content.
 
 **Query Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
+| Parameter            | Type     | Description                                     |
+|----------------------|----------|-------------------------------------------------|
 | `channel_name__in[]` | string[] | Channel filters (e.g., `media`, `nsfw-general`) |
-| `kind` | string | Content type (e.g., `landing`) |
-| `loc` | string | Location/reference URL |
+| `kind`               | string   | Content type (e.g., `landing`)                  |
+| `loc`                | string   | Location/reference URL                          |
 
 **Example Request:**
+
 ```http
 GET /api/v9/community_uploads?channel_name__in[]=media&channel_name__in[]=nsfw-general&kind=landing&loc=https%3A%2F%2Fhanime.tv%2Fvideos%2Fhentai%2Fexample HTTP/1.1
 Host: community-uploads.highwinds-cdn.com
@@ -1413,6 +1474,7 @@ Host: community-uploads.highwinds-cdn.com
 ## CDN Endpoints
 
 ### Base URL
+
 ```
 https://hanime-cdn.com
 ```
@@ -1424,6 +1486,7 @@ https://hanime-cdn.com
 Retrieve environment configuration for the video player.
 
 **Example Response:**
+
 ```json
 {
   "vhtv2_version": 1704067200000,
@@ -1437,46 +1500,50 @@ Retrieve environment configuration for the video player.
 ### Media Assets
 
 #### Video Posters
+
 ```
 GET /images/posters/{slug}-pv{version}.{format}
 ```
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
+| Parameter     | Type   | Description                     |
+|---------------|--------|---------------------------------|
+| `slug`        | string | Video slug                      |
 | `pv{version}` | string | Poster variant (pv1, pv2, etc.) |
-| `format` | string | Image format (webp, jpg) |
+| `format`      | string | Image format (webp, jpg)        |
 
 #### Video Covers
+
 ```
 GET /images/covers/{slug}-cv{version}.{format}
 ```
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
+| Parameter     | Type   | Description                    |
+|---------------|--------|--------------------------------|
+| `slug`        | string | Video slug                     |
 | `cv{version}` | string | Cover variant (cv1, cv2, etc.) |
-| `format` | string | Image format (webp, png) |
+| `format`      | string | Image format (webp, png)       |
 
 #### Storyboard Previews
+
 ```
 GET /images/storyboards/{slug}-{resolution}-h{index}x.{format}
 ```
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `slug` | string | Video slug |
-| `resolution` | string | Resolution (e.g., `720p`) |
-| `h{index}x` | string | Horizontal tile index (h1x, h2x, etc.) |
-| `format` | string | Image format (webp) |
+| Parameter    | Type   | Description                            |
+|--------------|--------|----------------------------------------|
+| `slug`       | string | Video slug                             |
+| `resolution` | string | Resolution (e.g., `720p`)              |
+| `h{index}x`  | string | Horizontal tile index (h1x, h2x, etc.) |
+| `format`     | string | Image format (webp)                    |
 
 #### JavaScript Bundles
+
 ```
 GET /vhtv2/{bundle}.js
 ```
@@ -1498,6 +1565,7 @@ Access-Control-Request-Headers: x-signature, x-time, x-signature-version
 ```
 
 **Response Headers:**
+
 ```http
 Access-Control-Allow-Origin: https://hanime.tv
 Access-Control-Allow-Methods: GET, POST, OPTIONS
@@ -1526,14 +1594,14 @@ Access-Control-Max-Age: 86400
 
 ### Common Error Codes
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `INVALID_REQUEST` | 400 | Malformed request |
-| `UNAUTHORIZED` | 401 | Missing or invalid authentication |
-| `FORBIDDEN` | 403 | Insufficient permissions |
-| `NOT_FOUND` | 404 | Resource not found |
-| `RATE_LIMITED` | 429 | Too many requests |
-| `INTERNAL_ERROR` | 500 | Server error |
+| Code              | HTTP Status | Description                       |
+|-------------------|-------------|-----------------------------------|
+| `INVALID_REQUEST` | 400         | Malformed request                 |
+| `UNAUTHORIZED`    | 401         | Missing or invalid authentication |
+| `FORBIDDEN`       | 403         | Insufficient permissions          |
+| `NOT_FOUND`       | 404         | Resource not found                |
+| `RATE_LIMITED`    | 429         | Too many requests                 |
+| `INTERNAL_ERROR`  | 500         | Server error                      |
 
 ---
 
@@ -1554,30 +1622,30 @@ X-RateLimit-Reset: 1704070800
 ### Search with Filters
 
 ```javascript
+// Note: Search API uses POST to https://search.htv-services.com/
 const searchVideos = async (query, tags = [], page = 0) => {
-  const params = new URLSearchParams({
-    q: query,
-    page: page.toString(),
-    page_size: '24',
-    ordering: '-created_at'
-  });
-
-  tags.forEach(tag => params.append('tags[]', tag));
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = generateSignature(timestamp);
 
   const response = await fetch(
-    `https://cached.freeanimehentai.net/api/v10/search_hvs?${params}`,
+    'https://search.htv-services.com/',
     {
+      method: 'POST',
       headers: {
-        'x-signature': generateSignature(),
-        'x-time': Math.floor(Date.now() / 1000).toString(),
-        'x-signature-version': 'web2',
-        'x-session-token': '',
-        'x-user-license': '',
-        'x-csrf-token': '',
-        'x-license': '',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
+        'authority': 'search.htv-services.com',
+        'accept': 'application/json, text/plain, */*',
+        'content-type': 'application/json;charset=UTF-8'
+      },
+      body: JSON.stringify({
+        search_text: query,
+        tags: tags,
+        tags_mode: 'AND',
+        brands: [],
+        blacklist: [],
+        order_by: 'created_at_unix',
+        ordering: 'desc',
+        page: page
+      })
     }
   );
 
@@ -1590,14 +1658,8 @@ const searchVideos = async (query, tags = [], page = 0) => {
 ```javascript
 const getVideoManifest = async (hvId) => {
   const timestamp = Math.floor(Date.now() / 1000);
+  const signature = generateSignature(timestamp);
   const path = `/api/v8/guest/videos/${hvId}/manifest`;
-  
-  const signature = generateSignature({
-    method: 'GET',
-    path: path,
-    timestamp: timestamp,
-    secretKey: SECRET_KEY
-  });
 
   const response = await fetch(
     `https://cached.freeanimehentai.net${path}`,
@@ -1624,6 +1686,9 @@ const getVideoManifest = async (hvId) => {
 
 ```javascript
 const trackPlay = async (slug, width, height) => {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = generateSignature(timestamp);
+
   await fetch(
     `https://cached.freeanimehentai.net/api/v8/hentai_videos/${slug}/play`,
     {
@@ -1632,8 +1697,8 @@ const trackPlay = async (slug, width, height) => {
         'Content-Type': 'application/json',
         'x-session-token': getSessionToken(),
         'x-csrf-token': getCsrfToken(),
-        'x-signature': generateSignature(),
-        'x-time': Math.floor(Date.now() / 1000).toString(),
+        'x-signature': signature,
+        'x-time': timestamp.toString(),
         'x-signature-version': 'web2'
       },
       body: JSON.stringify({
@@ -1684,12 +1749,12 @@ const downloadAndDecryptStream = async (manifestUrl) => {
 
 ## Version History
 
-| Version | Endpoint Prefix | Notes |
-|---------|-----------------|-------|
-| v10 | `/api/v10/` | Current search API |
-| v9 | `/api/v9/` | Community uploads, HLS playlists |
-| v8 | `/api/v8/` | Playlists, play tracking, video manifests |
-| v7 | `/rapi/v7/` | User profiles, storyboards, ad events |
+| Version | Endpoint Prefix | Notes                                     |
+|---------|-----------------|-------------------------------------------|
+| v10     | `/api/v10/`     | Current search API                        |
+| v9      | `/api/v9/`      | Community uploads, HLS playlists          |
+| v8      | `/api/v8/`      | Playlists, play tracking, video manifests |
+| v7      | `/rapi/v7/`     | User profiles, storyboards, ad events     |
 
 ---
 
@@ -1700,7 +1765,9 @@ const downloadAndDecryptStream = async (manifestUrl) => {
 ```typescript
 // Manifest Types
 interface ManifestResponse {
-  servers: Server[];
+  videos_manifest: {
+    servers: Server[];
+  };
 }
 
 interface Server {
@@ -1723,7 +1790,42 @@ interface Stream {
   extension: 'm3u8';
   mime_type: 'application/x-mpegURL';
   width: number;
-  height: number;
+  height: string; // API returns string (e.g., "720"), not number
+  duration_in_ms: number;
+  filesize_mbs: number;
+  filename: string;
+  url: string;
+  is_guest_allowed: boolean;
+  is_member_allowed: boolean;
+  is_premium_allowed: boolean;
+  is_downloadable: boolean;
+  compatibility: 'all';
+  hv_id: number;
+  server_sequence: number;
+  video_stream_group_id: number;
+}
+
+interface Server {
+  id: number;
+  name: string;
+  slug: string;
+  na_rating: number;
+  eu_rating: number;
+  asia_rating: number;
+  sequence: number;
+  is_permanent: boolean;
+  streams: Stream[];
+}
+
+interface Stream {
+  id: number;
+  server_id: number;
+  slug: string;
+  kind: 'hls';
+  extension: 'm3u8';
+  mime_type: 'application/x-mpegURL';
+  width: number;
+  height: string; // API returns string (e.g., "720"), not number
   duration_in_ms: number;
   filesize_mbs: number;
   filename: string;
@@ -1819,7 +1921,8 @@ interface GeoLocationResponse {
 
 ## Kotlin Implementation Reference
 
-This section provides complete, working Kotlin implementations suitable for use in Aniyomi extensions. All examples follow Android/Ktor/OkHttp best practices with proper error handling and coroutine support.
+This section provides complete, working Kotlin implementations suitable for use in Aniyomi extensions. All examples
+follow Android/Ktor/OkHttp best practices with proper error handling and coroutine support.
 
 ### Dependencies
 
@@ -1852,46 +1955,52 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ManifestResponse(
-    val servers: List<Server>
+  @SerialName("videos_manifest")
+  val videosManifest: ManifestVideosManifest
+)
+
+@Serializable
+data class ManifestVideosManifest(
+  val servers: List<Server>
 )
 
 @Serializable
 data class Server(
-    val id: Int,
-    val name: String,
-    val slug: String,
-    @SerialName("na_rating")
-    val naRating: Int,
-    @SerialName("eu_rating")
-    val euRating: Int,
-    @SerialName("asia_rating")
-    val asiaRating: Int,
-    val sequence: Int,
-    @SerialName("is_permanent")
-    val isPermanent: Boolean,
-    val streams: List<Stream>
+  val id: Int,
+  val name: String,
+  val slug: String,
+  @SerialName("na_rating")
+  val naRating: Int,
+  @SerialName("eu_rating")
+  val euRating: Int,
+  @SerialName("asia_rating")
+  val asiaRating: Int,
+  val sequence: Int,
+  @SerialName("is_permanent")
+  val isPermanent: Boolean,
+  val streams: List<Stream>
 )
 
 @Serializable
 data class Stream(
-    val id: Int,
-    @SerialName("server_id")
-    val serverId: Int,
-    val slug: String,
-    val kind: String,
-    val extension: String,
-    @SerialName("mime_type")
-    val mimeType: String,
-    val width: Int,
-    val height: Int,
-    @SerialName("duration_in_ms")
-    val durationInMs: Long,
-    @SerialName("filesize_mbs")
-    val filesizeMbs: Int,
-    val filename: String,
-    val url: String,
-    @SerialName("is_guest_allowed")
-    val isGuestAllowed: Boolean,
+  val id: Int,
+  @SerialName("server_id")
+  val serverId: Int,
+  val slug: String,
+  val kind: String,
+  val extension: String,
+  @SerialName("mime_type")
+  val mimeType: String,
+  val width: Int,
+  val height: String, // API returns string (e.g., "720"), not number
+  @SerialName("duration_in_ms")
+  val durationInMs: Long,
+  @SerialName("filesize_mbs")
+  val filesizeMbs: Int,
+  val filename: String,
+  val url: String,
+  @SerialName("is_guest_allowed")
+  val isGuestAllowed: Boolean,
     @SerialName("is_member_allowed")
     val isMemberAllowed: Boolean,
     @SerialName("is_premium_allowed")
@@ -2075,18 +2184,17 @@ import kotlinx.serialization.json.Json
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
+import java.security.MessageDigest
 
 /**
  * Hanime.tv API client for fetching video content.
- * 
+ *
  * @param client OkHttp client instance
  * @param json JSON serializer instance
- * @param secretKey HMAC signing key (extracted from web player)
  */
 class HanimeApiClient(
-    private val client: OkHttpClient,
-    private val json: Json,
-    private val secretKey: String
+  private val client: OkHttpClient,
+  private val json: Json
 ) {
     companion object {
         const val API_BASE = "https://cached.freeanimehentai.net"
@@ -2238,37 +2346,51 @@ class HanimeApiClient(
         }.build()
     }
 
-    /**
-     * Build authenticated API request with required headers.
-     */
-    private fun buildApiRequest(
-        method: String,
-        path: String,
-        query: String = "",
-        body: String = ""
-    ): Request {
-        val timestamp = System.currentTimeMillis() / 1000
-        val signature = generateSignature(method, path, timestamp, body, secretKey)
+/**
+  * Build authenticated API request with required headers.
+  */
+ private fun buildApiRequest(
+   method: String,
+   path: String,
+   query: String = "",
+   body: String = ""
+ ): Request {
+   val timestamp = System.currentTimeMillis() / 1000
+   val signature = generateSignature(timestamp)
 
-        val url = buildApiUrl(path, query)
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .addHeader("x-signature", signature)
-            .addHeader("x-time", timestamp.toString())
-            .addHeader("x-signature-version", "web2")
-            .addHeader("x-session-token", "")
-            .addHeader("x-user-license", "")
-            .addHeader("x-csrf-token", "")
-            .addHeader("x-license", "")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Accept", "application/json")
+   val url = buildApiUrl(path, query)
+   val requestBuilder = Request.Builder()
+   .url(url)
+   .addHeader("x-signature", signature)
+   .addHeader("x-time", timestamp.toString())
+   .addHeader("x-signature-version", "web2")
+   .addHeader("x-session-token", "")
+   .addHeader("x-user-license", "")
+   .addHeader("x-csrf-token", "")
+   .addHeader("x-license", "")
+   .addHeader("Content-Type", "application/json")
+   .addHeader("Accept", "application/json")
 
-        if (method == "POST" && body.isNotEmpty()) {
-            requestBuilder.post(body.toRequestBody("application/json".toMediaType()))
-        }
+   if (method == "POST" && body.isNotEmpty()) {
+     requestBuilder.post(body.toRequestBody("application/json".toMediaType()))
+   }
 
-        return requestBuilder.build()
-    }
+   return requestBuilder.build()
+ }
+
+ /**
+  * Generate SHA-256 signature for API authentication.
+  * Secret key "Xkdi29" extracted from hanime.tv web client JavaScript.
+  *
+  * @param timestamp Unix timestamp in seconds
+  * @return Hex-encoded signature string
+  */
+ private fun generateSignature(timestamp: Long): String {
+   val input = "$timestamp,Xkdi29,https://hanime.tv,mn2,$timestamp"
+   val md = MessageDigest.getInstance("SHA-256")
+   val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+   return digest.joinToString("") { "%02x".format(it) }
+ }
 }
 ```
 
@@ -2277,92 +2399,60 @@ class HanimeApiClient(
 ```kotlin
 package eu.kanade.tachiyomi.extension.all.hanime.auth
 
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
+import java.security.MessageDigest
 
 /**
  * Authentication utilities for hanime.tv API.
  */
 object HanimeAuth {
 
-    /**
-     * Generate HMAC-SHA256 signature for API authentication.
-     * 
-     * Signature format: METHOD:PATH:TIMESTAMP:BODY
-     * 
-     * @param method HTTP method (GET, POST, etc.)
-     * @param path API endpoint path
-     * @param timestamp Unix timestamp in seconds
-     * @param body Request body (empty string for GET requests)
-     * @param secretKey The secret key for signing
-     * @return Hex-encoded signature string
-     */
-    fun generateSignature(
-        method: String,
-        path: String,
-        timestamp: Long,
-        body: String = "",
-        secretKey: String
-    ): String {
-        require(method.isNotEmpty()) { "Method cannot be empty" }
-        require(path.isNotEmpty()) { "Path cannot be empty" }
-        require(secretKey.isNotEmpty()) { "Secret key cannot be empty" }
+  /**
+   * Secret key "Xkdi29" extracted from hanime.tv web client JavaScript.
+   * Used for signature generation in x-signature header for API authentication.
+   *
+   * Signature input format: {timestamp},Xkdi29,https://hanime.tv,mn2,{timestamp}
+   *
+   * @param timestamp Unix timestamp in seconds
+   * @return Hex-encoded signature string
+   */
+  fun generateSignature(timestamp: Long): String {
+    // Secret key "Xkdi29" extracted from hanime.tv web client JavaScript
+    val input = "$timestamp,Xkdi29,https://hanime.tv,mn2,$timestamp"
+    val md = MessageDigest.getInstance("SHA-256")
+    val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { "%02x".format(it) }
+  }
 
-        // Construct the payload: METHOD:PATH:TIMESTAMP:BODY
-        val payload = "${method.uppercase()}:$path:$timestamp:$body"
+  /**
+   * Build the complete headers map for an API request.
+   *
+   * @param sessionToken Optional session token (for authenticated requests)
+   * @param userLicense Optional user license
+   * @param csrfToken Optional CSRF token
+   * @param license Optional license string
+   * @return Map of header names to values
+   */
+  fun buildHeaders(
+    sessionToken: String = "",
+    userLicense: String = "",
+    csrfToken: String = "",
+    license: String = ""
+  ): Map<String, String> {
+    val timestamp = System.currentTimeMillis() / 1000
+    val signature = generateSignature(timestamp)
 
-        // Generate HMAC-SHA256
-        val mac = Mac.getInstance("HmacSHA256")
-        val secretKeySpec = SecretKeySpec(
-            secretKey.toByteArray(Charsets.UTF_8),
-            "HmacSHA256"
-        )
-        mac.init(secretKeySpec)
-
-        val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
-
-        // Convert to lowercase hex string
-        return signatureBytes.joinToString("") { "%02x".format(it) }
-    }
-
-    /**
-     * Build the complete headers map for an API request.
-     * 
-     * @param method HTTP method
-     * @param path API endpoint path
-     * @param secretKey HMAC signing key
-     * @param sessionToken Optional session token (for authenticated requests)
-     * @param userLicense Optional user license
-     * @param csrfToken Optional CSRF token
-     * @param license Optional license string
-     * @param body Request body (for POST requests)
-     * @return Map of header names to values
-     */
-    fun buildHeaders(
-        method: String,
-        path: String,
-        secretKey: String,
-        sessionToken: String = "",
-        userLicense: String = "",
-        csrfToken: String = "",
-        license: String = "",
-        body: String = ""
-    ): Map<String, String> {
-        val timestamp = System.currentTimeMillis() / 1000
-        val signature = generateSignature(method, path, timestamp, body, secretKey)
-
-        return mapOf(
-            "x-signature" to signature,
-            "x-time" to timestamp.toString(),
-            "x-signature-version" to "web2",
-            "x-session-token" to sessionToken,
-            "x-user-license" to userLicense,
-            "x-csrf-token" to csrfToken,
-            "x-license" to license,
-            "Content-Type" to "application/json",
-            "Accept" to "application/json"
-        )
-    }
+    return mapOf(
+      "x-signature" to signature,
+      "x-time" to timestamp.toString(),
+      "x-signature-version" to "web2",
+      "x-session-token" to sessionToken,
+      "x-user-license" to userLicense,
+      "x-csrf-token" to csrfToken,
+      "x-license" to license,
+      "Content-Type" to "application/json",
+      "Accept" to "application/json"
+    )
+  }
 }
 ```
 

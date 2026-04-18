@@ -1,6 +1,7 @@
 # hanime.tv Technical Architecture
 
-This document provides comprehensive documentation of the hanime.tv platform architecture, technologies, and infrastructure.
+This document provides comprehensive documentation of the hanime.tv platform architecture, technologies, and
+infrastructure.
 
 ---
 
@@ -8,28 +9,28 @@ This document provides comprehensive documentation of the hanime.tv platform arc
 
 ### Frontend Framework
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Vue.js | 2.7.16 | Core JavaScript framework |
-| Vuetify | 1.0.19 | UI component library |
-| Vue Router | 3.6.5 | Client-side routing |
-| Vuex | 3.x | State management |
+| Technology | Version | Purpose                   |
+|------------|---------|---------------------------|
+| Vue.js     | 2.7.16  | Core JavaScript framework |
+| Vuetify    | 1.0.19  | UI component library      |
+| Vue Router | 3.6.5   | Client-side routing       |
+| Vuex       | 3.x     | State management          |
 
 ### Build Tools
 
-| Technology | Purpose |
-|------------|---------|
-| Webpack | Module bundler |
-| Babel | JavaScript transpilation |
-| PostCSS | CSS preprocessing |
+| Technology | Purpose                  |
+|------------|--------------------------|
+| Webpack    | Module bundler           |
+| Babel      | JavaScript transpilation |
+| PostCSS    | CSS preprocessing        |
 
 ### External Services
 
-| Service | Purpose |
-|---------|---------|
+| Service        | Purpose                          |
+|----------------|----------------------------------|
 | Cloudflare RUM | Real user monitoring & analytics |
-| Google IMA SDK | Advertisement integration |
-| AdTng | Ad provider network |
+| Google IMA SDK | Advertisement integration        |
+| AdTng          | Ad provider network              |
 
 ---
 

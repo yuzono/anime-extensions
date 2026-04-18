@@ -1,26 +1,28 @@
 # hanime.tv CDN Infrastructure Documentation
 
-This document provides comprehensive documentation of all CDN infrastructure used by hanime.tv, including internal and third-party content delivery networks.
+This document provides comprehensive documentation of all CDN infrastructure used by hanime.tv, including internal and
+third-party content delivery networks.
 
 ---
 
 ## Section 1: CDN Overview
 
-hanime.tv employs a distributed CDN architecture with multiple specialized content delivery networks optimized for different asset types.
+hanime.tv employs a distributed CDN architecture with multiple specialized content delivery networks optimized for
+different asset types.
 
 ### CDN Hierarchy
 
-| CDN Domain | Primary Purpose | Asset Types |
-|------------|-----------------|-------------|
-| `hanime-cdn.com` | Primary static CDN | Images, fonts, JavaScript bundles, player assets |
-| `htv-hydaelyn.com` | Video streaming CDN | Encrypted video segments |
-| `m3u8s.highwinds-cdn.com` | HLS playlist CDN | HLS manifest files (.m3u8) |
-| `community-uploads.highwinds-cdn.com` | Community uploads CDN | Discord-sourced user images |
-| `cdnjs.cloudflare.com` | Third-party CDN | video.js, axios libraries |
-| `jsdelivr.net` | Third-party CDN | Vue.js framework |
-| `fonts.googleapis.com` | Third-party CDN | Google Fonts |
-| `vjs.zencdn.net` | Third-party CDN | video.js core |
-| `imasdk.googleapis.com` | Third-party CDN | Google IMA SDK |
+| CDN Domain                            | Primary Purpose       | Asset Types                                      |
+|---------------------------------------|-----------------------|--------------------------------------------------|
+| `hanime-cdn.com`                      | Primary static CDN    | Images, fonts, JavaScript bundles, player assets |
+| `htv-hydaelyn.com`                    | Video streaming CDN   | Encrypted video segments                         |
+| `m3u8s.highwinds-cdn.com`             | HLS playlist CDN      | HLS manifest files (.m3u8)                       |
+| `community-uploads.highwinds-cdn.com` | Community uploads CDN | Discord-sourced user images                      |
+| `cdnjs.cloudflare.com`                | Third-party CDN       | video.js, axios libraries                        |
+| `jsdelivr.net`                        | Third-party CDN       | Vue.js framework                                 |
+| `fonts.googleapis.com`                | Third-party CDN       | Google Fonts                                     |
+| `vjs.zencdn.net`                      | Third-party CDN       | video.js core                                    |
+| `imasdk.googleapis.com`               | Third-party CDN       | Google IMA SDK                                   |
 
 ### CDN Distribution Flow
 
@@ -78,11 +80,11 @@ Portrait-format poster images for video thumbnails and previews.
 
 **Parameters:**
 
-| Parameter | Type | Description | Values |
-|-----------|------|-------------|--------|
-| `slug` | string | Video slug identifier | URL-safe slug |
+| Parameter | Type    | Description           | Values              |
+|-----------|---------|-----------------------|---------------------|
+| `slug`    | string  | Video slug identifier | URL-safe slug       |
 | `version` | integer | Poster version number | `1`, `2`, `3`, etc. |
-| `format` | string | Image format | `jpg`, `webp` |
+| `format`  | string  | Image format          | `jpg`, `webp`       |
 
 **Examples:**
 
@@ -134,11 +136,11 @@ Wide-format cover/banner images for video detail pages.
 
 **Parameters:**
 
-| Parameter | Type | Description | Values |
-|-----------|------|-------------|--------|
-| `slug` | string | Video slug identifier | URL-safe slug |
-| `version` | integer | Cover version number | `1`, `2`, `3`, etc. |
-| `format` | string | Image format | `png`, `webp` |
+| Parameter | Type    | Description           | Values              |
+|-----------|---------|-----------------------|---------------------|
+| `slug`    | string  | Video slug identifier | URL-safe slug       |
+| `version` | integer | Cover version number  | `1`, `2`, `3`, etc. |
+| `format`  | string  | Image format          | `png`, `webp`       |
 
 **Examples:**
 
@@ -190,12 +192,12 @@ Preview storyboard sprites for video timeline scrubbing.
 
 **Parameters:**
 
-| Parameter | Type | Description | Values |
-|-----------|------|-------------|--------|
-| `slug` | string | Video slug identifier | URL-safe slug |
-| `resolution` | string | Video resolution | `720p`, `1080p` |
-| `index` | integer | Horizontal tile index | `1`, `2`, `3`, etc. |
-| `format` | string | Image format | `webp` |
+| Parameter    | Type    | Description           | Values              |
+|--------------|---------|-----------------------|---------------------|
+| `slug`       | string  | Video slug identifier | URL-safe slug       |
+| `resolution` | string  | Video resolution      | `720p`, `1080p`     |
+| `index`      | integer | Horizontal tile index | `1`, `2`, `3`, etc. |
+| `format`     | string  | Image format          | `webp`              |
 
 **Examples:**
 
@@ -258,9 +260,9 @@ Tag category promotional images.
 
 **Parameters:**
 
-| Parameter | Type | Description | Values |
-|-----------|------|-------------|--------|
-| `tag` | string | Tag slug identifier | URL-safe tag slug |
+| Parameter | Type   | Description         | Values            |
+|-----------|--------|---------------------|-------------------|
+| `tag`     | string | Tag slug identifier | URL-safe tag slug |
 
 **Examples:**
 
@@ -304,15 +306,15 @@ val tagUrl = buildTagUrl("ahegao")
 
 **Known Bundle Hashes:**
 
-| Bundle Hash | Description |
-|-------------|-------------|
+| Bundle Hash  | Description            |
+|--------------|------------------------|
 | `ef036f2.js` | Main application chunk |
-| `a37eda4.js` | Vendor utilities |
-| `b28452f.js` | Core framework |
-| `40c99ce.js` | UI components |
-| `c1eb2c5.js` | Router configuration |
-| `61b74ab.js` | State management |
-| `f8e4cc2.js` | API client |
+| `a37eda4.js` | Vendor utilities       |
+| `b28452f.js` | Core framework         |
+| `40c99ce.js` | UI components          |
+| `c1eb2c5.js` | Router configuration   |
+| `61b74ab.js` | State management       |
+| `f8e4cc2.js` | API client             |
 
 **Examples:**
 
@@ -391,11 +393,11 @@ Custom Discord-style Whitney font weights.
 
 | Weight | Description |
 |--------|-------------|
-| `300` | Light |
-| `400` | Regular |
-| `500` | Medium |
-| `600` | Semibold |
-| `700` | Bold |
+| `300`  | Light       |
+| `400`  | Regular     |
+| `500`  | Medium      |
+| `600`  | Semibold    |
+| `700`  | Bold        |
 
 **Examples:**
 
@@ -471,14 +473,14 @@ https://p{server_id}.htv-hydaelyn.com/{hv_id_path}/{video_stream_group_id}/segs/
 
 **URL Components:**
 
-| Component | Description | Example |
-|-----------|-------------|---------|
-| `p{server_id}` | Server identifier prefix | `p34`, `p14` |
-| `{hv_id_path}` | Video ID split into path segments | `3/4/2/6` for hv_id 3426 |
-| `{video_stream_group_id}` | Stream group identifier | `h1x`, `42` |
-| `b0/2` | Quality/bitrate path segment | `b0/2` |
-| `{segment_number}` | Zero-padded segment index | `0000`, `0001`, `0002` |
-| `.html` | File extension | `.html` |
+| Component                 | Description                       | Example                  |
+|---------------------------|-----------------------------------|--------------------------|
+| `p{server_id}`            | Server identifier prefix          | `p34`, `p14`             |
+| `{hv_id_path}`            | Video ID split into path segments | `3/4/2/6` for hv_id 3426 |
+| `{video_stream_group_id}` | Stream group identifier           | `h1x`, `42`              |
+| `b0/2`                    | Quality/bitrate path segment      | `b0/2`                   |
+| `{segment_number}`        | Zero-padded segment index         | `0000`, `0001`, `0002`   |
+| `.html`                   | File extension                    | `.html`                  |
 
 ---
 
@@ -612,12 +614,12 @@ https://hanime.tv/sign.bin
 
 **Key Properties:**
 
-| Property | Value |
-|----------|-------|
-| Method | AES-128 |
-| Key URI | `https://hanime.tv/sign.bin` |
-| IV | Sequence number (default) |
-| Key Format | Raw 16-byte binary key |
+| Property   | Value                        |
+|------------|------------------------------|
+| Method     | AES-128                      |
+| Key URI    | `https://hanime.tv/sign.bin` |
+| IV         | Sequence number (default)    |
+| Key Format | Raw 16-byte binary key       |
 
 #### Decryption Implementation
 
@@ -734,9 +736,9 @@ https://m3u8s.highwinds-cdn.com
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `hash` | string | Unique playlist identifier hash |
+| Parameter | Type   | Description                     |
+|-----------|--------|---------------------------------|
+| `hash`    | string | Unique playlist identifier hash |
 
 **Example:**
 
@@ -801,18 +803,18 @@ GET /api/v9/community_uploads
 
 #### Query Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `channel_name__in[]` | string[] | Channel filters (repeatable) |
-| `kind` | string | Content type filter |
-| `loc` | string | Location/reference URL (URL-encoded) |
+| Parameter            | Type     | Description                          |
+|----------------------|----------|--------------------------------------|
+| `channel_name__in[]` | string[] | Channel filters (repeatable)         |
+| `kind`               | string   | Content type filter                  |
+| `loc`                | string   | Location/reference URL (URL-encoded) |
 
 **Common Channels:**
 
-| Channel | Description |
-|---------|-------------|
-| `media` | General media uploads |
-| `nsfw-general` | NSFW general content |
+| Channel        | Description           |
+|----------------|-----------------------|
+| `media`        | General media uploads |
+| `nsfw-general` | NSFW general content  |
 
 **Example Request:**
 
@@ -861,11 +863,11 @@ interface CommunityUploadResponse {
 
 HLS streams use a standardized naming convention for quality levels:
 
-| Naming Pattern | Resolution | Description |
-|----------------|------------|-------------|
-| `{slug}-h1x` | 720p | High quality (720p) |
-| `{slug}-h2x` | 480p | Medium quality (480p) |
-| `{slug}-h3x` | 360p | Low quality (360p) |
+| Naming Pattern | Resolution | Description           |
+|----------------|------------|-----------------------|
+| `{slug}-h1x`   | 720p       | High quality (720p)   |
+| `{slug}-h2x`   | 480p       | Medium quality (480p) |
+| `{slug}-h3x`   | 360p       | Low quality (360p)    |
 
 **Examples:**
 
@@ -965,17 +967,17 @@ https://imasdk.googleapis.com/js/sdkloader/ima3.js
 
 ### Complete Third-Party CDN Reference Table
 
-| Library | Version | CDN Provider | URL |
-|---------|---------|--------------|-----|
-| video.js | 7.20.2 | ZenCDN | `vjs.zencdn.net/7.20.2/video.min.js` |
-| video.js | 7.20.2 | Cloudflare | `cdnjs.cloudflare.com/ajax/libs/video.js/7.20.2/` |
-| axios | 0.19.2 | Cloudflare | `cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js` |
-| Vue.js | 2.7.16 | Cloudflare | `cdnjs.cloudflare.com/ajax/libs/vue/2.7.16/` |
-| Vue.js | 2.7.16 | jsDelivr | `cdn.jsdelivr.net/npm/vue@2.7.16/` |
-| Google Fonts | - | Google | `fonts.googleapis.com` |
-| Font Files | - | Google | `fonts.gstatic.com` |
-| Cloudflare Analytics | - | Cloudflare | `static.cloudflareinsights.com/beacon.min.js` |
-| IMA SDK | - | Google | `imasdk.googleapis.com/js/sdkloader/ima3.js` |
+| Library              | Version | CDN Provider | URL                                                        |
+|----------------------|---------|--------------|------------------------------------------------------------|
+| video.js             | 7.20.2  | ZenCDN       | `vjs.zencdn.net/7.20.2/video.min.js`                       |
+| video.js             | 7.20.2  | Cloudflare   | `cdnjs.cloudflare.com/ajax/libs/video.js/7.20.2/`          |
+| axios                | 0.19.2  | Cloudflare   | `cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js` |
+| Vue.js               | 2.7.16  | Cloudflare   | `cdnjs.cloudflare.com/ajax/libs/vue/2.7.16/`               |
+| Vue.js               | 2.7.16  | jsDelivr     | `cdn.jsdelivr.net/npm/vue@2.7.16/`                         |
+| Google Fonts         | -       | Google       | `fonts.googleapis.com`                                     |
+| Font Files           | -       | Google       | `fonts.gstatic.com`                                        |
+| Cloudflare Analytics | -       | Cloudflare   | `static.cloudflareinsights.com/beacon.min.js`              |
+| IMA SDK              | -       | Google       | `imasdk.googleapis.com/js/sdkloader/ima3.js`               |
 
 ---
 
@@ -983,21 +985,21 @@ https://imasdk.googleapis.com/js/sdkloader/ima3.js
 
 ### Quick Reference Table
 
-| Asset Type | CDN Domain | URL Pattern | Example |
-|------------|------------|-------------|---------|
-| Video Poster | `hanime-cdn.com` | `/images/posters/{slug}-pv{v}.{fmt}` | `.../posters/video-pv1.webp` |
-| Video Cover | `hanime-cdn.com` | `/images/covers/{slug}-cv{v}.{fmt}` | `.../covers/video-cv1.png` |
-| Storyboard | `hanime-cdn.com` | `/images/storyboards/{slug}-{res}-h{i}x.webp` | `.../video-720p-h1x.webp` |
-| Tag Image | `hanime-cdn.com` | `/images/tags/{tag}-vertical.min.jpg` | `.../tags/ahegao-vertical.min.jpg` |
-| App Bundle | `hanime-cdn.com` | `/vhtv2/{hash}.js` | `.../vhtv2/ef036f2.js` |
-| Vendor Bundle | `hanime-cdn.com` | `/js/vendor.min.js` | `.../js/vendor.min.js` |
-| Environment | `hanime-cdn.com` | `/vhtv2/env.json` | `.../vhtv2/env.json` |
-| Font | `hanime-cdn.com` | `/fonts/whitney-{weight}.woff` | `.../fonts/whitney-400.woff` |
-| Player JS | `hanime-cdn.com` | `/omni-player/js/app.{hash}.js` | `.../omni-player/js/app.abc.js` |
-| Player CSS | `hanime-cdn.com` | `/omni-player/css/app.{hash}.css` | `.../omni-player/css/app.abc.css` |
-| Video Segment | `htv-hydaelyn.com` | `/p{id}/{hv_path}/{grp}/segs/b0/2/{seg}.html` | `.../p34/3/4/2/6/h1x/segs/b0/2/0000.html` |
-| HLS Playlist | `highwinds-cdn.com` | `/api/v9/m3u8s/{hash}.m3u8` | `.../m3u8s/abc123.m3u8` |
-| Community | `highwinds-cdn.com` | `/api/v9/community_uploads` | `.../community_uploads?channel...` |
+| Asset Type    | CDN Domain          | URL Pattern                                   | Example                                   |
+|---------------|---------------------|-----------------------------------------------|-------------------------------------------|
+| Video Poster  | `hanime-cdn.com`    | `/images/posters/{slug}-pv{v}.{fmt}`          | `.../posters/video-pv1.webp`              |
+| Video Cover   | `hanime-cdn.com`    | `/images/covers/{slug}-cv{v}.{fmt}`           | `.../covers/video-cv1.png`                |
+| Storyboard    | `hanime-cdn.com`    | `/images/storyboards/{slug}-{res}-h{i}x.webp` | `.../video-720p-h1x.webp`                 |
+| Tag Image     | `hanime-cdn.com`    | `/images/tags/{tag}-vertical.min.jpg`         | `.../tags/ahegao-vertical.min.jpg`        |
+| App Bundle    | `hanime-cdn.com`    | `/vhtv2/{hash}.js`                            | `.../vhtv2/ef036f2.js`                    |
+| Vendor Bundle | `hanime-cdn.com`    | `/js/vendor.min.js`                           | `.../js/vendor.min.js`                    |
+| Environment   | `hanime-cdn.com`    | `/vhtv2/env.json`                             | `.../vhtv2/env.json`                      |
+| Font          | `hanime-cdn.com`    | `/fonts/whitney-{weight}.woff`                | `.../fonts/whitney-400.woff`              |
+| Player JS     | `hanime-cdn.com`    | `/omni-player/js/app.{hash}.js`               | `.../omni-player/js/app.abc.js`           |
+| Player CSS    | `hanime-cdn.com`    | `/omni-player/css/app.{hash}.css`             | `.../omni-player/css/app.abc.css`         |
+| Video Segment | `htv-hydaelyn.com`  | `/p{id}/{hv_path}/{grp}/segs/b0/2/{seg}.html` | `.../p34/3/4/2/6/h1x/segs/b0/2/0000.html` |
+| HLS Playlist  | `highwinds-cdn.com` | `/api/v9/m3u8s/{hash}.m3u8`                   | `.../m3u8s/abc123.m3u8`                   |
+| Community     | `highwinds-cdn.com` | `/api/v9/community_uploads`                   | `.../community_uploads?channel...`        |
 
 ---
 
@@ -1355,12 +1357,12 @@ Cache-Control: public, max-age=3600
 
 ### Common CDN Error Codes
 
-| HTTP Status | Description | Resolution |
-|-------------|-------------|------------|
-| 403 | Forbidden / Access Denied | Check referer headers, token validity |
-| 404 | Asset Not Found | Verify URL pattern, asset existence |
-| 502 | Bad Gateway | CDN server issue, retry with backoff |
-| 503 | Service Unavailable | CDN overload, retry after delay |
+| HTTP Status | Description               | Resolution                            |
+|-------------|---------------------------|---------------------------------------|
+| 403         | Forbidden / Access Denied | Check referer headers, token validity |
+| 404         | Asset Not Found           | Verify URL pattern, asset existence   |
+| 502         | Bad Gateway               | CDN server issue, retry with backoff  |
+| 503         | Service Unavailable       | CDN overload, retry after delay       |
 
 ### Retry Strategy
 
@@ -1406,7 +1408,8 @@ async function fetchWithRetry(
 
 ## Kotlin CDN Utilities Reference
 
-This section provides complete, production-ready Kotlin utilities for working with hanime.tv CDN infrastructure in Aniyomi extensions.
+This section provides complete, production-ready Kotlin utilities for working with hanime.tv CDN infrastructure in
+Aniyomi extensions.
 
 ### CDN URL Builder Object
 

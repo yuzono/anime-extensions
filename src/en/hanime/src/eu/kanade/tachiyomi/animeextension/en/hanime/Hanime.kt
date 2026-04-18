@@ -63,9 +63,17 @@ class Hanime :
     }
 
     private val popularRequestHeaders =
-        Headers.headersOf("authority", "search.htv-services.com", "accept", "application/json, text/plain, */*", "content-type", "application/json;charset=UTF-8")
+        Headers.headersOf(
+            "authority",
+            "search.htv-services.com",
+            "accept",
+            "application/json, text/plain, */*",
+            "content-type",
+            "application/json;charset=UTF-8",
+        )
 
-    override fun popularAnimeRequest(page: Int): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody("", page, AnimeFilterList()))
+    override fun popularAnimeRequest(page: Int): Request =
+        POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody("", page, AnimeFilterList()))
 
     override fun popularAnimeParse(response: Response) = parseSearchJson(response)
 
@@ -105,7 +113,8 @@ class Hanime :
         }
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody(query, page, filters))
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
+        POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody(query, page, filters))
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseSearchJson(response)
 
@@ -344,7 +353,8 @@ class Hanime :
             "page": ${page - 1}}
     """.trimIndent().toRequestBody("application/json".toMediaType())
 
-    override fun latestUpdatesRequest(page: Int) = POST("https://search.htv-services.com/", popularRequestHeaders, latestSearchRequestBody(page))
+    override fun latestUpdatesRequest(page: Int) =
+        POST("https://search.htv-services.com/", popularRequestHeaders, latestSearchRequestBody(page))
 
     override fun latestUpdatesParse(response: Response) = parseSearchJson(response)
 

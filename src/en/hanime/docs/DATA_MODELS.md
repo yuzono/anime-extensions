@@ -348,16 +348,17 @@ Quality-specific video URL.
 
 ```typescript
 interface VideoSource {
-  quality: string;               // Quality label (e.g., "720p")
-  resolution: string;            // Resolution (e.g., "1280x720")
-  url: string;                   // Video URL
-  format: string;                // Format (e.g., "mp4")
-  filesize?: number;             // File size in bytes
-  bitrate?: number;              // Bitrate in kbps
-  
+  quality: string; // Quality label (e.g., "720p")
+  resolution: string; // Resolution (e.g., "1280x720")
+  url: string; // Video URL
+  format: string; // Format (e.g., "mp4")
+  filesize?: number; // File size in bytes
+  bitrate?: number; // Bitrate in kbps
+  height?: string; // Height in pixels as string (API returns "720", not 720)
+
   // CDN Info
-  cdn?: string;                  // CDN hostname
-  is_primary?: boolean;          // Primary source flag
+  cdn?: string; // CDN hostname
+  is_primary?: boolean; // Primary source flag
 }
 ```
 
@@ -371,6 +372,7 @@ interface VideoSource {
   "format": "mp4",
   "filesize": 524288000,
   "bitrate": 4000,
+  "height": "720",
   "cdn": "hanime-cdn.com",
   "is_primary": true
 }
