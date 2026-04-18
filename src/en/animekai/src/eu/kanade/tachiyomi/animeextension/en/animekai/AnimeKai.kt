@@ -10,6 +10,7 @@ class AnimeKai :
     AnimeKaiTheme(
         "en",
         "AnimeKai",
+        // Domain list: https://animekai.pw
         domainEntries = listOf(
             "animekai.to",
             "animekai.fi",
@@ -66,6 +67,7 @@ class AnimeKai :
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.select(".poster img").attr("src")
 
+        // fancy score
         val fancyScore = when (scorePosition) {
             SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(
                 document.selectFirst("#anime-rating")?.attr("data-score"),

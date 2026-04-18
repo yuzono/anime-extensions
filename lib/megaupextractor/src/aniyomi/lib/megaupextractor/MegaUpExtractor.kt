@@ -138,6 +138,11 @@ class MegaUpExtractor(
     private val mpdRegex by lazy { Regex(".*\\.mpd(\\?.*)?$", RegexOption.IGNORE_CASE) }
     private val mp4Regex by lazy { Regex(".*\\.mp4(\\?.*)?$", RegexOption.IGNORE_CASE) }
 
+    /**
+     * Extracts the main domain segment from a host string.
+     * For example, "www.megaup.live" -> "megaup"
+     */
+
     private fun extractHoster(host: String): String {
         val parts = host.split(".")
         return if (parts.size >= 2) parts[parts.size - 2] else host

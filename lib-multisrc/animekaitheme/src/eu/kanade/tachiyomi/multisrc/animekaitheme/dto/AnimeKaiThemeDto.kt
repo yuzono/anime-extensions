@@ -96,8 +96,8 @@ data class AniGoEpTokenDto(
 @Serializable
 data class AniGoServerLinkDto(
     val id: String,
-    @SerialName("server_id") val serverId: Int, // <--- ADD THIS
-    @SerialName("server_title") val serverTitle: String, // <--- ADD THIS
+    @SerialName("server_id") val serverId: Int,
+    @SerialName("server_title") val serverTitle: String,
 )
 
 @Serializable

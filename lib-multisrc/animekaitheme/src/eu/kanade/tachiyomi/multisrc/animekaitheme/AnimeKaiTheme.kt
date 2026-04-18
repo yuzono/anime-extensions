@@ -378,8 +378,6 @@ abstract class AnimeKaiTheme(
         )
     }
 
-    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
-
     // ============================== Preferences ===========================
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {

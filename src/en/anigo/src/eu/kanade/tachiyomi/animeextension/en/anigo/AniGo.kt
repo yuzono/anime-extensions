@@ -219,7 +219,9 @@ class AniGo :
             GET("$baseUrl/api/v1/eptokens/$token?_=$enc", apiHeaders("$baseUrl/watch")),
         ).awaitSuccess().parseAs<AniGoEpTokenResponse>()
 
-        if (epTokenResponse.status != "ok") return emptyList()
+        if (epTokenResponse.status != "ok") {
+            throw Exception("AniGo: failed to load video list, ep token status=${epTokenResponse.status}")
+        }
 
         return epTokenResponse.result.flatMap { epToken ->
             if (epToken.lang !in typeSelection) return@flatMap emptyList()
