@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.anigo
 
 import android.util.Log
 import eu.kanade.aniyomi.lib.megaupextractor.MegaUpExtractor
-import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -17,12 +16,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
-import keiyoushi.utils.parallelFlatMap
-import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -55,105 +53,55 @@ class AniGo :
         .removeAll("Upgrade-Insecure-Requests")
         .build()
 
-    private var docHeaders: Headers by LazyMutable { headersBuilder().build() }
-
     // ============================== Extractor ==============================
 
     private var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
 
+    override fun updateDomainConfig() {
+        super.updateDomainConfig()
+        megaUpExtractor = MegaUpExtractor(client, docHeaders)
+    }
+
     override suspend fun extractVideo(server: VideoData): List<Video> = try {
         megaUpExtractor.videosFromUrl(server.iframe, server.serverName)
     } catch (e: Exception) {
-        Log.e("AniGo", "Error extracting videos for ${server.serverName}", e)
+        Log.e(name, "Error extracting videos for ${server.serverName}", e)
         emptyList()
     }
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/trending?page=$page", docHeaders)
-
     override fun popularAnimeSelector() = "div.aniCard.medium div.unit:has(a[href^=/watch/])"
+
     override fun popularAnimeFromElement(element: Element): SAnime {
-        val href = element.selectFirst("a.poster")?.attr("href")
-            ?.takeIf { it.startsWith("/watch/") }
-            ?: return SAnime.create().apply {
-                setUrlWithoutDomain("")
-                title = ""
-            }
+        val href = element.selectFirst("a.poster")!!.attr("abs:href")
+            .takeIf { it.startsWith("$baseUrl/watch/") }!!
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")?.getTitle() ?: ""
-            thumbnail_url = element.selectFirst("a.poster img")?.attr("src")
+            title = element.selectFirst("h6.title")!!.getTitle()!!
+            thumbnail_url = element.selectFirst("a.poster img")?.attr("abs:src")
         }
-    }
-
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(popularAnimeSelector()).mapNotNull {
-            val anime = popularAnimeFromElement(it)
-            if (anime.url.isNotBlank()) anime else null
-        }
-        val nextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
-        return AnimesPage(animes, nextPage)
     }
 
     override fun popularAnimeNextPageSelector() = "ul.pagination a[rel=next]"
-
-    // =============================== Latest ===============================
-
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/updates?page=$page", docHeaders)
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
-
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(latestUpdatesSelector()).mapNotNull {
-            val anime = latestUpdatesFromElement(it)
-            if (anime.url.isNotBlank()) anime else null
-        }
-        val nextPage = document.selectFirst(latestUpdatesNextPageSelector()) != null
-        return AnimesPage(animes, nextPage)
-    }
-
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // ============================== Related ==============================
 
     override fun relatedAnimeListSelector() = "div.aniCard.mini .unit:has(a[href^=/watch/])"
 
     override fun relatedAnimeFromElement(element: Element): SAnime {
-        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a")
-        val href = linkEl?.attr("href")
-            ?.takeIf { it.startsWith("/watch/") }
-            ?: return SAnime.create().apply {
-                setUrlWithoutDomain("")
-                title = ""
-            }
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a")!!
+        val href = linkEl.attr("abs:href")
+            .takeIf { it.startsWith("$baseUrl/watch/") }!!
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")?.getTitle() ?: ""
-            thumbnail_url = element.selectFirst("div.poster img")?.attr("src") ?: element.selectFirst("img")?.attr("src")
+            title = element.selectFirst("h6.title")!!.getTitle()!!
+            thumbnail_url = element.selectFirst("div.poster img")?.attr("abs:src")
+                ?: element.selectFirst("img")?.attr("abs:src")
         }
     }
-
-    // =============================== Search ===============================
-
-    override fun searchAnimeSelector() = popularAnimeSelector()
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(searchAnimeSelector()).mapNotNull {
-            val anime = searchAnimeFromElement(it)
-            if (anime.url.isNotBlank()) anime else null
-        }
-        val nextPage = document.selectFirst(searchAnimeNextPageSelector()) != null
-        return AnimesPage(animes, nextPage)
-    }
-
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
     // =========================== Anime Details ============================
 
@@ -174,17 +122,16 @@ class AniGo :
     private fun Document.getCover(): String? = selectFirst(coverSelector)?.getBackgroundImage()
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        thumbnail_url = document.select(".poster img").attr("src")
+        thumbnail_url = document.select(".poster img").attr("abs:src")
 
-        // Accessing the theme's protected property directly
         val fancyScore = when (scorePosition) {
-            AnimeKaiTheme.SCORE_POS_TOP, AnimeKaiTheme.SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.rate-box span")?.text())
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.rate-box span")?.text())
             else -> ""
         }
 
         document.selectFirst("div#main-entity")?.let { info ->
             val titleEl = info.selectFirst("div.title")
-            title = titleEl?.getTitle() ?: ""
+            titleEl?.getTitle()?.let { title = it }
 
             val altTitles = info.selectFirst("small.subTitle")?.text()?.split(";").orEmpty()
                 .asSequence().map { it.trim() }.filterNot { it.isBlank() }
@@ -199,7 +146,7 @@ class AniGo :
                 status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
 
                 description = buildString {
-                    if (scorePosition == AnimeKaiTheme.SCORE_POS_TOP && fancyScore.isNotEmpty()) {
+                    if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) {
                         append(fancyScore)
                         append("\n\n")
                     }
@@ -210,10 +157,10 @@ class AniGo :
                     detail.getInfo("Broadcast:", full = true)?.run(::append)
                     detail.getInfo("Duration:", full = true)?.run(::append)
                     if (rating.isNotBlank()) append("\n**Rating:** $rating")
-                    detail.select("div:containsOwn(Links:) a").forEach { append("\n[${it.text()}](${it.attr("href")})") }
+                    detail.select("div:containsOwn(Links:) a").forEach { append("\n[${it.text()}](${it.attr("abs:href")})") }
                     if (altTitles.isNotBlank()) append("\n**Alternative Title:** $altTitles")
                     document.getCover()?.let { append("\n\n![Cover]($it)") }
-                    if (scorePosition == AnimeKaiTheme.SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
+                    if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                         if (isNotEmpty()) append("\n\n")
                         append(fancyScore)
                     }
@@ -280,7 +227,6 @@ class AniGo :
         val token = episode.url
         val enc = encDecEndpoints(token)
 
-        // Using protected properties from theme
         val typeSelection = typeToggle
         val hosterSelection = hostToggle
 
@@ -298,13 +244,13 @@ class AniGo :
             }
         }
 
-        return servers.parallelMapNotNull { server ->
+        return servers.parallelCatchingMapNotNull { server ->
             try {
                 extractIframe(server)
             } catch (e: Exception) {
                 null
             }
-        }.parallelFlatMap { server ->
+        }.parallelCatchingFlatMap { server ->
             try {
                 extractVideo(server)
             } catch (e: Exception) {

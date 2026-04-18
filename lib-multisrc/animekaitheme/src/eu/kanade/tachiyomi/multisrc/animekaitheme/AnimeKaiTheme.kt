@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
@@ -49,24 +50,53 @@ abstract class AnimeKaiTheme(
 
     private val domainValues = domainEntries.map { "https://$it" }
 
+    private val defaultBaseUrl = "https://${domainEntries.first()}"
+
     protected val preferences by getPreferencesLazy { clearOldPrefs() }
 
-    override var baseUrl: String by preferences.delegate(PREF_DOMAIN_KEY, "https://${domainEntries.first()}")
+    override var baseUrl: String by preferences.delegate(PREF_DOMAIN_KEY, defaultBaseUrl)
+
+    // Open value so sub-extensions can overwrite as it sees fit
+    protected open val rateLimit = 5
+
+    protected var docHeaders by LazyMutable { headersBuilder().build() }
 
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1.seconds)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
     }
     private val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trending?page=$page", headers, cacheControl)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trending?page=$page", docHeaders, cacheControl)
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).mapNotNull {
+            runCatching { popularAnimeFromElement(it) }.getOrNull()
+        }
+        val nextPage = popularAnimeNextPageSelector()?.let { document.selectFirst(it) != null }
+        return AnimesPage(animes, nextPage == true)
+    }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", headers, cacheControl)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updates?page=$page", docHeaders, cacheControl)
+
+    override fun latestUpdatesSelector() = popularAnimeSelector()
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
+    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(latestUpdatesSelector()).mapNotNull {
+            runCatching { latestUpdatesFromElement(it) }.getOrNull()
+        }
+        val nextPage = latestUpdatesNextPageSelector()?.let { document.selectFirst(it) != null }
+        return AnimesPage(animes, nextPage == true)
+    }
 
     // =============================== Search ===============================
 
@@ -89,7 +119,20 @@ abstract class AnimeKaiTheme(
             addListQueryParameter("language", params.languages)
         }.build().toString()
 
-        return GET(url, headers, cacheControl)
+        return GET(url, docHeaders, cacheControl)
+    }
+
+    override fun searchAnimeSelector() = popularAnimeSelector()
+    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(searchAnimeSelector()).mapNotNull {
+            runCatching { searchAnimeFromElement(it) }.getOrNull()
+        }
+        val nextPage = searchAnimeNextPageSelector()?.let { document.selectFirst(it) != null }
+        return AnimesPage(animes, nextPage == true)
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeKaiThemeFilters.FILTER_LIST
@@ -100,26 +143,28 @@ abstract class AnimeKaiTheme(
         val document = response.asJsoup()
         val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { season ->
             SAnime.create().apply {
-                val url = season.selectFirst("a")?.attr("href") ?: return@mapNotNull null
+                val url = season.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
                 setUrlWithoutDomain(url)
-                thumbnail_url = season.selectFirst("img")?.attr("src")
-                title = season.select("div.detail span").text()
+                thumbnail_url = season.selectFirst("img")?.attr("abs:src")
+                title = season.select("div.detail span").text().ifBlank { return@mapNotNull null }
             }
         }
 
-        val related = document.select(relatedAnimeListSelector()).map { relatedAnimeFromElement(it) }
+        val related = document.select(relatedAnimeListSelector()).mapNotNull {
+            runCatching { relatedAnimeFromElement(it) }.getOrNull()
+        }
         return seasons + related
     }
 
     // ============================ Shared Utilities =========================
 
-    protected fun parseStatus(statusString: String): Int = when (statusString) {
+    protected open fun parseStatus(statusString: String): Int = when (statusString) {
         "Completed", "Finished Airing" -> SAnime.COMPLETED
         "Releasing" -> SAnime.ONGOING
         else -> SAnime.UNKNOWN
     }
 
-    protected fun getFancyScore(score: String?): String {
+    protected open fun getFancyScore(score: String?): String {
         if (score.isNullOrBlank()) return ""
         return try {
             val scoreBig = score.toBigDecimalOrNull() ?: return ""
@@ -140,7 +185,7 @@ abstract class AnimeKaiTheme(
     }
 
     private val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
-    protected fun Element.getBackgroundImage(): String? {
+    protected open fun Element.getBackgroundImage(): String? {
         val style = attr("style")
         return coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
     }
@@ -158,16 +203,13 @@ abstract class AnimeKaiTheme(
         return if (full && value != null) "\n**$tag** $value" else value
     }
 
-    protected suspend fun decryptIframeData(encryptedText: String, headers: Headers): String {
+    protected open suspend fun decryptIframeData(encryptedText: String, headers: Headers): String {
         val postBody = buildJsonObject { put("text", encryptedText) }.toRequestBody()
         return client.newCall(POST("https://enc-dec.app/api/dec-kai", body = postBody, headers = headers))
             .awaitSuccess().parseAs<IframeResponse>().result.url
     }
 
-    /**
-     * Maps the internal type string to the UI suffix. Used by all three sources.
-     */
-    protected fun getTypeSuffix(type: String): String = when (type) {
+    protected open fun getTypeSuffix(type: String): String = when (type) {
         "sub" -> "Hard Sub"
         "softsub" -> "Soft Sub"
         "dub" -> "Dub & S-Sub"
@@ -176,10 +218,6 @@ abstract class AnimeKaiTheme(
 
     // ============================ Abstract Video ==========================
 
-    /**
-     * Child extensions must override this to provide their specific extractor logic
-     * (e.g., MegaUpExtractor). This prevents the theme from needing lib/ dependencies.
-     */
     protected abstract suspend fun extractVideo(server: VideoData): List<Video>
 
     // ============================== Video Sort ============================
@@ -203,7 +241,7 @@ abstract class AnimeKaiTheme(
     // ============================== Preferences ===========================
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, domainValues.first())!!.removePrefix("https://")
+        val domain = getString(PREF_DOMAIN_KEY, defaultBaseUrl)!!.removePrefix("https://")
         val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
 
         val invalidDomain = domain !in domainEntries
@@ -211,10 +249,10 @@ abstract class AnimeKaiTheme(
 
         if (invalidDomain || invalidHosters) {
             edit().also { editor ->
-                if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, domainValues.first())
+                if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
                 if (invalidHosters) {
                     editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
-                    editor.putString(PREF_SERVER_KEY, hosterNames.first()) // ← BUG FIX: was putStringSet, should be putString
+                    editor.putString(PREF_SERVER_KEY, hosterNames.first())
                 }
             }.apply()
         }
@@ -237,11 +275,10 @@ abstract class AnimeKaiTheme(
             title = "Preferred domain",
             entries = domainEntries,
             entryValues = domainValues,
-            default = domainValues.first(),
+            default = defaultBaseUrl,
             summary = "%s",
         ) {
             baseUrl = it
-            // Allow child classes to update their specific clients/headers
             updateDomainConfig()
         }
 
@@ -311,15 +348,11 @@ abstract class AnimeKaiTheme(
         )
     }
 
-    /**
-     * Called when the user changes the domain preference.
-     * Rebuilds the rate-limited client. Child classes should call super.updateDomainConfig()
-     * and then update their own specific clients/headers.
-     */
     protected open fun updateDomainConfig() {
         client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = RATE_LIMIT, period = 1.seconds)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
+        docHeaders = headersBuilder().build()
     }
 
     companion object {
@@ -355,7 +388,5 @@ abstract class AnimeKaiTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = listOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = listOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
-
-        private const val RATE_LIMIT = 5
     }
 }
