@@ -72,10 +72,10 @@ data class AniGoEpisode(
     val number: Int,
     val name: String = "",
     val slug: String = "",
-    @SerialName("detail_name") val detailName: String? = null, // <--- ADD THIS
-    @SerialName("detail_release") val detailRelease: String? = null, // <--- ADD THIS
+    @SerialName("detail_name") val detailName: String? = null,
+    @SerialName("detail_release") val detailRelease: String? = null,
     val langs: Int = 0,
-    @SerialName("is_filler") val isFiller: Int = 0, // <--- ADD THIS
+    @SerialName("is_filler") val isFiller: Int = 0,
     val token: String,
 )
 
