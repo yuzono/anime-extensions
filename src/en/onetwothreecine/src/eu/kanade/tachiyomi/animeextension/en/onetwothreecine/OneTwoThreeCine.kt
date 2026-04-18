@@ -27,6 +27,7 @@ import okhttp3.Request
 import okhttp3.Response
 import java.math.BigDecimal
 import java.math.RoundingMode
+import kotlin.getValue
 import kotlin.time.Duration.Companion.seconds
 
 class OneTwoThreeCine :
@@ -42,8 +43,6 @@ class OneTwoThreeCine :
     }
 
     override val baseUrl by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-
-    private val apiClient by lazy { client.newBuilder().build() }
 
     private var docHeaders by LazyMutable { headersBuilder().build() }
 
@@ -355,6 +354,9 @@ class OneTwoThreeCine :
             default = PREF_DOMAIN_DEFAULT,
             summary = "%s",
         ) {
+            client = network.client.newBuilder()
+                .rateLimitHost(it.toHttpUrl(), permits = rateLimit, period = 1.seconds)
+                .build()
             docHeaders = headersBuilder().set("Referer", "$it/").build()
             rapidShareExtractor = RapidShareExtractor(client, docHeaders)
         }
