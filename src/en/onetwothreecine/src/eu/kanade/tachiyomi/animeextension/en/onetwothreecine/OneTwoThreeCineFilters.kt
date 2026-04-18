@@ -5,8 +5,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 object OneTwoThreeCineFilters {
 
-    // ========================= Parameters =========================
-
     data class SearchParameters(
         var types: List<String> = emptyList(),
         var genres: List<String> = emptyList(),
@@ -23,10 +21,10 @@ object OneTwoThreeCineFilters {
         filters.forEach { filter ->
             when (filter) {
                 is TypeFilter -> params.types = filter.selectedValues
-                is GenreModeFilter -> params.genreMode = filter.values[filter.state]
                 is GenreFilter -> params.genres = filter.selectedValues
-                is CountryModeFilter -> params.countryMode = filter.values[filter.state]
+                is GenreModeFilter -> params.genreMode = if (filter.state == 1) "or" else "and"
                 is CountryFilter -> params.countries = filter.selectedValues
+                is CountryModeFilter -> params.countryMode = if (filter.state == 1) "or" else "and"
                 is YearFilter -> params.years = filter.selectedValues
                 is QualityFilter -> params.qualities = filter.selectedValues
                 is SortFilter -> params.sort = filter.selectedValue
@@ -40,24 +38,18 @@ object OneTwoThreeCineFilters {
 
     internal open class CheckBoxFilterList(
         name: String,
-        private val param: String,
         options: List<Pair<String, String>>,
     ) : AnimeFilter.Group<AnimeFilter.CheckBox>(
         name,
         options.map { CheckBoxVal(it.first, it.second) },
     ) {
-
         private class CheckBoxVal(name: String, val value: String) : CheckBox(name)
-
         val selectedValues: List<String>
-            get() = state.filter { it.state }.mapNotNull {
-                (it as? CheckBoxVal)?.value
-            }
+            get() = state.filter { it.state }.mapNotNull { (it as? CheckBoxVal)?.value }
     }
 
     internal open class QueryPartFilter(
         displayName: String,
-        private val param: String,
         private val options: List<Pair<String, String>>,
     ) : AnimeFilter.Select<String>(
         displayName,
@@ -69,12 +61,12 @@ object OneTwoThreeCineFilters {
 
     // ====================== Concrete Filters ======================
 
-    private class TypeFilter : CheckBoxFilterList("Type", "type", TYPES)
-    private class GenreFilter : CheckBoxFilterList("Genre", "genre", GENRES)
-    private class CountryFilter : CheckBoxFilterList("Country", "country", COUNTRIES)
-    private class YearFilter : CheckBoxFilterList("Year", "year", YEARS)
-    private class QualityFilter : CheckBoxFilterList("Quality", "quality", QUALITIES)
-    private class SortFilter : QueryPartFilter("Sort By", "sort", SORT_BY)
+    private class TypeFilter : CheckBoxFilterList("Type", TYPES)
+    private class GenreFilter : CheckBoxFilterList("Genre", GENRES)
+    private class CountryFilter : CheckBoxFilterList("Country", COUNTRIES)
+    private class YearFilter : CheckBoxFilterList("Year", YEARS)
+    private class QualityFilter : CheckBoxFilterList("Quality", QUALITIES)
+    private class SortFilter : QueryPartFilter("Sort By", SORT_BY)
 
     class GenreModeFilter :
         AnimeFilter.Select<String>(
@@ -87,8 +79,6 @@ object OneTwoThreeCineFilters {
             "Country Inclusion Mode",
             arrayOf("And (all must match)", "Or (any can match)"),
         )
-
-    // ========================= Filter List =========================
 
     val FILTER_LIST: AnimeFilterList
         get() = AnimeFilterList(

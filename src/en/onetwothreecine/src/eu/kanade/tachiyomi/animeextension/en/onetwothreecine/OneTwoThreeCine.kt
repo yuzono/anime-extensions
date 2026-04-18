@@ -102,15 +102,19 @@ class OneTwoThreeCine :
             .addQueryParameter("keyword", query)
             .addQueryParameter("page", page.toString())
             .apply {
-                params.types.forEach { addQueryParameter("type[]", it) }
-                params.genres.forEach { addQueryParameter("genre[]", it) }
+                params.types.forEachIndexed { i, it -> addQueryParameter("type[${i + 1}]", it) }
+                params.years.forEachIndexed { i, it -> addQueryParameter("year[${i + 1}]", it) }
+                params.qualities.forEachIndexed { i, it -> addQueryParameter("quality[${i + 1}]", it) }
+
+                params.genres.forEachIndexed { i, it -> addQueryParameter("genre[${i + 1}]", it) }
                 if (params.genres.isNotEmpty()) addQueryParameter("genre_mode", params.genreMode)
-                params.countries.forEach { addQueryParameter("country[]", it) }
+
+                params.countries.forEachIndexed { i, it -> addQueryParameter("country[${i + 1}]", it) }
                 if (params.countries.isNotEmpty()) addQueryParameter("country_mode", params.countryMode)
-                params.years.forEach { addQueryParameter("year[]", it) }
-                params.qualities.forEach { addQueryParameter("quality[]", it) }
+
                 if (params.sort.isNotEmpty()) addQueryParameter("sort", params.sort)
             }.build()
+
         return GET(url.toString(), docHeaders)
     }
 
@@ -296,7 +300,7 @@ class OneTwoThreeCine :
 
     // ========================= ID Extraction =========================
 
-    private val watchIdRegex by lazy { Regex("""id:\s*'([^']+)'""") }
+    private val watchIdRegex by lazy { Regex("""id:\s*['"]([^'"]+)['"]""") }
 
     private suspend fun fetchAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use { response ->
         val document = response.asJsoup()
