@@ -9,11 +9,11 @@ coroutines = "1.10.2"
 serialization = "1.7.3"
 
 [libraries]
-gradle-agp = { module = "com.android.tools.build:gradle", version = "9.1.0" }
+gradle-agp = { module = "com.android.tools.build:gradle", version = "9.1.1" }
 gradle-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 gradle-serialization = { module = "org.jetbrains.kotlin:kotlin-serialization", version.ref = "kotlin" }
 
-spotless-gradle = { group = "com.diffplug.spotless", name = "spotless-plugin-gradle", version = "8.2.1" }
+spotless-gradle = { group = "com.diffplug.spotless", name = "spotless-plugin-gradle", version = "8.4.0" }
 
 aniyomi-lib = { module = "com.github.komikku-app:aniyomi-extensions-lib", version = "bdc8184127" }
 
