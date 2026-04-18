@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -25,6 +26,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
 import java.util.Locale
 
 class Hanime :
@@ -147,33 +149,155 @@ class Hanime :
         val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).execute().asJsoup()
 
         val parsed = parseNuxtData(document) ?: return emptyList()
+        val servers = parsed.state.data.video?.videos_manifest?.servers ?: return emptyList()
 
-        return parsed.state.data.video?.videos_manifest?.servers?.flatMap { server ->
+        return servers.flatMap { server ->
+            val serverName = server.streams.firstOrNull()?.let { determineServerName(it.url) } ?: "Unknown"
             server.streams.mapNotNull { stream ->
-                val url = stream.url ?: return@mapNotNull null
+                val streamUrl = stream.url ?: return@mapNotNull null
                 val height = stream.height ?: return@mapNotNull null
-                Video(url, "${height}p", url)
+                val quality = "$serverName - ${height}p"
+                Video(streamUrl, quality, streamUrl)
             }
-        } ?: emptyList()
+        }
+    }
+
+    private fun determineServerName(url: String?): String {
+        if (url == null) return "Unknown"
+        return when {
+            url.contains("shiva") -> "Shiva"
+            url.contains("kali") -> "Kali"
+            url.contains("vishnu") -> "Vishnu"
+            url.contains("brahma") -> "Brahma"
+            else -> "Server"
+        }
+    }
+
+    // Secret key "Xkdi29" extracted from hanime.tv web client JavaScript
+    // Used for signature generation in x-signature header for API authentication
+    private fun generateSignature(timestamp: Long): String {
+        val input = "$timestamp,Xkdi29,https://hanime.tv,mn2,$timestamp"
+        val md = MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun buildSignatureHeaders(timestamp: Long): Headers {
+        val signature = generateSignature(timestamp)
+        return Headers.Builder()
+            .add("x-signature", signature)
+            .add("x-time", timestamp.toString())
+            .add("x-signature-version", "web2")
+            .add("x-user-license", "")
+            .add("x-csrf-token", "")
+            .add("x-session-token", "")
+            .add("x-license", "")
+            .add("Referer", "https://hanime.tv/")
+            .add("Accept", "application/json")
+            .build()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
-        return responseString.parseAs<VideoModel>().videosManifest?.servers?.firstOrNull()?.streams?.filter { it.kind != "premium_alert" }?.mapNotNull { stream ->
-            val url = stream.url ?: return@mapNotNull null
-            val height = stream.height ?: return@mapNotNull null
-            Video(url, "${height}p", url)
-        } ?: emptyList()
+        val videoModel = responseString.parseAs<VideoModel>()
+
+        // Extract video ID and slug for manifest API calls
+        val videoId = videoModel.hentaiVideo?.id ?: return emptyList()
+        val videoSlug = videoModel.hentaiVideo.slug ?: return emptyList()
+
+        // Step 1: Register play request with signature headers
+        // Generate fresh timestamp for play request - signature is time-sensitive
+        val playTimestamp = System.currentTimeMillis() / 1000
+        val playHeaders = buildSignatureHeaders(playTimestamp)
+            .newBuilder()
+            .add("Content-Type", "application/json;charset=UTF-8")
+            .build()
+
+        val playRequestBody = "{}".toRequestBody("application/json".toMediaType())
+        val playUrl = "https://cached.freeanimehentai.net/api/v8/hentai_videos/$videoSlug/play"
+
+        try {
+            client.newCall(POST(playUrl, playHeaders, playRequestBody)).execute().use { playResponse ->
+                if (!playResponse.isSuccessful) {
+                    Log.w("Hanime", "Play request failed: ${playResponse.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Hanime", "Error registering play request", e)
+        }
+
+        // Step 2: Fetch manifest for signed URLs with signature headers
+        // Generate fresh timestamp for manifest request - each API call needs current timestamp
+        val manifestTimestamp = System.currentTimeMillis() / 1000
+        val manifestHeaders = buildSignatureHeaders(manifestTimestamp)
+            .newBuilder()
+            .add("Cache-Control", "no-cache")
+            .add("Pragma", "no-cache")
+            .build()
+
+        val manifestUrl = "https://cached.freeanimehentai.net/api/v8/guest/videos/$videoId/manifest"
+
+        return try {
+            client.newCall(GET(manifestUrl, manifestHeaders)).execute().use { manifestResponse ->
+                val manifestString = manifestResponse.body.string().ifEmpty { return emptyList() }
+                val manifest = manifestString.parseAs<ManifestResponse>()
+                val servers = manifest.videosManifest?.servers ?: return emptyList()
+
+                servers.flatMap { server ->
+                    val serverName = server.name ?: "Server"
+                    val streams = server.streams ?: return@flatMap emptyList()
+
+                    streams.mapNotNull { stream ->
+                        val url = stream.url ?: return@mapNotNull null
+                        val heightStr = stream.height ?: return@mapNotNull null
+                        val heightLong = heightStr.toLongOrNull() ?: run {
+                            Log.w("Hanime", "Invalid height format: $heightStr, skipping stream")
+                            return@mapNotNull null
+                        }
+                        val quality = buildManifestVideoQuality(heightLong, stream, serverName)
+                        Video(url, quality, url)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Hanime", "Error fetching manifest", e)
+            emptyList()
+        }
+    }
+
+    private fun buildManifestVideoQuality(height: Long, stream: ManifestStream, serverName: String): String {
+        val baseQuality = "$serverName - ${height}p"
+        return when {
+            stream.isPremiumAllowed == true && stream.isGuestAllowed != true -> "$baseQuality (Premium)"
+            stream.isMemberAllowed == true && stream.isGuestAllowed != true -> "$baseQuality (Member)"
+            else -> baseQuality
+        }
+    }
+
+    private fun buildVideoQuality(serverName: String, height: String, stream: Stream): String {
+        val baseQuality = "$serverName - ${height}p"
+        return when {
+            stream.isPremiumAllowed == true && stream.isGuestAllowed != true -> "$baseQuality (Premium)"
+            stream.isMemberAllowed == true && stream.isGuestAllowed != true -> "$baseQuality (Member)"
+            else -> baseQuality
+        }
     }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return this.sortedWith(
             compareBy(
+                { extractPriority(it.quality) },
                 { it.quality.contains(quality) },
                 { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
+    }
+
+    private fun extractPriority(quality: String): Int = when {
+        quality.contains("(Premium)") -> 2
+        quality.contains("(Member)") -> 1
+        else -> 0
     }
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -183,12 +307,19 @@ class Hanime :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
-        return responseString.parseAs<VideoModel>().hentaiFranchiseHentaiVideos?.mapIndexed { idx, it ->
+        return responseString.parseAs<VideoModel>().hentaiFranchiseHentaiVideos?.mapIndexedNotNull { idx, it ->
+            val episodeSlug = it.slug
+            if (episodeSlug == null) {
+                Log.w("Hanime", "Skipping episode ${idx + 1} with null slug")
+                return@mapIndexedNotNull null
+            }
             SEpisode.create().apply {
+                // Episode URL uses slug format from the manifest API
+                // The slug is used as the 'id' query parameter in the video API endpoint
                 episode_number = idx + 1f
                 name = "Episode ${idx + 1}"
                 date_upload = (it.releasedAtUnix ?: 0) * 1000
-                url = "$baseUrl/api/v8/video?id=${it.id}"
+                url = "$baseUrl/api/v8/video?id=$episodeSlug"
             }
         }?.reversed() ?: emptyList()
     }

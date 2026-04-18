@@ -236,7 +236,7 @@ data class WindowNuxt(
 
 @Serializable
 data class DataVideo(
-    val videos_manifest: NuxtVideosManifest,
+    val videos_manifest: NuxtVideosManifest? = null,
 )
 
 @Serializable
@@ -253,4 +253,46 @@ data class NuxtServer(
 data class NuxtStream(
     val height: String? = null,
     val url: String? = null,
+)
+
+// Manifest API response models for signed video URLs
+// API returns: { "videos_manifest": { "servers": [ { "streams": [...] } ] } }
+@Serializable
+data class ManifestResponse(
+    @SerialName("videos_manifest")
+    val videosManifest: ManifestVideosManifest? = null,
+)
+
+@Serializable
+data class ManifestVideosManifest(
+    val servers: List<ManifestServer> = emptyList(),
+)
+
+@Serializable
+data class ManifestServer(
+    val id: Long? = null,
+    val name: String? = null,
+    val streams: List<ManifestStream>? = emptyList(),
+)
+
+@Serializable
+data class ManifestStream(
+    val id: Long? = null,
+    val url: String? = null,
+    val height: String? = null, // API returns string (e.g., "720"), not number
+    val width: Long? = null,
+    val filename: String? = null,
+    val extension: String? = null,
+    @SerialName("mime_type")
+    val mimeType: String? = null,
+    @SerialName("duration_in_ms")
+    val durationInMs: Long? = null,
+    @SerialName("filesize_mbs")
+    val filesizeMbs: Long? = null,
+    @SerialName("is_guest_allowed")
+    val isGuestAllowed: Boolean? = false,
+    @SerialName("is_member_allowed")
+    val isMemberAllowed: Boolean? = false,
+    @SerialName("is_premium_allowed")
+    val isPremiumAllowed: Boolean? = false,
 )

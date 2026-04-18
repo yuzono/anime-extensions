@@ -6,3 +6,22 @@ ext {
 }
 
 apply from: "$rootDir/common.gradle"
+
+android {
+    sourceSets {
+        main {
+            java.exclude('test/**')
+            kotlin.exclude('test/**')
+        }
+        test {
+            java.srcDirs = ['src/test/java']
+            kotlin.srcDirs = ['src/test/java']
+        }
+    }
+}
+
+dependencies {
+    testImplementation(libs.okhttp)
+    testImplementation(libs.kotlin.json)
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
+}
