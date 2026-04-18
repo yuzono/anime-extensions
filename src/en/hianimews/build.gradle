@@ -1,0 +1,14 @@
+ext {
+    extName = 'HiAnimeWs'
+    extClass = '.HiAnimeWs'
+    themePkg = 'animekaitheme'
+    baseUrl = 'https://hianime.ws'
+    overrideVersionCode = 0
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(":lib:megaupextractor"))
+    implementation(project(":lib:playlistutils"))
+}
