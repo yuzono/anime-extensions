@@ -18,6 +18,7 @@ import keiyoushi.utils.parallelMapNotNullBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
@@ -28,7 +29,6 @@ class Samehadaku :
     ConfigurableAnimeSource {
     override val name: String = "Samehadaku"
 
-    // Domain details: https://samehadaku.care
     override val baseUrl: String = "https://v2.samehadaku.how"
     override val lang: String = "id"
     override val supportsLatest: Boolean = true
@@ -70,11 +70,8 @@ class Samehadaku :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
-
-        // Safely get the detail block (only exists on the main /anime/ page)
         val detail = doc.selectFirst("div.infox > div.spe")
 
-        // Extract Genre safely
         val extractedGenres = doc.select("div.genre-info a").joinToString(", ") { it.text() }.ifEmpty {
             detail?.selectFirst("span:has(b:contains(Genre))")?.let {
                 it.select("a").joinToString(", ") { a -> a.text() }.ifEmpty {
@@ -206,32 +203,44 @@ class Samehadaku :
             .build()
 
         return when {
-            "wibufile" in link -> {
+            // 1. Block mega.nz links (causes infinite buffering because it requires decryption)
+            "mega.nz" in link -> emptyList()
+
+            // 2. Direct MP4/WebM/M3U8 Links (Fixes Wibufile freezing)
+            link.contains(".mp4") || link.contains(".webm") || link.contains(".m3u8") -> {
+                listOf(Video(link, server, link, videoHeaders))
+            }
+
+            // 3. Filedon / Uservideo handler
+            "filedon" in link || "uservideo" in link || "userdrive" in link || "samevideo" in link -> {
                 client.newCall(GET(link, videoHeaders)).execute().use {
-                    if (!it.isSuccessful) return emptyList()
-                    val videoUrl = it.body.string().substringAfter("cast(\"").substringBefore("\"")
-                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
+                    if (!it.isSuccessful) return@use emptyList()
+                    val doc = it.asJsoup()
+                    val dataPage = doc.selectFirst("div#app")?.attr("data-page")
+                        ?: return@use emptyList()
+
+                    try {
+                        val json = JSONObject(dataPage)
+                        val props = json.getJSONObject("props")
+                        val videoUrl = props.getString("url")
+                        listOf(Video(videoUrl, server, videoUrl, videoHeaders))
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
                 }
             }
 
+            // 4. Krakenfiles handler
             "krakenfiles" in link -> {
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     val doc = it.asJsoup()
-                    val getUrl = doc.selectFirst("source")!!.attr("src")
-                    val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
+                    val getUrl = doc.selectFirst("source")?.attr("src") ?: return@use emptyList()
+                    val videoUrl = if (getUrl.startsWith("//")) "https:$getUrl" else getUrl.replace("&amp;", "&")
                     listOf(Video(videoUrl, server, videoUrl, videoHeaders))
                 }
             }
 
-            "peak" in link -> {
-                client.newCall(GET(link, videoHeaders)).execute().use {
-                    val doc = it.asJsoup()
-                    val getUrl = doc.selectFirst("source")!!.attr("src")
-                    val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
-                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
-                }
-            }
-
+            // 5. Blogger handler
             "blogger" in link -> {
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     val videoUrl = it.body.string().substringAfter("play_url\":\"").substringBefore("\"")
@@ -239,7 +248,19 @@ class Samehadaku :
                 }
             }
 
-            else -> emptyList()
+            // 6. Generic fallback for standard HTML5 <video> tags
+            else -> {
+                runCatching {
+                    client.newCall(GET(link, videoHeaders)).execute().use {
+                        if (!it.isSuccessful) return@use emptyList()
+                        val doc = it.asJsoup()
+                        val videoUrl = doc.selectFirst("video source")?.attr("src")
+                            ?: return@use emptyList()
+                        val finalUrl = if (videoUrl.startsWith("//")) "https:$videoUrl" else videoUrl
+                        listOf(Video(finalUrl, server, finalUrl, videoHeaders))
+                    }
+                }.getOrDefault(emptyList())
+            }
         }
     }
 
