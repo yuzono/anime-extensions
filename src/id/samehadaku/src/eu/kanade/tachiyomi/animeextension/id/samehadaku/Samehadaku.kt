@@ -123,28 +123,15 @@ class Samehadaku :
         val doc = response.asJsoup()
         val parseUrl = response.request.url.toUrl()
         val url = "${parseUrl.protocol}://${parseUrl.host}"
-
-        val links = doc.select("#server > ul > li > div")
+        return doc.select("#server > ul > li > div")
             .parallelMapNotNullBlocking {
                 runCatching { getEmbedLinks(url, it) }.getOrNull()
             }
-
-        // Separate non-blogger links so we can still play filedon/wibufile/etc if they exist
-        val nonBloggerLinks = links.filter { "blogger" !in it.second }
-        val hasBlogger = links.any { "blogger" in it.second }
-
-        // Extract videos from working servers
-        val videos = nonBloggerLinks
             .parallelCatchingFlatMapBlocking {
                 getVideosFromEmbed(it.first, it.second)
             }
-
-        if (videos.isEmpty() && hasBlogger) {
-            throw Exception("Blogger videos are blocked.\nPlease use WebView")
-        }
-
-        return videos
     }
+
     // ============================= Utilities ==============================
 
     override fun List<Video>.sort(): List<Video> {
@@ -209,13 +196,86 @@ class Samehadaku :
             }
     }
 
+    private fun getBloggerVideos(server: String, link: String, defaultHeaders: okhttp3.Headers): List<Video> {
+        return runCatching {
+            // Extract token from blogger URL
+            val token = link.substringAfter("token=").ifEmpty { return emptyList() }
+
+            // Step 1: Get f.sid from blogger main page (required for batchexecute)
+            val initHeaders = headers.newBuilder()
+                .set("User-Agent", USER_AGENT)
+                .build()
+
+            val fSid = client.newCall(GET("https://www.blogger.com/", initHeaders)).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body.string()
+                // Extract session ID
+                Regex("""f\.sid\s*=\s*'(-?\d+)'""").find(body)?.groupValues?.get(1)
+                    ?: Regex("""f\.sid\s*=\s*"(-?\d+)"""").find(body)?.groupValues?.get(1)
+                    ?: return emptyList()
+            }
+
+            // Step 2: Make batchexecute request to get video URL
+            val reqId = System.currentTimeMillis() % 100000
+            val batchUrl = "https://www.blogger.com/_/BloggerVideoPlayerUi/data/batchexecute?" +
+                "rpcids=WcwnYd&source-path=/video.g&f.sid=$fSid&" +
+                "bl=boq_bloggeruiserver_20260415.03_p0&hl=en-US&_reqid=$reqId&rt=c"
+
+            // Build f.req payload - escaped JSON string format
+            val fReq = "[[[[\"WcwnYd\",\"[\\\"$token\\\",null,0]\",null,\"generic\"]]]]"
+
+            val batchHeaders = headers.newBuilder()
+                .set("User-Agent", USER_AGENT)
+                .set("Referer", "https://www.blogger.com/")
+                .set("X-Same-Domain", "1")
+                .build()
+
+            val batchBody = FormBody.Builder()
+                .add("f.req", fReq)
+                .build()
+
+            client.newCall(POST(batchUrl, body = batchBody, headers = batchHeaders)).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body.string().removePrefix(")]}'")
+
+                // Extract googlevideo URL from response
+                val pattern = """(https://[a-z0-9-]+\.googlevideo\.com/videoplayback\?[^\s"\\]+)"""
+                val match = Regex(pattern, RegexOption.IGNORE_CASE).find(body)
+
+                match?.groupValues?.get(1)
+                    ?.replace("\\u003d", "=")
+                    ?.replace("\\u0026", "&")
+                    ?.let { url ->
+                        // Determine quality from itag parameter
+                        val quality = when {
+                            "itag=22" in url -> "720p"
+                            "itag=37" in url -> "1080p"
+                            "itag=59" in url -> "480p"
+                            else -> "360p" // itag=18 is default 360p
+                        }
+                        listOf(Video(url, "$server - $quality", url, defaultHeaders))
+                    } ?: emptyList()
+            }
+        }.getOrDefault(emptyList())
+    }
+
     private fun getVideosFromEmbed(server: String, link: String): List<Video> {
+        val videoHeaders = headers.newBuilder()
+            .set("User-Agent", USER_AGENT)
+            .add("Referer", link)
+            .build()
+
         return when {
+            // 1. Block mega.nz links
+            "mega.nz" in link -> emptyList()
+
+            // 2. Direct MP4/WebM/M3U8 Links
+            link.contains(".mp4") || link.contains(".webm") || link.contains(".m3u8") -> {
+                listOf(Video(link, server, link, videoHeaders))
+            }
+
+            // 3. Filedon / Uservideo handler
             "filedon" in link || "uservideo" in link || "userdrive" in link || "samevideo" in link -> {
-                val videoHeaders = headers.newBuilder()
-                    .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-                    .add("Referer", link)
-                    .build()
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     if (!it.isSuccessful) return@use emptyList()
                     val doc = it.asJsoup()
@@ -233,44 +293,34 @@ class Samehadaku :
                 }
             }
 
-            "wibufile" in link -> {
-                client.newCall(GET(link)).execute().use {
-                    if (!it.isSuccessful) return emptyList()
-                    val videoUrl = it.body.string().substringAfter("cast(\"").substringBefore("\"")
-                    listOf(Video(videoUrl, server, videoUrl, headers))
-                }
-            }
-
+            // 4. Krakenfiles handler
             "krakenfiles" in link -> {
-                client.newCall(GET(link)).execute().let {
+                client.newCall(GET(link, videoHeaders)).execute().use {
                     val doc = it.asJsoup()
-                    val getUrl = doc.selectFirst("source")!!.attr("src")
-                    val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
-                    listOf(Video(videoUrl, server, videoUrl, headers))
+                    val getUrl = doc.selectFirst("source")?.attr("src") ?: return@use emptyList()
+                    val videoUrl = if (getUrl.startsWith("//")) "https:$getUrl" else getUrl.replace("&amp;", "&")
+                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
                 }
             }
 
+            // 5. Blogger handler (UPDATED)
             "blogger" in link -> {
-                val bloggerHeaders = headers.newBuilder()
-                    .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-                    .add("Referer", link)
-                    .build()
+                getBloggerVideos(server, link, videoHeaders)
+            }
 
+            // 6. Generic fallback
+            else -> {
                 runCatching {
-                    client.newCall(GET(link, bloggerHeaders)).execute().use { response ->
-                        if (!response.isSuccessful) return@use emptyList()
-                        val body = response.body.string()
-                        val videoUrl = body.substringAfter("\"play_url\":\"").substringBefore("\"").replace("\\/", "/")
-                        if (videoUrl.isBlank() || !videoUrl.startsWith("http")) {
-                            emptyList()
-                        } else {
-                            listOf(Video(videoUrl, server, videoUrl, bloggerHeaders))
-                        }
+                    client.newCall(GET(link, videoHeaders)).execute().use {
+                        if (!it.isSuccessful) return@use emptyList()
+                        val doc = it.asJsoup()
+                        val videoUrl = doc.selectFirst("video source")?.attr("src")
+                            ?: return@use emptyList()
+                        val finalUrl = if (videoUrl.startsWith("//")) "https:$videoUrl" else videoUrl
+                        listOf(Video(finalUrl, server, finalUrl, videoHeaders))
                     }
                 }.getOrDefault(emptyList())
             }
-
-            else -> emptyList()
         }
     }
 
@@ -286,8 +336,9 @@ class Samehadaku :
             setDefaultValue(PREF_QUALITY_DEFAULT)
             setOnPreferenceChangeListener { _, newValue ->
                 val selected = newValue as String
-                preferences.edit().putString(key, selected).apply()
-                true
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
             }
         }
         screen.addPreference(videoQualityPref)
