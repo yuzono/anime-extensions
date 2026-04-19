@@ -436,7 +436,11 @@ class AV1Encodes :
     private fun extractFilenames(html: String): List<String> {
         val filenames = mutableSetOf<String>()
         val addDecoded = { fn: String ->
-            val cleanFn = try { URLDecoder.decode(fn.trim(), "UTF-8") } catch (_: Exception) { fn.trim() }
+            val cleanFn = try {
+                URLDecoder.decode(fn.trim(), "UTF-8")
+            } catch (_: Exception) {
+                fn.trim()
+            }
             if (cleanFn.isNotBlank() && !cleanFn.contains("/")) {
                 filenames.add(cleanFn)
             }
@@ -470,8 +474,7 @@ class AV1Encodes :
     // VIDEO LIST
     // ══════════════════════════════════════════════════════════════════════════
 
-    override fun videoListRequest(episode: SEpisode) =
-        GET(baseUrl + episode.url, headers)
+    override fun videoListRequest(episode: SEpisode) = GET(baseUrl + episode.url, headers)
     override fun videoListParse(response: Response): List<Video> = emptyList()
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
