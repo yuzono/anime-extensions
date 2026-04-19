@@ -196,6 +196,69 @@ class Samehadaku :
             }
     }
 
+    private fun getBloggerVideos(server: String, link: String, defaultHeaders: okhttp3.Headers): List<Video> {
+        return runCatching {
+            // Extract token from blogger URL
+            val token = link.substringAfter("token=").ifEmpty { return emptyList() }
+
+            // Step 1: Get f.sid from blogger main page (required for batchexecute)
+            val initHeaders = headers.newBuilder()
+                .set("User-Agent", USER_AGENT)
+                .build()
+
+            val fSid = client.newCall(GET("https://www.blogger.com/", initHeaders)).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body.string()
+                // Extract session ID
+                Regex("""f\.sid\s*=\s*'(-?\d+)'""").find(body)?.groupValues?.get(1)
+                    ?: Regex("""f\.sid\s*=\s*"(-?\d+)"""").find(body)?.groupValues?.get(1)
+                    ?: return emptyList()
+            }
+
+            // Step 2: Make batchexecute request to get video URL
+            val reqId = System.currentTimeMillis() % 100000
+            val batchUrl = "https://www.blogger.com/_/BloggerVideoPlayerUi/data/batchexecute?" +
+                "rpcids=WcwnYd&source-path=/video.g&f.sid=$fSid&" +
+                "bl=boq_bloggeruiserver_20260415.03_p0&hl=en-US&_reqid=$reqId&rt=c"
+
+            // Build f.req payload - escaped JSON string format
+            val fReq = "[[[[\"WcwnYd\",\"[\\\"$token\\\",null,0]\",null,\"generic\"]]]]"
+
+            val batchHeaders = headers.newBuilder()
+                .set("User-Agent", USER_AGENT)
+                .set("Referer", "https://www.blogger.com/")
+                .set("X-Same-Domain", "1")
+                .build()
+
+            val batchBody = FormBody.Builder()
+                .add("f.req", fReq)
+                .build()
+
+            client.newCall(POST(batchUrl, body = batchBody, headers = batchHeaders)).execute().use { resp ->
+                if (!resp.isSuccessful) return emptyList()
+                val body = resp.body.string().removePrefix(")]}'")
+
+                // Extract googlevideo URL from response
+                val pattern = """(https://[a-z0-9-]+\.googlevideo\.com/videoplayback\?[^\s"\\]+)"""
+                val match = Regex(pattern, RegexOption.IGNORE_CASE).find(body)
+
+                match?.groupValues?.get(1)
+                    ?.replace("\\u003d", "=")
+                    ?.replace("\\u0026", "&")
+                    ?.let { url ->
+                        // Determine quality from itag parameter
+                        val quality = when {
+                            "itag=22" in url -> "720p"
+                            "itag=37" in url -> "1080p"
+                            "itag=59" in url -> "480p"
+                            else -> "360p" // itag=18 is default 360p
+                        }
+                        listOf(Video(url, "$server - $quality", url, defaultHeaders))
+                    } ?: emptyList()
+            }
+        }.getOrDefault(emptyList())
+    }
+
     private fun getVideosFromEmbed(server: String, link: String): List<Video> {
         val videoHeaders = headers.newBuilder()
             .set("User-Agent", USER_AGENT)
@@ -203,10 +266,10 @@ class Samehadaku :
             .build()
 
         return when {
-            // 1. Block mega.nz links (causes infinite buffering because it requires decryption)
+            // 1. Block mega.nz links
             "mega.nz" in link -> emptyList()
 
-            // 2. Direct MP4/WebM/M3U8 Links (Fixes Wibufile freezing)
+            // 2. Direct MP4/WebM/M3U8 Links
             link.contains(".mp4") || link.contains(".webm") || link.contains(".m3u8") -> {
                 listOf(Video(link, server, link, videoHeaders))
             }
@@ -240,15 +303,12 @@ class Samehadaku :
                 }
             }
 
-            // 5. Blogger handler
+            // 5. Blogger handler (UPDATED)
             "blogger" in link -> {
-                client.newCall(GET(link, videoHeaders)).execute().use {
-                    val videoUrl = it.body.string().substringAfter("play_url\":\"").substringBefore("\"")
-                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
-                }
+                getBloggerVideos(server, link, videoHeaders)
             }
 
-            // 6. Generic fallback for standard HTML5 <video> tags
+            // 6. Generic fallback
             else -> {
                 runCatching {
                     client.newCall(GET(link, videoHeaders)).execute().use {
