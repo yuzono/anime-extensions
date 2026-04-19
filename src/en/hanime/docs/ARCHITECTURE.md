@@ -8,12 +8,15 @@ This document provides comprehensive documentation of the hanime.tv platform arc
 
 ### Frontend Framework
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Vue.js | 2.7.16 | Core JavaScript framework |
-| Vuetify | 1.0.19 | UI component library |
-| Vue Router | 3.6.5 | Client-side routing |
-| Vuex | 3.x | State management |
+| Technology | Version | Source | Purpose |
+|------------|---------|--------|---------|
+| Vue.js | 2.7.16 | cdn.jsdelivr.net | Core JavaScript framework |
+| Vuetify | 1.0.19 | cdn.jsdelivr.net | UI component library |
+| Vue Router | 3.6.5 | cdn.jsdelivr.net | Client-side routing |
+| Vue LazyLoad | 1.2.6 | cdn.jsdelivr.net | Image lazy loading |
+| js-cookie | 3.0.5 | cdn.jsdelivr.net | Cookie handling |
+| Vuex | 3.x | - | State management |
+| Nuxt.js | (version TBD) | Framework | SSR and app structure |
 
 ### Build Tools
 

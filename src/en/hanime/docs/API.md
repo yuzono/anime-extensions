@@ -28,6 +28,54 @@ https://cached.freeanimehentai.net
 
 ## Video Manifest API
 
+### Get Video Details by Slug
+
+**Endpoint:** `GET /api/v8/video`
+
+Retrieve video metadata including the hv_id and videos_manifest by video slug. This endpoint is typically called when loading a video detail page.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Video slug (e.g., "cool-de-m-2") |
+
+**Headers Required:**
+
+| Header | Value (Guest) |
+|--------|---------------|
+| `x-signature` | HMAC-SHA256 signature (64-char hex) |
+| `x-time` | Unix timestamp (seconds) |
+| `x-signature-version` | `web2` |
+| `x-session-token` | (empty for guests) |
+| `x-user-license` | (empty for guests) |
+| `x-csrf-token` | (empty for guests) |
+| `x-license` | (empty for guests) |
+
+**Note:** The signature is available in the global JavaScript variable `ssignature` on the page (see [Signature Generation](#signature-generation)).
+
+**Response:** Returns a `hentai_video` object containing video metadata and `videos_manifest` with stream URLs.
+
+```typescript
+interface VideoResponse {
+  hentai_video: HentaiVideo;
+  videos_manifest: {
+    servers: Server[];
+  };
+}
+```
+
+**Example Request:**
+```http
+GET /api/v8/video?id=cool-de-m-2 HTTP/1.1
+Host: cached.freeanimehentai.net
+x-signature: 8567328e24f9cbc47052b338a21f2cb056275388668be224262df46e12a68084
+x-time: 1704067200
+x-signature-version: web2
+```
+
+---
+
 ### Get Video Manifest
 
 **Endpoint:** `GET /api/v8/guest/videos/{hv_id}/manifest`
@@ -800,7 +848,249 @@ Accept: application/json
 
 ### Signature Generation
 
-The `x-signature` header is generated using HMAC-SHA256:
+The `x-signature` header contains a pre-computed HMAC-SHA256 signature that is 64 characters in hexadecimal format (256 bits). This section documents the complete signature generation process based on reverse engineering findings.
+
+**Critical Finding:** The signature is available as a global JavaScript variable on the page:
+
+```javascript
+// Access the signature from the page's global scope
+const signature = window.ssignature;
+// Example: "99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5"
+```
+
+The `stime` variable contains the matching Unix timestamp:
+
+```javascript
+const timestamp = window.stime;
+// Example: 1776569239
+```
+
+---
+
+#### Complete Signature Algorithm
+
+Based on reverse engineering, the signature is generated using **HMAC-SHA256** with the following specifications:
+
+**1. Key Retrieval**
+
+The signing key is fetched from:
+
+```
+GET https://hanime.tv/sign.bin
+```
+
+**Key Properties:**
+
+| Property | Value |
+|----------|-------|
+| Endpoint | `GET https://hanime.tv/sign.bin` |
+| Response Type | Binary (16 bytes) |
+| Content | `0123456701234567` (ASCII representation) |
+| Key Length | 16 bytes (128 bits) |
+| Usage | HMAC-SHA256 key |
+
+**2. Signature Format**
+
+| Property | Value |
+|----------|-------|
+| Algorithm | HMAC-SHA256 |
+| Output Format | 64-character hexadecimal string |
+| Output Length | 256 bits (SHA-256 output) |
+| Example | `99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5` |
+
+**3. Message Format**
+
+The message format for signing is currently under investigation. Based on analysis:
+
+```
+// Likely format includes timestamp and potentially other request data
+message = timestamp.toString()
+```
+
+---
+
+#### Browser-Based Signature Access
+
+The simplest approach is to extract the pre-generated signature from the browser context:
+
+```javascript
+// Extract signature and timestamp from global scope
+const signature = window.ssignature;  // 64-char hex string
+const timestamp = window.stime;       // Unix timestamp in seconds
+
+// Use in API request
+const headers = {
+  'x-signature': signature,
+  'x-time': timestamp.toString(),
+  'x-signature-version': 'web2',
+  'x-session-token': '',
+  'x-user-license': '',
+  'x-csrf-token': '',
+  'x-license': ''
+};
+```
+
+---
+
+#### Manual Signature Generation
+
+For implementations that need to generate signatures manually:
+
+**Python Implementation:**
+
+```python
+import hmac
+import hashlib
+import requests
+import time
+
+# Step 1: Get the key from sign.bin
+key_response = requests.get('https://hanime.tv/sign.bin')
+key = key_response.content  # b'0123456701234567' (16 bytes)
+
+# Step 2: Create the message (likely just the timestamp)
+timestamp = str(int(time.time()))
+message = timestamp.encode('utf-8')
+
+# Step 3: Generate HMAC-SHA256 signature
+signature = hmac.new(key, message, hashlib.sha256).hexdigest()
+
+# Step 4: Use in API request
+headers = {
+    'x-signature': signature,
+    'x-time': timestamp,
+    'x-signature-version': 'web2',
+    'x-session-token': '',
+    'x-user-license': '',
+    'x-csrf-token': '',
+    'x-license': ''
+}
+
+# Step 5: Make the API request
+response = requests.get(
+    'https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest',
+    headers=headers
+)
+```
+
+**JavaScript/Node.js Implementation:**
+
+```javascript
+const crypto = require('crypto');
+const axios = require('axios');
+
+async function generateSignature() {
+  // Step 1: Get the key
+  const keyResponse = await axios.get('https://hanime.tv/sign.bin', {
+    responseType: 'arraybuffer'
+  });
+  const key = Buffer.from(keyResponse.data);
+  
+  // Step 2: Generate timestamp
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  
+  // Step 3: Create HMAC-SHA256 signature
+  const signature = crypto
+    .createHmac('sha256', key)
+    .update(timestamp)
+    .digest('hex');
+  
+  return { signature, timestamp };
+}
+
+// Usage
+async function makeApiRequest() {
+  const { signature, timestamp } = await generateSignature();
+  
+  const response = await axios.get(
+    'https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest',
+    {
+      headers: {
+        'x-signature': signature,
+        'x-time': timestamp,
+        'x-signature-version': 'web2',
+        'x-session-token': '',
+        'x-user-license': '',
+        'x-csrf-token': '',
+        'x-license': ''
+      }
+    }
+  );
+  
+  return response.data;
+}
+```
+
+**Kotlin Implementation:**
+
+```kotlin
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import java.net.URL
+import java.time.Instant
+
+/**
+ * Generate HMAC-SHA256 signature for hanime.tv API authentication.
+ * 
+ * @param key The 16-byte HMAC key fetched from sign.bin
+ * @param timestamp Unix timestamp in seconds as string
+ * @return Hex-encoded signature string (64 characters)
+ */
+fun generateSignature(key: ByteArray, timestamp: String): String {
+  require(key.size == 16) { "Key must be 16 bytes" }
+  
+  val mac = Mac.getInstance("HmacSHA256")
+  mac.init(SecretKeySpec(key, "HmacSHA256"))
+  val bytes = mac.doFinal(timestamp.toByteArray())
+  
+  return bytes.joinToString("") { "%02x".format(it) }
+}
+
+/**
+ * Fetch the HMAC key from sign.bin.
+ */
+suspend fun fetchSignKey(): ByteArray {
+  val url = URL("https://hanime.tv/sign.bin")
+  // Implementation depends on your HTTP client
+  // Returns 16-byte binary data
+}
+
+/**
+ * Build complete request headers.
+ */
+fun buildHeaders(key: ByteArray): Map<String, String> {
+  val timestamp = (System.currentTimeMillis() / 1000).toString()
+  val signature = generateSignature(key, timestamp)
+  
+  return mapOf(
+    "x-signature" to signature,
+    "x-time" to timestamp,
+    "x-signature-version" to "web2",
+    "x-session-token" to "",
+    "x-user-license" to "",
+    "x-csrf-token" to "",
+    "x-license" to ""
+  )
+}
+```
+
+---
+
+#### Complete API Request Example
+
+```http
+GET /api/v8/guest/videos/3427/manifest HTTP/1.1
+Host: cached.freeanimehentai.net
+x-signature: 99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5
+x-time: 1776569239
+x-signature-version: web2
+x-session-token: 
+x-user-license: 
+x-csrf-token: 
+x-license: 
+Referer: https://hanime.tv/
+Accept: application/json
+```
 
 **TypeScript Implementation:**
 
