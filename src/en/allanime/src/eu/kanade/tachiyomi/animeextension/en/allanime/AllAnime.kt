@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -22,12 +23,14 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -39,7 +42,10 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
-import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class AllAnime :
     AnimeHttpSource(),
@@ -54,8 +60,6 @@ class AllAnime :
     override val lang = "en"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -143,10 +147,10 @@ class AllAnime :
                         if (filters.season != "all") put("season", filters.season)
                         if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
                         if (filters.genres != "all") {
-                            put("genres", json.decodeFromString(filters.genres))
+                            put("genres", filters.genres.parseAs<JsonElement>())
                             put("excludeGenres", buildJsonArray { })
                         }
-                        if (filters.types != "all") put("types", json.decodeFromString(filters.types))
+                        if (filters.types != "all") put("types", filters.types.parseAs<JsonElement>())
                         if (filters.sortBy != "update") put("sortBy", filters.sortBy)
                     }
                     put("limit", PAGE_SIZE)
@@ -171,7 +175,7 @@ class AllAnime :
                 putJsonObject("search") {
                     put("allowAdult", true)
                     put("allowUnknown", true)
-                    put("genres", json.decodeFromString(genres))
+                    put("genres", genres.parseAs<JsonElement>())
                 }
                 put("limit", PAGE_SIZE)
                 put("page", 1)
@@ -257,16 +261,14 @@ class AllAnime :
             SEpisode.create().apply {
                 episode_number = ep.toFloatOrNull() ?: 0F
                 name = "Episode $numName ($subPref)"
-                url = json.encodeToString(
-                    buildJsonObject {
-                        putJsonObject("variables") {
-                            put("showId", medias.data.show.id)
-                            put("translationType", subPref)
-                            put("episodeString", ep)
-                        }
-                        put("query", STREAMS_QUERY)
-                    },
-                )
+                url = buildJsonObject {
+                    putJsonObject("variables") {
+                        put("showId", medias.data.show.id)
+                        put("translationType", subPref)
+                        put("episodeString", ep)
+                    }
+                    put("query", STREAMS_QUERY)
+                }.toJsonString()
             }
         }
     }
@@ -300,9 +302,23 @@ class AllAnime :
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(videoListRequest(episode)).await()
+        val responseBody = client.newCall(videoListRequest(episode))
+            .awaitSuccess().bodyString()
 
-        val videoJson = response.parseAs<EpisodeResult>()
+        // 1. Try parsing the encrypted wrapper
+        val encryptedJson = runCatching {
+            responseBody.parseAs<EncryptedEpisodeResult>()
+        }.getOrNull()
+
+        // 2. Determine the source URLs list by decrypting if necessary
+        val sourceUrls = encryptedJson?.data?.tobeparsed?.takeIf(String::isNotBlank)
+            ?.runCatching {
+                val decryptedString = decryptTobeparsed(this)
+                decryptedString.parseAs<DecryptedEpisodeResult>().episode.sourceUrls
+            }?.getOrNull()
+            // Malformed encrypted payload — fall back to old plain-text parsing
+            ?: responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
+
         val videoList = mutableListOf<Pair<Video, Float>>()
         val serverList = mutableListOf<Server>()
 
@@ -320,7 +336,7 @@ class AllAnime :
             "streamwish" to listOf("wish"),
         )
 
-        videoJson.data.episode.sourceUrls.forEach { video ->
+        sourceUrls.forEach { video ->
             val videoUrl = video.sourceUrl.decryptSource()
 
             val matchingMapping = mappings.firstOrNull { (altHoster, urlMatches) ->
@@ -437,8 +453,7 @@ class AllAnime :
     }
 
     private fun buildPost(dataObject: JsonObject): Request {
-        val payload = json.encodeToString(dataObject)
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val payload = dataObject.toJsonString().toJsonBody()
 
         val siteUrl = preferences.siteUrl
         val postHeaders = headers.newBuilder().apply {
@@ -495,6 +510,29 @@ class AllAnime :
     }
 
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
+
+    private fun decryptTobeparsed(base64Payload: String): String {
+        // 1. Generate the SHA-256 key from the reversed secret string
+        val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
+            .digest(DECRYPT_SECRET.reversed().toByteArray(Charsets.UTF_8))
+
+        // 2. Decode the Base64 payload
+        val decodedBytes = Base64.decode(base64Payload, Base64.DEFAULT)
+
+        // 3. Separate the IV and the encrypted data
+        val iv = decodedBytes.sliceArray(0 until DECRYPT_IV_LENGTH)
+        val encryptedData = decodedBytes.sliceArray(DECRYPT_IV_LENGTH until decodedBytes.size)
+
+        // 4. Initialize the AES-GCM Cipher
+        val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
+        val keySpec = SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE)
+        val gcmSpec = GCMParameterSpec(DECRYPT_TAG_LENGTH, iv)
+
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+
+        // 5. Decrypt and convert back to a JSON String
+        return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
+    }
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
@@ -563,6 +601,13 @@ class AllAnime :
 
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
+
+        private const val DECRYPT_SECRET = "P7K2RGbFgauVtmiS"
+        private const val DECRYPT_IV_LENGTH = 12
+        private const val DECRYPT_TAG_LENGTH = 128
+        private const val DECRYPT_KEY_ALGO = "SHA-256"
+        private const val DECRYPT_KEY_TYPE = "AES"
+        private const val DECRYPT_CIPHER_ALGO = "AES/GCM/NoPadding"
     }
 
     // ============================== Settings ==============================
@@ -576,13 +621,6 @@ class AllAnime :
             entryValues = arrayOf("https://allmanga.to")
             setDefaultValue(PREF_SITE_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -592,13 +630,6 @@ class AllAnime :
             entryValues = arrayOf("https://api.allanime.day")
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -608,13 +639,6 @@ class AllAnime :
             entryValues = PREF_SERVER_ENTRY_VALUES
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -623,10 +647,6 @@ class AllAnime :
             entries = INTERAL_HOSTER_NAMES
             entryValues = PREF_HOSTER_ENTRY_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -635,10 +655,6 @@ class AllAnime :
             entries = ALT_HOSTER_NAMES
             entryValues = ALT_HOSTER_NAMES
             setDefaultValue(ALT_HOSTER_NAMES.toSet())
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -648,13 +664,6 @@ class AllAnime :
             entryValues = PREF_QUALITY_ENTRY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -664,13 +673,6 @@ class AllAnime :
             entryValues = arrayOf("romaji", "eng", "native")
             setDefaultValue(PREF_TITLE_STYLE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -680,13 +682,6 @@ class AllAnime :
             entryValues = arrayOf("sub", "dub")
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
