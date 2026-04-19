@@ -191,7 +191,7 @@ class Samehadaku :
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     if (!it.isSuccessful) return emptyList()
                     val videoUrl = it.body.string().substringAfter("cast(\"").substringBefore("\"")
-                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
+                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
                 }
             }
 
@@ -200,14 +200,14 @@ class Samehadaku :
                     val doc = it.asJsoup()
                     val getUrl = doc.selectFirst("source")!!.attr("src")
                     val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
-                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
+                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
                 }
             }
 
             "blogger" in link -> {
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     val videoUrl = it.body.string().substringAfter("play_url\":\"").substringBefore("\"")
-                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
+                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
                 }
             }
 
