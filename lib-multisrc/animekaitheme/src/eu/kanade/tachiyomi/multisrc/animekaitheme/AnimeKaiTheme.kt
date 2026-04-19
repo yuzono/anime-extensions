@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.multisrc.animekaitheme
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceScreen
-import eu.kanade.aniyomi.lib.megaupextractor.MegaUpExtractor
+import aniyomi.lib.megaupextractor.MegaUpExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage

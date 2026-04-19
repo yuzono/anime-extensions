@@ -1,4 +1,4 @@
-package eu.kanade.aniyomi.lib.megaupextractor
+package aniyomi.lib.megaupextractor
 
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
