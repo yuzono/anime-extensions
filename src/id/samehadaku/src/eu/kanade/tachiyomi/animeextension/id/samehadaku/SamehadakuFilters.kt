@@ -118,7 +118,6 @@ object SamehadakuFilters {
             Pair("Super Power", "super-power"),
             Pair("Harem", "harem"),
             Pair("Slice of Life", "slice-of-life"),
-            Pair("Sports", "sports"),
             Pair("Ecchi", "ecchi"),
             Pair("Sports", "sports"),
         )
