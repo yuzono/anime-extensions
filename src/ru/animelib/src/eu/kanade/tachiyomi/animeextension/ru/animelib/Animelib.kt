@@ -25,6 +25,7 @@ import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -45,8 +46,12 @@ class Animelib :
 
     override val supportsLatest = true
 
-    private val domain = "animelib.org"
-    override val baseUrl = "https://$domain/ru"
+    private val domain: String
+        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+
+    override val baseUrl: String
+        get() = "https://$domain/ru"
+
     private val apiSite = "https://hapi.hentaicdn.org"
     private val apiUrl = "$apiSite/api"
     private val coverDomain = "cover.imglib.info"
@@ -55,6 +60,10 @@ class Animelib :
     private val dateFormatter by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
 
     companion object {
+        private const val PREF_DOMAIN_KEY = "pref_domain"
+        private val PREF_DOMAIN_ENTRIES = arrayOf("animelib.org", "v3.animelib.org", "v4.animelib.org", "v5.animelib.org")
+        private const val PREF_DOMAIN_DEFAULT = "animelib.org"
+
         private const val PREF_QUALITY_KEY = "pref_quality"
         private val PREF_QUALITY_ENTRIES = arrayOf("360", "720", "1080", "2160")
 
@@ -94,16 +103,21 @@ class Animelib :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
+            key = PREF_DOMAIN_KEY
+            title = "Домен"
+            entries = PREF_DOMAIN_ENTRIES
+            entryValues = PREF_DOMAIN_ENTRIES
+            summary = "Текущий домен: %s"
+            setDefaultValue(PREF_DOMAIN_DEFAULT)
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Предпочитаемый сервер плеера Animelib"
             entries = PREF_SERVER_ENTRIES
             entryValues = PREF_SERVER_ENTRIES
             summary = "%s"
             setDefaultValue(PREF_SERVER_ENTRIES[0])
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -134,11 +148,6 @@ class Animelib :
                 entryValues = PREF_QUALITY_ENTRIES
                 summary = "При отсутствии нужного качества могут возникать ошибки!"
                 setDefaultValue(PREF_QUALITY_ENTRIES.toSet())
-
-                setOnPreferenceChangeListener { _, newValue ->
-                    @Suppress("UNCHECKED_CAST")
-                    preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-                }
             }.also(screen::addPreference)
         }
 
@@ -147,10 +156,6 @@ class Animelib :
             title = "Включить парсинг видео из плеера Kodik"
             summary = "Некоторые видео доступны только в нем, но он может работать нестабильно"
             setDefaultValue(PREF_USE_KODIK_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -158,10 +163,6 @@ class Animelib :
             title = "Игнорировать субтитры"
             summary = "Исключает видео с субтитрами"
             setDefaultValue(PREF_IGNORE_SUBS_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
@@ -169,10 +170,6 @@ class Animelib :
             title = "Предпочитаемые студии озвучки"
             summary = "Список студий или ключевых слов через запятую (экспериментальная функция)"
             setDefaultValue("")
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
     }
 
@@ -351,8 +348,8 @@ class Animelib :
         url.addPathSegment("constants")
         url.addQueryParameter("fields[]", "videoServers")
 
-        val videoServerResponse = client.newCall(GET(url.build())).awaitSuccess()
-        val videoServers = videoServerResponse.parseAs<VideoServerData>()
+        val videoServers = client.newCall(GET(url.build())).awaitSuccess()
+            .parseAs<VideoServerData>()
 
         val serverPreference = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_ENTRIES[0])
         if (serverPreference.isNullOrEmpty()) {
@@ -376,7 +373,7 @@ class Animelib :
 
         val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
-        headers.add("Referer", baseUrl)
+        headers.add("Referer", "$baseUrl/")
 
         // Parse form parameters for video link request
         val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
@@ -541,6 +538,6 @@ class Animelib :
         url = "api/episodes/$id"
         name = "Сезон $season Серия $number $episodeName"
         episode_number = number.toFloat()
-        date_upload = dateFormatter.parse(date)?.time ?: 0L
+        date_upload = dateFormatter.tryParse(date)
     }
 }
