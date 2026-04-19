@@ -27,7 +27,9 @@ class Samehadaku :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
     override val name: String = "Samehadaku"
-    override val baseUrl: String = "https://samehadaku.email"
+
+    // Domain details: https://samehadaku.care
+    override val baseUrl: String = "https://v2.samehadaku.how"
     override val lang: String = "id"
     override val supportsLatest: Boolean = true
 
@@ -41,7 +43,7 @@ class Samehadaku :
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/daftar-anime-2/page/$page/?order=latest")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/daftar-anime-2/page/$page/?order=update")
 
     override fun latestUpdatesParse(response: Response): AnimesPage = getAnimeParse(response.asJsoup(), "div.relat > article")
 
@@ -49,7 +51,7 @@ class Samehadaku :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = SamehadakuFilters.getSearchParameters(filters)
-        return GET("$baseUrl/daftar-anime-2/page/$page/?s=$query${params.filter}", headers)
+        return GET("$baseUrl/daftar-anime-2/page/$page/?title=$query${params.filter}", headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -164,9 +166,14 @@ class Samehadaku :
             add("nume", element.attr("data-nume"))
             add("type", element.attr("data-type"))
         }.build()
-        return client.newCall(POST("$url/wp-admin/admin-ajax.php", body = form))
+
+        val ajaxHeaders = headers.newBuilder()
+            .set("User-Agent", USER_AGENT)
+            .build()
+
+        return client.newCall(POST("$url/wp-admin/admin-ajax.php", body = form, headers = ajaxHeaders))
             .execute()
-            .let {
+            .use {
                 val link = it.body.string().substringAfter("src=\"").substringBefore("\"")
                 val server = element.selectFirst("span")!!.text()
                 Pair(server, link)
@@ -174,29 +181,33 @@ class Samehadaku :
     }
 
     private fun getVideosFromEmbed(server: String, link: String): List<Video> {
+        val videoHeaders = headers.newBuilder()
+            .set("User-Agent", USER_AGENT)
+            .add("Referer", link)
+            .build()
+
         return when {
             "wibufile" in link -> {
-                client.newCall(GET(link)).execute().use {
+                client.newCall(GET(link, videoHeaders)).execute().use {
                     if (!it.isSuccessful) return emptyList()
                     val videoUrl = it.body.string().substringAfter("cast(\"").substringBefore("\"")
-                    listOf(Video(videoUrl, server, videoUrl, headers))
+                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
                 }
             }
 
             "krakenfiles" in link -> {
-                client.newCall(GET(link)).execute().let {
+                client.newCall(GET(link, videoHeaders)).execute().use {
                     val doc = it.asJsoup()
                     val getUrl = doc.selectFirst("source")!!.attr("src")
                     val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
-                    listOf(Video(videoUrl, server, videoUrl, headers))
+                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
                 }
             }
 
             "blogger" in link -> {
-                client.newCall(GET(link)).execute().let {
-                    val videoUrl =
-                        it.body.string().substringAfter("play_url\":\"").substringBefore("\"")
-                    listOf(Video(videoUrl, server, videoUrl, headers))
+                client.newCall(GET(link, videoHeaders)).execute().use {
+                    val videoUrl = it.body.string().substringAfter("play_url\":\"").substringBefore("\"")
+                    listOf(Video(videoUrl, "$server", videoUrl, videoHeaders))
                 }
             }
 
@@ -228,6 +239,7 @@ class Samehadaku :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
         }
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
