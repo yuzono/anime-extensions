@@ -68,20 +68,39 @@ class Samehadaku :
 
     override fun getFilterList(): AnimeFilterList = SamehadakuFilters.FILTER_LIST
 
-    // =========================== Anime Details ============================
-
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
-        val detail = doc.selectFirst("div.infox > div.spe")!!
+
+        // Safely get the detail block (only exists on the main /anime/ page)
+        val detail = doc.selectFirst("div.infox > div.spe")
+
+        // Extract Genre safely
+        val extractedGenres = doc.select("div.genre-info a").joinToString(", ") { it.text() }.ifEmpty {
+            detail?.selectFirst("span:has(b:contains(Genre))")?.let {
+                it.select("a").joinToString(", ") { a -> a.text() }.ifEmpty {
+                    it.text().substringAfter(":").trim()
+                }
+            } ?: ""
+        }
+
         return SAnime.create().apply {
-            author = detail.getInfo("Studio")
-            status = parseStatus(detail.getInfo("Status"))
-            title = doc.selectFirst("h3.anim-detail")!!.text().split("Detail Anime ")[1]
-            thumbnail_url =
-                doc.selectFirst("div.infoanime.widget_senction > div.thumb > img")!!
-                    .attr("src")
-            description =
-                doc.selectFirst("div.entry-content.entry-content-single > p")!!.text()
+            author = detail?.getInfo("Studio") ?: ""
+            status = detail?.let { parseStatus(it.getInfo("Status")) } ?: SAnime.UNKNOWN
+
+            title = doc.selectFirst("h3.anim-detail")?.text()?.split("Detail Anime ")?.getOrNull(1)
+                ?: doc.selectFirst("h2.entry-title[itemprop='partOfSeries']")?.text()?.removePrefix("Sinopsis Anime ")?.removeSuffix(" Indo")
+                ?: doc.selectFirst("h1.entry-title")?.text()?.removeSuffix(" Sub Indo")
+                ?: ""
+
+            thumbnail_url = doc.selectFirst("div.infoanime.widget_senction > div.thumb > img")?.attr("src")
+                ?: doc.selectFirst("div.episodeinf > div.infoanime > div.areainfo > div.thumb > img")?.attr("src")
+                ?: ""
+
+            description = doc.selectFirst("div.entry-content.entry-content-single > p")?.text()
+                ?: doc.selectFirst("div.desc > div.entry-content.entry-content-single")?.text()
+                ?: ""
+
+            genre = extractedGenres
         }
     }
 
@@ -196,6 +215,15 @@ class Samehadaku :
             }
 
             "krakenfiles" in link -> {
+                client.newCall(GET(link, videoHeaders)).execute().use {
+                    val doc = it.asJsoup()
+                    val getUrl = doc.selectFirst("source")!!.attr("src")
+                    val videoUrl = "https:${getUrl.replace("&amp;", "&")}"
+                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
+                }
+            }
+
+            "peak" in link -> {
                 client.newCall(GET(link, videoHeaders)).execute().use {
                     val doc = it.asJsoup()
                     val getUrl = doc.selectFirst("source")!!.attr("src")
