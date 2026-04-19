@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.i18n.Intl
 import aniyomi.lib.playlistutils.PlaylistUtils
+import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.AgeFilter
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.FeaturedFilter
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.GenresFilter
@@ -470,8 +471,8 @@ class StreamingCommunity(override val lang: String, private val showType: String
     }
 
     companion object {
-        private const val DOMAIN_DEFAULT = "https://streamingunity.tv"
-        private const val PREF_CUSTOM_DOMAIN_KEY = "custom_domain"
+        private const val DOMAIN_DEFAULT = "https://streamingunity.biz" // Redirect URL: https://streamingunity.tv
+        private const val PREF_CUSTOM_DOMAIN_KEY = "custom_domain_v${BuildConfig.VERSION_NAME}"
         private const val TAG = "StreamingCommunity"
 
         private val TOP10_TRENDING_REGEX = Regex("""/browse/(top10|trending)""")

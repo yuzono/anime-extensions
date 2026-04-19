@@ -4,9 +4,10 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -19,7 +20,7 @@ class XBetExtractor(
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     suspend fun videosFromUrl(url: String): List<Video> {
-        val doc = client.newCall(GET(url, headers)).await().asJsoup()
+        val doc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
 
         val script = doc.selectFirst("script:containsData(playerConfigs =)")?.data()
             ?: return emptyList()
@@ -34,13 +35,13 @@ class XBetExtractor(
             .set("Origin", host)
             .build()
 
-        val postRes = client.newCall(POST(host + postPath, postHeaders)).await()
+        val postRes = client.newCall(POST(host + postPath, postHeaders)).awaitSuccess()
             .parseAs<List<VideoItemDto>> { it.replace("[],", "") }
 
         return postRes.flatMap { video ->
             runCatching {
-                val playlistUrl = client.newCall(POST(host + video.path, postHeaders)).await()
-                    .body.string()
+                val playlistUrl = client.newCall(POST(host + video.path, postHeaders)).awaitSuccess()
+                    .bodyString()
 
                 playlistUtils.extractFromHls(
                     playlistUrl,

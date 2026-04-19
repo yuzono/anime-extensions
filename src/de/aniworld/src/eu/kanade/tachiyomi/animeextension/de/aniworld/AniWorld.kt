@@ -176,7 +176,7 @@ class AniWorld :
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val vidozaExtractor by lazy { VidozaExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
-    private val vidmolyExtractor by lazy { VidMolyExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 
@@ -199,7 +199,7 @@ class AniWorld :
                 NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) $NAME_STAPE")?.let(::listOf)
                 NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) $NAME_VIZ")?.let(::listOf)
                 NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) $NAME_FILEMOON ", headers)
-                NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language) ")
+                NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language)")
                 else -> null
             } ?: emptyList()
         }

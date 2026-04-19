@@ -110,6 +110,8 @@ object AnimeKaiFilters {
         )
 
         val YEARS = listOf(
+            Pair("2027", "2027"),
+            Pair("2026", "2026"),
             Pair("2025", "2025"),
             Pair("2024", "2024"),
             Pair("2023", "2023"),
@@ -158,12 +160,13 @@ object AnimeKaiFilters {
             Pair("Name A-Z", "title_az"),
             Pair("Average score", "avg_score"),
             Pair("MAL score", "mal_score"),
-            Pair("Total views", "total_views"),
-            Pair("Total bookmarks", "total_bookmarks"),
-            Pair("Total episodes", "total_episodes"),
+            Pair("Most viewed", "most_viewed"),
+            Pair("Most followed", "most_followed"),
+            Pair("Episode count", "episode_count"),
         )
 
         val STATUS = listOf(
+            Pair("Not Yet Aired", "info"),
             Pair("Releasing", "releasing"),
             Pair("Completed", "completed"),
         )
