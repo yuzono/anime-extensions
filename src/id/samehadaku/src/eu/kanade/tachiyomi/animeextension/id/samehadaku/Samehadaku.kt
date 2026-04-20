@@ -12,10 +12,15 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -74,32 +79,40 @@ class Samehadaku :
         val doc = response.asJsoup()
         val detail = doc.selectFirst("div.infox > div.spe")
 
-        val extractedGenres = doc.select("div.genre-info a").joinToString(", ") { it.text() }.ifEmpty {
-            detail?.selectFirst("span:has(b:contains(Genre))")?.let {
-                it.select("a").joinToString(", ") { a -> a.text() }.ifEmpty {
-                    it.text().substringAfter(":").trim()
-                }
-            } ?: ""
-        }
+        val extractedGenres = doc.select("div.genre-info a")
+            .mapNotNull { it.text().takeIf(String::isNotBlank) }
+            .joinToString().takeIf(String::isNotBlank)
+            ?: detail?.selectFirst("span:has(b:contains(Genre))")?.let { genres: Element ->
+                genres.select("a")
+                    .mapNotNull { it.text().takeIf(String::isNotBlank) }
+                    .joinToString().takeIf(String::isNotBlank)
+                    ?: genres.text().substringAfter(":").trim()
+            }
 
         return SAnime.create().apply {
             author = detail?.getInfo("Studio") ?: ""
             status = detail?.let { parseStatus(it.getInfo("Status")) } ?: SAnime.UNKNOWN
 
-            title = doc.selectFirst("h3.anim-detail")?.text()?.split("Detail Anime ")?.getOrNull(1)
-                ?: doc.selectFirst("h2.entry-title[itemprop='partOfSeries']")?.text()?.removePrefix("Sinopsis Anime ")?.removeSuffix(" Indo")
-                ?: doc.selectFirst("h1.entry-title")?.text()?.removeSuffix(" Sub Indo")
-                ?: ""
+            (
+                doc.selectFirst("h3.anim-detail")?.text()?.split("Detail Anime")?.getOrNull(1)
+                    ?: doc.selectFirst("h2.entry-title[itemprop='partOfSeries']")?.text()?.removeSurrounding("Sinopsis Anime", "Indo")
+                    ?: doc.selectFirst("h1.entry-title")?.text()?.removeSuffix("Sub Indo")
+                )
+                ?.trim()?.let { title = it }
 
-            thumbnail_url = doc.selectFirst("div.infoanime.widget_senction > div.thumb > img")?.attr("src")
-                ?: doc.selectFirst("div.episodeinf > div.infoanime > div.areainfo > div.thumb > img")?.attr("src")
-                ?: ""
+            (
+                doc.selectFirst("div.infoanime.widget_senction > div.thumb > img")?.attr("src")
+                    ?: doc.selectFirst("div.episodeinf > div.infoanime > div.areainfo > div.thumb > img")?.attr("src")
+                )
+                .let { thumbnail_url = it }
 
-            description = doc.selectFirst("div.entry-content.entry-content-single > p")?.text()
-                ?: doc.selectFirst("div.desc > div.entry-content.entry-content-single")?.text()
-                ?: ""
+            (
+                doc.selectFirst("div.entry-content.entry-content-single > p")?.text()
+                    ?: doc.selectFirst("div.desc > div.entry-content.entry-content-single")?.text()
+                )
+                .let { description = it }
 
-            genre = extractedGenres
+            extractedGenres?.let { genre = it }
         }
     }
 
@@ -108,13 +121,15 @@ class Samehadaku :
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
         return doc.select("div.lstepsiode > ul > li")
-            .map {
-                val episode = it.selectFirst("span.eps > a")!!
+            .mapNotNull {
+                val episode = it.selectFirst("span.eps > a") ?: return@mapNotNull null
                 SEpisode.create().apply {
                     setUrlWithoutDomain(episode.attr("href"))
                     episode_number = episode.text().trim().toFloatOrNull() ?: 1F
-                    name = it.selectFirst("span.lchx > a")!!.text()
-                    date_upload = it.selectFirst("span.date")!!.text().toDate()
+                    name = it.selectFirst("span.lchx > a")?.text() ?: return@mapNotNull null
+                    date_upload = it.selectFirst("span.date")?.text()
+                        ?.let { date -> DATE_FORMATTER.tryParse(date) }
+                        ?: 0L
                 }
             }
     }
@@ -141,11 +156,8 @@ class Samehadaku :
         return sortedWith(compareByDescending { it.quality.contains(quality) })
     }
 
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-        .getOrNull() ?: 0L
-
-    private fun Element.getInfo(info: String, cut: Boolean = true): String = selectFirst("span:has(b:contains($info))")!!.text()
-        .let {
+    private fun Element.getInfo(info: String, cut: Boolean = true): String? = selectFirst("span:has(b:contains($info))")?.text()
+        ?.let {
             when {
                 cut -> it.substringAfter(" ")
                 else -> it
@@ -153,11 +165,11 @@ class Samehadaku :
         }
 
     private fun getAnimeParse(document: Document, query: String): AnimesPage {
-        val animes = document.select(query).map {
+        val animes = document.select(query).mapNotNull { elm ->
             SAnime.create().apply {
-                setUrlWithoutDomain(it.selectFirst("div > a")!!.attr("href"))
-                title = it.selectFirst("div.title > h2")!!.text()
-                thumbnail_url = it.selectFirst("div.content-thumb > img")!!.attr("src")
+                elm.selectFirst("div > a")?.attr("href")?.let { setUrlWithoutDomain(it) } ?: return@mapNotNull null
+                title = elm.selectFirst("div.title > h2")?.text() ?: return@mapNotNull null
+                elm.selectFirst("div.content-thumb > img")?.attr("src")?.let { thumbnail_url = it }
             }
         }
         val hasNextPage = try {
@@ -177,7 +189,7 @@ class Samehadaku :
         else -> SAnime.UNKNOWN
     }
 
-    private fun getEmbedLinks(url: String, element: Element): Pair<String, String> {
+    private suspend fun getEmbedLinks(url: String, element: Element): Pair<String, String> {
         val form = FormBody.Builder().apply {
             add("action", "player_ajax")
             add("post", element.attr("data-post"))
@@ -190,17 +202,18 @@ class Samehadaku :
             .build()
 
         return client.newCall(POST("$url/wp-admin/admin-ajax.php", body = form, headers = ajaxHeaders))
-            .execute()
-            .use {
-                val link = it.body.string().substringAfter("src=\"").substringBefore("\"")
-                val server = element.selectFirst("span")!!.text()
+            .awaitSuccess()
+            .bodyString()
+            .let {
+                val link = it.substringAfter("src=\"").substringBefore("\"")
+                val server = element.selectFirst("span")?.text() ?: ""
                 Pair(server, link)
             }
     }
 
     private fun getBloggerVideos(server: String, link: String): List<Video> = bloggerExtractor.videosFromUrl(link, headers, server)
 
-    private fun getVideosFromEmbed(server: String, link: String): List<Video> {
+    private suspend fun getVideosFromEmbed(server: String, link: String): List<Video> {
         val videoHeaders = headers.newBuilder()
             .set("User-Agent", USER_AGENT)
             .add("Referer", link)
@@ -214,29 +227,19 @@ class Samehadaku :
             }
 
             "filedon" in link || "uservideo" in link || "userdrive" in link || "samevideo" in link -> {
-                client.newCall(GET(link, videoHeaders)).execute().use {
-                    if (!it.isSuccessful) return@use emptyList()
-                    val doc = it.asJsoup()
-                    val dataPage = doc.selectFirst("div#app")?.attr("data-page")
-                        ?: return@use emptyList()
-                    try {
-                        val json = JSONObject(dataPage)
-                        val props = json.getJSONObject("props")
-                        val videoUrl = props.getString("url")
-                        listOf(Video(videoUrl, server, videoUrl, videoHeaders))
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                }
+                val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
+                val dataPage = doc.selectFirst("div#app")?.attr("data-page")!!
+                val json = JSONObject(dataPage)
+                val props = json.getJSONObject("props")
+                val videoUrl = props.getString("url")
+                listOf(Video(videoUrl, server, videoUrl, videoHeaders))
             }
 
             "krakenfiles" in link -> {
-                client.newCall(GET(link, videoHeaders)).execute().use {
-                    val doc = it.asJsoup()
-                    val getUrl = doc.selectFirst("source")?.attr("src") ?: return@use emptyList()
-                    val videoUrl = if (getUrl.startsWith("//")) "https:$getUrl" else getUrl.replace("&amp;", "&")
-                    listOf(Video(videoUrl, server, videoUrl, videoHeaders))
-                }
+                val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
+                val getUrl = doc.selectFirst("source")?.attr("src")!!
+                val videoUrl = UrlUtils.fixUrl(getUrl)?.replace("&amp;", "&")!!
+                listOf(Video(videoUrl, server, videoUrl, videoHeaders))
             }
 
             // Blogger — now delegates entirely to BloggerExtractor
@@ -245,16 +248,10 @@ class Samehadaku :
             }
 
             else -> {
-                runCatching {
-                    client.newCall(GET(link, videoHeaders)).execute().use {
-                        if (!it.isSuccessful) return@use emptyList()
-                        val doc = it.asJsoup()
-                        val videoUrl = doc.selectFirst("video source")?.attr("src")
-                            ?: return@use emptyList()
-                        val finalUrl = if (videoUrl.startsWith("//")) "https:$videoUrl" else videoUrl
-                        listOf(Video(finalUrl, server, finalUrl, videoHeaders))
-                    }
-                }.getOrDefault(emptyList())
+                val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
+                val videoUrl = doc.selectFirst("video source")?.attr("src")!!
+                val finalUrl = UrlUtils.fixUrl(videoUrl)!!
+                listOf(Video(finalUrl, server, finalUrl, videoHeaders))
             }
         }
     }
@@ -269,12 +266,6 @@ class Samehadaku :
             entries = PREF_QUALITY_ENTRIES
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(videoQualityPref)
     }
