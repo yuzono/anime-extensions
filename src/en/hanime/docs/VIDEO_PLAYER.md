@@ -4,7 +4,7 @@ This document provides comprehensive documentation of the hanime.tv video player
 
 ## Overview
 
-hanime.tv uses a custom-built video player system called **omni-player** that combines multiple technologies for video playback, advertising, and streaming.
+hanime.tv uses a custom-built video player system called **omni-player** that combines multiple technologies for video playback, advertising, and streaming. The player is loaded in an iframe from hanime-cdn.com and uses Video.js as the playback engine with Google IMA SDK for ad integration (AdTng ad service).
 
 ---
 
@@ -33,17 +33,71 @@ hanime.tv uses a custom-built video player system called **omni-player** that co
 
 ---
 
+## Video Page Loading Behavior
+
+### Manifest API — Lazy-Loaded on Play
+
+> **Important:** The manifest endpoint (`/api/v8/guest/videos/{hv_id}/manifest`) is **NOT** automatically called during page load. The manifest is only fetched when the user actually clicks play.
+
+When loading a video page (e.g., `/videos/hentai/itadaki-seieki`), the initial page load only fetches:
+
+| API Call | Purpose | Triggered On |
+|----------|---------|-------------|
+| `/api/v8/video?id={slug}` | Video metadata | Page load |
+| `/api/v8/playlists?source=related&hv_id={id}` | Related videos | Page load |
+| `/api/v8/guest/videos/{hv_id}/manifest` | Streaming manifest | **Play action** (user click) |
+
+This means the streaming manifest — which contains the actual video URLs — is deferred until playback is initiated. Any extension or scraper that needs manifest data must either simulate a play action or call the manifest endpoint directly.
+
+### hv_id Relationship
+
+The video page exposes the `hv_id` (internal numeric ID) in the related videos API call. For example, the video page for "itadaki-seieki" has `hv_id=1226`:
+
+```
+/api/v8/playlists?source=related&hv_id=1226
+```
+
+This `hv_id` is required for the manifest endpoint and can be extracted from the page's API calls or from the video metadata response.
+
+### Signature Requirement for Manifest
+
+The manifest endpoint requires valid `x-signature` headers. If the signature has expired, the manifest request will return **401 Unauthorized**. The player must have a fresh signature to fetch the manifest successfully.
+
+When implementing manifest retrieval:
+1. Ensure the `x-signature` header is current (not expired)
+2. If a 401 is received, refresh the signature before retrying
+3. Signatures are time-limited — see the Browser Environment section below for the source globals
+
+### Browser Environment on Video Pages
+
+On the video page (e.g., `/videos/hentai/itadaki-seieki`), the following window globals are available and current:
+
+| Global | Purpose |
+|--------|---------|
+| `window.ssignature` | Current signature for API authentication |
+| `window.stime` | Current timestamp used in signature generation |
+| `window.wasmExports` | WASM module exports (used for signature computation) |
+| `window.wasmMemory` | WASM memory buffer (paired with `wasmExports`) |
+
+The page title format is:
+
+```
+Watch {Video Name} Hentai Video in 1080p HD - hanime.tv
+```
+
+---
+
 ## omni-player Iframe
 
 ### Loading the Player
 
-The video player is loaded via an iframe from the hanime.tv domain:
+The video player is loaded via an iframe from hanime-cdn.com:
 
 ```html
-<iframe 
-  src="https://hanime.tv/omni-player/index.html?poster_url={encoded_url}&c={timestamp}"
-  allowfullscreen
-  allow="autoplay; encrypted-media"
+<iframe
+src="https://hanime-cdn.com/vhtv2/omni-player/index.html?poster_url={encoded_url}&c={timestamp}"
+allowfullscreen
+allow="autoplay; encrypted-media"
 ></iframe>
 ```
 
@@ -62,7 +116,7 @@ const loadPlayer = (posterUrl) => {
   const timestamp = Date.now();
   const encodedPoster = encodeURIComponent(posterUrl);
   
-  iframe.src = `https://hanime.tv/omni-player/index.html?poster_url=${encodedPoster}&c=${timestamp}`;
+  iframe.src = `https://hanime-cdn.com/vhtv2/omni-player/index.html?poster_url=${encodedPoster}&c=${timestamp}`;
   iframe.allow = 'autoplay; encrypted-media';
   iframe.allowFullscreen = true;
   
@@ -499,6 +553,25 @@ const touchControls = {
 
 ---
 
+## CDN Infrastructure
+
+### Player Asset Hosting
+
+The video player assets are served from `hanime-cdn.com/vhtv2/`, including the following JavaScript bundles:
+
+| Bundle | Purpose |
+|--------|---------|
+| `ef036f2.js` | Main player module |
+| `c1eb2c5.js` | Player module |
+| `a37eda4.js` | Player module |
+| `b28452f.js` | Player module |
+| `40c99ce.js` | Player module |
+| `vendor.0130da3e...min.js` | Vendor/third-party dependencies |
+
+> **Note:** The WASM module is likely embedded as a base64 string within one of these JS bundles rather than loaded as a separate `.wasm` file. This is consistent with the availability of `window.wasmExports` and `window.wasmMemory` on the video page.
+
+---
+
 ## Security Considerations
 
 ### Content Protection
@@ -575,7 +648,7 @@ class HanimePlayer {
     const timestamp = Date.now();
     const encodedPoster = encodeURIComponent(this.options.posterUrl);
     
-    iframe.src = `https://hanime.tv/omni-player/index.html?poster_url=${encodedPoster}&c=${timestamp}`;
+iframe.src = `https://hanime-cdn.com/vhtv2/omni-player/index.html?poster_url=${encodedPoster}&c=${timestamp}`;
     iframe.allow = 'autoplay; encrypted-media';
     iframe.allowFullscreen = true;
     iframe.style.width = '100%';
@@ -618,3 +691,11 @@ const player = new HanimePlayer(document.getElementById('player-container'), {
 
 player.init();
 ```
+
+---
+
+## Version History
+
+| Date | Changes |
+|------|---------|
+| 2026-04-20 | Added manifest lazy-loading behavior (not called on page load); confirmed browser environment globals (`ssignature`, `stime`, `wasmExports`, `wasmMemory`); documented signature requirement for manifest endpoint (401 on expiry); added CDN infrastructure details (hanime-cdn.com/vhtv2/ JS bundles, WASM embedded in bundles); documented hv_id relationship between video pages and API calls; corrected iframe source domain from hanime.tv to hanime-cdn.com |

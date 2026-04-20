@@ -804,7 +804,7 @@ All API requests to protected endpoints require specific headers for authenticat
 
 | Header | Type | Description | Guest Value | Authenticated Value |
 |--------|------|-------------|-------------|---------------------|
-| `x-signature` | string | HMAC-SHA256 signature | Required | Required |
+| `x-signature` | string | Periodic WASM-generated signature (see [Signature Generation](#signature-generation)) | Required | Required |
 | `x-time` | integer | Unix timestamp (seconds) | Required | Required |
 | `x-signature-version` | string | Signature algorithm version | `web2` | `web2` |
 | `x-session-token` | string | Session authentication token | Empty string `""` | Token from login |
@@ -813,6 +813,8 @@ All API requests to protected endpoints require specific headers for authenticat
 | `x-license` | string | License verification | Empty string `""` | License string |
 | `Content-Type` | string | Request content type | `application/json` | `application/json` |
 | `Accept` | string | Expected response type | `application/json` | `application/json` |
+
+> **Live Traffic Verification (2026-04):** These headers were confirmed by intercepting actual API requests in a browser session. The `x-signature` value matches `window.ssignature` exactly, `x-time` matches `window.stime` exactly, and guest headers (`x-session-token`, `x-user-license`, `x-csrf-token`, `x-license`) are confirmed as empty strings `""` for unauthenticated users. The `x-signature` value is **not** computed per-request — it is generated periodically by a WASM module and stored in `window.ssignature`. All API requests within a time window reuse the same signature. See [SIGNATURE.md](SIGNATURE.md) for full details on the WASM-based generation process.
 
 ### Header Examples
 
@@ -864,6 +866,8 @@ The `stime` variable contains the matching Unix timestamp:
 const timestamp = window.stime;
 // Example: 1776569239
 ```
+
+> **Important:** The `x-signature` value is generated periodically by a WASM module and stored in `window.ssignature`. It is **not** computed per-request. All API calls within a validity window share the same signature and timestamp. See [SIGNATURE.md](SIGNATURE.md) for details on the WASM generation process and signature lifecycle.
 
 ---
 
@@ -929,6 +933,42 @@ const headers = {
   'x-license': ''
 };
 ```
+
+---
+
+#### Signature Expiry
+
+**Confirmed from live traffic (2026-04):** Signatures have a finite validity window. When a signature expires, the API returns **401 Unauthorized** responses.
+
+**Observed behavior:**
+- The `/api/v8/playlists?source=related&hv_id=1226` endpoint returned `401 Unauthorized` when the signature had expired between requests
+- The exact validity duration is unknown, but the signature persists for at least several seconds (multiple API calls within a page load share the same signature)
+- The WASM module regenerates the signature periodically, updating `window.ssignature` and `window.stime`
+
+**Implementation guidance:**
+1. **Cache the signature with its timestamp** — avoid re-fetching on every request
+2. **Detect 401 responses** — treat them as a signal that the signature has expired
+3. **Refresh on expiry** — re-extract `window.ssignature` and `window.stime` from the page when a 401 is encountered
+4. **Retry failed requests** — after refreshing the signature, retry the failed request with the new credentials
+
+```javascript
+async function fetchWithSignatureRefresh(url, headers) {
+  let response = await fetch(url, { headers });
+  
+  if (response.status === 401) {
+    // Signature expired — refresh from page globals
+    headers['x-signature'] = window.ssignature;
+    headers['x-time'] = window.stime.toString();
+    
+    // Retry with refreshed signature
+    response = await fetch(url, { headers });
+  }
+  
+  return response;
+}
+```
+
+> **See also:** [SIGNATURE.md](SIGNATURE.md) for the complete WASM-based signature generation and refresh mechanism.
 
 ---
 
@@ -1248,6 +1288,41 @@ function extractTokens(document: Document): SessionTokens {
   };
 }
 ```
+
+---
+
+## API Call Sequences
+
+The following sequences were confirmed from live browser traffic analysis (2026-04). They document the typical order of API calls when navigating the site.
+
+### Video Page Load Sequence
+
+When loading a video page (e.g., `/videos/hentai/itadaki-seieki`), the browser makes the following API calls in order:
+
+| Step | Endpoint | Method | Purpose |
+|------|----------|--------|---------|
+| 1 | `/api/v10/search_hvs` | GET | Search/lookup for the video by slug |
+| 2 | `/api/v8/video?id={slug}` | GET | Fetch video details and manifest by slug |
+| 3 | `/api/v8/playlists?source=related&hv_id={id}` | GET | Fetch related video playlists |
+| 4 | `/rapi/v7/users` | GET | User session check (guest or authenticated) |
+
+**Notes:**
+- Steps 1 and 2 may overlap or be initiated near-simultaneously
+- Step 3 depends on the `hv_id` obtained from step 2
+- Step 4 is a session validation call and can occur at any point in the sequence
+- All calls use the same `x-signature` / `x-time` pair within a single page load
+
+### Browse Page Load Sequence
+
+When loading the browse page (`/browse`), the browser makes a single API call:
+
+| Step | Endpoint | Method | Purpose |
+|------|----------|--------|---------|
+| 1 | `/api/v10/search_hvs` | GET | Fetch browse content listing with default filters |
+
+**Notes:**
+- The search endpoint doubles as the browse/listing endpoint
+- Default parameters (no `q` query, default `ordering`) return the standard browse listing
 
 ---
 
@@ -1777,7 +1852,9 @@ Serves compiled JavaScript bundles for the frontend application.
 
 ## CORS Configuration
 
-The API uses preflight OPTIONS requests for cross-origin access:
+The API uses preflight OPTIONS requests for cross-origin access. **All API calls** to `cached.freeanimehentai.net` are preceded by OPTIONS preflight requests. This was confirmed from live traffic analysis (2026-04) — every GET and POST to the API domain triggers a CORS preflight cycle.
+
+> **Implementation note:** When making requests from a browser or browser-like environment, expect each API call to result in two HTTP requests (OPTIONS + GET/POST). Non-browser clients (e.g., OkHttp, axios from Node.js) typically do not trigger preflight requests since CORS is a browser-enforced policy.
 
 ```http
 OPTIONS /api/v10/search_hvs HTTP/1.1
@@ -1974,12 +2051,20 @@ const downloadAndDecryptStream = async (manifestUrl) => {
 
 ## Version History
 
+### API Version Prefixes
+
 | Version | Endpoint Prefix | Notes |
 |---------|-----------------|-------|
 | v10 | `/api/v10/` | Current search API |
 | v9 | `/api/v9/` | Community uploads, HLS playlists |
-| v8 | `/api/v8/` | Playlists, play tracking, video manifests |
+| v8 | `/api/v8/` | Playlists, play tracking, video manifests, video details |
 | v7 | `/rapi/v7/` | User profiles, storyboards, ad events |
+
+### Document Revision History
+
+| Date | Change |
+|------|--------|
+| 2026-04-20 | Added live traffic verification notes for authentication headers, signature expiry (401 on stale signatures), API call sequences for video/browse pages, CORS preflight confirmation, WASM signature generation note referencing SIGNATURE.md |
 
 ---
 
