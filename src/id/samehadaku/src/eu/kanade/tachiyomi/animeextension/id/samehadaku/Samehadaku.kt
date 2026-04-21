@@ -251,7 +251,7 @@ class Samehadaku :
 
             "filedon" in link || "uservideo" in link || "userdrive" in link || "samevideo" in link -> {
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
-                val dataPage = doc.selectFirst("div#app")?.attr("data-page")!!
+                val dataPage = doc.selectFirst("div#app")?.attr("data-page") ?: return emptyList()
                 val json = JSONObject(dataPage)
                 val props = json.getJSONObject("props")
                 val videoUrl = props.getString("url")
@@ -260,8 +260,8 @@ class Samehadaku :
 
             "krakenfiles" in link -> {
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
-                val getUrl = doc.selectFirst("source")?.attr("src")!!
-                val videoUrl = UrlUtils.fixUrl(getUrl)?.replace("&amp;", "&")!!
+                val getUrl = doc.selectFirst("source")?.attr("src") ?: return emptyList()
+                val videoUrl = UrlUtils.fixUrl(getUrl)?.replace("&amp;", "&") ?: return emptyList()
                 listOf(Video(videoUrl, server, videoUrl, videoHeaders))
             }
 
@@ -272,8 +272,8 @@ class Samehadaku :
 
             else -> {
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
-                val videoUrl = doc.selectFirst("video source")?.attr("src")!!
-                val finalUrl = UrlUtils.fixUrl(videoUrl)!!
+                val videoUrl = doc.selectFirst("video source")?.attr("src") ?: return emptyList()
+                val finalUrl = UrlUtils.fixUrl(videoUrl) ?: return emptyList()
                 listOf(Video(finalUrl, server, finalUrl, videoHeaders))
             }
         }
