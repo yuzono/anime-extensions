@@ -1,4 +1,3 @@
-// Animetsu.kt
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
 import android.content.SharedPreferences
@@ -332,7 +331,7 @@ class Animetsu :
                                             playlistUtils.extractFromHls(
                                                 playlistUrl = fullUrl,
                                                 videoNameGen = { quality ->
-                                                    // Format "1080P (1920X1080) - 2.15MB/s" into "1080p"
+                                                    // Format "1080P (1920X1080) - 2.15MB/s" into "1080p" for more consistent quality options
                                                     val cleanQuality = quality.substringBefore(" ").let { q ->
                                                         if (q.endsWith("P")) q.lowercase() else q
                                                     }

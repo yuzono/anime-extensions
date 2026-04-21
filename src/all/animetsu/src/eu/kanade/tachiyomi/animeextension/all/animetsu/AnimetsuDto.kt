@@ -1,4 +1,3 @@
-// AnimetsuDto.kt
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
 import kotlinx.serialization.SerialName
