@@ -228,7 +228,7 @@ class Samehadaku :
             .awaitSuccess()
             .bodyString()
             .let {
-                val link = it.substringAfter("src=\"").substringBefore("\"")
+                val link = srcRegex.find(it)?.groupValues[1]?.takeIf(String::isNotBlank)!!
                 val server = element.selectFirst("span")?.text() ?: ""
                 Pair(server, link)
             }
@@ -303,5 +303,7 @@ class Samehadaku :
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
         private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
+
+        private val srcRegex by lazy { Regex("""src\s*=\s*["']([^"']+)["']""") }
     }
 }
