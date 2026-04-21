@@ -22,6 +22,7 @@ import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
@@ -54,11 +55,33 @@ class Samehadaku :
 
     override fun latestUpdatesParse(response: Response): AnimesPage = getAnimeParse(response.asJsoup(), "div.relat > article")
 
+    // ============================== Related ===============================
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.select(".rand-animesu li").mapNotNull {
+            SAnime.create().apply {
+                it.selectFirst("a")?.attr("href")?.let { url -> setUrlWithoutDomain(url) } ?: return@mapNotNull null
+                title = it.selectFirst(".judul")?.text() ?: return@mapNotNull null
+                thumbnail_url = it.selectFirst("img")?.attr("src")
+            }
+        }
+    }
+
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = SamehadakuFilters.getSearchParameters(filters)
-        return GET("$baseUrl/daftar-anime-2/page/$page/?title=$query${params.filter}", headers)
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("daftar-anime-2")
+            if (page > 1) {
+                addPathSegment("page")
+                addPathSegment(page.toString())
+            }
+            addPathSegment("")
+            addQueryParameter("title", query)
+        }.build()
+        return GET("$url${params.filter}", headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
