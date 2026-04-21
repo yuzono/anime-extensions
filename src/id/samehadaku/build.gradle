@@ -1,7 +1,11 @@
 ext {
     extName = 'Samehadaku'
     extClass = '.Samehadaku'
-    extVersionCode = 7
+    extVersionCode = 8
 }
 
 apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(":lib:bloggerextractor"))
+}
