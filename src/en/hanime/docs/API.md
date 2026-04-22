@@ -44,7 +44,7 @@ Retrieve video metadata including the hv_id and videos_manifest by video slug. T
 
 | Header | Value (Guest) |
 |--------|---------------|
-| `x-signature` | HMAC-SHA256 signature (64-char hex) |
+| `x-signature` | WASM-generated signature (64-char hex) |
 | `x-time` | Unix timestamp (seconds) |
 | `x-signature-version` | `web2` |
 | `x-session-token` | (empty for guests) |
@@ -52,7 +52,7 @@ Retrieve video metadata including the hv_id and videos_manifest by video slug. T
 | `x-csrf-token` | (empty for guests) |
 | `x-license` | (empty for guests) |
 
-**Note:** The signature is available in the global JavaScript variable `ssignature` on the page (see [Signature Generation](#signature-generation)).
+**Note:** The signature is available in the global JavaScript variable `window.ssignature` on the page (see [Signature Generation](#signature-generation)).
 
 **Response:** Returns a `hentai_video` object containing video metadata and `videos_manifest` with stream URLs.
 
@@ -92,7 +92,7 @@ Retrieve the complete video manifest containing all available servers, streams, 
 ```http
 GET /api/v8/guest/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
-x-signature: <hmac_signature>
+x-signature: <64-char_hex_from_WASM>
 x-time: 1704067200
 x-signature-version: web2
 ```
@@ -340,7 +340,7 @@ Host: m3u8s.highwinds-cdn.com
 #EXT-X-INDEPENDENT-SEGMENTS
 #EXT-X-TARGETDURATION:14
 #EXT-X-MEDIA-SEQUENCE:0
-#EXT-X-KEY:METHOD=AES-128,URI='https://hanime.tv/sign.bin'
+#EXT-X-KEY:METHOD=AES-128,URI='<key_uri_from_manifest>'
 #EXTINF:10.000,
 https://p34.htv-hydaelyn.com/3/4/2/6/h1x/segs/b0/2/0000.html
 #EXTINF:10.000,
@@ -366,18 +366,14 @@ https://p34.htv-hydaelyn.com/3/4/2/6/h1x/segs/b0/2/0002.html
 
 ### AES-128 Encryption
 
-All video segments are encrypted using AES-128. The encryption key is fetched from:
-
-```
-https://hanime.tv/sign.bin
-```
+All video segments are encrypted using AES-128. The HLS key URI is determined at runtime by the video player. It is NOT `sign.bin` — that endpoint does not exist.
 
 **Key Properties:**
 
 | Property | Value |
 |----------|-------|
 | Method | AES-128 |
-| Key URI | `https://hanime.tv/sign.bin` |
+| Key URI | Determined from `#EXT-X-KEY` tag in the M3U8 manifest |
 | IV | Typically null (uses sequence number) |
 | Key Format | Raw 16-byte binary key |
 
@@ -416,7 +412,7 @@ import javax.crypto.spec.SecretKeySpec
  * Decrypt an AES-128-CBC encrypted video segment.
  * 
  * @param encryptedData The encrypted segment data
- * @param key The 16-byte AES key fetched from sign.bin
+ * @param key The 16-byte AES key obtained from the M3U8 #EXT-X-KEY URI
  * @param segmentIndex The segment sequence number (used to generate IV)
  * @return Decrypted segment data
  */
@@ -811,10 +807,10 @@ All API requests to protected endpoints require specific headers for authenticat
 | `x-user-license` | string | User license tier | Empty string `""` | License identifier |
 | `x-csrf-token` | string | CSRF protection token | Empty string `""` | Token from cookies |
 | `x-license` | string | License verification | Empty string `""` | License string |
-| `Content-Type` | string | Request content type | `application/json` | `application/json` |
-| `Accept` | string | Expected response type | `application/json` | `application/json` |
+| `content-type` | string | Request content type | `application/json` | `application/json` |
+| `accept` | string | Expected response type | `application/json` | `application/json` |
 
-> **Live Traffic Verification (2026-04):** These headers were confirmed by intercepting actual API requests in a browser session. The `x-signature` value matches `window.ssignature` exactly, `x-time` matches `window.stime` exactly, and guest headers (`x-session-token`, `x-user-license`, `x-csrf-token`, `x-license`) are confirmed as empty strings `""` for unauthenticated users. The `x-signature` value is **not** computed per-request — it is generated periodically by a WASM module and stored in `window.ssignature`. All API requests within a time window reuse the same signature. See [SIGNATURE.md](SIGNATURE.md) for full details on the WASM-based generation process.
+> **Live Traffic Verification (2026-04):** These headers were confirmed by intercepting actual API requests in a browser session. The `x-signature` value matches `window.ssignature` exactly, `x-time` matches `window.stime` exactly, and guest headers (`x-session-token`, `x-user-license`, `x-csrf-token`, `x-license`) are confirmed as empty strings `""` for unauthenticated users. Signatures are triggered per-request via `Emit("e")`, though the WASM module may internally cache/reuse a signature within a short validity window. See [SIGNATURE.md](SIGNATURE.md) for full details on the WASM-based generation process.
 
 ### Header Examples
 
@@ -822,7 +818,7 @@ All API requests to protected endpoints require specific headers for authenticat
 ```http
 GET /api/v8/guest/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
-x-signature: a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+x-signature: 99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5
 x-time: 1704067200
 x-signature-version: web2
 x-session-token: 
@@ -837,7 +833,7 @@ Accept: application/json
 ```http
 GET /api/v8/videos/12345/manifest HTTP/1.1
 Host: cached.freeanimehentai.net
-x-signature: a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+x-signature: 99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5
 x-time: 1704067200
 x-signature-version: web2
 x-session-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
@@ -850,7 +846,7 @@ Accept: application/json
 
 ### Signature Generation
 
-The `x-signature` header contains a pre-computed HMAC-SHA256 signature that is 64 characters in hexadecimal format (256 bits). This section documents the complete signature generation process based on reverse engineering findings.
+The `x-signature` header contains a 64-character hex signature generated by a WASM module running in the browser. The signature algorithm is custom and runs entirely inside the WASM binary — it is **not** HMAC-SHA256. The WASM module is loaded from an inline base64 string in `vendor.js` and communicates with the page via an event-driven bridge (see SIGNATURE.md for full details).
 
 **Critical Finding:** The signature is available as a global JavaScript variable on the page:
 
@@ -867,49 +863,18 @@ const timestamp = window.stime;
 // Example: 1776569239
 ```
 
-> **Important:** The `x-signature` value is generated periodically by a WASM module and stored in `window.ssignature`. It is **not** computed per-request. All API calls within a validity window share the same signature and timestamp. See [SIGNATURE.md](SIGNATURE.md) for details on the WASM generation process and signature lifecycle.
+> **Important:** Signatures are triggered per-request via `Emit("e")`, though the WASM module may internally cache/reuse a signature within a short validity window. The exact validity window is unknown. If a request receives a 401, the signature may have expired — re-dispatch `Emit("e")` to regenerate. See [SIGNATURE.md](SIGNATURE.md) for details on the WASM generation process and signature lifecycle.
 
 ---
 
-#### Complete Signature Algorithm
+#### Signature Generation Summary
 
-Based on reverse engineering, the signature is generated using **HMAC-SHA256** with the following specifications:
-
-**1. Key Retrieval**
-
-The signing key is fetched from:
-
-```
-GET https://hanime.tv/sign.bin
-```
-
-**Key Properties:**
-
-| Property | Value |
-|----------|-------|
-| Endpoint | `GET https://hanime.tv/sign.bin` |
-| Response Type | Binary (16 bytes) |
-| Content | `0123456701234567` (ASCII representation) |
-| Key Length | 16 bytes (128 bits) |
-| Usage | HMAC-SHA256 key |
-
-**2. Signature Format**
-
-| Property | Value |
-|----------|-------|
-| Algorithm | HMAC-SHA256 |
-| Output Format | 64-character hexadecimal string |
-| Output Length | 256 bits (SHA-256 output) |
-| Example | `99ce0e4c35fea0b69bae9e177c614d224225897adb2b203246e2170ff1f509c5` |
-
-**3. Message Format**
-
-The message format for signing is currently under investigation. Based on analysis:
-
-```
-// Likely format includes timestamp and potentially other request data
-message = timestamp.toString()
-```
+- **Source**: WASM module (inline base64 in vendor.js)
+- **Trigger**: `Emit("e")` dispatches a CustomEvent to the WASM module
+- **Output**: `window.ssignature` (64-char hex) and `window.stime` (Unix timestamp)
+- **Algorithm**: Custom, runs inside WASM binary — internals unknown
+- **Version**: `x-signature-version: "web2"` (hardcoded)
+- **Full details**: See [SIGNATURE.md](SIGNATURE.md)
 
 ---
 
@@ -972,147 +937,15 @@ async function fetchWithSignatureRefresh(url, headers) {
 
 ---
 
-#### Manual Signature Generation
+#### Signature Acquisition
 
-For implementations that need to generate signatures manually:
+Manual signature generation is not possible without running the WASM module. The following approaches are viable:
 
-**Python Implementation:**
+1. **WebView**: Load the site in a WebView, inject `Emit("e")`, read `window.ssignature`/`window.stime`
+2. **WASM Runtime**: Load the WASM binary directly using a WASM runtime (wasmer, wasmtime, etc.)
+3. **Server Proxy**: Proxy API requests through a server that runs the WASM module
 
-```python
-import hmac
-import hashlib
-import requests
-import time
-
-# Step 1: Get the key from sign.bin
-key_response = requests.get('https://hanime.tv/sign.bin')
-key = key_response.content  # b'0123456701234567' (16 bytes)
-
-# Step 2: Create the message (likely just the timestamp)
-timestamp = str(int(time.time()))
-message = timestamp.encode('utf-8')
-
-# Step 3: Generate HMAC-SHA256 signature
-signature = hmac.new(key, message, hashlib.sha256).hexdigest()
-
-# Step 4: Use in API request
-headers = {
-    'x-signature': signature,
-    'x-time': timestamp,
-    'x-signature-version': 'web2',
-    'x-session-token': '',
-    'x-user-license': '',
-    'x-csrf-token': '',
-    'x-license': ''
-}
-
-# Step 5: Make the API request
-response = requests.get(
-    'https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest',
-    headers=headers
-)
-```
-
-**JavaScript/Node.js Implementation:**
-
-```javascript
-const crypto = require('crypto');
-const axios = require('axios');
-
-async function generateSignature() {
-  // Step 1: Get the key
-  const keyResponse = await axios.get('https://hanime.tv/sign.bin', {
-    responseType: 'arraybuffer'
-  });
-  const key = Buffer.from(keyResponse.data);
-  
-  // Step 2: Generate timestamp
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  
-  // Step 3: Create HMAC-SHA256 signature
-  const signature = crypto
-    .createHmac('sha256', key)
-    .update(timestamp)
-    .digest('hex');
-  
-  return { signature, timestamp };
-}
-
-// Usage
-async function makeApiRequest() {
-  const { signature, timestamp } = await generateSignature();
-  
-  const response = await axios.get(
-    'https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest',
-    {
-      headers: {
-        'x-signature': signature,
-        'x-time': timestamp,
-        'x-signature-version': 'web2',
-        'x-session-token': '',
-        'x-user-license': '',
-        'x-csrf-token': '',
-        'x-license': ''
-      }
-    }
-  );
-  
-  return response.data;
-}
-```
-
-**Kotlin Implementation:**
-
-```kotlin
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-import java.net.URL
-import java.time.Instant
-
-/**
- * Generate HMAC-SHA256 signature for hanime.tv API authentication.
- * 
- * @param key The 16-byte HMAC key fetched from sign.bin
- * @param timestamp Unix timestamp in seconds as string
- * @return Hex-encoded signature string (64 characters)
- */
-fun generateSignature(key: ByteArray, timestamp: String): String {
-  require(key.size == 16) { "Key must be 16 bytes" }
-  
-  val mac = Mac.getInstance("HmacSHA256")
-  mac.init(SecretKeySpec(key, "HmacSHA256"))
-  val bytes = mac.doFinal(timestamp.toByteArray())
-  
-  return bytes.joinToString("") { "%02x".format(it) }
-}
-
-/**
- * Fetch the HMAC key from sign.bin.
- */
-suspend fun fetchSignKey(): ByteArray {
-  val url = URL("https://hanime.tv/sign.bin")
-  // Implementation depends on your HTTP client
-  // Returns 16-byte binary data
-}
-
-/**
- * Build complete request headers.
- */
-fun buildHeaders(key: ByteArray): Map<String, String> {
-  val timestamp = (System.currentTimeMillis() / 1000).toString()
-  val signature = generateSignature(key, timestamp)
-  
-  return mapOf(
-    "x-signature" to signature,
-    "x-time" to timestamp,
-    "x-signature-version" to "web2",
-    "x-session-token" to "",
-    "x-user-license" to "",
-    "x-csrf-token" to "",
-    "x-license" to ""
-  )
-}
-```
+See SIGNATURE.md § Alternative Implementation Approaches for details.
 
 ---
 
@@ -1132,117 +965,7 @@ Referer: https://hanime.tv/
 Accept: application/json
 ```
 
-**TypeScript Implementation:**
-
-```javascript
-import crypto from \'crypto\';
-
-interface SignatureParams {
-  method: string;
-  path: string;
-  timestamp: number;
-  body?: string;
-  secretKey: string;
-}
-
-function generateSignature(params: SignatureParams): string {
-  const { method, path, timestamp, body = \'\', secretKey } = params;
-
-  // Construct the payload for signing
-  const payload = `${method.toUpperCase()}:${path}:${timestamp}:${body}`;
-
-  // Generate HMAC-SHA256 signature
-  const signature = crypto
-  .createHmac(\'sha256\', secretKey)
-  .update(payload)
-  .digest(\'hex\');
-
-  return signature;
-}
-
-// Example usage
-const signature = generateSignature({
-  method: \'GET\',
-  path: \'/api/v8/guest/videos/12345/manifest\',
-  timestamp: 1704067200,
-  secretKey: \'your_secret_key_here\'
-});
-```
-
-**Kotlin Implementation:**
-
-```kotlin
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-
-/**
- * Generate HMAC-SHA256 signature for API authentication.
- * 
- * @param method HTTP method (GET, POST, etc.)
- * @param path API endpoint path
- * @param timestamp Unix timestamp in seconds
- * @param body Request body (empty string for GET requests)
- * @param secretKey The secret key for signing
- * @return Hex-encoded signature string
- */
-fun generateSignature(
-    method: String,
-    path: String,
-    timestamp: Long,
-    body: String = "",
-    secretKey: String
-): String {
-    // Construct the payload: METHOD:PATH:TIMESTAMP:BODY
-    val payload = "${method.uppercase()}:$path:$timestamp:$body"
-
-    // Generate HMAC-SHA256
-    val mac = Mac.getInstance("HmacSHA256")
-    val secretKeySpec = SecretKeySpec(secretKey.toByteArray(Charsets.UTF_8), "HmacSHA256")
-    mac.init(secretKeySpec)
-
-    val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
-    
-    // Convert to hex string
-    return signatureBytes.joinToString("") { "%02x".format(it) }
-}
-
-/**
- * Build the complete headers map for an API request.
- */
-fun buildRequestHeaders(
-    method: String,
-    path: String,
-    secretKey: String,
-    sessionToken: String = "",
-    userLicense: String = "",
-    csrfToken: String = "",
-    license: String = "",
-    body: String = ""
-): Map<String, String> {
-    val timestamp = System.currentTimeMillis() / 1000
-    val signature = generateSignature(method, path, timestamp, body, secretKey)
-
-    return mapOf(
-        "x-signature" to signature,
-        "x-time" to timestamp.toString(),
-        "x-signature-version" to "web2",
-        "x-session-token" to sessionToken,
-        "x-user-license" to userLicense,
-        "x-csrf-token" to csrfToken,
-        "x-license" to license,
-        "Content-Type" to "application/json",
-        "Accept" to "application/json"
-    )
-}
-
-// Example usage
-val signature = generateSignature(
-    method = "GET",
-    path = "/api/v8/guest/videos/12345/manifest",
-    timestamp = 1704067200,
-    secretKey = "your_secret_key_here"
-)
-```
+**Note:** Manual signature generation is not possible without running the WASM module. See the [Signature Acquisition](#signature-acquisition) section above for viable approaches.
 
 ### Timestamp Format
 
@@ -1935,8 +1658,8 @@ const searchVideos = async (query, tags = [], page = 0) => {
     `https://cached.freeanimehentai.net/api/v10/search_hvs?${params}`,
     {
       headers: {
-        'x-signature': generateSignature(),
-        'x-time': Math.floor(Date.now() / 1000).toString(),
+        'x-signature': window.ssignature,
+        'x-time': window.stime.toString(),
         'x-signature-version': 'web2',
         'x-session-token': '',
         'x-user-license': '',
@@ -1956,22 +1679,18 @@ const searchVideos = async (query, tags = [], page = 0) => {
 
 ```javascript
 const getVideoManifest = async (hvId) => {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const path = `/api/v8/guest/videos/${hvId}/manifest`;
-  
-  const signature = generateSignature({
-    method: 'GET',
-    path: path,
-    timestamp: timestamp,
-    secretKey: SECRET_KEY
-  });
+const path = `/api/v8/guest/videos/${hvId}/manifest`;
 
-  const response = await fetch(
+// Trigger WASM signature generation
+window.Emit("e");
+// Wait for window.stime to be set (poll or callback)
+
+const response = await fetch(
     `https://cached.freeanimehentai.net${path}`,
     {
-      headers: {
-        'x-signature': signature,
-        'x-time': timestamp.toString(),
+        headers: {
+            'x-signature': window.ssignature,
+            'x-time': window.stime.toString(),
         'x-signature-version': 'web2',
         'x-session-token': '',
         'x-user-license': '',
@@ -1999,8 +1718,8 @@ const trackPlay = async (slug, width, height) => {
         'Content-Type': 'application/json',
         'x-session-token': getSessionToken(),
         'x-csrf-token': getCsrfToken(),
-        'x-signature': generateSignature(),
-        'x-time': Math.floor(Date.now() / 1000).toString(),
+        'x-signature': window.ssignature,
+        'x-time': window.stime.toString(),
         'x-signature-version': 'web2'
       },
       body: JSON.stringify({
@@ -2029,8 +1748,8 @@ const downloadAndDecryptStream = async (manifestUrl) => {
     .filter(line => line.startsWith('https://'))
     .map(url => url.trim());
   
-  // Fetch the encryption key
-  const keyResponse = await fetch('https://hanime.tv/sign.bin');
+// Fetch the encryption key (URI from #EXT-X-KEY tag in the M3U8 manifest)
+const keyResponse = await fetch(keyUri);
   const key = Buffer.from(await keyResponse.arrayBuffer());
   
   // Download and decrypt each segment
@@ -2453,22 +2172,40 @@ import java.io.IOException
 
 /**
  * Hanime.tv API client for fetching video content.
- * 
+ *
  * @param client OkHttp client instance
  * @param json JSON serializer instance
- * @param secretKey HMAC signing key (extracted from web player)
+ *
+ * NOTE: Signature headers must be populated from the WASM module.
+ * This class does NOT generate signatures locally — HMAC-SHA256 is incorrect.
+ * Use a WebView or WASM runtime to obtain window.ssignature/window.stime,
+ * then pass them via signatureProvider before making API calls.
  */
 class HanimeApiClient(
     private val client: OkHttpClient,
-    private val json: Json,
-    private val secretKey: String
+    private val json: Json
 ) {
     companion object {
         const val API_BASE = "https://cached.freeanimehentai.net"
         const val HANIME_DOMAIN = "https://hanime.tv"
         const val HLS_BASE = "https://m3u8s.highwinds-cdn.com"
-        const val SIGN_KEY_URL = "https://hanime.tv/sign.bin"
     }
+
+    /**
+     * Signature provider interface. Implementations must obtain
+     * x-signature and x-time from the WASM module (via WebView or WASM runtime).
+     */
+    interface SignatureProvider {
+        val signature: String   // 64-char hex from WASM
+        val time: String        // Unix timestamp from WASM
+    }
+
+    /**
+     * Current signature provider. Must be set before making API calls.
+     * In an Aniyomi extension, this is typically populated from a WebView
+     * that loads the site and reads window.ssignature / window.stime.
+     */
+    var signatureProvider: SignatureProvider? = null
 
     /**
      * Fetch video manifest containing all available streams.
@@ -2615,6 +2352,9 @@ class HanimeApiClient(
 
     /**
      * Build authenticated API request with required headers.
+     *
+     * Signature and timestamp come from the WASM module via signatureProvider.
+     * They are NOT computed locally — HMAC-SHA256 is incorrect.
      */
     private fun buildApiRequest(
         method: String,
@@ -2622,14 +2362,14 @@ class HanimeApiClient(
         query: String = "",
         body: String = ""
     ): Request {
-        val timestamp = System.currentTimeMillis() / 1000
-        val signature = generateSignature(method, path, timestamp, body, secretKey)
+        val sig = signatureProvider
+            ?: throw IllegalStateException("SignatureProvider not set — signatures must come from the WASM module (WebView/WASM runtime)")
 
         val url = buildApiUrl(path, query)
         val requestBuilder = Request.Builder()
             .url(url)
-            .addHeader("x-signature", signature)
-            .addHeader("x-time", timestamp.toString())
+            .addHeader("x-signature", sig.signature)
+            .addHeader("x-time", sig.time)
             .addHeader("x-signature-version", "web2")
             .addHeader("x-session-token", "")
             .addHeader("x-user-license", "")
@@ -2652,83 +2392,38 @@ class HanimeApiClient(
 ```kotlin
 package eu.kanade.tachiyomi.extension.all.hanime.auth
 
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-
 /**
  * Authentication utilities for hanime.tv API.
+ *
+ * NOTE: Signature generation is handled by the WASM module — there is
+ * no local HMAC-SHA256 computation. The signature and timestamp are
+ * obtained from the WASM module via window.ssignature / window.stime
+ * (in a WebView) or by running the WASM binary directly.
  */
 object HanimeAuth {
 
     /**
-     * Generate HMAC-SHA256 signature for API authentication.
-     * 
-     * Signature format: METHOD:PATH:TIMESTAMP:BODY
-     * 
-     * @param method HTTP method (GET, POST, etc.)
-     * @param path API endpoint path
-     * @param timestamp Unix timestamp in seconds
-     * @param body Request body (empty string for GET requests)
-     * @param secretKey The secret key for signing
-     * @return Hex-encoded signature string
-     */
-    fun generateSignature(
-        method: String,
-        path: String,
-        timestamp: Long,
-        body: String = "",
-        secretKey: String
-    ): String {
-        require(method.isNotEmpty()) { "Method cannot be empty" }
-        require(path.isNotEmpty()) { "Path cannot be empty" }
-        require(secretKey.isNotEmpty()) { "Secret key cannot be empty" }
-
-        // Construct the payload: METHOD:PATH:TIMESTAMP:BODY
-        val payload = "${method.uppercase()}:$path:$timestamp:$body"
-
-        // Generate HMAC-SHA256
-        val mac = Mac.getInstance("HmacSHA256")
-        val secretKeySpec = SecretKeySpec(
-            secretKey.toByteArray(Charsets.UTF_8),
-            "HmacSHA256"
-        )
-        mac.init(secretKeySpec)
-
-        val signatureBytes = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
-
-        // Convert to lowercase hex string
-        return signatureBytes.joinToString("") { "%02x".format(it) }
-    }
-
-    /**
      * Build the complete headers map for an API request.
-     * 
-     * @param method HTTP method
-     * @param path API endpoint path
-     * @param secretKey HMAC signing key
+     *
+     * @param signature 64-char hex signature from the WASM module
+     * @param time Unix timestamp from the WASM module
      * @param sessionToken Optional session token (for authenticated requests)
      * @param userLicense Optional user license
      * @param csrfToken Optional CSRF token
      * @param license Optional license string
-     * @param body Request body (for POST requests)
      * @return Map of header names to values
      */
     fun buildHeaders(
-        method: String,
-        path: String,
-        secretKey: String,
+        signature: String,
+        time: String,
         sessionToken: String = "",
         userLicense: String = "",
         csrfToken: String = "",
-        license: String = "",
-        body: String = ""
+        license: String = ""
     ): Map<String, String> {
-        val timestamp = System.currentTimeMillis() / 1000
-        val signature = generateSignature(method, path, timestamp, body, secretKey)
-
         return mapOf(
             "x-signature" to signature,
-            "x-time" to timestamp.toString(),
+            "x-time" to time,
             "x-signature-version" to "web2",
             "x-session-token" to sessionToken,
             "x-user-license" to userLicense,
@@ -2811,7 +2506,7 @@ object HlsParser {
     /**
      * Extract the encryption key URI from #EXT-X-KEY line.
      * 
-     * Example: #EXT-X-KEY:METHOD=AES-128,URI='https://hanime.tv/sign.bin'
+     * Example: #EXT-X-KEY:METHOD=AES-128,URI='<key_uri_from_manifest>'
      */
     private fun extractKeyUri(line: String): String? {
         val uriMatch = Regex("URI='([^']+)'").find(line)
@@ -2857,7 +2552,7 @@ object AesDecryptor {
      * - 16-byte array with the segment index written as big-endian at bytes 12-15
      * 
      * @param encryptedData The encrypted segment data
-     * @param key The 16-byte AES key fetched from sign.bin
+     * @param key The 16-byte AES key obtained from the M3U8 #EXT-X-KEY URI
      * @param segmentIndex The segment sequence number (0-indexed)
      * @return Decrypted segment data
      * @throws IllegalArgumentException if key is not 16 bytes
@@ -2946,9 +2641,6 @@ class VideoFetcher(
     private val client: OkHttpClient,
     private val apiClient: HanimeApiClient
 ) {
-    companion object {
-        private const val SIGN_KEY_URL = "https://hanime.tv/sign.bin"
-    }
 
     /**
      * Video information ready for playback.
@@ -2965,16 +2657,17 @@ class VideoFetcher(
 
     /**
      * Fetch all available videos for a hentai video ID.
-     * 
+     *
      * @param hvId Hentai video ID
      * @return List of video information for each quality
      */
     suspend fun fetchVideos(hvId: Int): List<VideoInfo> = withContext(Dispatchers.IO) {
         // Fetch manifest
         val manifest = apiClient.fetchVideoManifest(hvId)
-        
-        // Get encryption key (all streams use the same key)
-        val encryptionKey = fetchEncryptionKey()
+
+        // The AES encryption key URI is obtained from the #EXT-X-KEY tag
+        // in the M3U8 manifest — it is NOT sign.bin (that endpoint does not exist).
+        // Each playlist may specify its own key URI.
 
         // Collect all streams from all servers
         manifest.servers
@@ -2984,19 +2677,20 @@ class VideoFetcher(
                 VideoInfo(
                     stream = stream,
                     playlistUrl = stream.url,
-                    encryptionKey = encryptionKey
+                    encryptionKey = null // Key fetched from M3U8 #EXT-X-KEY URI at playback time
                 )
             }
     }
 
     /**
-     * Fetch the AES encryption key from sign.bin.
-     * 
-     * @return 16-byte AES key
+     * Fetch the AES encryption key from the URI specified in the M3U8 manifest.
+     *
+     * @param keyUri The key URI from the #EXT-X-KEY tag in the HLS playlist
+     * @return AES key bytes
      */
-    private suspend fun fetchEncryptionKey(): ByteArray = withContext(Dispatchers.IO) {
+    private suspend fun fetchEncryptionKey(keyUri: String): ByteArray = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(SIGN_KEY_URL)
+            .url(keyUri)
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -3103,10 +2797,9 @@ class Hanime : AnimeHttpSource() {
         isLenient = true
     }
 
-    // Secret key extracted from web player JavaScript
-    private val secretKey = "extracted_secret_key_here"
-
-    private val apiClient = HanimeApiClient(client, json, secretKey)
+    // Signature obtained from the WASM module via WebView or WASM runtime.
+    // See SIGNATURE.md for implementation approaches.
+    private val apiClient = HanimeApiClient(client, json)
     private val videoFetcher = VideoFetcher(client, apiClient)
     private val playlistUtils = PlaylistUtils(client, json)
 

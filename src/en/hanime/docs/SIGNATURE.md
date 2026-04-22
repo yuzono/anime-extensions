@@ -1,271 +1,408 @@
 # hanime.tv Signature Generation Documentation
 
-This document provides comprehensive documentation of the signature authentication system used by hanime.tv for API requests. This information is based on reverse engineering findings and covers the complete signature generation process.
+> **Version 2.0** — Major rewrite based on full WASM binary extraction and disassembly.
+> All items corrected from prior versions are marked with **[CORRECTED]**.
 
-> **⚠️ CRITICAL CORRECTION (v1.2):** Many original assumptions in this document were WRONG. The signature algorithm is **NOT plain HMAC-SHA256**. Verified browser experiments prove that no standard HMAC-SHA256 construction produces the correct signature. The actual algorithm is implemented inside a WASM binary and remains under investigation. All HMAC-SHA256 implementation examples below are **UNVERIFIED** and **will NOT produce valid signatures**.
+This document provides comprehensive documentation of the signature authentication system
+used by hanime.tv for API requests, based on reverse engineering of the WASM binary,
+JS bundles, and live browser behavior.
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [WASM-Based Signature Generation](#wasm-based-signature-generation)
-3. [WASM Memory Struct Layout](#wasm-memory-struct-layout)
-4. [Signature Lifecycle](#signature-lifecycle)
-5. [The Key (Critical)](#the-key-critical)
-6. [The Signature Format](#the-signature-format)
-7. [Required Headers](#required-headers)
-8. [Step-by-Step Generation Process](#step-by-step-generation-process)
-9. [Implementation Examples](#implementation-examples)
-10. [Alternative Implementation Approaches](#alternative-implementation-approaches)
-11. [Troubleshooting](#troubleshooting)
+2. [WASM Loading Mechanism](#wasm-loading-mechanism)
+3. [WASM Export Table](#wasm-export-table)
+4. [WASM Import Table](#wasm-import-table)
+5. [ASM_CONSTS — The JS↔WASM Bridge](#asm_consts--the-jswasm-bridge)
+6. [Event-Driven Signature Generation Flow](#event-driven-signature-generation-flow)
+7. [HTTP Header Construction](#http-header-construction)
+8. [WASM Memory Layout](#wasm-memory-layout)
+9. [Signature Lifecycle](#signature-lifecycle)
+10. [The Signature Format](#the-signature-format)
+11. [Required Headers](#required-headers)
+12. [Data Section Findings](#data-section-findings)
+13. [Architectural Summary](#architectural-summary)
+14. [Alternative Implementation Approaches](#alternative-implementation-approaches)
+15. [Troubleshooting](#troubleshooting)
+16. [JS Bundle Distribution](#js-bundle-distribution)
+17. [Next Steps for Algorithm Extraction](#next-steps-for-algorithm-extraction)
+18. [File References](#file-references)
+19. [Version History](#version-history)
 
 ---
 
 ## Overview
 
-hanime.tv uses a **WASM-based custom signature algorithm** for API authentication. Every request to protected endpoints must include a valid signature in the `x-signature` header along with supporting authentication headers.
-
-> **⚠️ IMPORTANT:** The original assumption that the algorithm is HMAC-SHA256 is **INCORRECT**. Extensive browser testing confirmed that NO standard HMAC-SHA256 variant matches the WASM output. The actual algorithm is implemented inside a compiled WebAssembly binary and is under investigation.
+hanime.tv uses a **WASM-based custom signature algorithm** for API authentication. Every
+request to protected endpoints must include a valid signature in the `x-signature` header
+along with supporting authentication headers.
 
 ### Security Model
 
-- **Algorithm**: **Under investigation — WASM-based custom algorithm** (NOT standard HMAC-SHA256)
-- **Key Source**: Fetched dynamically from `https://hanime.tv/sign.bin`
-- **Key Length**: 16 bytes (128 bits)
-- **Signature Length**: 64 characters (hexadecimal)
-- **Timestamp**: Unix timestamp in seconds
-- **WASM Runtime**: Emscripten-compiled module with 9 exported functions
+| Property | Value |
+|----------|-------|
+| Algorithm | Custom, implemented entirely inside WASM binary |
+| Key Source | **[CORRECTED]** Embedded inside the WASM binary itself (no external fetch) |
+| Signature Length | 64 characters (hexadecimal) |
+| Timestamp | Unix timestamp in seconds |
+| Compiler | Emscripten with embind (C++ with JavaScript binding support) |
+| Total Functions | ~586 (24 imported, ~562 locally defined) |
+| Indirect Call Table | 323 entries (vtable/embind dispatch) |
 
-### What We Tested and Ruled Out
+### What Was Corrected from Prior Versions
 
-The following standard constructions were all tested and **NONE matched the WASM output**:
+The following prior assumptions have been definitively disproven:
 
-- `HMAC-SHA256(key="0123456701234567", msg=timestamp_string)` ❌
-- `HMAC-SHA256(key=hex_decoded_0x0123456701234567, msg=timestamp_string)` ❌
-- `HMAC-SHA256(key=SHA256(key), msg=timestamp)` ❌
-- Double HMAC (HMAC of HMAC) ❌
-- `SHA-256(key + timestamp)` or `SHA-256(timestamp + key)` ❌
-- Any other standard construction tested ❌
-
-The WASM binary must be extracted and disassembled to determine the actual algorithm.
+- ~~Key is fetched from `hanime.tv/sign.bin`~~ — **No `sign.bin` fetch exists.** The key is
+  embedded inside the WASM binary. **[CORRECTED]**
+- ~~Key is 16 bytes ASCII `"0123456701234567"`~~ — **No evidence for this key.** The signing
+  key is internal to the WASM. **[CORRECTED]**
+- ~~Algorithm is HMAC-SHA256~~ — **Confirmed wrong.** The algorithm runs entirely inside
+  the WASM binary and produces a 64-char hex string through an unknown process. **[CORRECTED]**
+- ~~WASM binary has not yet been extracted~~ — **Wrong.** The WASM has been fully extracted
+  to `docs/wasm_dump/0007b7b6.wasm` (WAT format, 1.55MB). **[CORRECTED]**
+- ~~Export B takes `(offset, length)` and is a memory copy function~~ — **Wrong.** Export B
+  is `_on_window_event`, the signature writer that processes events. **[CORRECTED]**
+- ~~Export E returns pointer 86200~~ — **Wrong.** The literal `86200` does not appear in the
+  WAT file. The address was runtime-computed. **[CORRECTED]**
+- ~~Memory struct at hardcoded offset 86200~~ — **No hardcoded struct offset.** The stack
+  pointer starts at 85904 (0x14F50). Addresses are runtime-computed. **[CORRECTED]**
 
 ---
 
-## WASM-Based Signature Generation
+## WASM Loading Mechanism
 
-**Important Discovery:** The signature is generated using WebAssembly (WASM), not plain JavaScript. This significantly increases the complexity of reverse engineering.
-
-### WASM Module Access
-
-The WASM module is exposed globally via `window.wasmExports`:
+**[CORRECTED]** The WASM binary is NOT loaded from a separate `.wasm` file. It is **embedded
+inline as base64** inside the vendor JS bundle:
 
 ```javascript
-// Access the WASM exports
-const wasm = window.wasmExports;
+// From: vendor.0130da3e01eaf5c7d570b6ed1becb5f4.min.js
 
-// Available functions (VERIFIED):
-// - z(): Returns WebAssembly.Memory (same as window.wasmMemory)
-// - A(): Emscripten type registration/init
-// - B(offset, length): Signature writer — writes 64-char hex to memory
-// - C(offset, length): Memory copy function
-// - D(): Unknown — crashes with wrong params
-// - E(): Returns pointer to signature struct (86200)
-// - F(): Setter/init function
-// - G(): Setter/init function
-// - H(): Returns 0
-// - I(): Returns 0
+var wasmBinaryFile;
+
+function findWasmBinary() {
+    return base64Decode(
+        "AGFzbQEAAAABmwMyYAF/AX9gAn9/AGACf38Bf2ABfwBgA39/fwF/YAZ/f39/f38Bf2AFf39/f38Bf2ADf39/..."
+        // Entire WASM binary, base64-encoded, starting with AGFzbQ
+    );
+}
 ```
 
-### Browser Global Variables (Confirmed)
+The WASM module is instantiated by the Emscripten glue code in the vendor bundle. No
+network request for a `.wasm` file is made — the binary is self-contained within the
+JavaScript.
+
+---
+
+## WASM Export Table
+
+**[CORRECTED]** The prior export mapping was wrong. The correct mapping, verified against
+the WAT disassembly:
+
+| Export | JS Binding | Purpose |
+|--------|-----------|---------|
+| `z` | `wasmMemory` | Linear memory (258 pages = 16,908,288 bytes, fixed) |
+| `A` | `initRuntime` | embind type registration (C++ static init) |
+| `B` | `_on_window_event` | **THE SIGNATURE WRITER** — processes events, computes signature |
+| `C` | `_main` | C/C++ `main()` entry point |
+| `D` | `___getTypeName` | embind RTTI type name lookup |
+| `E` | `_malloc` | Heap memory allocator |
+| `F` | `_free` | Heap memory deallocator |
+| `G` | `__emscripten_stack_restore` | Stack pointer restore |
+| `H` | `__emscripten_stack_alloc` | Stack space allocation |
+| `I` | `_emscripten_stack_get_current` | Current stack pointer read |
+
+### Key Export Details
+
+**Export B — `_on_window_event` (function index 535):**
+
+This is the critical function. It is invoked via `Module.ccall()` when a window event is
+dispatched. It processes the event internally, calls ASM_CONSTS to obtain a timestamp and
+write the signature result, and is the sole path by which `window.ssignature` and
+`window.stime` are populated.
+
+**Export C — `_main`:**
+
+The C/C++ `main()` function. On startup, it calls import `y` (`window_on`) to register
+event listeners on the `window` object. Specifically, it registers a listener for event
+`"e"`, which is the trigger for signature computation.
+
+**Export A — `initRuntime`:**
+
+Runs embind type registration. Calling it twice produces the error
+`"Cannot register type 'void' twice"` — this is standard embind behavior, not a bug.
+
+---
+
+## WASM Import Table
+
+The WASM module imports 24 functions from the host module `"a"`:
+
+| Import | JS Function | Purpose |
+|--------|-----------|---------|
+| `a` | `__embind_register_memory_view` | Register memory view type |
+| `b` | `__embind_register_integer` | Register integer types |
+| `c` | `__emval_decref` | Decrement emval reference count |
+| `d` | `__embind_register_std_wstring` | Register wide string type |
+| `e` | `__embind_register_float` | Register float types |
+| `f` | `__embind_register_bigint` | Register bigint types |
+| `g` | `_emscripten_asm_const_int` | **Execute inline JS from WASM** (signature writer bridge) |
+| `h` | `__emval_run_destructors` | Run emval destructors |
+| `i` | `__emval_invoke` | Invoke emval function |
+| `j` | `__emval_incref` | Increment emval reference count |
+| `k` | `__emval_create_invoker` | Create emval invoker |
+| `l` | `__emval_get_property` | Get property on emval handle |
+| `m` | `__emval_new_cstring` | Create C string emval |
+| `n` | `__embind_register_emval` | Register emval type |
+| `o` | `__embind_register_std_string` | Register std::string type |
+| `p` | `__emval_get_global` | Get global object |
+| `r` | `__embind_register_bool` | Register boolean type |
+| `s` | `__embind_register_void` | Register void type |
+| `t` | `__tzset_js` | Set timezone info |
+| `u` | `_environ_get` | Get environment variables |
+| `v` | `_emscripten_resize_heap` | Resize heap (always aborts — fixed memory) |
+| `w` | `_environ_sizes_get` | Get env variable sizes |
+| `x` | `___cxa_throw` | C++ exception throw |
+| `y` | `window_on` | Register window event listener |
+
+Import `g` (`_emscripten_asm_const_int`) is the bridge that allows WASM to call back into
+JavaScript. This is how the WASM module reads the current timestamp and writes the
+signature result — see the next section for details.
+
+Import `v` (`_emscripten_resize_heap`) always aborts because the memory is fixed at
+258 pages. Dynamic growth is not supported.
+
+---
+
+## ASM_CONSTS — The JS↔WASM Bridge
+
+The WASM module calls back into JavaScript via import `g` (`_emscripten_asm_const_int`).
+The JS side maintains a dispatch table keyed by code offset:
 
 ```javascript
-window.ssignature    // "c1c40b42..." — 64-char hex signature, matches x-signature header
-window.stime         // 1776643038 — Unix timestamp in seconds, matches x-time header
-window.wasmExports   // { z, A, B, C, D, E, F, G, H, I } — WASM module exports
-window.wasmMemory    // WebAssembly.Memory — shared WASM linear memory (same as wasmExports.z)
+var ASM_CONSTS = {
+    17392: () => parseInt(new Date().getTime() / 1e3),
+    // Get Unix timestamp (seconds)
+
+    17442: ($0, $1) => {
+        window.ssignature = UTF8ToString($0);
+        // $0 = pointer to WASM memory containing the signature string
+
+        window.stime = $1;
+        // $1 = the timestamp integer
+    },
+};
 ```
 
-### WASM Function Signatures (VERIFIED)
+### How It Works
 
-Based on direct browser experimentation, the exports behave as follows:
+1. **ASM_CONSTS[17392]** — The WASM calls this to get the current Unix timestamp in
+   seconds. No arguments are passed; the return value is an integer.
 
-| Function | Params | Return | Verified Purpose |
-|----------|--------|--------|-----------------|
-| `z` | N/A | WebAssembly.Memory | The WASM linear memory (same as window.wasmMemory) |
-| `A` | 0 | Error: "Cannot register type 'void' twice" | Emscripten type registration/init — crashes if called twice |
-| `B` | 2 (offset, length) | undefined (void) | Writes 64-char hex signature to offset 86280 in WASM memory. Reads timestamp from internal struct at offset 86216, NOT from the input parameters. |
-| `C` | 2 (offset, length) | number (pointer) | Memory copy function — returns pointer to copied data |
-| `D` | unknown | Error: "memory access out of bounds" | Needs specific params, crashes with wrong input |
-| `E` | 0 | number (86200) | Returns pointer to the signature struct at offset 86200 |
-| `F` | unknown | undefined (void) | Setter/init function |
-| `G` | unknown | undefined (void) | Setter/init function |
-| `H` | 0 | number (0) | Returns 0, purpose unknown |
-| `I` | 0 | number (0) | Returns 0, purpose unknown |
+2. **ASM_CONSTS[17442]** — The WASM calls this to write the signature result back to
+   JavaScript. Two arguments are passed:
+   - `$0` — A pointer into WASM linear memory containing the signature as a
+     null-terminated UTF-8 string (64 hex characters)
+   - `$1` — The timestamp integer that was used for this signature
 
-### B() Function Behavior (CRITICAL)
+The `UTF8ToString($0)` helper reads from WASM linear memory at the given pointer and
+decodes the bytes as a UTF-8 string. This is how the 64-character hex signature crosses
+the WASM↔JS boundary.
 
-- `B(offset, length)` does **NOT** use the offset/length to read the timestamp from arbitrary memory
-- `B()` reads the timestamp from the **fixed struct at offset 86216**
-- `B()` writes the 64-char hex signature to **offset 86280**
-- The offset/length parameters appear to control WHERE B() reads its input within the struct (not from arbitrary memory)
-- Calling `B()` with incorrect offsets causes "memory access out of bounds" crashes
-- The signature is also found at offset 86056 (in the WASM data segment near other string constants like `"US.UTF-8"` and `"this.program"`)
+---
 
-### Memory Access Pattern
+## Event-Driven Signature Generation Flow
 
-WASM uses `window.wasmMemory` for data exchange between JavaScript and WASM:
+The signature is generated through an event-driven architecture, not by direct function
+calls:
+
+### Step-by-Step Sequence
+
+1. **Page loads** — `vendor.js` creates the WASM instance from the inline base64 binary.
+
+2. **`initRuntime()`** — JS calls export `A()` → embind type registration runs.
+
+3. **`callMain()`** — JS calls export `C()` → `_main()` executes, which calls import `y`
+   (`window_on`) to register event listeners on `window`.
+
+4. **Event registration** — `_main()` registers a listener for the custom event named
+   `"e"` on the `window` object.
+
+5. **Event fires** — When `"e"` is dispatched, JS calls:
+   ```javascript
+   Module.ccall("on_window_event", null, ["string", "string"], ["e", JSON.stringify(detail || {})])
+   ```
+   This enters WASM export B (`_on_window_event`, function index 535).
+
+6. **WASM processes the event** — Inside export B, the WASM:
+   - Calls ASM_CONSTS[17392] to get the current Unix timestamp
+   - Performs the signature computation (algorithm unknown)
+   - Calls ASM_CONSTS[17442] to write results to JavaScript globals
+
+7. **Results written** — After ASM_CONSTS[17442] executes:
+   - `window.ssignature` = 64-character hex signature string
+   - `window.stime` = Unix timestamp integer
+
+8. **App readiness** — The Vue app polls `window.stime` every 100ms. When truthy, it
+   stops polling and the app is ready.
+
+9. **Per-request signing** — On every API request, `Emit("e")` triggers a fresh
+   signature computation, then headers are constructed from the current
+   `window.ssignature` and `window.stime`.
+
+### The Emit Function
+
+```javascript
+window.Emit = function(t) {
+    return window.dispatchEvent(new CustomEvent(t));
+}
+```
+
+This is a simple wrapper around `window.dispatchEvent`. Calling `Emit("e")` triggers the
+WASM signature computation.
+
+### The Polling Loop (from 40c99ce.js)
+
+```javascript
+// On app mount:
+window.stime
+    ? this.finalizer()           // already set — app ready
+    : (this.stime_poll = setInterval(function() {
+        Emit("e"),               // trigger WASM signature computation
+        window.stime && (        // check if WASM wrote the result
+            t.finalizer(),
+            clearInterval(t.stime_poll),
+            t.stime_poll = null
+        );
+    }, 100))
+```
+
+The polling loop fires the `"e"` event every 100ms until the WASM module has written a
+timestamp to `window.stime`. Once the first signature is produced, the app considers
+itself initialized and stops polling.
+
+---
+
+## HTTP Header Construction
+
+**[CORRECTED]** The complete header construction logic, verified from `40c99ce.js`:
+
+```javascript
+{
+    "content-type":       "application/json",
+    "accept":             "application/json",
+    "x-session-token":    S.session_token || "",
+    "x-user-license":     S.encrypted_user_license || "",
+    "x-license":          t.x_license || "",
+    "x-signature-version": "web2",           // HARDCODED
+    "x-signature":        window.ssignature,  // FROM WASM
+    "x-time":             window.stime,       // FROM WASM
+    "x-csrf-token":       S.csrf_token || "",
+}
+```
+
+### Header Notes
+
+- `x-signature-version` is hardcoded as `"web2"` — it is never dynamically computed.
+- `x-signature` and `x-time` come directly from the WASM-written globals.
+- `x-session-token`, `x-user-license`, `x-csrf-token`, and `x-license` are empty for
+  guest requests and populated from the session store for authenticated requests.
+- `content-type` and `accept` are always `"application/json"`.
+
+### Guest Request Example
+
+```http
+content-type: application/json
+accept: application/json
+x-session-token:
+x-user-license:
+x-license:
+x-signature-version: web2
+x-signature: <64-char hex from window.ssignature>
+x-time: <Unix timestamp from window.stime>
+x-csrf-token:
+```
+
+### Authenticated Request Example
+
+```http
+content-type: application/json
+accept: application/json
+x-session-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+x-user-license: <encrypted_user_license>
+x-license: <license_string>
+x-signature-version: web2
+x-signature: <64-char hex from window.ssignature>
+x-time: <Unix timestamp from window.stime>
+x-csrf-token: <csrf_token>
+```
+
+---
+
+## WASM Memory Layout
+
+**[CORRECTED]** The prior documentation claimed a hardcoded struct at offset 86200. The
+literal `86200` does NOT appear in the WAT file. The address `86200` was a
+runtime-computed value observed in the browser, not a constant in the binary.
+
+### Memory Regions
+
+| Region | Address Range | Size | Description |
+|--------|--------------|------|-------------|
+| Data | `0x0000` — `~0x5000` | ~20KB | Static data (locale, hex table, case maps) |
+| Stack | `0x14F50` ↓ (grows down) | ~85,904 bytes | Stack pointer (`$global0`) starts here |
+| Heap | Above stack → `0x1010000` | ~16MB | Managed by `_malloc` / `_free` |
+| **Total** | `0x0000` — `0x1010000` | 16,908,288 bytes | 258 pages x 64KB, **fixed, no growth** |
+
+### Memory Access from JavaScript
 
 ```javascript
 // Read from WASM memory
 const memory = new Uint8Array(window.wasmMemory.buffer);
 const result = memory.slice(offset, offset + length);
 
-// Write to WASM memory (e.g., write timestamp before calling B())
+// Write to WASM memory
 memory.set(data, offset);
 ```
 
-### Why WASM?
+### Key Points
 
-hanime.tv uses WASM for signature generation because it:
-
-- Makes reverse engineering significantly more difficult
-- Protects the algorithm from easy inspection
-- Allows use of cryptographic primitives not visible in JavaScript
-- Requires either:
-  - Running the actual WASM module
-  - Extracting and analyzing the WASM binary
-  - Reimplementing the algorithm
-
-The WASM appears to be compiled with **Emscripten** (based on `A()` error message about type registration).
-
-### Current Research Status
-
-- ✅ `B()` is **confirmed** as the signature writer function
-- ✅ `E()` is **confirmed** as returning the pointer to the signature struct at offset 86200
-- ✅ The algorithm is **definitively NOT** standard HMAC-SHA256
-- ❌ The actual algorithm inside the WASM binary is still unknown
-- ❌ The WASM binary has not yet been extracted for disassembly
-- **Next steps for reverse engineering:**
-  1. Extract the WASM binary (likely inline/base64-encoded in one of the JS bundles at `hanime-cdn.com/vhtv2/*.js`)
-  2. Disassemble using `wasm2wat` or similar tool
-  3. Analyze function B (wasm-function[535]) and its callees
-
-**Note:** For reverse engineering assistance, see [WASM Reverse Engineering Guide](./wasm_reverse_engineer.md).
-
----
-
-## WASM Memory Struct Layout
-
-**Critical Discovery:** At offset 86200 (returned by `E()`), there is a structured data region used by the signature generation process.
-
-### Struct Layout Table
-
-| Offset | Content | Description |
-|--------|---------|-------------|
-| 86200 | `"//hanime.tv\0"` | Domain string (13 bytes + null) |
-| 86212 | `[0x19, 0x0F, 0x00, 0x00]` | Metadata/length field (little-endian) |
-| 86216 | `"1776647020\0"` | Current Unix timestamp string (10 bytes + null) |
-| 86226–86275 | zeros | Padding/reserved |
-| 86276 | `[0xD9, 0x0E, 0x00, 0x00]` | Metadata/length prefix |
-| 86280 | `<64-char hex signature>` | The generated signature output |
-
-### Key Insight
-
-`B()` reads the timestamp from offset **86216** in this struct, NOT from its input parameters. The JavaScript code must write the timestamp to this struct **before** `B()` is called. The flow is:
-
-1. JS writes current Unix timestamp string to offset 86216
-2. JS calls `B(offset, length)`
-3. `B()` reads timestamp from offset 86216 in the struct
-4. `B()` writes the 64-char hex signature to offset 86280
-5. JS reads the signature from offset 86280
-
-### Reading the Signature from WASM Memory
-
-```javascript
-// After B() has been called:
-const memory = new Uint8Array(window.wasmMemory.buffer);
-
-// Read the 64-char hex signature from offset 86280
-const signatureBytes = memory.slice(86280, 86280 + 64);
-const signature = new TextDecoder().decode(signatureBytes);
-
-// Read the timestamp from offset 86216
-const timestampBytes = memory.slice(86216, 86216 + 10);
-const timestamp = new TextDecoder().decode(timestampBytes);
-```
+- The stack grows **downward** from 0x14F50 (85904 decimal).
+- Heap allocation is handled by `_malloc` (export E) and `_free` (export F).
+- `_emscripten_resize_heap` (import v) always aborts — the 258-page limit is fixed.
+- Runtime-computed addresses (like the previously reported `86200`) are determined by
+  stack and heap state at execution time, not by constants in the binary.
 
 ---
 
 ## Signature Lifecycle
 
-### Periodic Generation (NOT On-Demand)
+### Event-Driven Generation (NOT On-Demand)
 
-The signature is generated **periodically by a timer**, NOT on-demand per API request:
+The signature is generated through the event system, not by direct function calls:
 
-- `window.ssignature` is a 64-char hex string that matches the WASM output exactly
-- `window.stime` is the Unix timestamp in seconds
-- API requests simply **read** `window.ssignature` and `window.stime` at request time
-- The signature refresh timer runs in the background (exact interval not determined, but at least several seconds)
+- `Emit("e")` triggers the WASM signature computation
+- The WASM writes results to `window.ssignature` and `window.stime`
+- API requests read these globals at request time
+- On startup, a 100ms polling loop fires `Emit("e")` until the first signature is ready
+- For subsequent API requests, `Emit("e")` is called to produce a fresh signature
 
 ### Signature Expiry
 
-- Signatures **EXPIRE** — we observed **401 Unauthorized** responses on the playlists endpoint when using an old signature
+- Signatures **expire** — 401 Unauthorized responses occur when using a stale signature
 - The exact validity window is not yet determined
-- Implementations must refresh signatures periodically, not just generate once
+- Implementations must refresh signatures before each request or implement periodic refresh
+- If a 401 is received, re-emit the event and retry
 
 ### Implications for Implementations
 
 - Do NOT assume a signature is valid indefinitely
-- Implement a timer-based refresh mechanism (similar to the browser's approach)
-- If a 401 is received, refresh the signature and retry
-
----
-
-## The Key (Critical)
-
-The signing key is **not static** and must be retrieved from hanime.tv's servers before generating signatures.
-
-> **⚠️ Note:** While the key IS confirmed (see below), the algorithm that uses it is **NOT plain HMAC-SHA256**. The key is consumed by the WASM binary, and the WASM's internal algorithm is unknown.
-
-### Key Retrieval
-
-**Endpoint:**
-```
-GET https://hanime.tv/sign.bin
-```
-
-**Response Details:**
-
-| Property | Value |
-|----------|-------|
-| HTTP Method | `GET` |
-| Content-Type | `application/octet-stream` |
-| Response Size | 16 bytes |
-| Response Encoding | Binary |
-
-**Response Content:**
-
-The response contains exactly 16 bytes of binary data. When interpreted as ASCII, the key is:
-
-```
-0123456701234567
-```
-
-**Key Properties:**
-
-| Property | Value |
-|----------|-------|
-| Length | 16 bytes |
-| Bit Length | 128 bits |
-| ASCII Content | `0123456701234567` |
-| Binary Content | `0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x30 0x31 0x32 0x33 0x34 0x35 0x36 0x37` |
-| Hex Representation | `30313233343536373031323334353637` |
-| Algorithm | **WASM-based custom algorithm** (NOT HMAC-SHA256) |
-
-### Key Usage
-
-The key is used by the WASM signature algorithm. The same key is also used for **AES-128 encryption** of video segments in the HLS streams. The key appears to be **static/unchanging**.
+- Emit the `"e"` event before each API request to get a fresh signature
+- Implement retry logic for 401 responses
+- The polling loop pattern (fire every 100ms until `window.stime` is set) can be used
+  for initialization
 
 ---
 
@@ -278,7 +415,7 @@ The key is used by the WASM signature algorithm. The same key is also used for *
 | Format | Hexadecimal string |
 | Length | 64 characters |
 | Bit Length | 256 bits |
-| Algorithm | **WASM-based custom algorithm** (NOT HMAC-SHA256) |
+| Algorithm | Custom WASM-based (unknown internals) |
 | Case | Lowercase |
 
 ### Example Signatures
@@ -291,12 +428,9 @@ c1c40b42...
 
 ### Browser-Based Access
 
-The signature is pre-computed and available in the browser's global scope:
-
 ```javascript
-// Access signature from global JavaScript
 window.ssignature // "c1c40b42..." — 64-char hex signature, matches x-signature header
-window.stime      // 1776643038 (Unix timestamp)
+window.stime      // 1776643038 — Unix timestamp in seconds, matches x-time header
 ```
 
 ---
@@ -305,544 +439,70 @@ window.stime      // 1776643038 (Unix timestamp)
 
 Every API request requires the following authentication headers:
 
-### Header Specification
-
 | Header | Type | Guest Value | Description |
 |--------|------|-------------|-------------|
 | `x-signature` | string | **Required** | 64-char hex signature from WASM |
 | `x-time` | integer | **Required** | Unix timestamp in seconds |
-| `x-signature-version` | string | `web2` | Signature algorithm version |
+| `x-signature-version` | string | `"web2"` | Signature algorithm version (**hardcoded**) |
 | `x-session-token` | string | `""` (empty) | Session authentication token |
 | `x-user-license` | string | `""` (empty) | User license tier |
 | `x-csrf-token` | string | `""` (empty) | CSRF protection token |
 | `x-license` | string | `""` (empty) | License verification |
 
-### Complete Header Example (VERIFIED from live traffic)
+Additionally, all requests include:
 
-**Guest Request Headers:**
-```http
-x-signature: <64-char hex from window.ssignature>
-x-time: <Unix timestamp from window.stime>
-x-signature-version: web2
-x-session-token:
-x-user-license:
-x-csrf-token:
-x-license:
-```
-
-### Authenticated Request Headers
-
-For authenticated requests, populate the token fields:
-```http
-x-signature: <signature_from_wasm>
-x-time: <timestamp>
-x-signature-version: web2
-x-session-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-x-user-license: premium
-x-csrf-token: <csrf_token>
-x-license: <license_string>
-```
+| Header | Value |
+|--------|-------|
+| `content-type` | `application/json` |
+| `accept` | `application/json` |
 
 ---
 
-## Step-by-Step Generation Process
+## Data Section Findings
 
-> **⚠️ WARNING:** Steps 3 and 4 below describe a plain HMAC-SHA256 process that has been **proven INCORRECT**. The actual algorithm is unknown and implemented in WASM. These steps are preserved as a reference for what was originally assumed, but they **will NOT produce valid signatures**.
+Analysis of the WASM binary's 18 data segments reveals:
 
-### Step 1: Retrieve the Signing Key
+| Finding | Details |
+|---------|---------|
+| Data segments | 18 total |
+| Hex lookup table | `"0123456789ABCDEF"` at offset 4585 |
+| Locale strings | `"C.UTF-8"`, `"LC_CTYPE"`, `"LC_NUMERIC"`, `"LC_TIME"`, etc. |
+| Unicode tables | Case mapping tables (toupper/tolower) |
+| Domain names | **None found** in WASM data |
+| URLs | **None found** in WASM data |
+| API endpoints | **None found** in WASM data |
+| Signing key | **Not visible** in data section — likely computed or embedded in code section |
 
-Fetch the 16-byte key from the sign.bin endpoint:
-
-```python
-import requests
-
-# Fetch the key
-response = requests.get('https://hanime.tv/sign.bin')
-key = response.content  # 16 bytes: b'0123456701234567'
-
-# Verify key length
-assert len(key) == 16, f"Expected 16 bytes, got {len(key)}"
-```
-
-### Step 2: Generate Timestamp
-
-Create a Unix timestamp in seconds:
-
-```python
-import time
-
-timestamp = str(int(time.time()))  # e.g., "1776647020"
-```
-
-**Important:** The timestamp must be in **seconds**, not milliseconds.
-
-### Step 3: Construct the Message ⚠️ UNVERIFIED
-
-> **⚠️ INCORRECT — The message format described below is based on the HMAC-SHA256 assumption and does NOT produce correct signatures.**
-
-The assumed message format for the HMAC was:
-
-```
-message = timestamp
-```
-
-**Actual behavior:** The WASM reads the timestamp from its internal memory struct at offset 86216. The JS code must write the timestamp string to that offset before calling `B()`.
-
-### Step 4: Generate the Signature ⚠️ UNVERIFIED
-
-> **⚠️ INCORRECT — The HMAC-SHA256 generation described below does NOT produce correct signatures. The actual algorithm is implemented inside the WASM binary and is unknown.**
-
-The assumed HMAC generation was:
-
-```python
-import hmac
-import hashlib
-
-# THIS DOES NOT WORK — signature will be invalid
-signature = hmac.new(
-    key,  # 16-byte key from sign.bin
-    timestamp.encode(),  # message to sign
-    hashlib.sha256  # hash algorithm
-).hexdigest()
-```
-
-**Actual behavior:** The JS code calls `B(offset, length)` on the WASM module, which reads the timestamp from the struct at offset 86216, applies an unknown algorithm, and writes the 64-char hex signature to offset 86280.
-
-### Step 5: Build Request Headers
-
-Construct the complete header set:
-
-```python
-headers = {
-    'x-signature': signature,  # 64-char hex from WASM
-    'x-time': timestamp,
-    'x-signature-version': 'web2',
-    'x-session-token': '',
-    'x-user-license': '',
-    'x-csrf-token': '',
-    'x-license': '',
-    'Referer': 'https://hanime.tv/',
-    'Accept': 'application/json'
-}
-```
-
-### Step 6: Make the API Request
-
-Use the headers to authenticate your request:
-
-```python
-response = requests.get(
-    'https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest',
-    headers=headers
-)
-```
+The presence of the hex lookup table (`0123456789ABCDEF`) at offset 4585 is significant —
+it is used by the signature writer to convert binary hash output to hex characters. The
+absence of domain names, URLs, or a plaintext signing key from the data section suggests
+that the key is either computed at runtime or embedded in the code section as numeric
+constants rather than string data.
 
 ---
 
-## Implementation Examples
-
-> **⚠️ CRITICAL WARNING:** All implementation examples below use plain HMAC-SHA256, which has been **proven to NOT produce correct signatures**. These are included as **PLACEHOLDER examples only** — they **will not produce valid signatures** and API requests made with them will receive 401 Unauthorized responses.
->
-> For working approaches, see [Alternative Implementation Approaches](#alternative-implementation-approaches).
-
-### Python Implementation ⚠️ PLACEHOLDER — Will Not Produce Valid Signatures
-
-```python
-"""
-hanime.tv API Signature Generator
-⚠️ PLACEHOLDER — This implementation uses HMAC-SHA256 which does NOT produce
-valid signatures. The actual algorithm is WASM-based and unknown.
-"""
-import hmac
-import hashlib
-import requests
-import time
-from typing import Dict
-
-
-class HanimeSignatureGenerator:
-    """⚠️ PLACEHOLDER — Generates HMAC-SHA256 signatures that are NOT valid."""
-
-    SIGN_KEY_URL = 'https://hanime.tv/sign.bin'
-    API_BASE = 'https://cached.freeanimehentai.net'
-
-    def __init__(self):
-        self._key: bytes = None
-
-    def fetch_key(self) -> bytes:
-        """Fetch the 16-byte key from sign.bin."""
-        response = requests.get(self.SIGN_KEY_URL)
-        response.raise_for_status()
-
-        key = response.content
-        if len(key) != 16:
-            raise ValueError(f"Expected 16-byte key, got {len(key)} bytes")
-
-        self._key = key
-        return key
-
-    def generate_signature(self, timestamp: str = None) -> str:
-        """
-        ⚠️ PLACEHOLDER — This HMAC-SHA256 approach does NOT work.
-        The actual signature is generated by a WASM binary.
-        """
-        if self._key is None:
-            self.fetch_key()
-
-        if timestamp is None:
-            timestamp = str(int(time.time()))
-
-        # ⚠️ THIS DOES NOT PRODUCE VALID SIGNATURES
-        signature = hmac.new(
-            self._key,
-            timestamp.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-
-        return signature
-
-    def build_headers(self, timestamp: str = None) -> Dict[str, str]:
-        """
-        ⚠️ PLACEHOLDER — Headers built with this will be rejected.
-        """
-        if timestamp is None:
-            timestamp = str(int(time.time()))
-
-        signature = self.generate_signature(timestamp)
-
-        return {
-            'x-signature': signature,
-            'x-time': timestamp,
-            'x-signature-version': 'web2',
-            'x-session-token': '',
-            'x-user-license': '',
-            'x-csrf-token': '',
-            'x-license': '',
-            'Referer': 'https://hanime.tv/',
-            'Accept': 'application/json'
-        }
-
-    def make_request(self, endpoint: str) -> dict:
-        """
-        ⚠️ PLACEHOLDER — Requests will fail with 401 Unauthorized.
-        """
-        headers = self.build_headers()
-        url = f"{self.API_BASE}{endpoint}"
-
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-
-        return response.json()
-
-
-# Example usage (will NOT work — signatures are invalid)
-if __name__ == "__main__":
-    generator = HanimeSignatureGenerator()
-    signature = generator.generate_signature()
-    print(f"Signature: {signature}  # ⚠️ This signature is INVALID")
-```
-
-### JavaScript/Node.js Implementation ⚠️ PLACEHOLDER — Will Not Produce Valid Signatures
-
-```javascript
-/**
- * hanime.tv API Signature Generator
- * ⚠️ PLACEHOLDER — This implementation uses HMAC-SHA256 which does NOT produce
- * valid signatures. The actual algorithm is WASM-based and unknown.
- */
-const crypto = require('crypto');
-const axios = require('axios');
-
-class HanimeSignatureGenerator {
-  constructor() {
-    this.key = null;
-    this.apiBase = 'https://cached.freeanimehentai.net';
-    this.signKeyUrl = 'https://hanime.tv/sign.bin';
-  }
-
-  /**
-   * Fetch the 16-byte key from sign.bin
-   * @returns {Promise<Buffer>} 16-byte key
-   */
-  async fetchKey() {
-    const response = await axios.get(this.signKeyUrl, {
-      responseType: 'arraybuffer'
-    });
-
-    this.key = Buffer.from(response.data);
-
-    if (this.key.length !== 16) {
-      throw new Error(`Expected 16-byte key, got ${this.key.length} bytes`);
-    }
-
-    return this.key;
-  }
-
-  /**
-   * ⚠️ PLACEHOLDER — This HMAC-SHA256 approach does NOT work.
-   * The actual signature is generated by a WASM binary.
-   * @param {string} timestamp - Unix timestamp in seconds
-   * @returns {Promise<string>} 64-character hex signature (INVALID)
-   */
-  async generateSignature(timestamp = null) {
-    if (!this.key) {
-      await this.fetchKey();
-    }
-
-    const ts = timestamp || Math.floor(Date.now() / 1000).toString();
-
-    // ⚠️ THIS DOES NOT PRODUCE VALID SIGNATURES
-    const signature = crypto
-      .createHmac('sha256', this.key)
-      .update(ts)
-      .digest('hex');
-
-    return signature;
-  }
-
-  /**
-   * ⚠️ PLACEHOLDER — Headers built with this will be rejected.
-   * @param {string} timestamp - Unix timestamp
-   * @returns {Promise<Object>} Headers object
-   */
-  async buildHeaders(timestamp = null) {
-    const ts = timestamp || Math.floor(Date.now() / 1000).toString();
-    const signature = await this.generateSignature(ts);
-
-    return {
-      'x-signature': signature,
-      'x-time': ts,
-      'x-signature-version': 'web2',
-      'x-session-token': '',
-      'x-user-license': '',
-      'x-csrf-token': '',
-      'x-license': '',
-      'Referer': 'https://hanime.tv/',
-      'Accept': 'application/json'
-    };
-  }
-
-  /**
-   * ⚠️ PLACEHOLDER — Requests will fail with 401 Unauthorized.
-   * @param {string} endpoint - API endpoint path
-   * @returns {Promise<Object>} JSON response
-   */
-  async makeRequest(endpoint) {
-    const headers = await this.buildHeaders();
-    const url = `${this.apiBase}${endpoint}`;
-
-    const response = await axios.get(url, { headers });
-    return response.data;
-  }
-}
-
-// Example usage (will NOT work — signatures are invalid)
-async function main() {
-  const generator = new HanimeSignatureGenerator();
-
-  try {
-    const signature = await generator.generateSignature();
-    console.log('Signature:', signature, '  # ⚠️ This signature is INVALID');
-  } catch (error) {
-    console.error('Error:', error.message);
-  }
-}
-
-main();
-```
-
-### Kotlin Implementation ⚠️ PLACEHOLDER — Will Not Produce Valid Signatures
-
-```kotlin
-/**
- * hanime.tv API Signature Generator
- * ⚠️ PLACEHOLDER — This implementation uses HMAC-SHA256 which does NOT produce
- * valid signatures. The actual algorithm is WASM-based and unknown.
- */
-package eu.kanade.tachiyomi.extension.all.hanime.auth
-
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
-
-/**
- * ⚠️ PLACEHOLDER — Generates HMAC-SHA256 signatures that are NOT valid.
- *
- * The actual signature is generated by a WASM binary using an unknown algorithm.
- * The 16-byte key from sign.bin IS confirmed, but the algorithm is NOT HMAC-SHA256.
- */
-class HanimeSignatureGenerator(
-    private val client: OkHttpClient
-) {
-    companion object {
-        const val SIGN_KEY_URL = "https://hanime.tv/sign.bin"
-        const val API_BASE = "https://cached.freeanimehentai.net"
-    }
-
-    private var cachedKey: ByteArray? = null
-
-    /**
-     * Fetch the 16-byte key from sign.bin.
-     * The key is cached for subsequent requests.
-     *
-     * @return 16-byte key
-     */
-    suspend fun fetchKey(): ByteArray {
-        cachedKey?.let { return it }
-
-        val request = Request.Builder()
-            .url(SIGN_KEY_URL)
-            .build()
-
-        return suspendCoroutine { continuation ->
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    continuation.resumeWithException(
-                        IllegalStateException("Failed to fetch key: ${response.code}")
-                    )
-                    return@use
-                }
-
-                val key = response.body?.bytes()
-                    ?: run {
-                        continuation.resumeWithException(
-                            IllegalStateException("Empty key response")
-                        )
-                        return@use
-                    }
-
-                if (key.size != 16) {
-                    continuation.resumeWithException(
-                        IllegalArgumentException("Expected 16-byte key, got ${key.size}")
-                    )
-                    return@use
-                }
-
-                cachedKey = key
-                continuation.resume(key)
-            }
-        }
-    }
-
-    /**
-     * ⚠️ PLACEHOLDER — This HMAC-SHA256 approach does NOT work.
-     * The actual signature is generated by a WASM binary.
-     *
-     * @param key 16-byte key
-     * @param timestamp Unix timestamp in seconds
-     * @return 64-character hex-encoded signature (INVALID)
-     */
-    fun generateSignature(key: ByteArray, timestamp: String): String {
-        require(key.size == 16) { "Key must be 16 bytes" }
-
-        // ⚠️ THIS DOES NOT PRODUCE VALID SIGNATURES
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(key, "HmacSHA256"))
-
-        val signatureBytes = mac.doFinal(timestamp.toByteArray())
-
-        // Convert to hex string
-        return signatureBytes.joinToString("") { "%02x".format(it) }
-    }
-
-    /**
-     * ⚠️ PLACEHOLDER — Headers built with this will be rejected.
-     *
-     * @param timestamp Unix timestamp (auto-generated if null)
-     * @param sessionToken Optional session token for authenticated requests
-     * @return Map of HTTP headers
-     */
-    suspend fun buildHeaders(
-        timestamp: String? = null,
-        sessionToken: String = "",
-        userLicense: String = "",
-        csrfToken: String = "",
-        license: String = ""
-    ): Map<String, String> {
-        val key = fetchKey()
-        val ts = timestamp ?: (System.currentTimeMillis() / 1000).toString()
-        val signature = generateSignature(key, ts)
-
-        return mapOf(
-            "x-signature" to signature,
-            "x-time" to ts,
-            "x-signature-version" to "web2",
-            "x-session-token" to sessionToken,
-            "x-user-license" to userLicense,
-            "x-csrf-token" to csrfToken,
-            "x-license" to license,
-            "Referer" to "https://hanime.tv/",
-            "Accept" to "application/json"
-        )
-    }
-}
-
-// ⚠️ Example usage will NOT work — signatures are invalid
-class HanimeApi(private val client: OkHttpClient) {
-    private val signatureGenerator = HanimeSignatureGenerator(client)
-
-    suspend fun fetchVideoManifest(hvId: Int): ManifestResponse {
-        val headers = signatureGenerator.buildHeaders()
-
-        val request = Request.Builder()
-            .url("$API_BASE/api/v8/guest/videos/$hvId/manifest")
-            .apply {
-                headers.forEach { (key, value) -> addHeader(key, value) }
-            }
-            .build()
-
-        return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("API request failed: ${response.code}")
-            }
-
-            val body = response.body?.string()
-                ?: throw IOException("Empty response")
-
-            Json.decodeFromString(ManifestResponse.serializer(), body)
-        }
-    }
-}
-```
-
-### cURL Example ⚠️ PLACEHOLDER — Will Not Produce Valid Signatures
-
-```bash
-#!/bin/bash
-
-# ⚠️ PLACEHOLDER — This script generates HMAC-SHA256 signatures that are NOT valid.
-# The actual algorithm is WASM-based and cannot be reproduced with standard tools.
-
-# Fetch the key
-KEY=$(curl -s https://hanime.tv/sign.bin | xxd -p | tr -d '\n' | head -c 32)
-echo "Key (hex): $KEY"
-
-# Generate timestamp
-TIMESTAMP=$(date +%s)
-echo "Timestamp: $TIMESTAMP"
-
-# ⚠️ THIS HMAC-SHA256 SIGNATURE IS INVALID
-SIGNATURE=$(echo -n "$TIMESTAMP" | openssl dgst -sha256 -hmac "$KEY" -binary | xxd -p | tr -d '\n')
-echo "Signature: $SIGNATURE  # ⚠️ This signature is INVALID"
-
-# ⚠️ This request will fail with 401 Unauthorized
-curl -X GET \
-  "https://cached.freeanimehentai.net/api/v8/guest/videos/3427/manifest" \
-  -H "x-signature: $SIGNATURE" \
-  -H "x-time: $TIMESTAMP" \
-  -H "x-signature-version: web2" \
-  -H "x-session-token: " \
-  -H "x-user-license: " \
-  -H "x-csrf-token: " \
-  -H "x-license: " \
-  -H "Referer: https://hanime.tv/" \
-  -H "Accept: application/json"
-```
+## Architectural Summary
+
+| Property | Value |
+|----------|-------|
+| Compiler | Emscripten with embind |
+| Language | C++ with JavaScript binding support |
+| Total functions | ~586 (24 imported, ~562 locally defined) |
+| Indirect call table | 1 table with 323 entries (vtable/embind dispatch) |
+| Stack pointer | Global `$global0`, starts at 85904 (0x14F50) |
+| Memory | 258 pages (16,908,288 bytes), fixed, no growth |
+| Start section | None — init driven by JS glue code |
+| Signature writer | Function index 535 (export B = `_on_window_event`) |
+| JS↔WASM bridge | `_emscripten_asm_const_int` (import g) with 2 ASM_CONSTS entries |
+
+### Why WASM?
+
+hanime.tv uses WASM for signature generation because it:
+
+- Makes reverse engineering significantly more difficult
+- Protects the algorithm from easy inspection in DevTools
+- Allows use of cryptographic primitives compiled from C/C++
+- Requires either running the actual WASM module, or full disassembly and analysis
 
 ---
 
@@ -858,11 +518,12 @@ Load hanime.tv in a WebView and read `window.ssignature` and `window.stime` dire
 // Android/Aniyomi WebView approach
 webView.evaluateJavascript("window.ssignature") { signature ->
     webView.evaluateJavascript("window.stime") { time ->
-        // Use signature and time for API calls
         val headers = mapOf(
             "x-signature" to signature.trimQuotes(),
             "x-time" to time.trimQuotes(),
             "x-signature-version" to "web2",
+            "content-type" to "application/json",
+            "accept" to "application/json",
             // ... other headers
         )
     }
@@ -870,35 +531,39 @@ webView.evaluateJavascript("window.ssignature") { signature ->
 ```
 
 **Pros:**
+
 - Exact same signatures as the browser
 - No need to understand the WASM algorithm
-- Automatically handles signature refresh
+- Automatically handles signature refresh via the event system
 
 **Cons:**
+
 - Requires loading the full hanime.tv page
 - Heavier resource usage
 - Dependent on page structure remaining stable
 
 ### 2. WASM Execution Approach
 
-Download and execute the WASM module directly in the app runtime:
+Extract and execute the WASM module directly in the app runtime:
 
 ```kotlin
-// Fetch the WASM binary from the JS bundle
+// Extract the base64-encoded WASM binary from the vendor JS bundle
 // Initialize a WASM runtime (e.g., wazero for JVM/Android)
-// Call B(offset, length) after setting up the memory struct
-// Read the signature from offset 86280
+// Replicate the JS glue: instantiate with ASM_CONSTS, call _main, emit "e" events
+// Read window.ssignature and window.stime after each emission
 ```
 
 **Pros:**
+
 - No browser dependency
 - Lightweight once initialized
 - Produces identical signatures
 
 **Cons:**
+
 - Requires WASM runtime integration
-- Need to replicate the JS↔WASM memory setup
-- WASM binary may change and need re-extraction
+- Need to replicate the JS↔WASM glue (ASM_CONSTS, event dispatch, ccall)
+- WASM binary may change and need re-extraction from new vendor bundle
 
 ### 3. Server Proxy Approach
 
@@ -908,24 +573,30 @@ Run a small server that hosts the WASM and generates signatures on demand:
 # Server endpoint that returns fresh signatures
 @app.get("/hanime/signature")
 async def get_signature():
-    # Run the WASM module server-side
+    # Run the WASM module server-side (e.g., via wasmtime or wasmer)
+    # Emit "e" event, wait for window.stime to be set
     # Return { ssignature: "...", stime: "..." }
     pass
 ```
 
 **Pros:**
+
 - Centralized signature generation
 - Easy to update if WASM changes
 - All clients share one WASM instance
 
 **Cons:**
+
 - Requires server infrastructure
 - Additional network latency
 - Single point of failure
 
 ### Recommendation
 
-For Aniyomi extensions, the **WebView approach** is most practical as it requires no additional infrastructure and leverages the existing WebView component. The WASM execution approach is the most elegant long-term solution but requires more engineering effort.
+For Aniyomi extensions, the **WebView approach** is most practical as it requires no
+additional infrastructure and leverages the existing WebView component. The WASM execution
+approach is the most elegant long-term solution but requires replicating the full JS glue
+layer (ASM_CONSTS bridge, event dispatch, `Module.ccall` interface).
 
 ---
 
@@ -935,92 +606,159 @@ For Aniyomi extensions, the **WebView approach** is most practical as it require
 
 #### 1. "Invalid signature" / 401 Unauthorized Error
 
-**Cause:** The signature was generated with the wrong algorithm (e.g., plain HMAC-SHA256) or the signature has expired.
+**Cause:** The signature was generated with the wrong algorithm (e.g., plain HMAC-SHA256)
+or the signature has expired.
 
 **Solution:**
-- ⚠️ **Do NOT use plain HMAC-SHA256** — it does NOT produce valid signatures
+
+- **Do NOT use plain HMAC-SHA256** — it does NOT produce valid signatures
 - Ensure the signature comes from the WASM module (via WebView, WASM runtime, or proxy)
-- Check that the signature hasn't expired — signatures have a limited validity window
+- Check that the signature hasn't expired — emit a fresh `"e"` event before each request
 - If using cached signatures, implement a refresh mechanism
 
-#### 2. "Key length mismatch"
+#### 2. WASM Initialization Fails
 
-**Cause:** The sign.bin endpoint returned unexpected data.
+**Cause:** The JS glue code was not properly replicated, or ASM_CONSTS are missing.
 
 **Solution:**
-- Verify the request to sign.bin succeeded
-- Check response is exactly 16 bytes
-- The endpoint may have changed - verify URL
-- The key itself IS confirmed as `"0123456701234567"`, but it's consumed by the WASM, not HMAC
+
+- Ensure `ASM_CONSTS[17392]` returns a valid Unix timestamp in seconds
+- Ensure `ASM_CONSTS[17442]` correctly writes to `window.ssignature` and `window.stime`
+- Call `initRuntime()` (export A) before `_main()` (export C)
+- Do NOT call `initRuntime()` twice — it will throw `"Cannot register type 'void' twice"`
 
 #### 3. "Expired signature" Error
 
 **Cause:** The timestamp is too old (signature was generated too long ago).
 
 **Solution:**
-- Use a freshly generated signature from the WASM module
-- Implement periodic signature refresh (the browser uses a background timer)
-- Signatures have been observed to expire within a limited window
+
+- Emit the `"e"` event to trigger a fresh signature before the API request
+- Implement periodic signature refresh
 - Ensure system clock is accurate
 
-#### 4. WASM Function Errors ("memory access out of bounds", "Cannot register type 'void' twice")
+#### 4. WASM Function Errors ("memory access out of bounds")
 
-**Cause:** WASM functions were called with incorrect parameters or in the wrong order.
-
-**Solution:**
-- `A()` crashes if called twice — only call once for initialization
-- `B()` requires specific offset/length values — use the struct at offset 86200
-- `D()` requires specific params that are not yet known — avoid calling directly
-- Always write the timestamp to offset 86216 before calling `B()`
-
-#### 5. Network Errors When Fetching Key
-
-**Cause:** Connection issues or endpoint unavailable.
+**Cause:** WASM memory is fixed at 258 pages. `_emscripten_resize_heap` always aborts.
 
 **Solution:**
-- Implement retry logic with exponential backoff
-- Cache the key locally (it appears to be static)
-- Check for proxy or firewall issues
 
-#### 6. CORS Errors in Browser
+- Do not attempt to resize WASM memory
+- Ensure the WASM binary is loaded completely (the base64 string must not be truncated)
+- Use the correct export mapping (see [WASM Export Table](#wasm-export-table))
 
-**Cause:** Direct API calls from browser may trigger CORS.
+#### 5. Polling Loop Never Resolves
+
+**Cause:** `window.stime` is never set, meaning the WASM signature computation never
+completes.
 
 **Solution:**
-- Use a backend proxy
-- Extract signature from page's JavaScript instead
-- Access `window.ssignature` and `window.stime` directly
+
+- Verify that `_main()` was called to register the event listener
+- Verify that `Emit("e")` is correctly dispatching a `CustomEvent`
+- Check browser console for WASM instantiation errors
+- Ensure the ASM_CONSTS bridge is functioning
 
 ### Debugging Tips
 
-1. **Log all request headers** to compare with working browser requests
-2. **Verify key content** by printing hex representation
-3. **Check timestamp synchronization** between client and server
-4. **Compare signature generation** — if your output differs from `window.ssignature`, your algorithm is wrong
-5. **Test signature validity** by making a request immediately after generation
-6. **Monitor `window.ssignature`** over time to observe refresh behavior
+1. **Set a breakpoint on ASM_CONSTS[17442]** — this is where the signature is written.
+   If it's never called, the WASM computation is failing silently.
+2. **Log `window.ssignature` and `window.stime`** after emitting `"e"` to verify they
+   are populated.
+3. **Compare request headers** with working browser requests using DevTools Network tab.
+4. **Monitor the polling loop** — if `window.stime` remains falsy after several seconds,
+   the WASM module is not initializing correctly.
+5. **Check the vendor bundle URL** — if the hash in the filename changes, the WASM
+   binary may have been updated.
 
 ### Validation Checklist
 
 Before submitting API requests:
 
-- [ ] Key fetched successfully (16 bytes: `"0123456701234567"`)
-- [ ] Timestamp is current Unix time in seconds
-- [ ] Signature generated by WASM module (NOT plain HMAC-SHA256)
-- [ ] Signature is 64-character lowercase hex string
-- [ ] Signature matches `window.ssignature` if available for comparison
-- [ ] All required headers present
-- [ ] Header values are properly formatted
-- [ ] Referer header is set to hanime.tv
+- [ ] WASM module initialized (exports A, then C called)
+- [ ] Event listener registered by `_main()`
+- [ ] Fresh signature obtained by emitting `"e"` event
+- [ ] `window.ssignature` is a 64-character lowercase hex string
+- [ ] `window.stime` is a current Unix timestamp in seconds
+- [ ] All required headers present (`x-signature`, `x-time`, `x-signature-version`, etc.)
+- [ ] `x-signature-version` is `"web2"` (hardcoded)
+- [ ] `content-type` is `"application/json"`
 - [ ] Signature has not expired (generate fresh if uncertain)
 
 ---
 
-## Additional Resources
+## JS Bundle Distribution
 
-- [API.md](./API.md) - Complete API documentation
-- [HLS.md](./HLS.md) - HLS streaming documentation (if available)
-- [WASM Reverse Engineering Guide](./wasm_reverse_engineer.md) - Guide for analyzing the WASM binary
+All WASM and signature logic is concentrated in exactly **2 of the 7 JS bundles**. The other 5 bundles contain zero signature-related code.
+
+### Active Bundles
+
+| Bundle | Role | Key Patterns Found |
+|--------|------|--------------------|
+| `vendor.0130da3e01eaf5c7d570b6ed1becb5f4.min.js` | WASM module (loader, runtime, exports) | `AGFzb` (1), `WebAssembly.instantiate` (1), `wasmBinary` (11), `wasmExports` (15), `ssignature` (1), ASM_CONSTS, window_on, assignWasmExports, findWasmBinary |
+| `40c99ce.js` | Vue/Nuxt app (HTTP headers, polling, init) | `ssignature` (2), `x-signature` (2), `x-time` (1), `x-signature-version` (1), `stime` (8), `window.ssignature` (2) |
+
+### Inactive Bundles (no matches for any signature pattern)
+
+| Bundle | Content |
+|--------|---------|
+| `ef036f2.js` | Unrelated UI/library code |
+| `c1eb2c5.js` | Unrelated UI/library code (contains `$getApiBaseUrl`) |
+| `a37eda4.js` | Unrelated UI/library code |
+| `b28452f.js` | Unrelated UI/library code |
+
+### Patterns NOT Found Anywhere
+
+| Pattern | Status | Explanation |
+|---------|--------|-------------|
+| `0007b7b6.wasm` | Not found | No external .wasm file is referenced. Binary is inline base64 in vendor.js. |
+| `sign.bin` | Not found | No signing key file is fetched. Key is embedded in the WASM binary. |
+| `86200` / `86280` | Not found | Memory offsets are internal to WASM, not referenced in JS. |
+| `.B(` | Not found | Export accessed as `wasmExports["B"]`, not `.B()` notation. |
+
+---
+
+## Next Steps for Algorithm Extraction
+
+The WASM binary has been fully extracted and is available for analysis. To determine the
+exact signature algorithm:
+
+1. **Disassemble WAT function index 535** (export B = `_on_window_event`) — this is the
+   signature computation entry point.
+
+2. **Trace the call chain** from function 535 through its callees to the ASM_CONSTS calls.
+   The path from event receipt → timestamp acquisition → signature computation → result
+   writing reveals the algorithm.
+
+3. **Look for hash-like operations** (SHA-256, MD5, custom) in the ~562 local functions.
+   Common patterns include:
+   - Compression functions (round-based bit operations on 32-bit words)
+   - Merkle-Damgard constructions (padding, block processing, finalization)
+   - Lookup tables (S-boxes, round constants)
+
+4. **Use dynamic instrumentation** — set breakpoints on `ASM_CONSTS[17442]` and trace
+   backwards through the WASM call stack to identify what data is fed into the final
+   hash computation.
+
+5. **Investigate the input** — determine whether the signature is computed from:
+   - The timestamp alone
+   - A combination of domain string + metadata + timestamp
+   - Additional context passed via the event detail object
+   - Some other data available in WASM memory at computation time
+
+6. **Check the hex lookup table** at offset 4585 (`"0123456789ABCDEF"`) — this is used
+   for the final hex encoding step. Tracing which function writes to the memory region
+   that gets hex-encoded can reveal the pre-encoding binary hash output.
+
+---
+
+## File References
+
+| File | Description |
+|------|-------------|
+| `docs/wasm_dump/0007b7b6.wasm` | WASM source in WAT format (1.55MB, text format) |
+| `docs/wasm_dump/vendor.0130da3e01eaf5c7d570b6ed1becb5f4.min.js` | WASM loader with inline base64 binary |
+| `docs/wasm_dump/40c99ce.js` | App bundle (header construction + polling loop) |
 
 ---
 
@@ -1028,16 +766,21 @@ Before submitting API requests:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.2 | 2026-04-20 | **CRITICAL CORRECTIONS**: Algorithm is NOT HMAC-SHA256 (verified by browser experiments). Corrected WASM function table with verified behavior. Added WASM memory struct layout (offset 86200). Added signature lifecycle (periodic timer, expiry). Added alternative implementation approaches. Marked all HMAC examples as invalid placeholders. Added browser global variables confirmation. |
-| 1.1 | 2026-04-19 | Added WASM-based signature generation discovery |
-| 1.0 | 2026-04-19 | Initial documentation based on reverse engineering findings |
+| 2.0 | 2026-04-21 | **Major rewrite.** Removed all references to `sign.bin` key fetch (key is embedded in WASM). Removed HMAC-SHA256 placeholders and examples. Corrected export table (B = `_on_window_event`, C = `_main`, D = `___getTypeName`, E = `_malloc`, F = `_free`, G/H/I = stack ops). Corrected memory layout (no hardcoded 86200 struct; stack at 0x14F50). Added WASM import table (24 imports). Added ASM_CONSTS bridge documentation. Added event-driven signature flow. Added HTTP header construction from 40c99ce.js. Added `Emit()` and polling loop documentation. Added data section findings. Added architectural summary. Added file references. Added algorithm extraction next steps. |
+| 1.2 | 2026-04-20 | Critical corrections: algorithm is NOT HMAC-SHA256. Added WASM function table with verified behavior. Added memory struct layout. Added signature lifecycle. Added alternative implementation approaches. |
+| 1.1 | 2026-04-19 | Added WASM-based signature generation discovery. |
+| 1.0 | 2026-04-19 | Initial documentation based on reverse engineering findings. |
 
 ---
 
 ## Notes
 
-This documentation is based on reverse engineering efforts and may change as the hanime.tv API evolves. The sign.bin endpoint and signature format should be monitored for changes.
+This documentation is based on reverse engineering of the fully extracted WASM binary and
+the associated JavaScript bundles. The WASM binary is self-contained — no external key
+fetch is performed. The signing key is embedded within the WASM binary itself, likely in
+the code section as numeric constants rather than as plaintext in the data section.
 
-**Key Discovery:** The same key used for API authentication (`0123456701234567`) is also used for AES-128 encryption of video segments in HLS streams.
-
-**Algorithm Status:** The signature algorithm is definitively NOT plain HMAC-SHA256. All standard HMAC/SHA-256 constructions were tested and none matched the WASM output. The WASM binary must be extracted (likely from `hanime-cdn.com/vhtv2/*.js` bundles) and disassembled (using `wasm2wat`) to determine the actual algorithm. Function B (wasm-function[535]) is the signature writer, and its callees must be analyzed.
+The exact signature algorithm remains unknown without full reverse engineering of WAT
+function index 535 (`_on_window_event`) and its call chain. The presence of a hex lookup
+table in the data section confirms that the final output step is hex-encoding of a binary
+hash, but the hash algorithm and input construction are still to be determined.

@@ -377,13 +377,15 @@ const Search = () => import(/* webpackChunkName: "search" */ './pages/Search.vue
 # Response headers for cross-origin requests
 Access-Control-Allow-Origin: https://hanime.tv
 Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE
-Access-Control-Allow-Headers: 
-  Content-Type,
-  x-signature,
-  x-time,
-  x-signature-version,
-  x-session-token,
-  x-csrf-token
+Access-Control-Allow-Headers:
+    Content-Type,
+    x-signature,
+    x-time,
+    x-signature-version,
+    x-session-token,
+    x-csrf-token,
+    x-user-license,
+    x-license
 Access-Control-Allow-Credentials: true
 Access-Control-Max-Age: 86400
 ```
@@ -454,52 +456,63 @@ const adAnalytics = {
 
 ### HTTP Client Wrapper
 
+Every API request follows the same signature acquisition pattern:
+
+1. `Emit("e")` dispatches a `CustomEvent` to the window
+2. The WASM module's `_on_window_event` (export **B**) receives and processes the event internally
+3. WASM invokes `ASM_CONSTS[17392]` to read the current Unix timestamp
+4. WASM invokes `ASM_CONSTS[17442]` to write the computed signature to `window.ssignature` and the timestamp to `window.stime`
+5. The JS layer reads `window.ssignature` and `window.stime` and constructs the request headers
+
 ```javascript
 // api/client.js
 class APIClient {
   constructor(baseURL) {
     this.baseURL = baseURL;
   }
-  
+
   async request(method, path, options = {}) {
     const url = `${this.baseURL}${path}`;
-    const timestamp = Date.now();
-    
+
+    // Trigger WASM signature generation
+    window.Emit("e");
+
+    // Wait for WASM to populate globals
+    while (!window.stime) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+
     const headers = {
-      'Content-Type': 'application/json',
-      'x-time': timestamp.toString(),
-      'x-signature-version': 'web2',
-      'x-signature': this.generateSignature(method, path, timestamp, options.body),
+      "content-type": "application/json",
+      "accept": "application/json",
+      "x-session-token": session.session_token || "",
+      "x-user-license": session.encrypted_user_license || "",
+      "x-license": requestContext.x_license || "",
+      "x-signature-version": "web2",          // hardcoded constant
+      "x-signature": window.ssignature,         // 64-char hex from WASM
+      "x-time": window.stime,                   // Unix timestamp from WASM
+      "x-csrf-token": session.csrf_token || "",
       ...options.headers
     };
-    
-    // Add auth headers if available
-    const authHeaders = store.getters['auth/authHeaders'];
-    Object.assign(headers, authHeaders);
-    
+
     const response = await fetch(url, {
       method,
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined
     });
-    
+
     if (!response.ok) {
       throw new APIError(response);
     }
-    
+
     return response.json();
   }
-  
-  generateSignature(method, path, timestamp, body) {
-    const payload = `${method}:${path}:${timestamp}:${body ? JSON.stringify(body) : ''}`;
-    return hmacSHA256(SECRET_KEY, payload);
-  }
-  
+
   get(path, params) {
     const queryString = params ? `?${new URLSearchParams(params)}` : '';
     return this.request('GET', `${path}${queryString}`);
   }
-  
+
   post(path, body) {
     return this.request('POST', path, { body });
   }
@@ -507,8 +520,23 @@ class APIClient {
 
 // API instances
 const cachedAPI = new APIClient('https://cached.freeanimehentai.net');
-const hanimeAPI = new APIClient('https://hanime.tv');
+const searchAPI  = new APIClient('https://search.htv-services.com');
+const hanimeAPI  = new APIClient('https://hanime.tv');
 ```
+
+### HTTP Headers per API Request
+
+| Header | Source | Description |
+|--------|--------|-------------|
+| `content-type` | Constant | Always `application/json` |
+| `accept` | Constant | Always `application/json` |
+| `x-session-token` | Session | User session token (empty if unauthenticated) |
+| `x-user-license` | Session | Encrypted user license string |
+| `x-license` | Request context | Per-request license value |
+| `x-signature-version` | Constant | Hardcoded `"web2"` |
+| `x-signature` | WASM | 64-character hex string from `window.ssignature` |
+| `x-time` | WASM | Unix timestamp from `window.stime` |
+| `x-csrf-token` | Session | CSRF token (empty if unauthenticated) |
 
 ### API Service Layer
 
@@ -545,6 +573,8 @@ export const videoAPI = {
 ## CDN Infrastructure
 
 ### hanime-cdn.com
+
+> **Note:** The WASM signature binary is **not** served as a separate `.wasm` file. It is embedded inline as a base64 string inside `vendor.js` and decoded at runtime via `findWasmBinary()`. There is no standalone `.wasm` download on the CDN.
 
 ```
                     ┌─────────────────────┐
@@ -609,20 +639,36 @@ Cache-Control: no-cache
 
 ### Request Signing
 
+The site uses a **WASM-compiled C++ signature module** (Emscripten/embind) that runs entirely in the browser. The signature algorithm is hidden inside the WASM binary — it is not a simple HMAC or hash that can be replicated in JavaScript.
+
+**Key Files:**
+
+| File | Role |
+|------|------|
+| `vendor.0130da3e01eaf5c7d570b6ed1becb5f4.min.js` | WASM loader + runtime + inline base64 binary |
+| `40c99ce.js` | Vue/Nuxt app that constructs HTTP headers and polls for signatures |
+
+**Signature Generation Flow:**
+
+```
+ 1. vendor.js loads → base64Decode("AGFzbQ...") → WebAssembly.instantiate()
+ 2. initRuntime()  → wasmExports["A"]()            (embind init)
+ 3. callMain()     → wasmExports["C"]()            (_main, registers window event listeners)
+ 4. WASM's _main() calls import y (window_on) → window.addEventListener("e", handler)
+ 5. 40c99ce.js on mount: polls every 100ms, dispatches Emit("e")
+ 6. "e" event fires → Module.ccall("on_window_event", ..., ["e", data])
+ 7. WASM export B (_on_window_event) processes the event internally
+ 8. WASM calls ASM_CONSTS[17392] → parseInt(new Date().getTime() / 1e3)  (timestamp)
+ 9. WASM calls ASM_CONSTS[17442] → window.ssignature = UTF8ToString($0), window.stime = $1
+10. Polling detects window.stime → stops, app is ready
+11. Every API request: Emit("e") → fresh signature → headers attached
+```
+
+**Emit helper:**
+
 ```javascript
-// HMAC signature generation
-function generateSignature(method, path, timestamp, body) {
-  // Concatenate request components
-  const payload = [
-    method.toUpperCase(),
-    path,
-    timestamp.toString(),
-    body ? JSON.stringify(body) : ''
-  ].join(':');
-  
-  // Generate HMAC-SHA256 signature
-  const signature = CryptoJS.HmacSHA256(payload, SECRET_KEY);
-  return signature.toString(CryptoJS.enc.Hex);
+window.Emit = function(t) {
+  return window.dispatchEvent(new CustomEvent(t));
 }
 ```
 
@@ -632,14 +678,99 @@ function generateSignature(method, path, timestamp, body) {
 // CSRF token handling
 axios.interceptors.request.use(config => {
   const csrfToken = store.state.auth.csrfToken;
-  
+
   if (['POST', 'PUT', 'DELETE'].includes(config.method.toUpperCase())) {
     config.headers['x-csrf-token'] = csrfToken;
   }
-  
+
   return config;
 });
 ```
+
+---
+
+## WASM Module Architecture
+
+The signature module is an **Emscripten-compiled C++ binary** that uses **embind** for JavaScript interop. The WASM binary is embedded as an inline base64 string inside `vendor.js` — there is no separate `.wasm` file fetched from the CDN. Source dumps and analysis artifacts live in `docs/wasm_dump/`.
+
+### Module Loading
+
+```
+vendor.js loads
+  └─ base64Decode("AGFzbQ...")   → raw WASM binary bytes
+  └─ WebAssembly.instantiate()   → compiled module
+  └─ initRuntime()               → wasmExports["A"]()  (embind initialization)
+  └─ callMain()                  → wasmExports["C"]()  (_main entry point)
+```
+
+The `findWasmBinary()` function in vendor.js locates the inline base64 payload, decodes it, and passes it to the WebAssembly API.
+
+### WASM Exports
+
+| Export | Symbol | Purpose |
+|--------|--------|---------|
+| `A` | `initRuntime` | embind runtime initialization |
+| `B` | `_on_window_event` | Signature writer — processes `"e"` events and produces `window.ssignature` / `window.stime` |
+| `C` | `_main` | Entry point; registers `window.addEventListener("e", handler)` via import `y` |
+| `D` | `___getTypeName` | embind type system support |
+| `E` | `_malloc` | Heap allocation |
+| `F` | `_free` | Heap deallocation |
+| `G` | `__emscripten_stack_restore` | Stack pointer restore |
+| `H` | `__emscripten_stack_alloc` | Stack space allocation |
+| `I` | `_emscripten_stack_get_current` | Current stack pointer read |
+| `z` | `memory` | Linear memory (WebAssembly.Memory) |
+
+### WASM Imports (module "a")
+
+The WASM binary imports **24 functions** from the host module `"a"`, which serve three roles:
+
+- **embind runtime** — type registration, class metadata, exception bridging
+- **ASM_CONSTS bridge** — `ASM_CONSTS[17392]` and `ASM_CONSTS[17442]` allow the WASM to call back into JavaScript
+- **`window_on` (import `y`)** — called during `_main()` to register `window.addEventListener("e", ...)` so the JS side can dispatch signature requests
+
+### JS ↔ WASM Bridge
+
+The critical bridge points that connect JavaScript and WASM:
+
+```
+JS → WASM:  Module.ccall("on_window_event", ..., ["e", data])
+             ↳ WASM export B (_on_window_event)
+
+WASM → JS:  ASM_CONSTS[17392] → parseInt(new Date().getTime() / 1e3)
+             ↳ Supplies the current Unix timestamp to the WASM
+
+             ASM_CONSTS[17442] → window.ssignature = UTF8ToString($0)
+                                  window.stime      = $1
+             ↳ Receives the computed signature and timestamp from the WASM
+```
+
+### Module Statistics
+
+| Metric | Value |
+|--------|-------|
+| Total functions | ~586 |
+| Memory pages | 258 (16 MB fixed) |
+| Imports (module "a") | 24 functions |
+| Exports | 10 (listed above) |
+| Compilation toolchain | Emscripten (embind) |
+
+### Initialization Polling
+
+The Vue/Nuxt app (`40c99ce.js`) polls for WASM readiness on mount:
+
+```javascript
+// Simplified from 40c99ce.js
+const pollInterval = setInterval(() => {
+  if (window.stime) {
+    clearInterval(pollInterval);
+    // App is ready — WASM is initialized and can produce signatures
+  } else {
+    window.Emit("e");  // Trigger signature generation attempt
+  }
+}, 100);
+```
+
+Once `window.stime` is populated, the app stops polling and all subsequent API calls use the `Emit("e")` → read globals pattern to attach fresh signatures.
 
 ---
 
@@ -696,19 +827,19 @@ const bundleSizes = {
 ## Deployment Architecture
 
 ```
-                    ┌─────────────────────┐
-                    │   Cloudflare CDN    │
-                    │   (Global Edge)     │
-                    └──────────┬──────────┘
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-        ▼                      ▼                      ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│   hanime.tv   │    │  cached.free  │    │  hanime-cdn   │
-│  (Web Server) │    │animehentai.net│    │     .com      │
-└───────────────┘    │   (API)       │    │    (CDN)      │
-                     └───────────────┘    └───────────────┘
+┌─────────────────────┐
+│ Cloudflare CDN       │
+│ (Global Edge)        │
+└──────────┬──────────┘
+           │
+┌──────────┼──────────┬──────────────┐
+│          │          │              │
+▼          ▼          ▼              ▼
+┌───────────┐ ┌───────────────┐ ┌───────────┐ ┌───────────────┐
+│ hanime.tv │ │ cached.free   │ │ hanime-cdn│ │ search.htv    │
+│(Web Server)│ │animehentai.net│ │  .com     │ │services.com   │
+└───────────┘ │  (API)        │ │  (CDN)    │ │ (Search API)  │
+              └───────────────┘ └───────────┘ └───────────────┘
 ```
 
 ---
@@ -720,18 +851,21 @@ const bundleSizes = {
 const environments = {
   production: {
     apiBase: 'https://cached.freeanimehentai.net',
+    searchBase: 'https://search.htv-services.com',
     cdnBase: 'https://hanime-cdn.com',
     analytics: true,
     debug: false
   },
   staging: {
     apiBase: 'https://staging-api.hanime.tv',
+    searchBase: 'https://staging-search.hanime.tv',
     cdnBase: 'https://staging-cdn.hanime.tv',
     analytics: false,
     debug: true
   },
   development: {
     apiBase: 'http://localhost:8000',
+    searchBase: 'http://localhost:8001',
     cdnBase: 'http://localhost:3000',
     analytics: false,
     debug: true
