@@ -45,13 +45,55 @@ class MegaUpExtractor(
         serverName: String? = null,
     ): List<Video> {
         val parsedUrl = url.toHttpUrl()
+        val userAgent = headers["User-Agent"] ?: ""
+
+        // ==========================================
+        // 1. UNWRAP ANIGO IFRAME (Fixes the 404)
+        // ==========================================
+        if (parsedUrl.pathSegments.firstOrNull() == "iframe") {
+            Log.d(tag, "Detected iframe wrapper. Attempting to unwrap...")
+
+            val iframeHeaders = Headers.Builder()
+                .set("User-Agent", userAgent)
+                .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .set("Referer", url)
+                .build()
+
+            // Fetch the raw HTML string
+            val html = client.newCall(GET(url, iframeHeaders))
+                .awaitSuccess()
+                .use { it.body.string() }
+
+            // Regex to find the iframe tag and capture the src containing '/e/' or 'megaup'
+            val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']*(?:/e/|megaup)[^"']*)["']""", RegexOption.IGNORE_CASE)
+            var realMegaUpUrl = iframeRegex.find(html)?.groupValues?.get(1)
+
+            // Replicate Jsoup's `abs:src` behavior for relative URLs
+            if (realMegaUpUrl?.startsWith("//") == true) {
+                realMegaUpUrl = "https:$realMegaUpUrl"
+            } else if (realMegaUpUrl?.startsWith("/") == true) {
+                realMegaUpUrl = "${parsedUrl.scheme}://${parsedUrl.host}$realMegaUpUrl"
+            }
+
+            if (realMegaUpUrl.isNullOrEmpty()) {
+                // If we didn't find an iframe, we definitely hit Cloudflare "Just a moment..."
+                Log.e(tag, "Failed to unwrap iframe. Blocked by Turnstile.")
+                throw Exception("AniGo Server is protected by Cloudflare Turnstile. Cannot extract video.")
+            }
+
+            Log.d(tag, "Unwrapped real MegaUp URL: $realMegaUpUrl")
+            // Recursively call this function with the REAL MegaUp URL
+            return videosFromUrl(realMegaUpUrl, serverName)
+        }
+
+        // ==========================================
+        // 2. NORMAL MEGAUP LOGIC
+        // ==========================================
         val megaHost = "${parsedUrl.scheme}://${parsedUrl.host}"
         val host = extractHoster(parsedUrl.host).proper()
         val prefix = serverName ?: host
 
         Log.d(tag, "Fetching videos for $prefix from: $url")
-
-        val userAgent = headers["User-Agent"] ?: ""
 
         val token = parsedUrl.pathSegments.lastOrNull { it.isNotEmpty() }
             ?: throw IllegalArgumentException("No token found in URL: $url")
@@ -65,6 +107,8 @@ class MegaUpExtractor(
             .set("Referer", url)
             .build()
 
+        // ... [Keep the rest of your exact code below this line unchanged] ...
+
         val megaToken = client.newCall(GET(megaUrl, mediaHeaders))
             .awaitSuccess().use { response ->
                 response.parseAs<InternalEncryptedResponse>().result
@@ -75,7 +119,6 @@ class MegaUpExtractor(
             put("agent", userAgent)
         }.toRequestBody()
 
-        // LOG for API Call
         Log.d(tag, "Sending token to decryption API: https://enc-dec.app/api/dec-mega")
 
         val megaUpResult = client.newCall(
@@ -96,7 +139,6 @@ class MegaUpExtractor(
             val videoUrl = it.file
             when {
                 m3u8Regex.containsMatchIn(videoUrl) -> {
-                    // Log for HLS
                     Log.d(tag, "m3u8 URL found: $videoUrl")
                     playlistUtils.extractFromHls(
                         playlistUrl = videoUrl,
@@ -107,7 +149,6 @@ class MegaUpExtractor(
                 }
 
                 mpdRegex.containsMatchIn(videoUrl) -> {
-                    // Log for Dash
                     Log.d(tag, "mpd URL found: $videoUrl")
                     playlistUtils.extractFromDash(
                         mpdUrl = videoUrl,
@@ -118,7 +159,6 @@ class MegaUpExtractor(
                 }
 
                 mp4Regex.containsMatchIn(videoUrl) -> {
-                    // Log for MP4
                     Log.d(tag, "mp4 URL found: $videoUrl")
                     Video(
                         url = videoUrl,
