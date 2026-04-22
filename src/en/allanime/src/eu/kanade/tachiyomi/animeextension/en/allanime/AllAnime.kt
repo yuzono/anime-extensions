@@ -512,25 +512,29 @@ class AllAnime :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private fun decryptTobeparsed(base64Payload: String): String {
-        // 1. Generate the SHA-256 key from the reversed secret string
-        val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
-            .digest(DECRYPT_SECRET.reversed().toByteArray(Charsets.UTF_8))
-
-        // 2. Decode the Base64 payload
+        // 1. Decode the Base64 payload
         val decodedBytes = Base64.decode(base64Payload, Base64.DEFAULT)
 
-        // 3. Separate the IV and the encrypted data
-        val iv = decodedBytes.sliceArray(0 until DECRYPT_IV_LENGTH)
-        val encryptedData = decodedBytes.sliceArray(DECRYPT_IV_LENGTH until decodedBytes.size)
+        // 2. Extract the version byte (last byte) as an unsigned int
+        val versionByte = decodedBytes.last().toInt() and 0xFF
 
-        // 4. Initialize the AES-GCM Cipher
+        // 3. Generate the dynamic SHA-256 key
+        val secret = "$DECRYPT_KEY:v$versionByte"
+        val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
+            .digest(secret.toByteArray(Charsets.UTF_8))
+
+        // 4. Separate the IV and the encrypted data (excluding the trailing version byte)
+        val iv = decodedBytes.sliceArray(0 until DECRYPT_IV_LENGTH)
+        val encryptedData = decodedBytes.sliceArray(DECRYPT_IV_LENGTH until decodedBytes.size - 1)
+
+        // 5. Initialize the AES-GCM Cipher
         val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
         val keySpec = SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE)
         val gcmSpec = GCMParameterSpec(DECRYPT_TAG_LENGTH, iv)
 
         cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
 
-        // 5. Decrypt and convert back to a JSON String
+        // 6. Decrypt and convert back to a JSON String
         return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
 
@@ -602,7 +606,7 @@ class AllAnime :
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
 
-        private const val DECRYPT_SECRET = "P7K2RGbFgauVtmiS"
+        private const val DECRYPT_KEY = "Xot36i3lK3"
         private const val DECRYPT_IV_LENGTH = 12
         private const val DECRYPT_TAG_LENGTH = 128
         private const val DECRYPT_KEY_ALGO = "SHA-256"
