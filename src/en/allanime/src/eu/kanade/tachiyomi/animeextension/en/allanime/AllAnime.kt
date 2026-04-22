@@ -527,9 +527,8 @@ class AllAnime :
         val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
             .digest(secret.toByteArray(Charsets.UTF_8))
 
-        // 4. Separate the IV and the encrypted data (excluding the trailing version byte)
+        // 4. Separate the IV
         val iv = decodedBytes.sliceArray(0 until DECRYPT_IV_LENGTH)
-        val encryptedData = decodedBytes.sliceArray(DECRYPT_IV_LENGTH until decodedBytes.size - 1)
 
         // 5. Initialize the AES-GCM Cipher
         val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
@@ -538,8 +537,9 @@ class AllAnime :
 
         cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
 
-        // 6. Decrypt and convert back to a JSON String
-        return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
+        // 6. Decrypt directly from the source array, avoiding an intermediate copy
+        val encryptedDataLength = decodedBytes.size - DECRYPT_IV_LENGTH - 1
+        return String(cipher.doFinal(decodedBytes, DECRYPT_IV_LENGTH, encryptedDataLength), Charsets.UTF_8)
     }
 
     companion object {
