@@ -515,6 +515,10 @@ class AllAnime :
         // 1. Decode the Base64 payload
         val decodedBytes = Base64.decode(base64Payload, Base64.DEFAULT)
 
+        if (decodedBytes.size < DECRYPT_MIN_LENGTH) {
+            throw IllegalArgumentException("Decoded payload is too short to be a valid AES-GCM string.")
+        }
+
         // 2. Extract the version byte (last byte) as an unsigned int
         val versionByte = decodedBytes.last().toInt() and 0xFF
 
@@ -609,6 +613,7 @@ class AllAnime :
         private const val DECRYPT_KEY = "Xot36i3lK3"
         private const val DECRYPT_IV_LENGTH = 12
         private const val DECRYPT_TAG_LENGTH = 128
+        private const val DECRYPT_MIN_LENGTH = 29
         private const val DECRYPT_KEY_ALGO = "SHA-256"
         private const val DECRYPT_KEY_TYPE = "AES"
         private const val DECRYPT_CIPHER_ALGO = "AES/GCM/NoPadding"
