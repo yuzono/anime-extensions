@@ -17,8 +17,8 @@ import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parseAs
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -326,8 +326,8 @@ class Animetsu :
             else -> dto.title?.romaji
         }?.takeIf { it.isNotBlank() }
             ?: dto.title?.romaji
-                ?: dto.title?.english
-                ?: "Unknown Title"
+            ?: dto.title?.english
+            ?: "Unknown Title"
 
         thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
         genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString(", ")
@@ -336,8 +336,8 @@ class Animetsu :
         artist = dto.staff?.firstOrNull { it.role == "Character Design" }?.name ?: ""
         author = dto.staff?.firstOrNull { it.role == "Original Creator" }?.name
             ?: dto.studios?.firstOrNull { it.isMain }?.name
-                ?: dto.studios?.firstOrNull()?.name
-                ?: ""
+            ?: dto.studios?.firstOrNull()?.name
+            ?: ""
     }
 
     private fun buildDescription(dto: AnimetsuAnimeDto): String {
