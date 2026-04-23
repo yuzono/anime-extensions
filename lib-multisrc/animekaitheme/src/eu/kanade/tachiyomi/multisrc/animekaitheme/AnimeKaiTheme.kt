@@ -1,13 +1,8 @@
 package eu.kanade.tachiyomi.multisrc.animekaitheme
 
-import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.megaupextractor.MegaUpExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -37,10 +32,6 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.CacheControl
@@ -54,7 +45,6 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.math.BigDecimal
 import java.math.RoundingMode
-import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
@@ -309,102 +299,9 @@ abstract class AnimeKaiTheme(
         val encodedLink = fetchEncodedLink(lid, enc)
         val iframe = decryptIframeData(encodedLink, encDecHeaders())
 
-        // If the decrypted URL is an iframe wrapper, unwrap it BEFORE sending to the extractor
-        val finalUrl = if (iframe.toHttpUrl().pathSegments.firstOrNull() == "iframe") {
-            Log.d(name, "Detected iframe wrapper. Unwrapping...")
-            unwrapIframeUrl(iframe)
-        } else {
-            iframe
-        }
-
         val typeSuffix = getTypeSuffix(type)
         val name = "$serverName | [$typeSuffix]"
-        return VideoData(finalUrl, name)
-    }
-
-    /**
-     * Attempts to unwrap the iframe URL.
-     * 1. Tries fast OkHttp (Works for AniGo's lenient Cloudflare)
-     * 2. Falls back to invisible WebView (Required for AnimeKai's strict Cloudflare)
-     */
-    private suspend fun unwrapIframeUrl(url: String): String {
-        try {
-            val html = client.newCall(GET(url, docHeaders)).awaitSuccess().use { it.body.string() }
-            val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']*(?:/e/|megaup)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            var realUrl = iframeRegex.find(html)?.groupValues?.get(1)
-
-            if (realUrl?.startsWith("//") == true) {
-                realUrl = "https:$realUrl"
-            } else if (realUrl?.startsWith("/") == true) {
-                val parsedUrl = url.toHttpUrl()
-                realUrl = "${parsedUrl.scheme}://${parsedUrl.host}$realUrl"
-            }
-
-            if (!realUrl.isNullOrEmpty()) {
-                Log.d(name, "Unwrapped iframe via OkHttp: $realUrl")
-                return realUrl
-            }
-        } catch (e: Exception) {
-            Log.d(name, "OkHttp unwrap failed (Cloudflare block), falling back to WebView...")
-        }
-
-        Log.d(name, "Launching background WebView to bypass Cloudflare...")
-        return withTimeout(15_000) {
-            unwrapWithWebView(url)
-        }
-    }
-
-    /**
-     * Loads the URL in an invisible WebView, lets Cloudflare solve its own challenge,
-     * and extracts the real MegaUp URL from the resulting HTML.
-     */
-    @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun unwrapWithWebView(url: String): String {
-        return withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { continuation ->
-                val webView = WebView(this@AnimeKaiTheme.context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.userAgentString = headers["User-Agent"] ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
-
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView, loadedUrl: String) {
-                            if (loadedUrl.contains("/cdn-cgi/")) return
-
-                            view.evaluateJavascript(
-                                """
-                                (function() {
-                                    try {
-                                        var iframe = document.querySelector('iframe[src]');
-                                        if (iframe && (iframe.src.includes('/e/') || iframe.src.includes('megaup'))) {
-                                            return iframe.src;
-                                        }
-                                    } catch(e) {}
-                                    return '';
-                                })();
-                                """.trimIndent(),
-                            ) { result ->
-                                val extractedUrl = result?.replace("\\\"", "\"")?.trim('"')?.takeIf { it.isNotEmpty() }
-
-                                if (extractedUrl != null) {
-                                    view.destroy()
-                                    if (continuation.isActive) {
-                                        continuation.resume(extractedUrl)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    loadUrl(url)
-                }
-
-                continuation.invokeOnCancellation {
-                    try {
-                        Handler(Looper.getMainLooper()).post { webView.destroy() }
-                    } catch (_: Exception) {}
-                }
-            }
-        }
+        return VideoData(iframe, name)
     }
 
     protected open fun Element.getTitle(): String {
@@ -453,14 +350,14 @@ abstract class AnimeKaiTheme(
 
     // ============================ Extractor ==============================
 
-    protected var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders) }
+    protected var megaUpExtractor by LazyMutable { MegaUpExtractor(client, docHeaders, context) }
 
     protected open fun updateDomainConfig() {
         client = network.client.newBuilder()
             .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
         docHeaders = headersBuilder().build()
-        megaUpExtractor = MegaUpExtractor(client, docHeaders)
+        megaUpExtractor = MegaUpExtractor(client, docHeaders, context)
     }
 
     protected open suspend fun extractVideo(server: VideoData): List<Video> = try {

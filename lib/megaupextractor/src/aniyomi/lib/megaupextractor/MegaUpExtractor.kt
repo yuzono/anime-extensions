@@ -1,6 +1,12 @@
 package aniyomi.lib.megaupextractor
 
+import android.annotation.SuppressLint
+import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -9,19 +15,24 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import kotlin.coroutines.resume
 
 class MegaUpExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
+    private val context: Application? = null,
 ) {
 
-    // Automatically sets the tag to "MegaUpExtractor" for Logcat filtering
     private val tag by lazy { javaClass.simpleName }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -40,6 +51,106 @@ class MegaUpExtractor(
             .build()
     }
 
+    /**
+     * Attempts to unwrap the iframe URL.
+     * 1. Tries fast OkHttp (Works for AniGo's lenient Cloudflare)
+     * 2. Falls back to invisible WebView (Required for strict Cloudflare)
+     */
+    private suspend fun unwrapIframeUrl(url: String): String {
+        try {
+            val parsedUrl = url.toHttpUrl()
+            val iframeHeaders = Headers.Builder()
+                .set("User-Agent", headers["User-Agent"] ?: "")
+                .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .set("Referer", url)
+                .build()
+
+            val html = client.newCall(GET(url, iframeHeaders))
+                .awaitSuccess()
+                .use { it.body.string() }
+
+            val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']*(?:/e/|megaup)[^"']*)["']""", RegexOption.IGNORE_CASE)
+            var realUrl = iframeRegex.find(html)?.groupValues?.get(1)
+
+            if (realUrl?.startsWith("//") == true) {
+                realUrl = "https:$realUrl"
+            } else if (realUrl?.startsWith("/") == true) {
+                realUrl = "${parsedUrl.scheme}://${parsedUrl.host}$realUrl"
+            }
+
+            if (!realUrl.isNullOrEmpty()) {
+                Log.d(tag, "Unwrapped iframe via OkHttp: $realUrl")
+                return realUrl
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "OkHttp unwrap failed (Cloudflare block), falling back to WebView...")
+        }
+
+        if (context != null) {
+            Log.d(tag, "Launching background WebView to bypass Cloudflare...")
+            return withTimeout(15_000) {
+                unwrapWithWebView(url)
+            }
+        }
+
+        Log.e(tag, "Failed to unwrap iframe. Blocked by Turnstile.")
+        throw Exception("Server is protected by Cloudflare Turnstile. Cannot extract video.")
+    }
+
+    /**
+     * Loads the URL in an invisible WebView, lets Cloudflare solve its own challenge,
+     * and extracts the real MegaUp URL from the resulting HTML.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private suspend fun unwrapWithWebView(url: String): String {
+        return withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val webView = WebView(context!!).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = headers["User-Agent"]
+                        ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView, loadedUrl: String) {
+                            if (loadedUrl.contains("/cdn-cgi/")) return
+
+                            view.evaluateJavascript(
+                                """
+                                (function() {
+                                    try {
+                                        var iframe = document.querySelector('iframe[src]');
+                                        if (iframe && (iframe.src.includes('/e/') || iframe.src.includes('megaup'))) {
+                                            return iframe.src;
+                                        }
+                                    } catch(e) {}
+                                    return '';
+                                })();
+                                """.trimIndent(),
+                            ) { result ->
+                                val extractedUrl = result?.replace("\\\"", "\"")?.trim('"')?.takeIf { it.isNotEmpty() }
+
+                                if (extractedUrl != null) {
+                                    view.destroy()
+                                    if (continuation.isActive) {
+                                        continuation.resume(extractedUrl)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    loadUrl(url)
+                }
+
+                continuation.invokeOnCancellation {
+                    try {
+                        Handler(Looper.getMainLooper()).post { webView.destroy() }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
     suspend fun videosFromUrl(
         url: String,
         serverName: String? = null,
@@ -48,42 +159,13 @@ class MegaUpExtractor(
         val userAgent = headers["User-Agent"] ?: ""
 
         // ==========================================
-        // 1. UNWRAP ANIGO IFRAME (Fixes the 404)
+        // 1. UNWRAP IFRAME (if needed)
         // ==========================================
         if (parsedUrl.pathSegments.firstOrNull() == "iframe") {
             Log.d(tag, "Detected iframe wrapper. Attempting to unwrap...")
-
-            val iframeHeaders = Headers.Builder()
-                .set("User-Agent", userAgent)
-                .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .set("Referer", url)
-                .build()
-
-            // Fetch the raw HTML string
-            val html = client.newCall(GET(url, iframeHeaders))
-                .awaitSuccess()
-                .use { it.body.string() }
-
-            // Regex to find the iframe tag and capture the src containing '/e/' or 'megaup'
-            val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']*(?:/e/|megaup)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            var realMegaUpUrl = iframeRegex.find(html)?.groupValues?.get(1)
-
-            // Replicate Jsoup's `abs:src` behavior for relative URLs
-            if (realMegaUpUrl?.startsWith("//") == true) {
-                realMegaUpUrl = "https:$realMegaUpUrl"
-            } else if (realMegaUpUrl?.startsWith("/") == true) {
-                realMegaUpUrl = "${parsedUrl.scheme}://${parsedUrl.host}$realMegaUpUrl"
-            }
-
-            if (realMegaUpUrl.isNullOrEmpty()) {
-                // If we didn't find an iframe, we definitely hit Cloudflare "Just a moment..."
-                Log.e(tag, "Failed to unwrap iframe. Blocked by Turnstile.")
-                throw Exception("AniGo Server is protected by Cloudflare Turnstile. Cannot extract video.")
-            }
-
-            Log.d(tag, "Unwrapped real MegaUp URL: $realMegaUpUrl")
-            // Recursively call this function with the REAL MegaUp URL
-            return videosFromUrl(realMegaUpUrl, serverName)
+            val unwrappedUrl = unwrapIframeUrl(url)
+            Log.d(tag, "Unwrapped real MegaUp URL: $unwrappedUrl")
+            return videosFromUrl(unwrappedUrl, serverName)
         }
 
         // ==========================================
@@ -106,8 +188,6 @@ class MegaUpExtractor(
             .set("X-Requested-With", "XMLHttpRequest")
             .set("Referer", url)
             .build()
-
-        // ... [Keep the rest of your exact code below this line unchanged] ...
 
         val megaToken = client.newCall(GET(megaUrl, mediaHeaders))
             .awaitSuccess().use { response ->
@@ -177,11 +257,6 @@ class MegaUpExtractor(
     private val m3u8Regex by lazy { Regex(".*\\.m3u8(\\?.*)?$", RegexOption.IGNORE_CASE) }
     private val mpdRegex by lazy { Regex(".*\\.mpd(\\?.*)?$", RegexOption.IGNORE_CASE) }
     private val mp4Regex by lazy { Regex(".*\\.mp4(\\?.*)?$", RegexOption.IGNORE_CASE) }
-
-    /**
-     * Extracts the main domain segment from a host string.
-     * For example, "www.megaup.live" -> "megaup"
-     */
 
     private fun extractHoster(host: String): String {
         val parts = host.split(".")
