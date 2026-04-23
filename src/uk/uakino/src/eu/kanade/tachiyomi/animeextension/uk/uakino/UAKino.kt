@@ -154,7 +154,7 @@ class UAKino : ParsedAnimeHttpSource() {
         val episodeList = mutableListOf<SEpisode>()
 
         // If "success" is false - is not anime serial (or another player)
-        if (parsed.getBoolean("success")) {
+        if (parsed.optBoolean("success")) {
             Jsoup.parse(parsed.getString("response")).select("div.playlists-videos li").forEach {
                 val episodeUrl = UrlUtils.fixUrl(it.attr("data-file"), baseUrl) ?: return@forEach
                 val episode = SEpisode.create().apply {
