@@ -84,7 +84,7 @@ class UAKino : ParsedAnimeHttpSource() {
         val body = FormBody.Builder()
             .add("do", "search")
             .add("subaction", "search")
-            .add("story", query.replace(" ", "+"))
+            .add("story", query)
             .build()
 
         return POST(
