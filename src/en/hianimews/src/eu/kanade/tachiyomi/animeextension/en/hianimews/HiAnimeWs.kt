@@ -43,7 +43,7 @@ class HiAnimeWs :
             else -> ""
         }
 
-        document.selectFirst("div.anisc-detail")?.let { info ->
+        document.selectFirst("div.anisc-detail")?.let { info: Element ->
             title = info.selectFirst("h2.film-name a.dynamic-name")?.getTitle().orEmpty()
 
             val producers = info.select("div.film-text a[href*=/producers/]").eachText()
@@ -81,7 +81,7 @@ class HiAnimeWs :
             val typeClass = typeBlock.classNames().find { it.startsWith("ps_-block-") }
             val type = typeClass?.removePrefix("ps_-block-") ?: return@flatMap emptyList<VideoCode>()
 
-            if (type !in typeToggle) return@flatMap emptyList<VideoCode>()
+            if (type !in typeToggle) return@flatMap emptyList()
 
             typeBlock.select("a.server[data-lid]").mapNotNull { serverElm ->
                 val serverId = serverElm.attr("data-lid")

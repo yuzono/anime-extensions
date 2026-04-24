@@ -82,7 +82,7 @@ class MegaUpExtractor(
                 Log.d(tag, "Unwrapped iframe via OkHttp: $realUrl")
                 return realUrl
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Log.d(tag, "OkHttp unwrap failed (Cloudflare block), falling back to WebView...")
         }
 

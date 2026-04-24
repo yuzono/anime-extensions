@@ -75,15 +75,15 @@ class AnimeKai :
             else -> ""
         }
 
-        document.selectFirst("div#main-entity")?.let { info ->
+        document.selectFirst("div#main-entity")?.let { info: Element ->
             val titleElement = info.selectFirst("h1.title")
             title = titleElement?.getTitle() ?: ""
 
-            val titles = titleElement?.let {
+            val titles = titleElement?.let { elm: Element ->
                 listOf(
-                    it.attr("title"),
-                    it.attr("data-jp"),
-                    it.ownText(),
+                    elm.attr("title"),
+                    elm.attr("data-jp"),
+                    elm.ownText(),
                 )
             } ?: emptyList()
 
@@ -97,7 +97,7 @@ class AnimeKai :
 
             val rating = info.selectFirst(".rating")?.text().orEmpty()
 
-            info.selectFirst("div.detail")?.let { detail ->
+            info.selectFirst("div.detail")?.let { detail: Element ->
                 author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
                     ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
                 status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN

@@ -43,7 +43,7 @@ object AnimeKaiThemeFilters {
             .filterNot { it.isIgnored() }
             .mapNotNull { tristate ->
                 vals.find { it.first == tristate.name }?.second?.let {
-                    val prefix = if (tristate.state == AnimeFilter.TriState.STATE_INCLUDE) "" else "-"
+                    val prefix = if (tristate.state == TriState.STATE_INCLUDE) "" else "-"
                     "$prefix$it"
                 }
             }

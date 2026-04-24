@@ -55,7 +55,7 @@ class AniGo :
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")!!.getTitle()!!
+            title = element.selectFirst("h6.title")!!.getTitle()
             thumbnail_url = element.selectFirst("a.poster img")?.attr("abs:src")
         }
     }
@@ -73,7 +73,7 @@ class AniGo :
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")!!.getTitle()!!
+            title = element.selectFirst("h6.title")!!.getTitle()
             thumbnail_url = element.selectFirst("div.poster img")?.attr("abs:src")
                 ?: element.selectFirst("img")?.attr("abs:src")
         }
@@ -120,7 +120,7 @@ class AniGo :
             else -> ""
         }
 
-        document.selectFirst("div#main-entity")?.let { info ->
+        document.selectFirst("div#main-entity")?.let { info: Element ->
             val titleEl = info.selectFirst("div.title")
             titleEl?.getTitle()?.let { title = it }
 
@@ -131,7 +131,7 @@ class AniGo :
 
             val rating = info.selectFirst(".rating")?.text().orEmpty()
 
-            info.selectFirst("div.detail")?.let { detail ->
+            info.selectFirst("div.detail")?.let { detail: Element ->
                 author = detail.getInfo("Studios:", isList = true)?.takeIf { it.isNotEmpty() }
                     ?: detail.getInfo("Producers:", isList = true)?.takeIf { it.isNotEmpty() }
                 status = detail.getInfo("Status:")?.run(::parseStatus) ?: SAnime.UNKNOWN
