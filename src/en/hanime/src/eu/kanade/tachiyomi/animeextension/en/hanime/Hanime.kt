@@ -308,23 +308,6 @@ val manifestResponse = client.newCall(
         }
     }
 
-    /**
-     * Add signature headers to a Request.Builder.
-     * Fetches a fresh signature if needed and applies x-signature, x-time, etc.
-     */
-    private suspend fun Request.Builder.addSignatureHeaders(): Request.Builder = withContext(Dispatchers.IO) {
-	try {
-		val signature = ensureSignatureProvider().getSignature()
-		SignatureHeaders.build(signature).forEach { (key, value) ->
-                header(key, value)
-            }
-        } catch (e: Exception) {
-            // Signature generation failed — proceed without signature headers.
-            // The request may still succeed for endpoints that don't require auth.
-        }
-        this@addSignatureHeaders
-    }
-
     private fun latestSearchRequestBody(page: Int): RequestBody = """
             {"search_text": "",
             "tags": [],
