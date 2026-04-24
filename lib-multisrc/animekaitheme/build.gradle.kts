@@ -6,5 +6,4 @@ baseVersionCode = 1
 
 dependencies {
     implementation(project(":lib:megaupextractor"))
-    implementation(project(":lib:playlistutils"))
 }

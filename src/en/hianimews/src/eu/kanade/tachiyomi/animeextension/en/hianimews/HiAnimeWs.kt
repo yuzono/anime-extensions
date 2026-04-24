@@ -9,7 +9,7 @@ import org.jsoup.nodes.Element
 class HiAnimeWs :
     AnimeKaiTheme(
         "en",
-        "HiAnimeWs",
+        "HiAnimeWs (Unoriginal)",
         domainEntries = listOf("hianime.ws"),
         hosterNames = listOf("Server 1", "Server 2"),
     ) {
