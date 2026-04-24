@@ -1,18 +1,7 @@
 ext {
-    extName = 'EnNovelas'
+    extName = 'EnNovelas (Dead)'
     extClass = '.EnNovelas'
     extVersionCode = 28
 }
 
 apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(':lib:streamtapeextractor'))
-    implementation(project(':lib:okruextractor'))
-    implementation(project(':lib:doodextractor'))
-    implementation(project(':lib:voeextractor'))
-    implementation(project(':lib:streamlareextractor'))
-    implementation(project(':lib:uqloadextractor'))
-    implementation(project(':lib:vudeoextractor'))
-    implementation(project(':lib:dailymotionextractor'))
-}

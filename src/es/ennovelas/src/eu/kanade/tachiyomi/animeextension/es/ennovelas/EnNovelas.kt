@@ -2,14 +2,6 @@ package eu.kanade.tachiyomi.animeextension.es.ennovelas
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.dailymotionextractor.DailymotionExtractor
-import aniyomi.lib.doodextractor.DoodExtractor
-import aniyomi.lib.okruextractor.OkruExtractor
-import aniyomi.lib.streamlareextractor.StreamlareExtractor
-import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
-import aniyomi.lib.uqloadextractor.UqloadExtractor
-import aniyomi.lib.voeextractor.VoeExtractor
-import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -22,13 +14,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
-import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -42,7 +31,7 @@ class EnNovelas :
 
     override val name = "EnNovelas"
 
-    override val baseUrl = "https://tv.ennovelas.net/"
+    override val baseUrl = "https://l.ennovelas-tv.com"
 
     override val lang = "es"
 
@@ -154,19 +143,19 @@ class EnNovelas :
                     .replace("https://api.mycdn.moe/uqlink.php?id=", "https://uqload.is/embed-")
 
                 when {
-                    link.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(link)
-                    link.contains("vidmoly") -> VidmolyExtractor(client).getVideoList(link, "")
-                    link.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(link)
-                    link.contains("vudeo") -> VudeoExtractor(client).videosFromUrl(link)
-                    link.contains("streamtape") -> listOfNotNull(StreamTapeExtractor(client).videoFromUrl(link))
-                    link.contains("uqload") -> {
-                        val htmlLink = if (link.contains(".html")) link else "$link.html"
-                        UqloadExtractor(client).videosFromUrl(htmlLink, "Uqload")
-                    }
-
-                    link.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(link))
-                    link.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(link)
-                    link.contains("dailymotion") -> DailymotionExtractor(client, headers).videosFromUrl(link)
+//                    link.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(link)
+//                    link.contains("vidmoly") -> VidmolyExtractor(client).getVideoList(link, "")
+//                    link.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(link)
+//                    link.contains("vudeo") -> VudeoExtractor(client).videosFromUrl(link)
+//                    link.contains("streamtape") -> listOfNotNull(StreamTapeExtractor(client).videoFromUrl(link))
+//                    link.contains("uqload") -> {
+//                        val htmlLink = if (link.contains(".html")) link else "$link.html"
+//                        UqloadExtractor(client).videosFromUrl(htmlLink, "Uqload")
+//                    }
+//
+//                    link.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(link))
+//                    link.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(link)
+//                    link.contains("dailymotion") -> DailymotionExtractor(client, headers).videosFromUrl(link)
                     else -> emptyList()
                 }
             }
@@ -365,25 +354,5 @@ class EnNovelas :
             }
         }
         screen.addPreference(videoQualityPref)
-    }
-}
-
-class VidmolyExtractor(private val client: OkHttpClient) {
-    fun getVideoList(url: String, lang: String): List<Video> {
-        val body = client.newCall(GET(url)).execute()
-            .bodyString()
-        val playlistUrl = Regex("file:\"(\\S+?)\"").find(body)!!.groupValues[1]
-        val headers = Headers.headersOf("Referer", "https://vidmoly.to")
-        val playlistData = client.newCall(GET(playlistUrl, headers)).execute()
-            .bodyString()
-
-        val separator = "#EXT-X-STREAM-INF:"
-        return playlistData.substringAfter(separator).split(separator).map {
-            val quality = it.substringAfter("RESOLUTION=")
-                .substringAfter("x")
-                .substringBefore(",") + "p"
-            val videoUrl = it.substringAfter("\n").substringBefore("\n")
-            Video(videoUrl, "$lang - $quality", videoUrl, headers)
-        }
     }
 }

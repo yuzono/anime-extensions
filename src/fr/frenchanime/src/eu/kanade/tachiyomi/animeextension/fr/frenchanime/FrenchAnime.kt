@@ -97,7 +97,7 @@ class FrenchAnime :
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamHubExtractor by lazy { StreamHubExtractor(client) }
-    private val vidmolyExtractor by lazy { VidMolyExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {

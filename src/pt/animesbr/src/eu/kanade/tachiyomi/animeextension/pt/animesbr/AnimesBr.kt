@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.pt.animesbr
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesbr.extractors.FourNimesExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesbr.extractors.RuplayExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -83,7 +82,6 @@ class AnimesBr :
 
     private val fourNimesExtractor by lazy { FourNimesExtractor(client) }
     private val ruplayExtractor by lazy { RuplayExtractor(client) }
-    private val vidMolyExtractor by lazy { VidMolyExtractor(client) }
 
     private fun getPlayerVideos(player: Element): List<Video> {
         val name = player.selectFirst("span.title")!!.text()
@@ -100,7 +98,6 @@ class AnimesBr :
         return when {
             "4nimes.com" in url -> fourNimesExtractor.videosFromUrl(url, "$name - ")
             "4youmovies" in url -> fourNimesExtractor.videosFromUrl(url, "$name - ")
-            "vidmoly" in url -> vidMolyExtractor.videosFromUrl(url, "$name - ")
             "/embed/" in url -> ruplayExtractor.videosFromUrl(url, "$name - ")
             else -> emptyList()
         }
