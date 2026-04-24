@@ -300,4 +300,6 @@ data class ManifestStream(
     @SerialName("mime_type")
     val mimeType: String? = null,
     val width: Long? = null,
+    @SerialName("hv_id")
+    val hvId: Long? = null,
 )
