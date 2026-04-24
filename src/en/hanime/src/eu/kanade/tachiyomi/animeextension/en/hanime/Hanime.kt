@@ -181,7 +181,7 @@ class Hanime :
         val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
-            ?: return videoListParse(videoResponse) // Fallback
+		?: return parseVideoModelString(videoString) // Fallback
 
         // Try manifest endpoint with signature
         return try {
@@ -201,11 +201,11 @@ class Hanime :
             } else {
                 // Manifest endpoint failed (401 = stale signature, etc.)
                 // Fall back to standard video endpoint
-                videoListParse(videoResponse)
-            }
-        } catch (e: Exception) {
-            // Signature generation or manifest request failed — fall back
-            videoListParse(videoResponse)
+			parseVideoModelString(videoString)
+	}
+} catch (e: Exception) {
+	// Signature generation or manifest request failed — fall back
+	parseVideoModelString(videoString)
         }
     }
 
@@ -234,23 +234,37 @@ class Hanime :
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
-        val videoModel = responseString.parseAs<VideoModel>()
+	override fun videoListParse(response: Response): List<Video> {
+		val responseString = response.body.string().ifEmpty { return emptyList() }
+		val videoModel = responseString.parseAs<VideoModel>()
 
-        // Try to get streams from videosManifest (current approach)
-        val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
-            server.streams.filter { it.kind != "premium_alert" }
-        } ?: emptyList()
+		// Try to get streams from videosManifest (current approach)
+		val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
+			server.streams.filter { it.kind != "premium_alert" }
+		} ?: emptyList()
 
-        if (manifestStreams.isNotEmpty()) {
-            return manifestStreams.map { stream ->
-                Video(stream.url, "${stream.height}p", stream.url)
-            }
-        }
+		if (manifestStreams.isNotEmpty()) {
+			return manifestStreams.map { stream ->
+				Video(stream.url, "${stream.height}p", stream.url)
+			}
+		}
 
-        return emptyList()
-    }
+		return emptyList()
+	}
+
+	private fun parseVideoModelString(responseString: String): List<Video> {
+		if (responseString.isEmpty()) return emptyList()
+		val videoModel = responseString.parseAs<VideoModel>()
+		val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
+			server.streams.filter { it.kind != "premium_alert" }
+		} ?: emptyList()
+
+		return if (manifestStreams.isNotEmpty()) {
+			manifestStreams.map { stream ->
+				Video(stream.url, "${stream.height}p", stream.url)
+			}
+		} else emptyList()
+	}
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
