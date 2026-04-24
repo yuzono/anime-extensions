@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -179,7 +180,7 @@ class Hanime :
     private suspend fun fetchVideoListWithSignature(episode: SEpisode): List<Video> {
         // First, get the video model to find the hv_id
         val slug = episode.url.substringAfter("id=")
-        val videoResponse = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).execute()
+        val videoResponse = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await()
         val videoString = videoResponse.body.string()
         if (videoString.isEmpty()) return emptyList()
 
@@ -197,9 +198,9 @@ class Hanime :
                 }
             }.build()
 
-            val manifestResponse = client.newCall(
-                GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
-            ).execute()
+val manifestResponse = client.newCall(
+            GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
+        ).await()
 
             if (manifestResponse.isSuccessful) {
                 parseManifestResponse(manifestResponse)
@@ -226,10 +227,10 @@ class Hanime :
         }
     }
 
-    private fun fetchVideoListPremium(episode: SEpisode): List<Video> {
+    private suspend fun fetchVideoListPremium(episode: SEpisode): List<Video> {
         val id = episode.url.substringAfter("?id=")
         val headers = headers.newBuilder().add("cookie", authCookie!!)
-        val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).execute().asJsoup()
+        val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).await().asJsoup()
 
         val parsed = document.selectFirst("script:containsData(__NUXT__)")!!.data()
             .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
