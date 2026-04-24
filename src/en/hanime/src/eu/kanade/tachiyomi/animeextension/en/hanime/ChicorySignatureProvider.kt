@@ -115,12 +115,9 @@ class ChicorySignatureProvider(
                     eventTypePtr = malloc.apply(2L)[0].toInt() // "e" + null = 2 bytes
                     eventJsonPtr = malloc.apply(3L)[0].toInt() // "{}" + null = 3 bytes
                     useMalloc = true
-                } catch (_: Exception) {
-                    // Fallback: write to end of memory region
-                    val endAddr = memory.pages() * 65536 - 1024 // last 1KB
-                    eventTypePtr = endAddr
-                    eventJsonPtr = endAddr + 16
-                }
+} catch (e: Exception) {
+            throw SignatureException("WASM module does not export required malloc function (export E): ${e.message}", e)
+        }
 
                 try {
                     // Write the event type and JSON into WASM memory
