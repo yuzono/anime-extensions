@@ -24,6 +24,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import kotlin.coroutines.resume
 
@@ -38,16 +39,21 @@ class MegaUpExtractor(
 
     private fun encDecHeaders(url: String): Headers {
         val referer = headers["Referer"] ?: url
-        val origin = runCatching { referer.toHttpUrl().let { "${it.scheme}://${it.host}" } }.getOrDefault("")
+        val origin = referer.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}" }
 
-        return Headers.Builder()
-            .set("User-Agent", headers["User-Agent"] ?: "")
-            .set("Accept", "application/json, text/plain, */*")
-            .set("Origin", origin)
-            .set("Referer", referer)
-            .set("Sec-Fetch-Dest", "empty")
-            .set("Sec-Fetch-Mode", "cors")
-            .set("Sec-Fetch-Site", "cross-site")
+        return headers.newBuilder().apply {
+            set(
+                "User-Agent",
+                headers["User-Agent"]
+                    ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            )
+            set("Accept", "application/json, text/plain, */*")
+            origin?.let { set("Origin", it) }
+            set("Referer", referer)
+            set("Sec-Fetch-Dest", "empty")
+            set("Sec-Fetch-Mode", "cors")
+            set("Sec-Fetch-Site", "cross-site")
+        }
             .build()
     }
 
@@ -155,7 +161,7 @@ class MegaUpExtractor(
         url: String,
         serverName: String? = null,
     ): List<Video> {
-        val parsedUrl = url.toHttpUrl()
+        val parsedUrl = url.toHttpUrlOrNull() ?: return emptyList()
         val userAgent = headers["User-Agent"] ?: ""
 
         // ==========================================
