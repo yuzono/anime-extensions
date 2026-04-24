@@ -64,36 +64,35 @@ class AniGo :
 
     // ============================== Related ==============================
 
-    override fun relatedAnimeListSelector() = "div.aniCard.mini .unit:has(a[href^=/watch/])"
+    override fun relatedAnimeListSelector() = "a.unit"
 
-    override fun relatedAnimeFromElement(element: Element): SAnime {
-        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a")!!
-        val href = linkEl.attr("abs:href")
-            .takeIf { it.startsWith("$baseUrl/watch/") }!!
-
-        return SAnime.create().apply {
-            setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")!!.getTitle()
-            thumbnail_url = element.selectFirst("div.poster img")?.attr("abs:src")
-                ?: element.selectFirst("img")?.attr("abs:src")
-        }
+    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("abs:href"))
+        title = element.selectFirst("h6.title")?.text().orEmpty()
+        thumbnail_url = element.selectFirst("img")?.attr("src").orEmpty()
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
-        val seasons = document.select("#seasons div.season div.aitem div.inner").mapNotNull { season ->
-            SAnime.create().apply {
-                val url = season.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
-                setUrlWithoutDomain(url)
-                thumbnail_url = season.selectFirst("img")?.attr("abs:src")
-                title = season.select("div.detail span").text().ifBlank { return@mapNotNull null }
+        val doc = response.asJsoup()
+        val results = mutableListOf<SAnime>()
+
+        doc.select("h2.sectionTitle").forEach { header ->
+            val headerText = header.text().trim()
+
+            if (headerText.equals("Related", ignoreCase = true) ||
+                headerText.equals("Recommended", ignoreCase = true)
+            ) {
+                val container = header.parents().firstOrNull { parent ->
+                    parent.selectFirst("div.aniCard.mini a.unit") != null
+                }
+
+                container?.select("div.aniCard.mini a.unit")?.forEach { el ->
+                    runCatching { results.add(relatedAnimeFromElement(el)) }
+                }
             }
         }
 
-        val related = document.select(relatedAnimeListSelector()).mapNotNull {
-            runCatching { relatedAnimeFromElement(it) }.getOrNull()
-        }
-        return seasons + related
+        return results
     }
 
     // =========================== Anime Details ============================

@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.animeextension.en.hianimews
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.multisrc.animekaitheme.AnimeKaiTheme
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoCode
+import eu.kanade.tachiyomi.util.asJsoup
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -24,9 +26,41 @@ class HiAnimeWs :
 
     // ============================== Related ==============================
 
-    override fun relatedAnimeListSelector() = "div.flw-item"
+    override fun relatedAnimeListSelector() = "li:has(a.dynamic-name), div.flw-item"
 
-    override fun relatedAnimeFromElement(element: Element): SAnime = element.toSAnime()
+    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        val nameEl = element.selectFirst("a.dynamic-name")
+        title = nameEl?.getTitle().orEmpty()
+        setUrlWithoutDomain(nameEl?.attr("href").orEmpty())
+        thumbnail_url = element.selectFirst("img.film-poster-img")?.attr("data-src").orEmpty()
+    }
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val doc = response.asJsoup()
+        val related = mutableListOf<SAnime>()
+        val recommended = mutableListOf<SAnime>()
+
+        doc.select("h2.cat-heading").forEach { header ->
+            val headerText = header.text().trim()
+
+            val targetList = when {
+                headerText.contains("Related", ignoreCase = true) -> related
+                headerText.contains("Recommended", ignoreCase = true) ||
+                    headerText.contains("Popular", ignoreCase = true) -> recommended
+                else -> null
+            } ?: return@forEach
+
+            val container = header.parents().firstOrNull { parent ->
+                parent.selectFirst("li:has(a.dynamic-name), div.flw-item") != null
+            }
+
+            container?.select("li:has(a.dynamic-name), div.flw-item")?.forEach { el ->
+                runCatching { targetList.add(relatedAnimeFromElement(el)) }
+            }
+        }
+
+        return related + recommended
+    }
 
     // =========================== Anime Details ============================
 
