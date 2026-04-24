@@ -13,6 +13,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,10 @@ class MegaUpExtractor(
     private val headers: Headers,
     private val context: Application? = null,
 ) {
+    companion object {
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+    }
 
     private val tag by lazy { javaClass.simpleName }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -42,11 +48,7 @@ class MegaUpExtractor(
         val origin = referer.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}" }
 
         return headers.newBuilder().apply {
-            set(
-                "User-Agent",
-                headers["User-Agent"]
-                    ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
-            )
+            set("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
             set("Accept", "application/json, text/plain, */*")
             origin?.let { set("Origin", it) }
             set("Referer", referer)
@@ -65,28 +67,28 @@ class MegaUpExtractor(
     private suspend fun unwrapIframeUrl(url: String): String {
         try {
             val parsedUrl = url.toHttpUrl()
-            val iframeHeaders = Headers.Builder()
-                .set("User-Agent", headers["User-Agent"] ?: "")
-                .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .set("Referer", url)
+            val iframeHeaders = headers.newBuilder().apply {
+                set("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+                set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                set("Referer", url)
+            }
                 .build()
 
             val html = client.newCall(GET(url, iframeHeaders))
                 .awaitSuccess()
-                .use { it.body.string() }
+                .bodyString()
 
             val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']*(?:/e/|megaup)[^"']*)["']""", RegexOption.IGNORE_CASE)
-            var realUrl = iframeRegex.find(html)?.groupValues?.get(1)
+            var realUrl = iframeRegex.find(html)?.groupValues?.getOrNull(1)
 
-            if (realUrl?.startsWith("//") == true) {
-                realUrl = "https:$realUrl"
-            } else if (realUrl?.startsWith("/") == true) {
-                realUrl = "${parsedUrl.scheme}://${parsedUrl.host}$realUrl"
-            }
+            if (!realUrl.isNullOrBlank()) {
+                val baseUrl = "${parsedUrl.scheme}://${parsedUrl.host}"
+                realUrl = UrlUtils.fixUrl(realUrl, baseUrl)
 
-            if (!realUrl.isNullOrEmpty()) {
-                Log.d(tag, "Unwrapped iframe via OkHttp: $realUrl")
-                return realUrl
+                if (!realUrl.isNullOrBlank()) {
+                    Log.d(tag, "Unwrapped iframe via OkHttp: $realUrl")
+                    return realUrl
+                }
             }
         } catch (_: Exception) {
             Log.d(tag, "OkHttp unwrap failed (Cloudflare block), falling back to WebView...")
@@ -115,7 +117,7 @@ class MegaUpExtractor(
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.userAgentString = headers["User-Agent"]
-                        ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+                        ?: DEFAULT_USER_AGENT
 
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, loadedUrl: String) {
@@ -162,7 +164,7 @@ class MegaUpExtractor(
         serverName: String? = null,
     ): List<Video> {
         val parsedUrl = url.toHttpUrlOrNull() ?: return emptyList()
-        val userAgent = headers["User-Agent"] ?: ""
+        val userAgent = headers["User-Agent"] ?: DEFAULT_USER_AGENT
 
         // ==========================================
         // 1. UNWRAP IFRAME (if needed)
@@ -183,22 +185,22 @@ class MegaUpExtractor(
 
         Log.d(tag, "Fetching videos for $prefix from: $url")
 
-        val token = parsedUrl.pathSegments.lastOrNull { it.isNotEmpty() }
+        val token = parsedUrl.pathSegments.lastOrNull(String::isNotBlank)
             ?: throw IllegalArgumentException("No token found in URL: $url")
 
         val megaUrl = "$megaHost/media/$token"
 
-        val mediaHeaders = Headers.Builder()
-            .set("User-Agent", userAgent)
-            .set("Accept", "application/json, text/plain, */*")
-            .set("X-Requested-With", "XMLHttpRequest")
-            .set("Referer", url)
+        val mediaHeaders = headers.newBuilder().apply {
+            set("User-Agent", userAgent)
+            set("Accept", "application/json, text/plain, */*")
+            set("X-Requested-With", "XMLHttpRequest")
+            set("Referer", url)
+        }
             .build()
 
         val megaToken = client.newCall(GET(megaUrl, mediaHeaders))
-            .awaitSuccess().use { response ->
-                response.parseAs<InternalEncryptedResponse>().result
-            }
+            .awaitSuccess()
+            .parseAs<InternalEncryptedResponse>().result
 
         val tokenBody = buildJsonObject {
             put("text", megaToken)
@@ -209,16 +211,16 @@ class MegaUpExtractor(
 
         val megaUpResult = client.newCall(
             POST("https://enc-dec.app/api/dec-mega", body = tokenBody, headers = encDecHeaders(url)),
-        ).awaitSuccess().use { response ->
-            response.parseAs<InternalTokenResponse>().result
-        }
+        ).awaitSuccess()
+            .parseAs<InternalTokenResponse>().result
 
         val subtitleTracks = megaUpResult.subtitleTracks()
 
-        val videoHeaders = Headers.Builder()
-            .set("User-Agent", userAgent)
-            .set("Origin", megaHost)
-            .set("Referer", "$megaHost/")
+        val videoHeaders = headers.newBuilder().apply {
+            set("User-Agent", userAgent)
+            set("Origin", megaHost)
+            set("Referer", "$megaHost/")
+        }
             .build()
 
         return megaUpResult.sources.flatMap {
@@ -260,14 +262,13 @@ class MegaUpExtractor(
         }
     }
 
-    private val m3u8Regex by lazy { Regex(".*\\.m3u8(\\?.*)?$", RegexOption.IGNORE_CASE) }
-    private val mpdRegex by lazy { Regex(".*\\.mpd(\\?.*)?$", RegexOption.IGNORE_CASE) }
-    private val mp4Regex by lazy { Regex(".*\\.mp4(\\?.*)?$", RegexOption.IGNORE_CASE) }
+    private val m3u8Regex by lazy { Regex(""".+\.m3u8(?:\?.*)?$""", RegexOption.IGNORE_CASE) }
+    private val mpdRegex by lazy { Regex(""".+\.mpd(?:\?.*)?$""", RegexOption.IGNORE_CASE) }
+    private val mp4Regex by lazy { Regex(""".+\.mp4(?:\?.*)?$""", RegexOption.IGNORE_CASE) }
 
-    private fun extractHoster(host: String): String {
-        val parts = host.split(".")
-        return if (parts.size >= 2) parts[parts.size - 2] else host
-    }
+    private val hosterRegex by lazy { Regex("""([^.]+)\.[^.]+$""") }
+
+    private fun extractHoster(host: String): String = hosterRegex.find(host)?.groupValues?.getOrNull(1) ?: host
 
     private fun String.proper(): String = this.replaceFirstChar {
         if (it.isLowerCase()) it.titlecase() else it.toString()
