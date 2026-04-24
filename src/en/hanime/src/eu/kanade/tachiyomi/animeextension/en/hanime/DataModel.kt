@@ -253,3 +253,51 @@ data class WindowNuxt(
         }
     }
 }
+
+/**
+ * Response from the manifest endpoint: GET /api/v8/guest/videos/{hv_id}/manifest
+ * The CDN wraps the manifest in a `videos_manifest` key.
+ */
+@Serializable
+data class ManifestWrapper(
+    @SerialName("videos_manifest")
+    val videosManifest: ManifestResponse = ManifestResponse(),
+)
+
+@Serializable
+data class ManifestResponse(
+    val servers: List<ManifestServer> = emptyList(),
+)
+
+@Serializable
+data class ManifestServer(
+    val id: Long? = null,
+    val name: String? = null,
+    val slug: String? = null,
+    @SerialName("is_permanent")
+    val isPermanent: Boolean? = false,
+    val streams: List<ManifestStream> = emptyList(),
+)
+
+@Serializable
+data class ManifestStream(
+    val id: Long? = null,
+    val kind: String? = null,
+    val height: String? = null,
+    val url: String = "",
+    @SerialName("is_guest_allowed")
+    val isGuestAllowed: Boolean? = false,
+    @SerialName("is_member_allowed")
+    val isMemberAllowed: Boolean? = false,
+    @SerialName("is_premium_allowed")
+    val isPremiumAllowed: Boolean? = false,
+    @SerialName("duration_in_ms")
+    val durationInMs: Long? = null,
+    @SerialName("filesize_mbs")
+    val filesizeMbs: Long? = null,
+    val filename: String? = null,
+    val extension: String? = null,
+    @SerialName("mime_type")
+    val mimeType: String? = null,
+    val width: Long? = null,
+)

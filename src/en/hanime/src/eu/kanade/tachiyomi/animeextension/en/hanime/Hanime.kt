@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import android.app.Application
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -15,6 +16,9 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -34,15 +38,47 @@ class Hanime :
 
     override val baseUrl = "https://hanime.tv"
 
+    /** CDN base URL for manifest and search API requests. */
+    private val cdnBaseUrl = "https://cached.freeanimehentai.net"
+
     override val lang = "en"
 
     override val supportsLatest = true
+
+    override fun headersBuilder() = Headers.Builder()
+        .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+        .add("Accept", "application/json")
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("Origin", "https://hanime.tv")
+        .add("Referer", "https://hanime.tv/")
 
     private var authCookie: String? = null
 
     private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
+
+    private val context: Application by injectLazy()
+    private val signatureProvider: SignatureProvider by lazy {
+        val providerMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
+        when (providerMode) {
+            "webview" -> SignatureCache(WebViewSignatureProvider())
+            "wasm" -> {
+                val binary = runCatching {
+                    runBlocking(Dispatchers.IO) {
+                        HanimeWasmBinary.fetchWasmBinary(client)
+                    }
+                }.getOrNull()
+                if (binary != null) {
+                    SignatureCache(ChicorySignatureProvider(binary))
+                } else {
+                    // Fall back to WebView if WASM binary can't be fetched
+                    SignatureCache(WebViewSignatureProvider())
+                }
+            }
+            else -> SignatureCache(WebViewSignatureProvider())
+        }
+    }
 
     private fun searchRequestBody(query: String, page: Int, filters: AnimeFilterList): RequestBody {
         val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
@@ -127,7 +163,62 @@ class Hanime :
         if (authCookie != null) {
             return fetchVideoListPremium(episode)
         }
-        return super.getVideoList(episode)
+        // Try manifest endpoint with WASM signature first
+        return fetchVideoListWithSignature(episode)
+    }
+
+    /**
+     * Fetch video list using the manifest endpoint with WASM-generated signature headers.
+     * Falls back to the standard video endpoint if signature generation fails.
+     */
+    private suspend fun fetchVideoListWithSignature(episode: SEpisode): List<Video> {
+        // First, get the video model to find the hv_id
+        val slug = episode.url.substringAfter("id=")
+        val videoResponse = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).execute()
+        val videoString = videoResponse.body.string()
+        if (videoString.isEmpty()) return emptyList()
+
+        val videoModel = videoString.parseAs<VideoModel>()
+        val hvId = videoModel.hentaiVideo?.id
+            ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
+            ?: return videoListParse(videoResponse) // Fallback
+
+        // Try manifest endpoint with signature
+        return try {
+            val signature = signatureProvider.getSignature()
+            val sigHeaders = headers.newBuilder().apply {
+                SignatureHeaders.build(signature).forEach { (key, value) ->
+                    add(key, value)
+                }
+            }.build()
+
+            val manifestResponse = client.newCall(
+                GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
+            ).execute()
+
+            if (manifestResponse.isSuccessful) {
+                parseManifestResponse(manifestResponse)
+            } else {
+                // Manifest endpoint failed (401 = stale signature, etc.)
+                // Fall back to standard video endpoint
+                videoListParse(videoResponse)
+            }
+        } catch (e: Exception) {
+            // Signature generation or manifest request failed — fall back
+            videoListParse(videoResponse)
+        }
+    }
+
+    private fun parseManifestResponse(response: Response): List<Video> {
+        val responseString = response.body.string().ifEmpty { return emptyList() }
+        val manifestData = responseString.parseAs<ManifestWrapper>()
+        return manifestData.videosManifest.servers.flatMap { server ->
+            server.streams
+                .filter { it.isGuestAllowed == true }
+                .map { stream ->
+                    Video(stream.url, "${stream.height ?: "unknown"}p", stream.url)
+                }
+        }
     }
 
     private fun fetchVideoListPremium(episode: SEpisode): List<Video> {
@@ -145,9 +236,20 @@ class Hanime :
 
     override fun videoListParse(response: Response): List<Video> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
-        return responseString.parseAs<VideoModel>().videosManifest?.servers?.get(0)?.streams?.filter { it.kind != "premium_alert" }?.map {
-            Video(it.url, "${it.height}p", it.url)
+        val videoModel = responseString.parseAs<VideoModel>()
+
+        // Try to get streams from videosManifest (current approach)
+        val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
+            server.streams.filter { it.kind != "premium_alert" }
         } ?: emptyList()
+
+        if (manifestStreams.isNotEmpty()) {
+            return manifestStreams.map { stream ->
+                Video(stream.url, "${stream.height}p", stream.url)
+            }
+        }
+
+        return emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -162,7 +264,7 @@ class Hanime :
 
     override fun episodeListRequest(anime: SAnime): Request {
         val slug = anime.url.substringAfterLast("/")
-        return GET("$baseUrl/api/v8/video?id=$slug")
+        return GET("$baseUrl/api/v8/video?id=$slug", headers)
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -184,6 +286,23 @@ class Hanime :
                 cookieList.firstOrNull { it.name == "htv3session" }?.let { authCookie = "${it.name}=${it.value}" }
             }
         }
+    }
+
+    /**
+     * Add signature headers to a Request.Builder.
+     * Fetches a fresh signature if needed and applies x-signature, x-time, etc.
+     */
+    private suspend fun Request.Builder.addSignatureHeaders(): Request.Builder = withContext(Dispatchers.IO) {
+        try {
+            val signature = signatureProvider.getSignature()
+            SignatureHeaders.build(signature).forEach { (key, value) ->
+                header(key, value)
+            }
+        } catch (e: Exception) {
+            // Signature generation failed — proceed without signature headers.
+            // The request may still succeed for endpoints that don't require auth.
+        }
+        this@addSignatureHeaders
     }
 
     private fun latestSearchRequestBody(page: Int): RequestBody = """
@@ -515,6 +634,10 @@ class Hanime :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")
+
+        private const val PREF_SIG_PROVIDER_KEY = "signature_provider"
+        private const val PREF_SIG_PROVIDER_DEFAULT = "wasm"
+        private val SIG_PROVIDER_LIST = arrayOf("wasm", "webview")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -534,5 +657,22 @@ class Hanime :
             }
         }
         screen.addPreference(videoQualityPref)
+
+        val sigProviderPref = ListPreference(screen.context).apply {
+            key = PREF_SIG_PROVIDER_KEY
+            title = "Signature provider"
+            entries = arrayOf("Chicory WASM Runtime", "WebView (fallback)")
+            entryValues = SIG_PROVIDER_LIST
+            setDefaultValue(PREF_SIG_PROVIDER_DEFAULT)
+            summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
+        }
+        screen.addPreference(sigProviderPref)
     }
 }
