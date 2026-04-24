@@ -17,7 +17,6 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
@@ -59,13 +58,17 @@ class Hanime :
     private val preferences by getPreferencesLazy()
 
     private val context: Application by injectLazy()
-    private val signatureProvider: SignatureProvider by lazy {
+    private var signatureProvider: SignatureProvider? = null
+
+    private suspend fun ensureSignatureProvider(): SignatureProvider {
+        signatureProvider?.let { return it }
+
         val providerMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
-        when (providerMode) {
+        val provider = when (providerMode) {
             "webview" -> SignatureCache(WebViewSignatureProvider())
             "wasm" -> {
                 val binary = runCatching {
-                    runBlocking(Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         HanimeWasmBinary.fetchWasmBinary(client)
                     }
                 }.getOrNull()
@@ -78,6 +81,8 @@ class Hanime :
             }
             else -> SignatureCache(WebViewSignatureProvider())
         }
+        signatureProvider = provider
+        return provider
     }
 
     private fun searchRequestBody(query: String, page: Int, filters: AnimeFilterList): RequestBody {
@@ -183,10 +188,10 @@ class Hanime :
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
 		?: return parseVideoModelString(videoString) // Fallback
 
-        // Try manifest endpoint with signature
-        return try {
-            val signature = signatureProvider.getSignature()
-            val sigHeaders = headers.newBuilder().apply {
+	// Try manifest endpoint with signature
+	return try {
+		val signature = ensureSignatureProvider().getSignature()
+		val sigHeaders = headers.newBuilder().apply {
                 SignatureHeaders.build(signature).forEach { (key, value) ->
                     add(key, value)
                 }
@@ -307,9 +312,9 @@ class Hanime :
      * Fetches a fresh signature if needed and applies x-signature, x-time, etc.
      */
     private suspend fun Request.Builder.addSignatureHeaders(): Request.Builder = withContext(Dispatchers.IO) {
-        try {
-            val signature = signatureProvider.getSignature()
-            SignatureHeaders.build(signature).forEach { (key, value) ->
+	try {
+		val signature = ensureSignatureProvider().getSignature()
+		SignatureHeaders.build(signature).forEach { (key, value) ->
                 header(key, value)
             }
         } catch (e: Exception) {
