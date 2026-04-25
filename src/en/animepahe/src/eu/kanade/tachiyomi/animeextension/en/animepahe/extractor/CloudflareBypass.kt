@@ -65,19 +65,34 @@ class CloudflareBypass(private val context: Context) {
         onComplete: (CloudFlareBypassResult) -> Unit,
     ) {
         val handler = Handler(Looper.getMainLooper())
+        val startTime = android.os.SystemClock.elapsedRealtime()
+        val timeoutMillis = 30_000L
 
         val runnable = object : Runnable {
             override fun run() {
                 val cookies = CookieManager.getInstance().getCookie(url)
 
                 if (cookies?.contains("cf_clearance=") == true) {
+                    // Success: stop polling and return the result
+                    handler.removeCallbacks(this)
                     val finalResult = CloudFlareBypassResult(cookies, userAgent)
                     onComplete(finalResult)
+                    return
+                }
+
+                val elapsed = android.os.SystemClock.elapsedRealtime() - startTime
+                if (elapsed >= timeoutMillis) {
+                    // Timeout: stop polling and return an "empty" result to signal failure
+                    handler.removeCallbacks(this)
+                    val finalResult = CloudFlareBypassResult("", userAgent)
+                    onComplete(finalResult)
                 } else {
+                    // Retry after 500 ms
                     handler.postDelayed(this, 500)
                 }
             }
         }
+
         handler.post(runnable)
     }
 }
