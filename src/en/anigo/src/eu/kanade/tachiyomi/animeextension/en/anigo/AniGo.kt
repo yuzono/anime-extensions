@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -64,35 +63,13 @@ class AniGo :
 
     // ============================== Related ==============================
 
-    override fun relatedAnimeListSelector() = "a.unit"
+    override fun relatedAnimeListSelector() = "section:has(.sectionTitle:contains(RELATED)) .aniCard a.unit"
+    override fun recommendedAnimeListSelector() = "section:has(.sectionTitle:contains(RECOMMENDED)) .aniCard a.unit"
 
     override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("abs:href"))
-        title = element.selectFirst("h6.title")?.text().orEmpty()
-        thumbnail_url = element.selectFirst("img")?.attr("src").orEmpty()
-    }
-
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val doc = response.asJsoup()
-        val results = mutableListOf<SAnime>()
-
-        doc.select("h2.sectionTitle").forEach { header ->
-            val headerText = header.text().trim()
-
-            if (headerText.equals("Related", ignoreCase = true) ||
-                headerText.equals("Recommended", ignoreCase = true)
-            ) {
-                val container = header.parents().firstOrNull { parent ->
-                    parent.selectFirst("div.aniCard.mini a.unit") != null
-                }
-
-                container?.select("div.aniCard.mini a.unit")?.forEach { el ->
-                    runCatching { results.add(relatedAnimeFromElement(el)) }
-                }
-            }
-        }
-
-        return results
+        setUrlWithoutDomain(element.attr("abs:href").takeIf(String::isNotBlank)!!)
+        title = element.selectFirst(".title")?.getTitle()?.takeIf(String::isNotBlank)!!
+        thumbnail_url = element.selectFirst("img")?.attr("src")
     }
 
     // =========================== Anime Details ============================

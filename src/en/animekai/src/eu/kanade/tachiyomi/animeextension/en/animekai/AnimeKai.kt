@@ -36,16 +36,6 @@ class AnimeKai :
 
     override fun popularAnimeNextPageSelector() = "nav > ul.pagination > li.active ~ li"
 
-    // ============================== Related ==============================
-
-    override fun relatedAnimeListSelector() = "div.aitem-col a.aitem"
-
-    override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("div.title")?.getTitle() ?: ""
-        thumbnail_url = element.getBackgroundImage()
-    }
-
     // =========================== Anime Details ============================
 
     override val coverSelector = "div.watch-section-bg"
