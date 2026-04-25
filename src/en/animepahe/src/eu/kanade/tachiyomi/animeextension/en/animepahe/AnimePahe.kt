@@ -1,11 +1,12 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import android.annotation.SuppressLint
+import android.app.Application
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.ResponseDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.SearchResultDto
+import eu.kanade.tachiyomi.animeextension.en.animepahe.extractor.KwikExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -27,13 +28,13 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
-@SuppressLint("PrivateApi")
 class AnimePahe :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
@@ -46,24 +47,7 @@ class AnimePahe :
         .addInterceptor(interceptor)
         .build()
 
-    // Lazily resolve the Application context via reflection, but guard against failures.
-    // Returns null if the reflective APIs are unavailable or if the Application is not yet initialized.
-    private val appContext: android.app.Application? by lazy {
-        try {
-            val activityThreadClass = Class.forName("android.app.ActivityThread")
-            val currentActivityThreadMethod = activityThreadClass.getDeclaredMethod("currentActivityThread")
-            val activityThread = currentActivityThreadMethod.invoke(null)
-                ?: return@lazy null
-
-            val getApplicationMethod = activityThreadClass.getDeclaredMethod("getApplication")
-            val application = getApplicationMethod.invoke(activityThread)
-
-            application as? android.app.Application
-        } catch (_: Throwable) {
-            // Reflection can fail on some Android versions/ROMs; treat as "no app context"
-            null
-        }
-    }
+    private val appCtx: Application by injectLazy()
 
     override val name = "AnimePahe"
 
@@ -100,9 +84,9 @@ class AnimePahe :
         val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("div.title-wrapper > h1 > span")!!.text()
-            author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studio:)")
+            author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studios:)")
                 ?.text()
-                ?.replace("Studio: ", "")
+                ?.replace("Studios: ", "")
             document.selectFirst("div.col-sm-4.anime-info p:contains(Status:) a")?.text()
                 ?.let { status = parseStatus(it) }
             thumbnail_url = document.selectFirst("div.anime-poster a")?.attr("href")
@@ -348,12 +332,10 @@ class AnimePahe :
     }
 
     private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        val extractor = KwikExtractor(client, context = appContext)
-
         val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            extractor.getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
+            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
         } else {
-            extractor.getStreamUrlFromKwik(paheUrl)
+            KwikExtractor(client).getStreamUrlFromKwik(appCtx, paheUrl)
         }
 
         return Video(
@@ -438,14 +420,14 @@ class AnimePahe :
      * AnimePahe does not provide permanent URLs to its animes,
      * so we need to fetch the anime session every time.
      */
-    private fun fetchSession(animeId: String): String {
+    private fun fetchSession(animeId: String?): String {
         val sessionId = client.newCall(GET("$baseUrl/a/$animeId")).execute().use {
             it.request.url.pathSegments.last()
         }
         return sessionId
     }
 
-    private fun parseStatus(statusString: String): Int = when (statusString) {
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING
         "Finished Airing" -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
