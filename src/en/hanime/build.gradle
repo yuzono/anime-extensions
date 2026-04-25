@@ -8,6 +8,12 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 android {
+    // Chicory WASM runtime uses MethodHandle.invoke/invokeExact which requires API 26+;
+    // D8 cannot desugar these bytecode patterns. Override the project-wide minSdk (21).
+    defaultConfig {
+        minSdk = 26
+    }
+
     sourceSets {
         main {
             java.exclude 'test/**'
