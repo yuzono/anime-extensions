@@ -30,7 +30,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -332,7 +332,7 @@ abstract class AnimeKaiTheme(
     }
 
     protected open suspend fun decryptIframeData(encryptedText: String, headers: Headers): String {
-        val postBody = buildJsonObject { put("text", encryptedText) }.toRequestBody()
+        val postBody = buildJsonObject { put("text", encryptedText) }.toJsonRequestBody()
         return client.newCall(POST("https://enc-dec.app/api/dec-kai", body = postBody, headers = headers))
             .awaitSuccess().parseAs<IframeResponse>().result.url
     }

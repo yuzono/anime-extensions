@@ -27,7 +27,7 @@ import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -311,7 +311,7 @@ class Stremio : Source() {
                     put("authKey", preferences.authKey)
                     put("collection", "libraryItem")
                     putJsonArray("ids") {}
-                }.toRequestBody()
+                }.toJsonRequestBody()
 
                 libraryItems = client.post(
                     "$API_URL/api/datastoreGet",
@@ -776,7 +776,7 @@ class Stremio : Source() {
                         put("facebook", false)
                         put("password", preferences.password)
                         put("type", "Login")
-                    }.toRequestBody()
+                    }.toJsonRequestBody()
 
                     val loginDto = client.post("$API_URL/api/login", body = body).parseAs<ResultDto<LoginDto>>()
                     val authKey = loginDto.result.authKey

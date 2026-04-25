@@ -36,7 +36,7 @@ import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toJsonBody
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -525,7 +525,7 @@ class Jellyfin(private val suffix: String) :
         val body = buildJsonObject {
             put("Username", username)
             put("Pw", password)
-        }.toRequestBody(json)
+        }.toJsonRequestBody(json)
 
         return try {
             val resp = client.post(

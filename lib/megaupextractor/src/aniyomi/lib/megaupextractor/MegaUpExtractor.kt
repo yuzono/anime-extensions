@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -205,7 +205,7 @@ class MegaUpExtractor(
         val tokenBody = buildJsonObject {
             put("text", megaToken)
             put("agent", userAgent)
-        }.toRequestBody()
+        }.toJsonRequestBody()
 
         Log.d(tag, "Sending token to decryption API: https://enc-dec.app/api/dec-mega")
 

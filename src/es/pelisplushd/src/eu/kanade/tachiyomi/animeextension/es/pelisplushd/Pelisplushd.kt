@@ -15,7 +15,7 @@ import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -94,7 +94,7 @@ class Pelisplushd : PelisPlus() {
                                 links.forEach { add(it) }
                             }
                         }
-                        val payload = postBody.toRequestBody()
+                        val payload = postBody.toJsonRequestBody()
 
                         val decryptedLinks = client.newCall(POST("https://embed69.org/api/decrypt", body = payload))
                             .awaitSuccess()
