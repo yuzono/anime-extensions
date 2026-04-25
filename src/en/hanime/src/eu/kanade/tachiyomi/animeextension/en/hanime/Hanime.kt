@@ -18,7 +18,10 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -46,12 +49,13 @@ class Hanime :
     override val supportsLatest = true
 
     override fun headersBuilder() = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+        .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
         .add("Accept", "application/json")
         .add("Accept-Language", "en-US,en;q=0.9")
         .add("Origin", "https://hanime.tv")
         .add("Referer", "https://hanime.tv/")
 
+    @Volatile
     private var authCookie: String? = null
 
     private val json: Json by injectLazy()
@@ -60,45 +64,51 @@ class Hanime :
 
     private val context: Application by injectLazy()
     private var signatureProvider: SignatureProvider? = null
+    private val signatureProviderMutex = Mutex()
 
     private suspend fun ensureSignatureProvider(): SignatureProvider {
         signatureProvider?.let { return it }
 
-        val providerMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
-        val provider = when (providerMode) {
-            "webview" -> SignatureCache(WebViewSignatureProvider())
-            "wasm" -> {
-                val binary = runCatching {
-                    withContext(Dispatchers.IO) {
-                        HanimeWasmBinary.fetchWasmBinary(client)
+        return signatureProviderMutex.withLock {
+            // Double-check after acquiring lock
+            signatureProvider?.let { return it }
+
+            val providerMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
+            val provider = when (providerMode) {
+                "webview" -> SignatureCache(WebViewSignatureProvider())
+                "wasm" -> {
+                    val binary = runCatching {
+                        withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
+                    }.getOrNull()
+                    if (binary != null) {
+                        SignatureCache(ChicorySignatureProvider(binary))
+                    } else {
+                        SignatureCache(WebViewSignatureProvider())
                     }
-                }.getOrNull()
-                if (binary != null) {
-                    SignatureCache(ChicorySignatureProvider(binary))
-                } else {
-                    // Fall back to WebView if WASM binary can't be fetched
-                    SignatureCache(WebViewSignatureProvider())
                 }
+                else -> SignatureCache(WebViewSignatureProvider())
             }
-            else -> SignatureCache(WebViewSignatureProvider())
+            signatureProvider = provider
+            provider
         }
-        signatureProvider = provider
-        return provider
     }
 
     private fun searchRequestBody(query: String, page: Int, filters: AnimeFilterList): RequestBody {
         val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
 
-        return """
-            {"search_text": "$query",
-            "tags": $includedTags,
-            "tags_mode":"$tagsMode",
-            "brands": $brands,
-            "blacklist": $blackListedTags,
-            "order_by": "$orderBy",
-            "ordering": "$ordering",
-            "page": ${page - 1}}
-        """.trimIndent().toRequestBody("application/json".toMediaType())
+        val request = SearchRequest(
+            searchText = query,
+            tags = includedTags,
+            tagsMode = tagsMode,
+            brands = brands,
+            blacklist = blackListedTags,
+            orderBy = orderBy,
+            ordering = ordering,
+            page = page - 1,
+        )
+
+        return json.encodeToString(SearchRequest.serializer(), request)
+            .toRequestBody("application/json".toMediaType())
     }
 
     private val popularRequestHeaders =
@@ -113,6 +123,7 @@ class Hanime :
 
         val jResponse = jsonLine.parseAs<HAnimeResponse>()
         val hasNextPage = jResponse.page < jResponse.nbPages - 1
+        if (jResponse.hits.isEmpty()) return AnimesPage(emptyList(), false)
         val array = jResponse.hits.parseAs<Array<HitsModel>>()
 
         val animeList = array.groupBy { getTitle(it.name) }.map { (_, items) -> items.first() }.map { item ->
@@ -152,8 +163,8 @@ class Hanime :
         val document = response.asJsoup()
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
-            thumbnail_url = document.select("img.hvpi-cover").attr("src")
-            author = document.select("a.hvpimbc-text").text()
+            thumbnail_url = document.selectFirst("img.hvpi-cover")?.attr("src")
+            author = document.selectFirst("a.hvpimbc-text")?.text() ?: ""
             description = document.select("div.hvpist-description p").joinToString("\n\n") { it.text() }
             status = SAnime.UNKNOWN
             genre = document.select("div.hvpis-text div.btn__content").joinToString { it.text() }
@@ -178,41 +189,73 @@ class Hanime :
      * Falls back to the standard video endpoint if signature generation fails.
      */
     private suspend fun fetchVideoListWithSignature(episode: SEpisode): List<Video> {
-        // First, get the video model to find the hv_id
         val slug = episode.url.substringAfter("id=")
-        val videoResponse = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await()
-        val videoString = videoResponse.body.string()
+        val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await().use { it.body.string() }
         if (videoString.isEmpty()) return emptyList()
 
         val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
-		?: return parseVideoModelString(videoString) // Fallback
+            ?: return parseVideoModelStreams(videoString)
 
-	// Try manifest endpoint with signature
-	return try {
-		val signature = ensureSignatureProvider().getSignature()
-		val sigHeaders = headers.newBuilder().apply {
-                SignatureHeaders.build(signature).forEach { (key, value) ->
+        return try {
+            val videos = fetchManifestVideos(hvId, retryOnAuthFailure = true)
+            if (videos.isNotEmpty()) videos else parseVideoModelStreams(videoString)
+        } catch (e: Exception) {
+            parseVideoModelStreams(videoString)
+        }
+    }
+
+    /**
+     * Fetch video streams from the CDN manifest endpoint using signature authentication.
+     * When [retryOnAuthFailure] is true, a 401 response triggers a single retry with a
+     * fresh signature after invalidating the cache.
+     */
+    private suspend fun fetchManifestVideos(hvId: Long, retryOnAuthFailure: Boolean = false): List<Video> {
+        val signature = ensureSignatureProvider().getSignature()
+        val sigHeaders = headers.newBuilder().apply {
+            SignatureHeaders.build(signature).forEach { (key, value) ->
+                add(key, value)
+            }
+        }.build()
+
+        val manifestResponse = client.newCall(
+            GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
+        ).await()
+
+        val result = manifestResponse.use { response ->
+            if (response.isSuccessful) {
+                return@use parseManifestResponse(response)
+            }
+            emptyList()
+        }
+
+        if (result.isNotEmpty()) return result
+
+        // 401 likely means the signature has expired — retry once with a fresh one
+        if (manifestResponse.code == 401 && retryOnAuthFailure) {
+            (signatureProvider as? SignatureCache)?.invalidate()
+            val freshSignature = ensureSignatureProvider().getSignature()
+            val retryHeaders = headers.newBuilder().apply {
+                SignatureHeaders.build(freshSignature).forEach { (key, value) ->
                     add(key, value)
                 }
             }.build()
 
-val manifestResponse = client.newCall(
-            GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
-        ).await()
+            val retryResponse = client.newCall(
+                GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", retryHeaders),
+            ).await()
 
-            if (manifestResponse.isSuccessful) {
-                parseManifestResponse(manifestResponse)
-            } else {
-                // Manifest endpoint failed (401 = stale signature, etc.)
-                // Fall back to standard video endpoint
-			parseVideoModelString(videoString)
-	}
-} catch (e: Exception) {
-	// Signature generation or manifest request failed — fall back
-	parseVideoModelString(videoString)
+            return retryResponse.use { response ->
+                if (response.isSuccessful) {
+                    parseManifestResponse(response)
+                } else {
+                    emptyList()
+                }
+            }
         }
+
+        return emptyList()
     }
 
     private fun parseManifestResponse(response: Response): List<Video> {
@@ -228,49 +271,39 @@ val manifestResponse = client.newCall(
     }
 
     private suspend fun fetchVideoListPremium(episode: SEpisode): List<Video> {
+        val cookie = authCookie ?: return emptyList()
         val id = episode.url.substringAfter("?id=")
-        val headers = headers.newBuilder().add("cookie", authCookie!!)
+        val headers = headers.newBuilder().add("cookie", cookie)
         val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).await().asJsoup()
 
-        val parsed = document.selectFirst("script:containsData(__NUXT__)")!!.data()
-            .substringAfter("__NUXT__=").substringBeforeLast(";").parseAs<WindowNuxt>()
+        val nuxtScript = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
+        val nuxtData = nuxtScript.data()
+            .substringAfter("__NUXT__=")
+            .substringBeforeLast(";")
+        val parsed = nuxtData.parseAs<WindowNuxt>()
 
         return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
             server.streams.map { stream -> Video(stream.url, stream.height + "p", stream.url) }
         }
     }
 
-	override fun videoListParse(response: Response): List<Video> {
-		val responseString = response.body.string().ifEmpty { return emptyList() }
-		val videoModel = responseString.parseAs<VideoModel>()
+    override fun videoListParse(response: Response): List<Video> = parseVideoModelStreams(response.body.string())
 
-		// Try to get streams from videosManifest (current approach)
-		val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
-			server.streams.filter { it.kind != "premium_alert" }
-		} ?: emptyList()
+    private fun parseVideoModelStreams(responseString: String): List<Video> {
+        if (responseString.isEmpty()) return emptyList()
+        val videoModel = responseString.parseAs<VideoModel>()
+        val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
+            server.streams.filter { it.kind != "premium_alert" }
+        } ?: emptyList()
 
-		if (manifestStreams.isNotEmpty()) {
-			return manifestStreams.map { stream ->
-				Video(stream.url, "${stream.height}p", stream.url)
-			}
-		}
-
-		return emptyList()
-	}
-
-	private fun parseVideoModelString(responseString: String): List<Video> {
-		if (responseString.isEmpty()) return emptyList()
-		val videoModel = responseString.parseAs<VideoModel>()
-		val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
-			server.streams.filter { it.kind != "premium_alert" }
-		} ?: emptyList()
-
-		return if (manifestStreams.isNotEmpty()) {
-			manifestStreams.map { stream ->
-				Video(stream.url, "${stream.height}p", stream.url)
-			}
-		} else emptyList()
-	}
+        return if (manifestStreams.isNotEmpty()) {
+            manifestStreams.map { stream ->
+                Video(stream.url, "${stream.height}p", stream.url)
+            }
+        } else {
+            emptyList()
+        }
+    }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -308,16 +341,21 @@ val manifestResponse = client.newCall(
         }
     }
 
-    private fun latestSearchRequestBody(page: Int): RequestBody = """
-            {"search_text": "",
-            "tags": [],
-            "tags_mode":"AND",
-            "brands": [],
-            "blacklist": [],
-            "order_by": "published_at_unix",
-            "ordering": "desc",
-            "page": ${page - 1}}
-    """.trimIndent().toRequestBody("application/json".toMediaType())
+    private fun latestSearchRequestBody(page: Int): RequestBody {
+        val request = SearchRequest(
+            searchText = "",
+            tags = emptyList(),
+            tagsMode = "AND",
+            brands = emptyList(),
+            blacklist = emptyList(),
+            orderBy = "published_at_unix",
+            ordering = "desc",
+            page = page - 1,
+        )
+
+        return json.encodeToString(SearchRequest.serializer(), request)
+            .toRequestBody("application/json".toMediaType())
+    }
 
     override fun latestUpdatesRequest(page: Int) = POST("https://search.htv-services.com/", popularRequestHeaders, latestSearchRequestBody(page))
 
@@ -338,9 +376,9 @@ val manifestResponse = client.newCall(
     private class TagInclusionMode : AnimeFilter.Select<String>("Included tags mode", arrayOf("And", "Or"), 0)
 
     private fun getSearchParameters(filters: AnimeFilterList): SearchParameters {
-        val includedTags = ArrayList<String>()
-        val blackListedTags = ArrayList<String>()
-        val brands = ArrayList<String>()
+        val includedTags = mutableListOf<String>()
+        val blackListedTags = mutableListOf<String>()
+        val brands = mutableListOf<String>()
         var tagsMode = "AND"
         var orderBy = "likes"
         var ordering = "desc"
@@ -350,15 +388,15 @@ val manifestResponse = client.newCall(
                     filter.state.forEach { tag ->
                         if (tag.isIncluded()) {
                             includedTags.add(
-                                "\"" + tag.id.lowercase(
+                                tag.id.lowercase(
                                     Locale.US,
-                                ) + "\"",
+                                ),
                             )
                         } else if (tag.isExcluded()) {
                             blackListedTags.add(
-                                "\"" + tag.id.lowercase(
+                                tag.id.lowercase(
                                     Locale.US,
-                                ) + "\"",
+                                ),
                             )
                         }
                     }
@@ -384,9 +422,9 @@ val manifestResponse = client.newCall(
                     filter.state.forEach { brand ->
                         if (brand.state) {
                             brands.add(
-                                "\"" + brand.id.lowercase(
+                                brand.id.lowercase(
                                     Locale.US,
-                                ) + "\"",
+                                ),
                             )
                         }
                     }
@@ -395,7 +433,7 @@ val manifestResponse = client.newCall(
                 else -> {}
             }
         }
-        return SearchParameters(includedTags, blackListedTags, brands, tagsMode, orderBy, ordering)
+        return SearchParameters(includedTags.toList(), blackListedTags.toList(), brands.toList(), tagsMode, orderBy, ordering)
     }
 
     private fun getBrands() = listOf(

@@ -149,7 +149,7 @@ class HanimeApiIntegrationTest {
         val binary = getWasmBinary() ?: return null
         val provider = ChicorySignatureProvider(binary)
         return try {
-            provider.initialize()
+            runBlocking { provider.getSignature() }
             provider
         } catch (_: Exception) {
             null

@@ -7,6 +7,7 @@ import com.dylibso.chicory.wasm.ChicoryException
 import com.dylibso.chicory.wasm.Parser
 import com.dylibso.chicory.wasm.types.MemoryLimits
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -30,12 +31,14 @@ class ChicorySignatureProvider(
     @Volatile
     private var isInitialized = false
 
+    @Volatile
+    private var isClosed = false
+
     /** Guards concurrent initialization attempts in [getSignature]. */
     private val initMutex = Mutex()
 
-    /** Initialize the WASM runtime. Must be called before [getSignature]. */
-    @Synchronized
-    fun initialize() {
+    /** Initialize the WASM runtime. Called internally by [getSignature]. */
+    private fun initialize() {
         if (isInitialized) return
 
         try {
@@ -93,6 +96,9 @@ class ChicorySignatureProvider(
     }
 
     override suspend fun getSignature(): Signature {
+        if (isClosed) {
+            throw SignatureException("Cannot generate signature — provider has been closed")
+        }
         initMutex.withLock {
             if (!isInitialized) {
                 withContext(Dispatchers.Default) { initialize() }
@@ -100,9 +106,11 @@ class ChicorySignatureProvider(
         }
 
         return withContext(Dispatchers.Default) {
+            val currentInstance = instance ?: throw SignatureException("WASM instance unavailable — provider may have been closed")
+            val currentGlue = glue ?: throw SignatureException("WASM glue unavailable — provider may have been closed")
             try {
-                glue!!.reset()
-                val memory = instance!!.memory()
+                currentGlue.reset()
+                val memory = currentInstance.memory()
 
                 // Allocate strings in WASM memory using the binary's own malloc (export "E")
                 // If malloc isn't available, fall back to the end of memory
@@ -111,13 +119,13 @@ class ChicorySignatureProvider(
                 var useMalloc = false
 
                 try {
-                    val malloc = instance!!.export("E")
+                    val malloc = currentInstance.export("E")
                     eventTypePtr = malloc.apply(2L)[0].toInt() // "e" + null = 2 bytes
                     eventJsonPtr = malloc.apply(3L)[0].toInt() // "{}" + null = 3 bytes
                     useMalloc = true
-} catch (e: Exception) {
-            throw SignatureException("WASM module does not export required malloc function (export E): ${e.message}", e)
-        }
+                } catch (e: Exception) {
+                    throw SignatureException("WASM module does not export required malloc function (export E): ${e.message}", e)
+                }
 
                 try {
                     // Write the event type and JSON into WASM memory
@@ -125,7 +133,7 @@ class ChicorySignatureProvider(
                     memory.writeCString(eventJsonPtr, "{}")
 
                     // Call _on_window_event(eventTypePtr, eventJsonPtr) — export "B"
-                    instance!!.export("B").apply(
+                    currentInstance.export("B").apply(
                         eventTypePtr.toLong(),
                         eventJsonPtr.toLong(),
                     )
@@ -133,7 +141,7 @@ class ChicorySignatureProvider(
                     // Free allocated memory if we used malloc
                     if (useMalloc) {
                         try {
-                            val free = instance!!.export("F")
+                            val free = currentInstance.export("F")
                             free.apply(eventTypePtr.toLong())
                             free.apply(eventJsonPtr.toLong())
                         } catch (_: Exception) {
@@ -143,9 +151,9 @@ class ChicorySignatureProvider(
                 }
 
                 // Read captured signature and timestamp from the glue layer
-                val signature = glue!!.capturedSignature
+                val signature = currentGlue.capturedSignature
                     ?: throw SignatureException("WASM execution did not produce a signature")
-                val timestamp = glue!!.capturedTimestamp
+                val timestamp = currentGlue.capturedTimestamp
                     ?: throw SignatureException("WASM execution did not produce a timestamp")
 
                 Signature(signature, timestamp.toString())
@@ -158,8 +166,13 @@ class ChicorySignatureProvider(
     }
 
     override fun close() {
-        instance = null
-        glue = null
-        isInitialized = false
+        runBlocking {
+            initMutex.withLock {
+                isClosed = true
+                instance = null
+                glue = null
+                isInitialized = false
+            }
+        }
     }
 }

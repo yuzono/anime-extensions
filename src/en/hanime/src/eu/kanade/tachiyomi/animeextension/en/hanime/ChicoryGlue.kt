@@ -1,9 +1,11 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import android.util.Log
 import com.dylibso.chicory.runtime.HostFunction
 import com.dylibso.chicory.runtime.Instance
 import com.dylibso.chicory.wasm.types.FunctionType
 import com.dylibso.chicory.wasm.types.ValType
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Chicory-based WASM glue layer for hanime.tv signature generation.
@@ -27,13 +29,13 @@ import com.dylibso.chicory.wasm.types.ValType
  */
 class ChicoryGlue {
 
-    var capturedSignature: String? = null
+    @Volatile var capturedSignature: String? = null
         private set
 
-    var capturedTimestamp: Long? = null
+    @Volatile var capturedTimestamp: Long? = null
         private set
 
-    private val registeredEventTypes = mutableSetOf<String>()
+    private val registeredEventTypes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** Immutable snapshot of event types registered via import "y" (window_on). */
     val eventTypes: Set<String> get() = registeredEventTypes.toSet()
@@ -81,9 +83,11 @@ class ChicoryGlue {
         var offset = 0
 
         // Read signature string character-by-character from WASM memory
-        while (true) {
+        var iterations = 0
+        while (iterations < MAX_SIGNATURE_LENGTH) {
             val ch = mem.readU8(sigPtr + offset).toInt().toChar()
             if (ch == '\u0000') break // null terminator
+            iterations++
             offset++
 
             val wide = ch != 'i' && ch != 'p'
@@ -116,6 +120,7 @@ class ChicoryGlue {
     fun reset() {
         capturedSignature = null
         capturedTimestamp = null
+        registeredEventTypes.clear()
     }
 
     /**
@@ -203,7 +208,7 @@ class ChicoryGlue {
                 val parsedArgs = readEmAsmArgs(sigPtr, argBuf, instance)
                 handler(parsedArgs, instance)
             } else {
-                0L // Unknown ASM_CONSTS ID — return 0 as fallback
+                0L.also { Log.w("ChicoryGlue", "Unknown ASM_CONSTS ID: $code — returning 0") }
             }
             longArrayOf(result)
         }
@@ -387,5 +392,8 @@ class ChicoryGlue {
     companion object {
         const val ASM_CONST_TIMESTAMP = 17392
         const val ASM_CONST_SIGNATURE = 17442
+
+        /** Maximum signature string length to prevent infinite loops on corrupted memory. */
+        private const val MAX_SIGNATURE_LENGTH = 32
     }
 }

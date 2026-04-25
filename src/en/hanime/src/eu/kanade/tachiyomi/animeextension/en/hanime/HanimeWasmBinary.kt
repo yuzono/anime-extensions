@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.hanime
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -120,7 +121,15 @@ object HanimeWasmBinary {
         val match = scriptPattern.find(html) ?: return null
 
         val path = match.groupValues[1]
-        return if (path.startsWith("http")) path else "$HANIME_HOME$path"
+        return if (path.startsWith("http")) {
+            path
+        } else {
+            try {
+                HANIME_HOME.toHttpUrl().resolve(path)?.toString()
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     /**
@@ -134,18 +143,19 @@ object HanimeWasmBinary {
     private fun fetchPage(client: OkHttpClient, url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
             .header("Accept", "text/html,application/javascript,*/*")
             .build()
 
         val response = client.newCall(request).execute()
 
-        if (!response.isSuccessful) {
-            throw WasmExtractionException("HTTP ${response.code} fetching $url")
+        return response.use {
+            if (!it.isSuccessful) {
+                throw WasmExtractionException("HTTP ${it.code} fetching $url")
+            }
+            it.body.string()
+                ?: throw WasmExtractionException("Empty response body for $url")
         }
-
-        return response.body.string()
-            ?: throw WasmExtractionException("Empty response body for $url")
     }
 
     /**

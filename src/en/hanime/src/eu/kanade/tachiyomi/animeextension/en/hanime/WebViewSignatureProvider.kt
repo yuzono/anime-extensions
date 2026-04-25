@@ -139,6 +139,13 @@ class WebViewSignatureProvider : SignatureProvider {
         val jsInterface = SignatureJsInterface()
         webView.addJavascriptInterface(jsInterface, JS_INTERFACE_NAME)
 
+        // CancellableContinuation lacks an isResumed property, so we track
+        // it ourselves to guard against double-resume (which throws
+        // IllegalStateException).
+        var resumed = false
+
+        fun isResumable() = !continuation.isCancelled && !resumed
+
         webView.webViewClient = object : WebViewClient() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -156,8 +163,15 @@ class WebViewSignatureProvider : SignatureProvider {
                 sslHandler: SslErrorHandler?,
                 error: SslError?,
             ) {
-                // Older Android versions may have SSL compatibility issues
-                sslHandler?.proceed()
+                sslHandler?.cancel()
+                if (isResumable()) {
+                    resumed = true
+                    resumeOrDestroy(webView, continuation) {
+                        continuation.resumeWithException(
+                            SignatureException("SSL error loading hanime.tv: ${error?.toString() ?: "unknown"}"),
+                        )
+                    }
+                }
             }
 
             override fun onReceivedError(
@@ -166,7 +180,18 @@ class WebViewSignatureProvider : SignatureProvider {
                 error: WebResourceError?,
             ) {
                 super.onReceivedError(view, request, error)
-                // Non-fatal: the page may still load enough for WASM
+                // Only fast-fail for main frame requests — subresource errors are non-fatal
+                if (request?.isForMainFrame == true && isResumable()) {
+                    resumed = true
+                    resumeOrDestroy(webView, continuation) {
+                        continuation.resumeWithException(
+                            SignatureException(
+                                "Page load failed: ${error?.description ?: "unknown error"} " +
+                                    "(errorCode=${error?.errorCode})",
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -202,9 +227,10 @@ class WebViewSignatureProvider : SignatureProvider {
                 return
             }
 
-            webView.evaluateJavascript(POLL_SCRIPT, null)
-
-            // Check whether the JS interface received a result
+            // Check result from any PREVIOUS evaluateJavascript call first.
+            // evaluateJavascript is asynchronous — the JS callback fires on the
+            // next main-thread Looper iteration, so the result of the current
+            // call won't be available until after poll() returns.
             val result = jsInterface.getResult()
             if (result != null) {
                 resumeOrDestroy(webView, continuation) {
@@ -213,7 +239,10 @@ class WebViewSignatureProvider : SignatureProvider {
                 return
             }
 
-            // Not ready yet — schedule the next poll
+            // No result yet — execute the polling script and schedule a
+            // follow-up check after POLL_INTERVAL_MS. The script's JS callback
+            // will have fired by then.
+            webView.evaluateJavascript(POLL_SCRIPT, null)
             handler.postDelayed({ poll() }, POLL_INTERVAL_MS)
         }
 
@@ -300,7 +329,7 @@ class WebViewSignatureProvider : SignatureProvider {
          */
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                "(KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
         /**
          * JavaScript executed on each poll iteration.

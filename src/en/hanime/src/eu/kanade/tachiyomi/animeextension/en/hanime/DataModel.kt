@@ -4,12 +4,27 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 data class SearchParameters(
-    val includedTags: ArrayList<String>,
-    val blackListedTags: ArrayList<String>,
-    val brands: ArrayList<String>,
+    val includedTags: List<String>,
+    val blackListedTags: List<String>,
+    val brands: List<String>,
     val tagsMode: String,
     val orderBy: String,
     val ordering: String,
+)
+
+@Serializable
+data class SearchRequest(
+    @SerialName("search_text")
+    val searchText: String = "",
+    val tags: List<String> = emptyList(),
+    @SerialName("tags_mode")
+    val tagsMode: String = "AND",
+    val brands: List<String> = emptyList(),
+    val blacklist: List<String> = emptyList(),
+    @SerialName("order_by")
+    val orderBy: String = "likes",
+    val ordering: String = "desc",
+    val page: Int = 0,
 )
 
 @Serializable

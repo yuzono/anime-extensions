@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class Base64HelperTest {
 
-    @Before
+    @BeforeTest
     fun setUp() {
         Base64Provider.instance = JvmBase64
     }

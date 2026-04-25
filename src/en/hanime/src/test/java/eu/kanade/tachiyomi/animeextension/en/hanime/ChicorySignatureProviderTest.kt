@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -21,7 +22,7 @@ class ChicorySignatureProviderTest {
     fun initializeWithEmptyBinaryThrowsSignatureException() {
         val provider = ChicorySignatureProvider(byteArrayOf())
         assertFailsWith<SignatureException> {
-            provider.initialize()
+            runTest { provider.getSignature() }
         }
     }
 
@@ -30,7 +31,7 @@ class ChicorySignatureProviderTest {
         val garbage = byteArrayOf(0xDE.toByte(), 0xAD.toByte(), 0xBE.toByte(), 0xEF.toByte(), 0xCA.toByte(), 0xFE.toByte(), 0xBA.toByte(), 0xBE.toByte())
         val provider = ChicorySignatureProvider(garbage)
         assertFailsWith<SignatureException> {
-            provider.initialize()
+            runTest { provider.getSignature() }
         }
     }
 
@@ -40,7 +41,7 @@ class ChicorySignatureProviderTest {
         val truncatedMagic = byteArrayOf(0x00, 0x61, 0x73, 0x6D)
         val provider = ChicorySignatureProvider(truncatedMagic)
         assertFailsWith<SignatureException> {
-            provider.initialize()
+            runTest { provider.getSignature() }
         }
     }
 
@@ -50,25 +51,27 @@ class ChicorySignatureProviderTest {
         val wrongVersion = byteArrayOf(0x00, 0x61, 0x73, 0x6D, 0x02, 0x00, 0x00, 0x00)
         val provider = ChicorySignatureProvider(wrongVersion)
         assertFailsWith<SignatureException> {
-            provider.initialize()
+            runTest { provider.getSignature() }
         }
     }
 
     // ── close() resets state ───────────────────────────────────────────
 
     @Test
-    fun closeResetsToUninitializedState() {
+    fun getSignatureAfterCloseThrowsSignatureException() {
         val provider = ChicorySignatureProvider(byteArrayOf())
-        // close() should work even without initialization
         provider.close()
-
-        // After close(), the provider should be in uninitialized state
-        // We verify this indirectly — calling initialize() after close()
-        // should not short-circuit (it would throw SignatureException
-        // because the binary is empty, not return silently)
-        assertFailsWith<SignatureException> {
-            provider.initialize()
+        var exception: Throwable? = null
+        runTest {
+            exception = try {
+                provider.getSignature()
+                null
+            } catch (e: Throwable) {
+                e
+            }
         }
+        assertTrue(exception is SignatureException)
+        assertTrue(exception!!.message!!.contains("closed", ignoreCase = true))
     }
 
     @Test
@@ -88,9 +91,7 @@ class ChicorySignatureProviderTest {
         // getSignature() should call initialize() internally, which will
         // fail because the binary is empty
         assertFailsWith<SignatureException> {
-            kotlinx.coroutines.runBlocking {
-                provider.getSignature()
-            }
+            runTest { provider.getSignature() }
         }
     }
 
@@ -99,22 +100,28 @@ class ChicorySignatureProviderTest {
         val garbage = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0xFD.toByte(), 0xFC.toByte())
         val provider = ChicorySignatureProvider(garbage)
         assertFailsWith<SignatureException> {
-            kotlinx.coroutines.runBlocking {
-                provider.getSignature()
-            }
+            runTest { provider.getSignature() }
         }
     }
 
     // ── Re-initialization after close ──────────────────────────────────
 
     @Test
-    fun reinitializeAfterCloseThrowsOnInvalidBinary() {
+    fun reinitializeAfterCloseThrowsSignatureException() {
         val provider = ChicorySignatureProvider(byteArrayOf())
         provider.close()
-        // Re-initializing with the same invalid binary should still fail
-        assertFailsWith<SignatureException> {
-            provider.initialize()
+        // Re-initializing after close should throw SignatureException about being closed
+        var exception: Throwable? = null
+        runTest {
+            exception = try {
+                provider.getSignature()
+                null
+            } catch (e: Throwable) {
+                e
+            }
         }
+        assertTrue(exception is SignatureException)
+        assertTrue(exception!!.message!!.contains("closed", ignoreCase = true))
     }
 
     // ── SignatureException properties ──────────────────────────────────
@@ -122,14 +129,19 @@ class ChicorySignatureProviderTest {
     @Test
     fun signatureExceptionFromInitializeContainsDescriptiveMessage() {
         val provider = ChicorySignatureProvider(byteArrayOf())
-        try {
-            provider.initialize()
-            throw AssertionError("Expected SignatureException to be thrown")
-        } catch (e: SignatureException) {
-            assertTrue(
-                e.message?.contains("Chicory") == true || e.message?.contains("WASM") == true || e.message?.contains("Failed") == true,
-                "SignatureException message should reference the failure context, got: ${e.message}",
-            )
+        var exception: Throwable? = null
+        runTest {
+            exception = try {
+                provider.getSignature()
+                null
+            } catch (e: Throwable) {
+                e
+            }
         }
+        assertTrue(exception is SignatureException)
+        assertTrue(
+            exception!!.message?.contains("Chicory") == true || exception!!.message?.contains("WASM") == true || exception!!.message?.contains("Failed") == true,
+            "SignatureException message should reference the failure context, got: ${exception!!.message}",
+        )
     }
 }

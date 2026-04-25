@@ -5,6 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -86,7 +87,6 @@ class ChicorySignatureProviderIntegrationTest {
         }
 
         val provider = ChicorySignatureProvider(binary)
-        provider.initialize()
 
         val signature = kotlinx.coroutines.runBlocking {
             provider.getSignature()
@@ -125,7 +125,6 @@ class ChicorySignatureProviderIntegrationTest {
         }
 
         val provider = ChicorySignatureProvider(binary)
-        provider.initialize()
 
         val sig1 = kotlinx.coroutines.runBlocking {
             provider.getSignature()
@@ -142,6 +141,8 @@ class ChicorySignatureProviderIntegrationTest {
         assertEquals(64, sig1.signature.length, "First signature must be 64 hex chars")
         assertEquals(64, sig2.signature.length, "Second signature must be 64 hex chars")
 
+        assertNotEquals("Two signatures generated seconds apart should differ", sig1.signature, sig2.signature)
+
         provider.close()
     }
 
@@ -154,7 +155,6 @@ class ChicorySignatureProviderIntegrationTest {
         }
 
         val provider = ChicorySignatureProvider(binary)
-        provider.initialize()
 
         val signature = kotlinx.coroutines.runBlocking {
             provider.getSignature()
@@ -196,7 +196,7 @@ class ChicorySignatureProviderIntegrationTest {
         }
 
         val provider = ChicorySignatureProvider(binary)
-        provider.initialize()
+        kotlinx.coroutines.runBlocking { provider.getSignature() }
         provider.close()
 
         // Double-close should be safe

@@ -103,9 +103,15 @@ class SignatureCache(
         }
     }
 
-    /** Force-clear the cached signature so the next call fetches a fresh one. */
-    fun invalidate() {
-        cached = null
+    /**
+     * Force-clear the cached signature so the next call fetches a fresh one.
+     *
+     * Acquires the lock to prevent races with [getSignature]'s double-check
+     * pattern — without the lock, an in-flight refresh could overwrite the
+     * invalidation, leaving a stale signature in the cache.
+     */
+    suspend fun invalidate() {
+        lock.withLock { cached = null }
     }
 
     override fun close() {
