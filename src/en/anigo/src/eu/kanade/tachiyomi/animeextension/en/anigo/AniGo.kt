@@ -203,7 +203,7 @@ class AniGo :
         ).awaitSuccess().parseAs<AniGoEpTokenResponse>()
 
         if (epTokenResponse.status != "ok") {
-            throw Exception("AniGo: failed to load video list, ep token status=${epTokenResponse.status}")
+            throw IllegalStateException("AniGo: failed to load video list, ep token status=${epTokenResponse.status}")
         }
 
         return epTokenResponse.result.flatMap { epToken ->
@@ -222,7 +222,7 @@ class AniGo :
             GET("$baseUrl/api/v1/links/$lid?_=$enc", apiHeaders("$baseUrl/watch")),
         ).awaitSuccess().parseAs<AniGoLinkResponse>()
 
-        if (linkResponse.status != "ok") throw Exception("Failed to fetch link: ${linkResponse.status}")
+        if (linkResponse.status != "ok") throw IllegalStateException("Failed to fetch link: ${linkResponse.status}")
 
         return linkResponse.result
     }

@@ -102,7 +102,7 @@ class MegaUpExtractor(
         }
 
         Log.e(tag, "Failed to unwrap iframe. Blocked by Turnstile.")
-        throw Exception("Server is protected by Cloudflare Turnstile. Cannot extract video.")
+        throw IllegalStateException("Server is protected by Cloudflare Turnstile. Cannot extract video.")
     }
 
     /**
