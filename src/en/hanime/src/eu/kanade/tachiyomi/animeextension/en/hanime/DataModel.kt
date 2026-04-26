@@ -228,6 +228,7 @@ data class WindowNuxt(
                 ) {
                     @Serializable
                     data class Server(
+                        val name: String? = null,
                         val streams: List<Stream>,
                     ) {
                         @Serializable

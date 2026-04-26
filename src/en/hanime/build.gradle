@@ -36,6 +36,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":lib:playlistutils"))
     implementation("com.dylibso.chicory:runtime:1.7.5")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.3.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")

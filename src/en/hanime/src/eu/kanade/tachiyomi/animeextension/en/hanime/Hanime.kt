@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.hanime
 import android.app.Application
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -51,14 +52,22 @@ class Hanime :
         .add("Referer", "https://hanime.tv/")
 
     private fun videoHeaders(): Headers = headers.newBuilder()
-        .add("Referer", "https://hanime.tv/")
-        .add("Origin", "https://hanime.tv")
+        .set("Referer", "https://player.hanime.tv/")
+        .set("Origin", "https://player.hanime.tv")
+        .build()
+
+    /** Headers for video stream requests (m3u8, segments, AES key). */
+    private fun playerVideoHeaders(): Headers = headers.newBuilder()
+        .set("Referer", "https://player.hanime.tv/")
+        .set("Origin", "https://player.hanime.tv")
         .build()
 
     @Volatile
     private var authCookie: String? = null
 
     private val json: Json by injectLazy()
+
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val preferences by getPreferencesLazy()
 
@@ -326,28 +335,39 @@ class Hanime :
 
     /**
      * Fetch video list using the manifest endpoint with WASM-generated signature headers.
-     * Falls back to the standard video endpoint if signature generation fails.
+     *
+     * Flow:
+     * 1. Call /api/v8/video?id={slug} to get the numeric hvId
+     * 2. Call the guest manifest endpoint with signature headers for real stream URLs
+     * 3. Use PlaylistUtils to parse m3u8 playlists into properly-headed Video objects
+     * 4. Fall back to decoy streams from /api/v8/video if manifest fails
      */
     private suspend fun fetchVideoListWithSignature(episode: SEpisode): List<Video> {
         val slug = episode.url.substringAfter("id=")
+
+        // Step 1: Get the numeric video ID (hvId) from the video endpoint
         val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await().use { it.body.string() }
         if (videoString.isEmpty()) return emptyList()
 
         val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
-            ?: return parseVideoModelStreams(videoString)
+            ?: return tryParseDecoyStreams(videoString)
 
+        // Step 2: Get real streams from the guest manifest endpoint
         return try {
-            val videos = fetchManifestVideos(hvId, retryOnAuthFailure = true)
-            if (videos.isNotEmpty()) videos else parseVideoModelStreams(videoString)
-        } catch (e: Exception) {
-            try {
-                parseVideoModelStreams(videoString)
-            } catch (_: Exception) {
-                emptyList()
-            }
+            val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
+            if (manifestStreams.isNotEmpty()) manifestStreams else tryParseDecoyStreams(videoString)
+        } catch (_: Exception) {
+            tryParseDecoyStreams(videoString)
         }
+    }
+
+    /** Last resort: try to parse streams from the /api/v8/video response (decoy manifest). */
+    private fun tryParseDecoyStreams(videoString: String): List<Video> = try {
+        parseVideoModelStreams(videoString)
+    } catch (_: Exception) {
+        emptyList()
     }
 
     /**
@@ -358,9 +378,7 @@ class Hanime :
     private suspend fun fetchManifestVideos(hvId: Long, retryOnAuthFailure: Boolean = false): List<Video> {
         val signature = ensureSignatureProvider().getSignature()
         val sigHeaders = headers.newBuilder().apply {
-            SignatureHeaders.build(signature).forEach { (key, value) ->
-                add(key, value)
-            }
+            SignatureHeaders.build(signature).forEach { (key, value) -> add(key, value) }
         }.build()
 
         val manifestResponse = client.newCall(
@@ -369,7 +387,7 @@ class Hanime :
 
         val result = manifestResponse.use { response ->
             if (response.isSuccessful) {
-                return@use parseManifestResponse(response)
+                return@use parseManifestStreams(response)
             }
             emptyList()
         }
@@ -381,9 +399,7 @@ class Hanime :
             (signatureProvider as? SignatureCache)?.invalidate()
             val freshSignature = ensureSignatureProvider().getSignature()
             val retryHeaders = headers.newBuilder().apply {
-                SignatureHeaders.build(freshSignature).forEach { (key, value) ->
-                    add(key, value)
-                }
+                SignatureHeaders.build(freshSignature).forEach { (key, value) -> add(key, value) }
             }.build()
 
             val retryResponse = client.newCall(
@@ -392,7 +408,7 @@ class Hanime :
 
             return retryResponse.use { response ->
                 if (response.isSuccessful) {
-                    parseManifestResponse(response)
+                    parseManifestStreams(response)
                 } else {
                     emptyList()
                 }
@@ -402,14 +418,31 @@ class Hanime :
         return emptyList()
     }
 
-    private fun parseManifestResponse(response: Response): List<Video> {
+    /**
+     * Parse the guest manifest response and extract HLS video streams.
+     * Uses PlaylistUtils.extractFromHls() to properly handle multi-quality
+     * m3u8 playlists and set correct headers for segment/AES key requests.
+     */
+    private suspend fun parseManifestStreams(response: Response): List<Video> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
         val manifestData = responseString.parseAs<ManifestWrapper>()
+        val playerHeaders = playerVideoHeaders()
+
         return manifestData.videosManifest.servers.flatMap { server ->
             server.streams
-                .filter { it.isGuestAllowed == true }
-                .map { stream ->
-                    Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders())
+                .filter { it.isGuestAllowed == true && it.url.contains(".m3u8") }
+                .flatMap { stream ->
+                    try {
+                        playlistUtils.extractFromHls(
+                            playlistUrl = stream.url,
+                            masterHeaders = playerHeaders,
+                            videoHeaders = playerHeaders,
+                            videoNameGen = { quality -> "${server.name} - $quality" },
+                        )
+                    } catch (_: Exception) {
+                        // Fallback: create a single Video from the stream URL
+                        listOf(Video(stream.url, "${server.name} - ${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
+                    }
                 }
         }
     }
@@ -426,8 +459,21 @@ class Hanime :
             .substringBeforeLast(";")
         val parsed = nuxtData.parseAs<WindowNuxt>()
 
+        val playerHeaders = playerVideoHeaders()
+
         return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
-            server.streams.map { stream -> Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders()) }
+            server.streams.filter { it.url.contains(".m3u8") }.flatMap { stream ->
+                try {
+                    playlistUtils.extractFromHls(
+                        playlistUrl = stream.url,
+                        masterHeaders = playerHeaders,
+                        videoHeaders = playerHeaders,
+                        videoNameGen = { quality -> "${server.name} - $quality" },
+                    )
+                } catch (_: Exception) {
+                    listOf(Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
+                }
+            }
         }
     }
 
@@ -442,7 +488,7 @@ class Hanime :
 
         return if (manifestStreams.isNotEmpty()) {
             manifestStreams.map { stream ->
-                Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders())
+                Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = playerVideoHeaders())
             }
         } else {
             emptyList()
