@@ -38,8 +38,7 @@ class AnimeKai :
 
     override val backgroundSelector = "div.watch-section-bg"
 
-    // AnimeKai has a deeper DOM structure for info tags than the base theme expects
-    override fun Element.getInfo(
+    private fun Element.getInfo(
         tag: String,
         isList: Boolean,
         full: Boolean,

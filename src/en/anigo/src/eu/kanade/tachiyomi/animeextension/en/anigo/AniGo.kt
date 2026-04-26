@@ -90,6 +90,19 @@ class AniGo :
         }
     }
 
+    private fun Element.getInfo(
+        tag: String,
+        isList: Boolean = false,
+        full: Boolean = false,
+    ): String? {
+        if (isList) {
+            return select("div:containsOwn($tag) a").eachText().joinToString()
+        }
+        val value = selectFirst("div:containsOwn($tag)")
+            ?.text()?.removePrefix(tag)?.trim()
+        return if (full && value != null) "\n**$tag** $value" else value
+    }
+
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.select(".poster img").attr("abs:src")
 
