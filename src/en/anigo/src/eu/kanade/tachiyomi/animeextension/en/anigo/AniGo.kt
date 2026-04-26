@@ -9,8 +9,8 @@ import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.AniGoLinkResponse
 import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoCode
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -103,9 +103,9 @@ class AniGo :
             titleEl?.getTitle()?.let { title = it }
 
             val altTitles = info.selectFirst("small.subTitle")?.text()?.split(";").orEmpty()
-                .asSequence().map { it.trim() }.filterNot { it.isBlank() }
-                .distinctBy { it.lowercase() }.filterNot { it.equals(title, ignoreCase = true) }
-                .joinToString("; ")
+                .asSequence().map { it.trim() }
+                .filterNot { it.isBlank() || it.equals(title, ignoreCase = true) }
+                .distinctBy { it.lowercase() }.joinToString("; ")
 
             val rating = info.selectFirst(".rating")?.text().orEmpty()
 
@@ -126,8 +126,11 @@ class AniGo :
                     detail.getInfo("Broadcast:", full = true)?.run(::append)
                     detail.getInfo("Duration:", full = true)?.run(::append)
                     if (rating.isNotBlank()) append("\n**Rating:** $rating")
-                    detail.select("div:containsOwn(Links:) a").forEach { append("\n[${it.text()}](${it.attr("abs:href")})") }
-                    if (altTitles.isNotBlank()) append("\n**Alternative Title:** $altTitles")
+                    detail.select("div:containsOwn(Links:) a")
+                        .forEach { append("\n[${it.text()}](${it.attr("abs:href")})") }
+                    if (altTitles.isNotBlank()) {
+                        append("\n**Alternative Title:** $altTitles")
+                    }
                     document.getBackground()?.let { append("\n\n![Cover]($it)") }
                     if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                         if (isNotEmpty()) append("\n\n")
@@ -146,13 +149,15 @@ class AniGo :
     override fun episodeListSelector() = throw UnsupportedOperationException()
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use {
-        val document = it.asJsoup()
-        val xData = document.selectFirst("div.playZone")?.attr("x-data")
-            ?: throw IllegalStateException("Anime ID not found (no playZone element)")
-        idRegex.find(xData)?.groupValues?.getOrNull(1)
-            ?: throw IllegalStateException("Anime ID not found in x-data")
-    }
+    override suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime))
+        .awaitSuccess()
+        .useAsJsoup()
+        .selectFirst("div.playZone")?.attr("x-data")
+        ?.let { xData ->
+            idRegex.find(xData)?.groupValues?.getOrNull(1)
+                ?: throw IllegalStateException("Anime ID not found in x-data")
+        }
+        ?: throw IllegalStateException("Anime ID not found (no playZone element)")
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = "$baseUrl${anime.url}"
@@ -209,6 +214,8 @@ class AniGo :
             }
         }
     }
+
+    override fun parseServersFromHtml(document: Document) = throw UnsupportedOperationException()
 
     override suspend fun fetchEncodedLink(lid: String, enc: String): String {
         val linkResponse = client.newCall(

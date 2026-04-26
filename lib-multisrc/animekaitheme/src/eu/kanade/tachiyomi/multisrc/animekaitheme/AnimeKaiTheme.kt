@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.multisrc.animekaitheme
 
 import android.app.Application
 import android.content.SharedPreferences
-import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.megaupextractor.MegaUpExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -179,6 +178,16 @@ abstract class AnimeKaiTheme(
 
     // ============================ Shared Utilities =========================
 
+    protected open fun Element.getTitle(): String? {
+        val enTitle = attr("title").ifBlank { text() }.takeIf(String::isNotBlank)
+        val jpTitle = attr("data-jp").ifBlank { text() }.takeIf(String::isNotBlank)
+        return if (useEnglish) {
+            enTitle ?: jpTitle
+        } else {
+            jpTitle ?: enTitle
+        }
+    }
+
     protected open fun parseStatus(statusString: String): Int = when (statusString) {
         "Completed", "Finished Airing" -> SAnime.COMPLETED
         "Releasing" -> SAnime.ONGOING
@@ -229,10 +238,6 @@ abstract class AnimeKaiTheme(
         return if (full && value != null) "\n**$tag** $value" else value
     }
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     protected open suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime))
         .awaitSuccess()
         .useAsJsoup()
@@ -279,6 +284,10 @@ abstract class AnimeKaiTheme(
 
     // ============================ Video List ==============================
 
+    override fun videoListSelector() = throw UnsupportedOperationException()
+    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
+    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
+
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val token = episode.url
         val enc = encDecEndpoints(token)
@@ -294,7 +303,7 @@ abstract class AnimeKaiTheme(
         return parseServersFromHtml(document)
     }
 
-    protected open fun parseServersFromHtml(document: Document): List<VideoCode> = throw UnsupportedOperationException()
+    protected abstract fun parseServersFromHtml(document: Document): List<VideoCode>
 
     protected open suspend fun fetchEncodedLink(lid: String, enc: String): String = client.newCall(
         GET("$baseUrl/ajax/links/view?id=$lid&_=$enc", docHeaders),
@@ -309,16 +318,6 @@ abstract class AnimeKaiTheme(
         val typeSuffix = getTypeSuffix(type)
         val name = "$serverName | [$typeSuffix]"
         return VideoData(iframe, name)
-    }
-
-    protected open fun Element.getTitle(): String? {
-        val enTitle = attr("title").ifBlank { text() }.takeIf(String::isNotBlank)
-        val jpTitle = attr("data-jp").ifBlank { text() }.takeIf(String::isNotBlank)
-        return if (useEnglish) {
-            enTitle ?: jpTitle
-        } else {
-            jpTitle ?: enTitle
-        }
     }
 
     protected open suspend fun encDecEndpoints(enc: String): String {
@@ -367,12 +366,7 @@ abstract class AnimeKaiTheme(
         megaUpExtractor = MegaUpExtractor(client, docHeaders, context)
     }
 
-    protected open suspend fun extractVideo(server: VideoData): List<Video> = try {
-        megaUpExtractor.videosFromUrl(server.iframe, server.serverName)
-    } catch (e: Exception) {
-        Log.e(name, "Error extracting videos for ${server.serverName}", e)
-        emptyList()
-    }
+    protected open suspend fun extractVideo(server: VideoData): List<Video> = megaUpExtractor.videosFromUrl(server.iframe, server.serverName)
 
     // ============================== Video Sort ============================
 

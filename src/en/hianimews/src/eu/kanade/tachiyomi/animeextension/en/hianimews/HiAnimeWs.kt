@@ -45,11 +45,11 @@ class HiAnimeWs :
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.selectFirst("div.anisc-poster img.film-poster-img")
-            ?.attr("src").orEmpty()
+            ?.attr("src")
 
         val fancyScore = when (scorePosition) {
             SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(
-                document.selectFirst("div.rr-mark strong")?.ownText()?.trim(),
+                document.selectFirst("div.rr-mark strong")?.ownText(),
             )
             else -> ""
         }

@@ -65,9 +65,9 @@ class AnimeKai :
                 info.selectFirst(".al-title")?.text()?.split(";").orEmpty() +
                     titles
                 )
-                .asSequence()
-                .map { it.trim() }.filterNot { it.isBlank() }.distinctBy { it.lowercase() }
-                .filterNot { it.equals(title, ignoreCase = true) }.joinToString("; ")
+                .asSequence().map { it.trim() }
+                .filterNot { it.isBlank() || it.equals(title, ignoreCase = true) }
+                .distinctBy { it.lowercase() }.joinToString("; ")
 
             val rating = info.selectFirst(".rating")?.text().orEmpty()
 
@@ -94,9 +94,8 @@ class AnimeKai :
                     if (altTitles.isNotBlank()) {
                         append("\n**Alternative Title:** $altTitles")
                     }
-                    detail.select("div div div:contains(Links:) a").forEach {
-                        append("\n[${it.text()}](${it.attr("href")})")
-                    }
+                    detail.select("div:containsOwn(Links:) a")
+                        .forEach { append("\n[${it.text()}](${it.attr("href")})") }
                     document.getBackground()?.let { append("\n\n![Cover]($it)") }
 
                     if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
