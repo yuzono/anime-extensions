@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
@@ -21,14 +20,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
@@ -93,54 +88,195 @@ class Hanime :
         }
     }
 
-    private fun searchRequestBody(query: String, page: Int, filters: AnimeFilterList): RequestBody {
-        val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
+    // ── Search API (v10 GET endpoint) ──────────────────────────────────
 
-        val request = SearchRequest(
-            searchText = query,
-            tags = includedTags,
-            tagsMode = tagsMode,
-            brands = brands,
-            blacklist = blackListedTags,
-            orderBy = orderBy,
-            ordering = ordering,
-            page = page - 1,
-        )
+    /** Cached full search response for pagination and client-side filtering. */
+    @Volatile
+    private var cachedSearchHits: List<HitsModel>? = null
 
-        return json.encodeToString(SearchRequest.serializer(), request)
-            .toRequestBody("application/json".toMediaType())
+    /**
+     * Fetch or return cached search results from the v10 search API.
+     * The API returns all content in a single response — pagination and
+     * filtering are handled client-side.
+     */
+    private suspend fun fetchSearchHits(): List<HitsModel> {
+        cachedSearchHits?.let { return it }
+
+        val signature = ensureSignatureProvider().getSignature()
+        val searchHeaders = headers.newBuilder().apply {
+            SignatureHeaders.build(signature).forEach { (key, value) ->
+                add(key, value)
+            }
+        }.build()
+
+        val response = client.newCall(GET(SEARCH_API_URL, searchHeaders)).await()
+        val hits = response.use { resp ->
+            val jsonLine = resp.body.string()
+            if (jsonLine.isEmpty()) {
+                emptyList()
+            } else {
+                val jResponse = jsonLine.parseAs<HAnimeResponse>()
+                jResponse.hits
+            }
+        }
+        cachedSearchHits = hits
+        return hits
     }
 
-    private val popularRequestHeaders =
-        Headers.headersOf("authority", "search.htv-services.com", "accept", "application/json, text/plain, */*", "content-type", "application/json;charset=UTF-8")
+    /**
+     * Build a GET request to the search API with signature authentication headers.
+     * The v10 search endpoint requires x-signature, x-time, and x-signature-version headers.
+     */
+    private suspend fun searchApiRequest(): Request {
+        val signature = ensureSignatureProvider().getSignature()
+        val searchHeaders = headers.newBuilder().apply {
+            SignatureHeaders.build(signature).forEach { (key, value) ->
+                add(key, value)
+            }
+        }.build()
+        return GET(SEARCH_API_URL, searchHeaders)
+    }
 
-    override fun popularAnimeRequest(page: Int): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody("", page, AnimeFilterList()))
+    // ── Popular Anime ──────────────────────────────────────────────────
 
-    override fun popularAnimeParse(response: Response) = parseSearchJson(response)
+    override fun popularAnimeRequest(page: Int): Request = GET(baseUrl, headers)
 
-    private fun parseSearchJson(response: Response): AnimesPage {
-        val jsonLine = response.body.string().ifEmpty { return AnimesPage(emptyList(), false) }
+    override fun popularAnimeParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
 
-        val jResponse = jsonLine.parseAs<HAnimeResponse>()
-        val hasNextPage = jResponse.page < jResponse.nbPages - 1
-        if (jResponse.hits.isEmpty()) return AnimesPage(emptyList(), false)
-        val array = jResponse.hits.parseAs<Array<HitsModel>>()
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val allHits = fetchSearchHits()
+        return paginateHits(allHits, page, orderBy = "likes", ordering = "desc")
+    }
 
-        val animeList = array.groupBy { getTitle(it.name) }.map { (_, items) -> items.first() }.map { item ->
-            SAnime.create().apply {
-                title = getTitle(item.name)
-                thumbnail_url = item.coverUrl
-                author = item.brand
-                description = item.description?.replace(Regex("<[^>]*>"), "")
-                status = SAnime.UNKNOWN
-                genre = item.tags.joinToString { it }
-                initialized = true
-                setUrlWithoutDomain("https://hanime.tv/videos/hentai/" + item.slug)
+    // ── Search Anime ───────────────────────────────────────────────────
+
+    private data class SearchParameters(
+        val includedTags: List<String>,
+        val blackListedTags: List<String>,
+        val brands: List<String>,
+        val tagsMode: String,
+        val orderBy: String,
+        val ordering: String,
+    )
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET(baseUrl, headers)
+
+    override fun searchAnimeParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
+        val allHits = fetchSearchHits()
+        return paginateHits(
+            hits = allHits,
+            page = page,
+            query = query,
+            includedTags = includedTags,
+            blackListedTags = blackListedTags,
+            brands = brands,
+            orderBy = orderBy,
+            ordering = ordering,
+        )
+    }
+
+    // ── Latest Updates ─────────────────────────────────────────────────
+
+    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        val allHits = fetchSearchHits()
+        return paginateHits(allHits, page, orderBy = "created_at_unix", ordering = "desc")
+    }
+
+    // ── Hit parsing & pagination ───────────────────────────────────────
+
+    private fun parseHitsToAnimeList(hits: List<HitsModel>): List<SAnime> = hits.groupBy { getTitle(it.name) }.map { (_, items) -> items.first() }.map { item ->
+        SAnime.create().apply {
+            title = getTitle(item.name)
+            thumbnail_url = item.coverUrl
+            author = item.brand
+            description = item.description?.replace(Regex("<[^>]*>"), "")
+            status = SAnime.UNKNOWN
+            genre = item.tags.joinToString { it }
+            initialized = true
+            setUrlWithoutDomain("https://hanime.tv/videos/hentai/" + item.slug)
+        }
+    }
+
+    private val pageSize = 24
+
+    /**
+     * Paginate and sort the full hit list for a given page number.
+     * The v10 search API returns all content in one response, so
+     * pagination is handled client-side.
+     */
+    private fun paginateHits(
+        hits: List<HitsModel>,
+        page: Int,
+        query: String = "",
+        includedTags: List<String> = emptyList(),
+        blackListedTags: List<String> = emptyList(),
+        brands: List<String> = emptyList(),
+        orderBy: String = "likes",
+        ordering: String = "desc",
+    ): AnimesPage {
+        var filtered = hits
+
+        // Apply text search filter
+        if (query.isNotEmpty()) {
+            val lowerQuery = query.lowercase(Locale.US)
+            filtered = filtered.filter { hit ->
+                hit.name.lowercase(Locale.US).contains(lowerQuery) ||
+                    hit.tags.any { tag -> tag.lowercase(Locale.US).contains(lowerQuery) } ||
+                    (hit.brand?.lowercase(Locale.US)?.contains(lowerQuery) == true)
             }
         }
 
-        return AnimesPage(animeList, hasNextPage)
+        // Apply tag inclusion filter
+        if (includedTags.isNotEmpty()) {
+            val lowerTags = includedTags.map { it.lowercase(Locale.US) }
+            filtered = filtered.filter { hit ->
+                lowerTags.any { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
+            }
+        }
+
+        // Apply tag blacklist filter
+        if (blackListedTags.isNotEmpty()) {
+            val lowerBlacklist = blackListedTags.map { it.lowercase(Locale.US) }
+            filtered = filtered.filterNot { hit ->
+                lowerBlacklist.any { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
+            }
+        }
+
+        // Apply brand filter
+        if (brands.isNotEmpty()) {
+            val lowerBrands = brands.map { it.lowercase(Locale.US) }
+            filtered = filtered.filter { hit ->
+                hit.brand?.lowercase(Locale.US) in lowerBrands
+            }
+        }
+
+        // Apply sorting
+        val comparator = when (orderBy) {
+            "views" -> compareByDescending<HitsModel> { it.views ?: 0L }
+            "likes" -> compareByDescending<HitsModel> { it.likes ?: 0L }
+            "created_at_unix", "published_at_unix" -> compareByDescending<HitsModel> { it.createdAtUnix ?: 0L }
+            "released_at_unix" -> compareByDescending<HitsModel> { it.releasedAtUnix ?: 0L }
+            else -> compareByDescending<HitsModel> { it.likes ?: 0L }
+        }
+        val sorted = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
+
+        // Paginate
+        val fromIndex = (page - 1) * pageSize
+        val toIndex = minOf(fromIndex + pageSize, sorted.size)
+        val pageItems = if (fromIndex < sorted.size) sorted.subList(fromIndex, toIndex) else emptyList()
+        val hasNextPage = toIndex < sorted.size
+
+        return AnimesPage(parseHitsToAnimeList(pageItems), hasNextPage)
     }
+
+    // ── Helpers ────────────────────────────────────────────────────────
 
     private fun isNumber(num: String) = (num.toIntOrNull() != null)
 
@@ -155,9 +291,7 @@ class Hanime :
         }
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = POST("https://search.htv-services.com/", popularRequestHeaders, searchRequestBody(query, page, filters))
-
-    override fun searchAnimeParse(response: Response): AnimesPage = parseSearchJson(response)
+    // ── Anime Details ──────────────────────────────────────────────────
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -172,6 +306,8 @@ class Hanime :
             setUrlWithoutDomain(document.location())
         }
     }
+
+    // ── Video List ─────────────────────────────────────────────────────
 
     override fun videoListRequest(episode: SEpisode) = GET(episode.url)
 
@@ -315,6 +451,8 @@ class Hanime :
         ).reversed()
     }
 
+    // ── Episode List ───────────────────────────────────────────────────
+
     override fun episodeListRequest(anime: SAnime): Request {
         val slug = anime.url.substringAfterLast("/")
         return GET("$baseUrl/api/v8/video?id=$slug", headers)
@@ -332,6 +470,8 @@ class Hanime :
         }?.reversed() ?: emptyList()
     }
 
+    // ── Auth ───────────────────────────────────────────────────────────
+
     private fun setAuthCookie() {
         if (authCookie == null) {
             val cookieList = client.cookieJar.loadForRequest(baseUrl.toHttpUrl())
@@ -341,27 +481,8 @@ class Hanime :
         }
     }
 
-    private fun latestSearchRequestBody(page: Int): RequestBody {
-        val request = SearchRequest(
-            searchText = "",
-            tags = emptyList(),
-            tagsMode = "AND",
-            brands = emptyList(),
-            blacklist = emptyList(),
-            orderBy = "published_at_unix",
-            ordering = "desc",
-            page = page - 1,
-        )
+    // ── Filters ────────────────────────────────────────────────────────
 
-        return json.encodeToString(SearchRequest.serializer(), request)
-            .toRequestBody("application/json".toMediaType())
-    }
-
-    override fun latestUpdatesRequest(page: Int) = POST("https://search.htv-services.com/", popularRequestHeaders, latestSearchRequestBody(page))
-
-    override fun latestUpdatesParse(response: Response) = parseSearchJson(response)
-
-    // Filters
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         TagList(getTags()),
         BrandList(getBrands()),
@@ -670,8 +791,11 @@ class Hanime :
 
     class SortFilter(sortables: Array<String>) : AnimeFilter.Sort("Sort", sortables, Selection(2, false))
 
-    // Preferences
+    // ── Preferences ────────────────────────────────────────────────────
+
     companion object {
+        private const val SEARCH_API_URL = "https://cached.freeanimehentai.net/api/v10/search_hvs"
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")

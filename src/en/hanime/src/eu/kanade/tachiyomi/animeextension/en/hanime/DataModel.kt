@@ -3,44 +3,21 @@ package eu.kanade.tachiyomi.animeextension.en.hanime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-data class SearchParameters(
-    val includedTags: List<String>,
-    val blackListedTags: List<String>,
-    val brands: List<String>,
-    val tagsMode: String,
-    val orderBy: String,
-    val ordering: String,
-)
-
-@Serializable
-data class SearchRequest(
-    @SerialName("search_text")
-    val searchText: String = "",
-    val tags: List<String> = emptyList(),
-    @SerialName("tags_mode")
-    val tagsMode: String = "AND",
-    val brands: List<String> = emptyList(),
-    val blacklist: List<String> = emptyList(),
-    @SerialName("order_by")
-    val orderBy: String = "likes",
-    val ordering: String = "desc",
-    val page: Int = 0,
-)
-
 @Serializable
 data class HAnimeResponse(
-    val page: Long,
-    val nbPages: Long,
-    val nbHits: Long,
-    val hitsPerPage: Long,
-    val hits: String,
+    val page: Long = 0,
+    val nbPages: Long = 1,
+    val nbHits: Long = 0,
+    val hitsPerPage: Long = 24,
+    val hits: List<HitsModel> = emptyList(),
 )
 
 @Serializable
 data class HitsModel(
     val id: Long? = null,
-    val name: String,
-    val titles: List<String> = emptyList(),
+    val name: String = "",
+    @SerialName("search_titles")
+    val searchTitles: String? = null,
     val slug: String? = null,
     val description: String? = null,
     val views: Long? = null,
@@ -64,9 +41,14 @@ data class HitsModel(
     val monthlyRank: Long? = null,
     val tags: List<String> = emptyList(),
     @SerialName("created_at")
-    val createdAt: Long? = null,
+    val createdAt: String? = null,
     @SerialName("released_at")
-    val releasedAt: Long? = null,
+    val releasedAt: String? = null,
+    @SerialName("created_at_unix")
+    val createdAtUnix: Long? = null,
+    @SerialName("released_at_unix")
+    val releasedAtUnix: Long? = null,
+    val score: String? = null,
 )
 
 @Serializable
@@ -140,7 +122,7 @@ data class HentaiTag(
 
 @Serializable
 data class HentaiFranchiseHentaiVideo(
-    val id: Long? = null,
+    val id: String? = null,
     val name: String? = null,
     val slug: String? = null,
     @SerialName("created_at")
