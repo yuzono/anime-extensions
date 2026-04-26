@@ -567,7 +567,7 @@ class Animetsu :
 
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val DOMAIN_ENTRIES = listOf("animetsu.live", "animetsu.bz", "animetsu.cc")
+        private val DOMAIN_ENTRIES = listOf("animetsu.net", "animetsu.live", "animetsu.bz", "animetsu.cc")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
