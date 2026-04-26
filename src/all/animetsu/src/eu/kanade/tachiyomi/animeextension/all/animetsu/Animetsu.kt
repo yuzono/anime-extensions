@@ -425,7 +425,7 @@ class Animetsu :
         status = parseStatus(dto.status)
         description = buildDescription(dto)
         artist = dto.staff?.filter {
-            it.role in listOf("Original Story", "Original Creator", "Original Character Design", "Character Design")
+            it.role in listOf("Original Story", "Original Creator", "Original Character Design")
         }?.mapNotNull { it.name }?.joinToString(", ") ?: ""
         author = dto.studios?.firstOrNull { it.isMain }?.name ?: ""
     }
