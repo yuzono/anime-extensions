@@ -166,18 +166,26 @@ class OneTwoThreeCine :
 
         val metaFoot = document.selectFirst(".mini-meta-foot")
         genre = metaFoot?.select("a[href^=/genre/]")?.eachText()?.joinToString() ?: ""
-
-        val country = metaFoot?.select("a[href^=/country/]")?.firstOrNull()?.text() ?: ""
+        val country = metaFoot?.select("a[href^=/country/]")?.eachText()?.joinToString(", ") ?: ""
         val released = metaFoot?.select("div:containsOwn(Released:) span")?.text() ?: ""
         val quality = metaFoot?.select("div:containsOwn(Quality:) span")?.text() ?: ""
+
+        val duration = headWrapper.select(".metadata .dot")
+            .firstNotNullOfOrNull { it.text().trim().takeIf { txt -> txt.endsWith("min", ignoreCase = true) } } ?: ""
 
         val metaLines = document.select(".mini-meta-line .mini-meta")
         val director = metaLines.select("h2:containsOwn(Director) + div a").eachText().joinToString()
         val casts = metaLines.select("h2:containsOwn(Casts) + div a").eachText().joinToString()
         val productions = metaLines.select("h2:containsOwn(Productions) + div a").eachText().joinToString()
 
-        val imdbScore = document.selectFirst(".mini-meta h2:containsOwn(Highlight) + div span")
-            ?.text()?.removePrefix("IMDb ")?.trim()
+        // Map productions to author field
+        author = productions
+
+        // Highlight section has IMDb score and rating (PG, PG-13, R, etc.)
+        val highlightSpans = document.selectFirst(".mini-meta h2:containsOwn(Highlight) + div")
+            ?.select("span")?.map { it.text().trim() } ?: emptyList()
+        val imdbScore = highlightSpans.firstOrNull()?.removePrefix("IMDb ")?.trim()
+        val rating = highlightSpans.drop(1).firstOrNull() ?: ""
         val fancyScore = getFancyScore(imdbScore)
 
         val scorePos = preferences.scorePosition
@@ -191,9 +199,10 @@ class OneTwoThreeCine :
             if (quality.isNotBlank()) append("\n**Quality:** $quality")
             if (country.isNotBlank()) append("\n**Country:** $country")
             if (released.isNotBlank()) append("\n**Released:** $released")
+            if (duration.isNotBlank()) append("\n**Duration:** $duration")
+            if (rating.isNotBlank()) append("\n**Rating:** $rating")
             if (director.isNotBlank()) append("\n**Director:** $director")
             if (casts.isNotBlank()) append("\n**Casts:** $casts")
-            if (productions.isNotBlank()) append("\n**Productions:** $productions")
             if (scorePos == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")
                 append(fancyScore)
