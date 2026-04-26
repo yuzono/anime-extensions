@@ -312,14 +312,12 @@ abstract class AnimeKaiTheme(
     }
 
     protected open fun Element.getTitle(): String? {
-        val enTitle = attr("title").ifBlank { text() }
-        val jpTitle = attr("data-jp").ifBlank { text() }
+        val enTitle = attr("title").ifBlank { text() }.takeIf(String::isNotBlank)
+        val jpTitle = attr("data-jp").ifBlank { text() }.takeIf(String::isNotBlank)
         return if (useEnglish) {
-            enTitle.takeIf(String::isNotBlank)
-                ?: jpTitle.takeIf(String::isNotBlank)
+            enTitle ?: jpTitle
         } else {
-            jpTitle.takeIf(String::isNotBlank)
-                ?: enTitle.takeIf(String::isNotBlank)
+            jpTitle ?: enTitle
         }
     }
 
