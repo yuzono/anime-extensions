@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.util.concurrent.CountDownLatch
@@ -19,39 +20,52 @@ class CloudflareBypass(private val context: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun getCookies(pageUrl: String): CloudFlareBypassResult? {
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            throw IllegalStateException("Cannot call getCookies on the Main Thread")
+        }
+
+        clearCookiesForDomains("kwik.cx", "pahe.win")
 
         val latch = CountDownLatch(1)
         var result: CloudFlareBypassResult? = null
         var webView: WebView? = null
 
-        // We MUST jump to the Main Thread because WebView is UI-bound
         Handler(Looper.getMainLooper()).post {
-            webView = WebView(context)
-            webView.settings.javaScriptEnabled = true
-            webView.settings.domStorageEnabled = true
-            val defaultUserAgent = webView.settings.userAgentString
+            webView = WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                val defaultUserAgent = settings.userAgentString
 
-            // Release the background thread
-            webView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, loadedUrl: String) {
-                    pollForClearance(pageUrl, defaultUserAgent) { bypassResult ->
-                        result = bypassResult
-                        latch.countDown()
+                webViewClient = object : WebViewClient() {
+
+                    // Fires on page loads AND after CF challenge completes
+                    override fun onPageFinished(view: WebView, loadedUrl: String) {
+                        val cookies = CookieManager.getInstance().getCookie(pageUrl)
+                        if (cookies?.contains("cf_clearance=") == true) {
+                            result = CloudFlareBypassResult(cookies, defaultUserAgent)
+                            latch.countDown()
+                        }
+                        // If no cf_clearance, do nothing. CF JS is still working.
+                        // It will trigger onPageFinished again when it's done.
+                    }
+
+                    // Catch network/load errors so we don't wait 30s for nothing
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                        if (request.isForMainFrame) {
+                            result = CloudFlareBypassResult("", view.settings.userAgentString)
+                            latch.countDown()
+                        }
                     }
                 }
             }
-
-            CookieManager.getInstance().setCookie(pageUrl, "")
             webView.loadUrl(pageUrl)
         }
 
-        // Wait here for up to 30 seconds
         try {
             latch.await(30, TimeUnit.SECONDS)
         } finally {
             Handler(Looper.getMainLooper()).post {
+                webView?.stopLoading()
                 webView?.destroy()
             }
         }
@@ -59,40 +73,17 @@ class CloudflareBypass(private val context: Context) {
         return result
     }
 
-    private fun pollForClearance(
-        url: String,
-        userAgent: String,
-        onComplete: (CloudFlareBypassResult) -> Unit,
-    ) {
-        val handler = Handler(Looper.getMainLooper())
-        val startTime = android.os.SystemClock.elapsedRealtime()
-        val timeoutMillis = 30_000L
-
-        val runnable = object : Runnable {
-            override fun run() {
-                val cookies = CookieManager.getInstance().getCookie(url)
-
-                if (cookies?.contains("cf_clearance=") == true) {
-                    // Success: stop polling and return the result
-                    handler.removeCallbacks(this)
-                    val finalResult = CloudFlareBypassResult(cookies, userAgent)
-                    onComplete(finalResult)
-                    return
-                }
-
-                val elapsed = android.os.SystemClock.elapsedRealtime() - startTime
-                if (elapsed >= timeoutMillis) {
-                    // Timeout: stop polling and return an "empty" result to signal failure
-                    handler.removeCallbacks(this)
-                    val finalResult = CloudFlareBypassResult("", userAgent)
-                    onComplete(finalResult)
-                } else {
-                    // Retry after 500 ms
-                    handler.postDelayed(this, 500)
+    private fun clearCookiesForDomains(vararg domains: String) {
+        val cookieManager = CookieManager.getInstance()
+        for (domain in domains) {
+            listOf("https://$domain", "https://www.$domain").forEach { url ->
+                cookieManager.getCookie(url)?.split(";")?.forEach { cookieStr ->
+                    val cookieName = cookieStr.split("=").firstOrNull()?.trim() ?: return@forEach
+                    cookieManager.setCookie(url, "$cookieName=; Max-Age=0; path=/")
+                    cookieManager.setCookie(url, "$cookieName=; Max-Age=0; path=/; domain=.$domain")
                 }
             }
         }
-
-        handler.post(runnable)
+        cookieManager.flush()
     }
 }
