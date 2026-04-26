@@ -421,16 +421,14 @@ class MovHub :
     companion object {
         private const val PREF_DOMAIN_KEY = "pref_domain_key"
         private val DOMAIN_ENTRIES = listOf(
-            "movhub.ws",
             "1movies.bz",
-            "123moviesfree.bz",
+            "1moviesz.to",
+            "myflixer.bz",
             "bflix.la",
             "flixtor.mov",
             "hurawatch.la",
             "myflixer.fi",
             "sflix.fi",
-            "soap2day.fi",
-            "solarmovie.fi",
         )
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
