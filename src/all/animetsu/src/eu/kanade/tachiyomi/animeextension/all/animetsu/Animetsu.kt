@@ -178,6 +178,7 @@ class Animetsu :
 
             dto.recommendations?.mapNotNull { rec ->
                 if (rec.id.isBlank() || rec.id in seenIds) return@mapNotNull null
+                seenIds.add(rec.id)
                 val recTitle = getTitle(rec.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {

@@ -97,6 +97,12 @@ data class AnimetsuEpisodeDto(
     val name: String? = null,
     val id: String = "",
 ) {
+    companion object {
+        private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+    }
+
     fun toSEpisode(animeId: String): SEpisode? {
         val epNum = this.epNum ?: return null
         if (epNum <= 0.0) return null // That Time I Got Reincarnated as a Slime Season 3 has an Episode 0 that does not exist
@@ -115,9 +121,7 @@ data class AnimetsuEpisodeDto(
                 if (dtoFiller == true) append(" (Filler)")
             }
             episode_number = epNum.toFloat()
-            date_upload = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.tryParse(dtoAiredAt)
+            date_upload = DATE_FORMATTER.tryParse(dtoAiredAt) // Now uses the shared constant
         }
     }
 }
