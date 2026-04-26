@@ -305,19 +305,17 @@ class AllAnime :
         val responseBody = client.newCall(videoListRequest(episode))
             .awaitSuccess().bodyString()
 
-        // 1. Try parsing the encrypted wrapper
-        val encryptedJson = runCatching {
-            responseBody.parseAs<EncryptedEpisodeResult>()
+        // 1. Check for encrypted response (tobeparsed present)
+        val tobeparsed = runCatching {
+            responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
         }.getOrNull()
 
-        // 2. Determine the source URLs list by decrypting if necessary
-        val sourceUrls = encryptedJson?.data?.tobeparsed?.takeIf(String::isNotBlank)
-            ?.runCatching {
-                val decryptedString = decryptTobeparsed(this)
-                decryptedString.parseAs<DecryptedEpisodeResult>().episode.sourceUrls
-            }?.getOrNull()
-            // Malformed encrypted payload — fall back to old plain-text parsing
-            ?: responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
+        // 2. If encrypted, decrypt directly (errors surface to user); otherwise parse as plain text
+        val sourceUrls = if (!tobeparsed.isNullOrBlank()) {
+            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode.sourceUrls
+        } else {
+            responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
+        }
 
         val videoList = mutableListOf<Pair<Video, Float>>()
         val serverList = mutableListOf<Server>()
@@ -429,13 +427,19 @@ class AllAnime :
     // ============================= Utilities ==============================
 
     private fun String.decryptSource(): String {
-        if (!this.startsWith("-")) return this
-
-        return this.substringAfterLast('-').chunked(2)
-            .map { it.toInt(16).toByte() }
-            .toByteArray().map {
-                (it.toInt() xor 56).toChar()
-            }.joinToString("")
+        val (hexPayload, keyType) = when {
+            startsWith("--") -> substring(2) to 3
+            startsWith("#-") -> substring(2) to 2
+            startsWith("##") -> substring(2) to 1
+            startsWith("-#") -> substring(2) to 4
+            startsWith("#") -> substring(1) to 0
+            else -> return this
+        }
+        val mask = XOR_MASKS[keyType]
+        return hexPayload.chunked(2)
+            .map { ((it.toInt(16)) xor mask) and 0xFF }
+            .map { it.toChar() }
+            .joinToString("")
     }
 
     private fun prioritySort(pList: List<Pair<Video, Float>>): List<Video> {
@@ -512,25 +516,25 @@ class AllAnime :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private fun decryptTobeparsed(base64Payload: String): String {
-        // 1. Generate the SHA-256 key from the reversed secret string
+        // 1. Decode the Base64 payload
+        val blob = Base64.decode(base64Payload, Base64.DEFAULT)
+
+        // 2. Extract version byte (blob[0]), IV (blob[1..12]), and ciphertext (blob[13+])
+        if (blob.size < 13) return ""
+        val versionByte = blob[0].toInt() and 0xFF
+        val iv = blob.sliceArray(1 until 13)
+        val encryptedData = blob.sliceArray(13 until blob.size)
+
+        // 3. Derive the AES-GCM key: SHA-256("${DECRYPT_SECRET}:v${versionByte}")
         val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
-            .digest(DECRYPT_SECRET.reversed().toByteArray(Charsets.UTF_8))
-
-        // 2. Decode the Base64 payload
-        val decodedBytes = Base64.decode(base64Payload, Base64.DEFAULT)
-
-        // 3. Separate the IV and the encrypted data
-        val iv = decodedBytes.sliceArray(0 until DECRYPT_IV_LENGTH)
-        val encryptedData = decodedBytes.sliceArray(DECRYPT_IV_LENGTH until decodedBytes.size)
+            .digest("${DECRYPT_SECRET}:v$versionByte".toByteArray(Charsets.UTF_8))
 
         // 4. Initialize the AES-GCM Cipher
         val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
-        val keySpec = SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE)
         val gcmSpec = GCMParameterSpec(DECRYPT_TAG_LENGTH, iv)
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE), gcmSpec)
 
-        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-
-        // 5. Decrypt and convert back to a JSON String
+        // 5. Decrypt and return JSON string
         return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
 
@@ -602,12 +606,25 @@ class AllAnime :
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
 
-        private const val DECRYPT_SECRET = "P7K2RGbFgauVtmiS"
-        private const val DECRYPT_IV_LENGTH = 12
+        private const val DECRYPT_SECRET = "Xot36i3lK3"
         private const val DECRYPT_TAG_LENGTH = 128
         private const val DECRYPT_KEY_ALGO = "SHA-256"
         private const val DECRYPT_KEY_TYPE = "AES"
         private const val DECRYPT_CIPHER_ALGO = "AES/GCM/NoPadding"
+
+        // XOR keys indexed by source-URL prefix type: '--'=3  '#-'=2  '##'=1  '-#'=4  '#'=0
+        private val XOR_KEYS = arrayOf(
+            "allanimenews",
+            "1234567890123456789",
+            "1234567890123456789012345",
+            "s5feqxw21",
+            "feqx1",
+        )
+
+        // Pre-compute cumulative XOR mask for each key (XOR of all char codes)
+        private val XOR_MASKS = XOR_KEYS.map { key ->
+            key.fold(0) { mask, ch -> mask xor ch.code }
+        }.toIntArray()
     }
 
     // ============================== Settings ==============================
