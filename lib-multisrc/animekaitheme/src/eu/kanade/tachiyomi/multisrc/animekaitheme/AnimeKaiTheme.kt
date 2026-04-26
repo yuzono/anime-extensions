@@ -32,6 +32,7 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.CacheControl
@@ -81,7 +82,6 @@ abstract class AnimeKaiTheme(
 
     // ============================ Headers & Client =========================
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .set("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
         .add("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
@@ -232,10 +232,11 @@ abstract class AnimeKaiTheme(
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
-    protected open suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use {
-        it.asJsoup().selectFirst("div[data-id]")?.attr("data-id")
-            ?: throw IllegalStateException("Anime ID not found")
-    }
+    protected open suspend fun fetchEpisodeAnimeId(anime: SAnime): String = client.newCall(animeDetailsRequest(anime))
+        .awaitSuccess()
+        .useAsJsoup()
+        .selectFirst("div[data-id]")?.attr("data-id")
+        ?: throw IllegalStateException("Anime ID not found")
 
     override fun episodeListSelector() = "div.eplist a"
 
@@ -277,6 +278,14 @@ abstract class AnimeKaiTheme(
 
     // ============================ Video List ==============================
 
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val token = episode.url
+        val enc = encDecEndpoints(token)
+        val servers = fetchServers(token, enc)
+        return servers.parallelCatchingMapNotNull { extractIframe(it) }
+            .parallelCatchingFlatMap { extractVideo(it) }
+    }
+
     protected open suspend fun fetchServers(token: String, enc: String): List<VideoCode> {
         val document = client.newCall(
             GET("$baseUrl/ajax/links/list?token=$token&_=$enc", docHeaders),
@@ -285,14 +294,6 @@ abstract class AnimeKaiTheme(
     }
 
     protected open fun parseServersFromHtml(document: Document): List<VideoCode> = throw UnsupportedOperationException()
-
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val token = episode.url
-        val enc = encDecEndpoints(token)
-        val servers = fetchServers(token, enc)
-        return servers.parallelCatchingMapNotNull { extractIframe(it) }
-            .parallelCatchingFlatMap { extractVideo(it) }
-    }
 
     protected open suspend fun fetchEncodedLink(lid: String, enc: String): String = client.newCall(
         GET("$baseUrl/ajax/links/view?id=$lid&_=$enc", docHeaders),
