@@ -9,17 +9,17 @@ class DopeFlix :
         "en",
         BuildConfig.MEGACLOUD_API,
         listOf(
-            "1flix.to",
-            "flixhq.to",
-            "fmovieszz.lol",
-            "gomovies.gg",
-            "hdtoday.cc",
-            "himovies.sx",
-            "movies4kto.lol",
-            "myflixtor.tv",
+            "1flix.stream",
+            "flixhqz.com",
+            "ww2-fmovies.com",
+            "moviesdl.org",
+            "movieclub-hd.com",
+            // "himovies.sx", (dead)
+            // "movies4kto.lol", (site works but irrelavent)
+            // "myflixtor.tv", (merged into livezy.click)
             "series2watch.net",
             "watch32.sx",
-            // "citysonic.tv",
+            "livezy.click/citysonic", // citysonic current domain
         ),
     ) {
     override val detailInfoSelector by lazy { "div.detail_page-infor, div.m_i-detail" }
