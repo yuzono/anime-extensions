@@ -88,7 +88,7 @@ data class HentaiVideo(
     @SerialName("monthly_rank")
     val monthlyRank: Long? = null,
     @SerialName("brand_id")
-    val brandId: String? = null,
+    val brandId: Long? = null,
     @SerialName("is_banned_in")
     val isBannedIn: String? = null,
     @SerialName("created_at_unix")
@@ -113,7 +113,7 @@ data class HentaiTag(
 
 @Serializable
 data class HentaiFranchiseHentaiVideo(
-    val id: String? = null,
+    val id: Long? = null,
     val name: String? = null,
     val slug: String? = null,
     @SerialName("created_at")
@@ -140,7 +140,7 @@ data class HentaiFranchiseHentaiVideo(
     @SerialName("monthly_rank")
     val monthlyRank: Long? = null,
     @SerialName("brand_id")
-    val brandId: String? = null,
+    val brandId: Long? = null,
     @SerialName("is_banned_in")
     val isBannedIn: String? = null,
     @SerialName("created_at_unix")
