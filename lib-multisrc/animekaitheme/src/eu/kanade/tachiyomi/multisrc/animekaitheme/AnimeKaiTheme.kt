@@ -216,6 +216,19 @@ abstract class AnimeKaiTheme(
 
     protected open fun Document.getBackground(): String? = backgroundSelector?.let { selectFirst(it)?.getBackgroundImage() }
 
+    protected open fun Element.getInfo(
+        tag: String,
+        isList: Boolean = false,
+        full: Boolean = false,
+    ): String? {
+        if (isList) {
+            return select("div:containsOwn($tag) a").eachText().joinToString()
+        }
+        val value = selectFirst("div:containsOwn($tag)")
+            ?.text()?.removePrefix(tag)?.trim()
+        return if (full && value != null) "\n**$tag** $value" else value
+    }
+
     override fun videoListSelector() = throw UnsupportedOperationException()
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
@@ -299,16 +312,14 @@ abstract class AnimeKaiTheme(
     }
 
     protected open fun Element.getTitle(): String? {
-        val enTitle = attr("title")
-        val jpTitle = attr("data-jp")
+        val enTitle = attr("title").ifBlank { text() }
+        val jpTitle = attr("data-jp").ifBlank { text() }
         return if (useEnglish) {
             enTitle.takeIf(String::isNotBlank)
                 ?: jpTitle.takeIf(String::isNotBlank)
-                ?: text().takeIf(String::isNotBlank)
         } else {
             jpTitle.takeIf(String::isNotBlank)
                 ?: enTitle.takeIf(String::isNotBlank)
-                ?: text().takeIf(String::isNotBlank)
         }
     }
 

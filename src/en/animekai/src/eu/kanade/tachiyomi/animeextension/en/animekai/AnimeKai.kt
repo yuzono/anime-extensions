@@ -38,19 +38,6 @@ class AnimeKai :
 
     override val backgroundSelector = "div.watch-section-bg"
 
-    private fun Element.getInfo(
-        tag: String,
-        isList: Boolean,
-        full: Boolean,
-    ): String? {
-        if (isList) {
-            return select("div div div:contains($tag) a").eachText().joinToString()
-        }
-        val value = selectFirst("div div div:contains($tag)")
-            ?.text()?.removePrefix(tag)?.trim()
-        return if (full && value != null) "\n**$tag** $value" else value
-    }
-
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.select(".poster img").attr("src")
 
