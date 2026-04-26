@@ -24,7 +24,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
  *
  */
-
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.app.Application
@@ -69,7 +68,6 @@ class KwikExtractor(
             .followSslRedirects(false)
             .build()
 
-        // Get Kwik URL
         val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i")).execute().use { response ->
             val location = response.header("location")
                 ?: throw KwikException.ExtractionException("Pahe redirect failed: No location header found.")
@@ -79,7 +77,6 @@ class KwikExtractor(
         var (fContentCookies, fContentString, fContentUrl) = fetchKwikHtml(context, kwikUrl)
         var cloudFlareBypassResult: CloudFlareBypassResult? = null
 
-        // Extract JS Parameters
         val match = kwikParamsRegex.find(fContentString)
             ?: throw KwikException.ExtractionException("Could not find decryption parameters in Kwik HTML.")
 
@@ -91,7 +88,6 @@ class KwikExtractor(
         val tok = kwikDToken.find(decrypted)?.groupValues?.get(1)
             ?: throw KwikException.ExtractionException("Failed to decrypt stream Token.")
 
-        // Extraction Loop
         var kwikLocation: String? = null
         var code = 419
         var tries = 0
@@ -111,13 +107,16 @@ class KwikExtractor(
                 kwikLocation = response.header("location")
             }
 
-            // Cloudflare/Session Timeout Handling
-            if ((code == 403 || code == 419) && cloudFlareBypassResult == null) {
+            if (code == 403 || code == 419) {
                 cloudFlareBypassResult = CloudflareBypass(context).getCookies(kwikUrl)
                     ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
 
-                // Reset tries after successful bypass
-                fContentCookies = "$fContentCookies; ${cloudFlareBypassResult.cookies}"
+                // Prevent stacking multiple cf_clearance cookies
+                val cleanedCookies = fContentCookies.split("; ")
+                    .filter { !it.trimStart().startsWith("cf_clearance=") }
+                    .joinToString("; ")
+
+                fContentCookies = "$cleanedCookies; ${cloudFlareBypassResult.cookies}"
                 tries = 0
             }
             tries++
@@ -127,38 +126,37 @@ class KwikExtractor(
     }
 
     private fun fetchKwikHtml(context: Application, kwikUrl: String): KwikContent {
-        val initialResponse = kwikClient.newCall(
-            GET(kwikUrl, Headers.headersOf("referer", "https://kwik.cx/")),
-        ).execute()
-
-        val (html, cookies, finalUrl) = initialResponse.use { resp ->
-            Triple(resp.body.string(), resp.extractCookies(), resp.request.url.toString())
-        }
-
-        if (html.contains("eval(function(")) {
-            return KwikContent(cookies, html, finalUrl)
-        }
-
-        // Try Cloudflare Bypass if context has value
-        context.let { ctx ->
-            val cfResult = CloudflareBypass(ctx).getCookies(kwikUrl)
-                ?: throw KwikException.CloudflareBlockedException("Bypass returned null result.")
-
-            val bypassHeaders = Headers.Builder()
+        fun attemptKwikFetch(cfResult: CloudFlareBypassResult?): KwikContent? {
+            val headers = Headers.Builder()
                 .add("referer", "https://kwik.cx/")
-                .add("cookie", cfResult.cookies)
-                .add("User-Agent", cfResult.userAgent)
+                .apply {
+                    if (cfResult != null) {
+                        add("cookie", cfResult.cookies)
+                        add("User-Agent", cfResult.userAgent)
+                    }
+                }
                 .build()
 
-            kwikClient.newCall(GET(kwikUrl, bypassHeaders)).execute().use { resp ->
-                val bypassHtml = resp.body.string()
-                val bypassCookies = resp.extractCookies()
-
-                if (bypassHtml.contains("eval(function(")) {
-                    return KwikContent("$bypassCookies; ${cfResult.cookies}", bypassHtml, resp.request.url.toString())
+            return kwikClient.newCall(GET(kwikUrl, headers)).execute().use { resp ->
+                val html = resp.body.string()
+                if (html.contains("eval(function(")) {
+                    val respCookies = resp.extractCookies()
+                    val finalCookies = listOfNotNull(respCookies.ifBlank { null }, cfResult?.cookies?.ifBlank { null }).joinToString("; ")
+                    KwikContent(finalCookies, html, resp.request.url.toString())
+                } else {
+                    null
                 }
             }
         }
+
+        // 1. Try standard fetch without bypass
+        attemptKwikFetch(null)?.let { return it }
+
+        // 2. Try Cloudflare Bypass (Always fresh)
+        val cfResult = CloudflareBypass(context).getCookies(kwikUrl)
+            ?: throw KwikException.CloudflareBlockedException("Bypass returned null result.")
+
+        attemptKwikFetch(cfResult)?.let { return it }
 
         throw KwikException.CloudflareBlockedException("Cloudflare challenge not solved.")
     }
@@ -173,6 +171,9 @@ class KwikExtractor(
 
         while (i < fullString.length) {
             val nextIndex = fullString.indexOf(toFind, i)
+
+            if (nextIndex == -1) break
+
             val decodedCharStr = buildString {
                 for (j in i until nextIndex) {
                     append(keyIndexMap[fullString[j]] ?: -1)
@@ -180,8 +181,13 @@ class KwikExtractor(
             }
 
             i = nextIndex + 1
-            val decodedChar = (decodedCharStr.toInt(v2) - v1).toChar()
-            sb.append(decodedChar)
+
+            try {
+                val decodedChar = (decodedCharStr.toInt(v2) - v1).toChar()
+                sb.append(decodedChar)
+            } catch (_: NumberFormatException) {
+                break
+            }
         }
 
         return sb.toString()
