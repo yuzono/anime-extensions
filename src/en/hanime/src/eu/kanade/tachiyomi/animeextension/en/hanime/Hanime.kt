@@ -115,8 +115,7 @@ class Hanime :
             if (jsonLine.isEmpty()) {
                 emptyList()
             } else {
-                val jResponse = jsonLine.parseAs<HAnimeResponse>()
-                jResponse.hits
+                jsonLine.parseAs<List<HitsModel>>()
             }
         }
         cachedSearchHits = hits

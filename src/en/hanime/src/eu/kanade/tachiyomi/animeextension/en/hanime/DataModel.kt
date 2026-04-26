@@ -4,15 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class HAnimeResponse(
-    val page: Long = 0,
-    val nbPages: Long = 1,
-    val nbHits: Long = 0,
-    val hitsPerPage: Long = 24,
-    val hits: List<HitsModel> = emptyList(),
-)
-
-@Serializable
 data class HitsModel(
     val id: Long? = null,
     val name: String = "",

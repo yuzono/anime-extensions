@@ -175,30 +175,27 @@ class HanimeApiIntegrationTest {
 
     private fun mergedHeaders(base: Map<String, String>, extra: Map<String, String>): Map<String, String> = base + extra
 
-    /** Execute a GET search with signature headers and return the parsed JsonObject, or null on failure. */
-    private fun executeSearch(provider: ChicorySignatureProvider): JsonObject? {
+    /** Execute a GET search with signature headers and return the parsed JsonArray, or null on failure. */
+    private fun executeSearch(provider: ChicorySignatureProvider): List<JsonObject>? {
         val sigHeaders = getSignatureHeaders(provider)
         val response = httpGet(SEARCH_URL, mergedHeaders(baseHeaders(), sigHeaders)) ?: return null
         if (!response.isSuccessful) return null
         val responseBody = response.body ?: return null
         return try {
-            jsonParser.parseToJsonElement(responseBody).jsonObject
+            jsonParser.parseToJsonElement(responseBody).jsonArray.mapNotNull {
+                try {
+                    it.jsonObject
+                } catch (_: Exception) {
+                    null
+                }
+            }
         } catch (_: Exception) {
             null
         }
     }
 
-    /** Parse the 'hits' array directly from the search response. */
-    private fun parseHits(result: JsonObject): List<JsonObject>? {
-        val hitsArray = result["hits"]?.jsonArray ?: return null
-        return hitsArray.mapNotNull {
-            try {
-                it.jsonObject
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
+    /** Parse the hits directly from the search response array. */
+    private fun parseHits(result: List<JsonObject>): List<JsonObject> = result
 
     /** Extract the text- searchable content from a hit (name + search_titles). */
     private fun hitSearchableText(hit: JsonObject): String {
@@ -228,7 +225,7 @@ class HanimeApiIntegrationTest {
         val provider = createSignatureProvider() ?: return null
         return try {
             val result = executeSearch(provider) ?: return null
-            val hits = parseHits(result) ?: return null
+            val hits = parseHits(result)
             if (hits.isEmpty()) return null
             hits[0]["slug"]?.jsonPrimitive?.contentOrNull
         } finally {
