@@ -188,7 +188,7 @@ abstract class AnimeKaiTheme(
     protected open fun getFancyScore(score: String?): String {
         if (score.isNullOrBlank()) return ""
         return try {
-            val scoreBig = score.toBigDecimalOrNull() ?: return ""
+            val scoreBig = score.toBigDecimal()
             if (scoreBig.signum() <= 0) return ""
 
             val stars = scoreBig.divide(BigDecimal(2), 0, RoundingMode.HALF_UP)
@@ -205,15 +205,16 @@ abstract class AnimeKaiTheme(
         }
     }
 
-    private val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
+    protected open val backgroundUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
+
     protected open fun Element.getBackgroundImage(): String? {
         val style = attr("style")
-        return coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
+        return backgroundUrlRegex.find(style)?.groupValues?.getOrNull(1)
     }
 
-    protected open val coverSelector: String? = null
+    protected open val backgroundSelector: String? = null
 
-    protected fun Document.getCover(): String? = coverSelector?.let { selectFirst(it)?.getBackgroundImage() }
+    protected open fun Document.getBackground(): String? = backgroundSelector?.let { selectFirst(it)?.getBackgroundImage() }
 
     protected open fun Element.getInfo(
         tag: String,

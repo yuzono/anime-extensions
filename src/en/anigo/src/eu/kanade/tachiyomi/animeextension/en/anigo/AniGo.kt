@@ -75,7 +75,7 @@ class AniGo :
     // =========================== Anime Details ============================
 
     private val jTitleRegex by lazy { """JTitle\(`([^`]*)`\)""".toRegex() }
-    override val coverSelector = "div.playerBG"
+    override val backgroundSelector = "div.playerBG"
 
     override fun Element.getTitle(): String? {
         val enTitle = text()
@@ -128,7 +128,7 @@ class AniGo :
                     if (rating.isNotBlank()) append("\n**Rating:** $rating")
                     detail.select("div:containsOwn(Links:) a").forEach { append("\n[${it.text()}](${it.attr("abs:href")})") }
                     if (altTitles.isNotBlank()) append("\n**Alternative Title:** $altTitles")
-                    document.getCover()?.let { append("\n\n![Cover]($it)") }
+                    document.getBackground()?.let { append("\n\n![Cover]($it)") }
                     if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                         if (isNotEmpty()) append("\n\n")
                         append(fancyScore)

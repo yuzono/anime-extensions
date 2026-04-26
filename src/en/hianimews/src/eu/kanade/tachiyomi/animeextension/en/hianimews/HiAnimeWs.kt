@@ -41,7 +41,7 @@ class HiAnimeWs :
 
     // =========================== Anime Details ============================
 
-    override val coverSelector = "div.anis-cover"
+    override val backgroundSelector = "div.anis-cover"
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         thumbnail_url = document.selectFirst("div.anisc-poster img.film-poster-img")
@@ -75,7 +75,7 @@ class HiAnimeWs :
                     append("\n**Producers:** $producers")
                 }
 
-                document.getCover()?.let { append("\n\n![Cover]($it)") }
+                document.getBackground()?.let { append("\n\n![Cover]($it)") }
 
                 if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                     if (isNotEmpty()) append("\n\n")

@@ -36,7 +36,7 @@ class AnimeKai :
 
     // =========================== Anime Details ============================
 
-    override val coverSelector = "div.watch-section-bg"
+    override val backgroundSelector = "div.watch-section-bg"
 
     // AnimeKai has a deeper DOM structure for info tags than the base theme expects
     override fun Element.getInfo(
@@ -111,7 +111,7 @@ class AnimeKai :
                     detail.select("div div div:contains(Links:) a").forEach {
                         append("\n[${it.text()}](${it.attr("href")})")
                     }
-                    document.getCover()?.let { append("\n\n![Cover]($it)") }
+                    document.getBackground()?.let { append("\n\n![Cover]($it)") }
 
                     if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
                         if (isNotEmpty()) append("\n\n")
