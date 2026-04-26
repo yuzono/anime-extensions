@@ -65,7 +65,7 @@ class AnimeKai :
 
         document.selectFirst("div#main-entity")?.let { info: Element ->
             val titleElement = info.selectFirst("h1.title")
-            title = titleElement?.getTitle() ?: ""
+            titleElement?.getTitle()?.let { title = it }
 
             val titles = titleElement?.let { elm: Element ->
                 listOf(

@@ -68,7 +68,7 @@ class AniGo :
 
     override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         setUrlWithoutDomain(element.attr("abs:href").takeIf(String::isNotBlank)!!)
-        title = element.selectFirst(".title")?.getTitle()?.takeIf(String::isNotBlank)!!
+        title = element.selectFirst(".title")?.getTitle()!!
         thumbnail_url = element.selectFirst("img")?.attr("src")
     }
 

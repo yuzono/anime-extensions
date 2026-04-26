@@ -55,7 +55,7 @@ class HiAnimeWs :
         }
 
         document.selectFirst("div.anisc-detail")?.let { info: Element ->
-            title = info.selectFirst("h2.film-name a.dynamic-name")?.getTitle().orEmpty()
+            info.selectFirst("h2.film-name a.dynamic-name")?.getTitle()?.let { title = it }
 
             val producers = info.select("div.film-text a[href*=/producers/]").eachText()
                 .joinToString()
