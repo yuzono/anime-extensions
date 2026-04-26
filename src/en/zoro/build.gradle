@@ -1,5 +1,5 @@
 ext {
-    extName = 'HiAnime'
+    extName = 'HiAnime (Dead)'
     extClass = '.HiAnime'
     themePkg = 'zorotheme'
     baseUrl = 'https://hianime.to'
