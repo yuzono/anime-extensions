@@ -408,9 +408,9 @@ class Hanime :
 
     private suspend fun fetchVideoListPremium(episode: SEpisode): List<Video> {
         val cookie = authCookie ?: return emptyList()
-        val id = episode.url.substringAfter("?id=")
+        val slug = episode.url.substringAfter("?id=")
         val headers = headers.newBuilder().add("cookie", cookie)
-        val document = client.newCall(GET("$baseUrl/videos/hentai/$id", headers = headers.build())).await().asJsoup()
+        val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().asJsoup()
 
         val nuxtScript = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
         val nuxtData = nuxtScript.data()
@@ -465,7 +465,7 @@ class Hanime :
                 episode_number = idx + 1f
                 name = "Episode ${idx + 1}"
                 date_upload = (it.releasedAtUnix ?: 0) * 1000
-                url = "$baseUrl/api/v8/video?id=${it.id}"
+                url = "$baseUrl/api/v8/video?id=${it.slug}"
             }
         }?.reversed() ?: emptyList()
     }
