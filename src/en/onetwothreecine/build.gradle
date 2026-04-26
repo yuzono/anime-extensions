@@ -9,4 +9,5 @@ apply from: "$rootDir/common.gradle"
 
 dependencies {
     implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:rapidshareextractor'))
 }
