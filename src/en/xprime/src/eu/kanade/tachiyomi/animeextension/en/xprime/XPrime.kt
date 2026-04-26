@@ -521,7 +521,7 @@ class XPrime :
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://xprime.tv"
-        private val DOMAIN_ENTRIES = arrayOf("xprime.tv", "xprime.today")
+        private val DOMAIN_ENTRIES = arrayOf("xprime.tv", "xprime.today", "xprime.stream")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
 
         private const val PREF_LATEST_KEY = "pref_latest"
