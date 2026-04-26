@@ -46,7 +46,7 @@ class CloudflareBypass(private val context: Context) {
             }
 
             CookieManager.getInstance().setCookie(pageUrl, "")
-            webView?.loadUrl(pageUrl)
+            webView.loadUrl(pageUrl)
         }
 
         // Wait here for up to 30 seconds

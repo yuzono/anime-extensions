@@ -331,7 +331,7 @@ class AnimePahe :
         }
     }
 
-    private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
+    private fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
         val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
             KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
         } else {

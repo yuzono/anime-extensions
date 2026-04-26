@@ -46,7 +46,7 @@ class KwikExtractor(
     private val kwikDToken = Regex("value=\"([^\"]+)\"")
 
     // Clone the base client so interceptors, cookie jars, logging, etc. are preserved,
-    // and only override redirect behaviour.
+    // and only override redirect behavior.
     private val noRedirectClient by lazy {
         client.newBuilder()
             .followRedirects(false)
