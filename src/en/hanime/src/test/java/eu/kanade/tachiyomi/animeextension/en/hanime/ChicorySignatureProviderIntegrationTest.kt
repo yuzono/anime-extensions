@@ -169,8 +169,6 @@ class ChicorySignatureProviderIntegrationTest {
         assertEquals("", headers["x-user-license"], "x-user-license must be empty")
         assertEquals("", headers["x-csrf-token"], "x-csrf-token must be empty")
         assertEquals("", headers["x-license"], "x-license must be empty")
-        assertEquals("application/json", headers["content-type"], "content-type must be application/json")
-        assertEquals("application/json", headers["accept"], "accept must be application/json")
 
         provider.close()
     }

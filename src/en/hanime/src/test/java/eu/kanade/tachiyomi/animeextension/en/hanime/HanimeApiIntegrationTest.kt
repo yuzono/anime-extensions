@@ -688,8 +688,6 @@ class HanimeApiIntegrationTest {
                 "x-user-license" to "",
                 "x-csrf-token" to "",
                 "x-license" to "",
-                "content-type" to "application/json",
-                "accept" to "application/json",
             )
             val staleResponse = httpGet(manifestUrl, mergedHeaders(baseHeaders(), staleHeaders))
                 ?: run {

@@ -50,6 +50,11 @@ class Hanime :
         .add("Origin", "https://hanime.tv")
         .add("Referer", "https://hanime.tv/")
 
+    private fun videoHeaders(): Headers = headers.newBuilder()
+        .add("Referer", "https://hanime.tv/")
+        .add("Origin", "https://hanime.tv")
+        .build()
+
     @Volatile
     private var authCookie: String? = null
 
@@ -337,7 +342,11 @@ class Hanime :
             val videos = fetchManifestVideos(hvId, retryOnAuthFailure = true)
             if (videos.isNotEmpty()) videos else parseVideoModelStreams(videoString)
         } catch (e: Exception) {
-            parseVideoModelStreams(videoString)
+            try {
+                parseVideoModelStreams(videoString)
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
     }
 
@@ -400,7 +409,7 @@ class Hanime :
             server.streams
                 .filter { it.isGuestAllowed == true }
                 .map { stream ->
-                    Video(stream.url, "${stream.height ?: "unknown"}p", stream.url)
+                    Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders())
                 }
         }
     }
@@ -418,7 +427,7 @@ class Hanime :
         val parsed = nuxtData.parseAs<WindowNuxt>()
 
         return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
-            server.streams.map { stream -> Video(stream.url, stream.height + "p", stream.url) }
+            server.streams.map { stream -> Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders()) }
         }
     }
 
@@ -428,12 +437,12 @@ class Hanime :
         if (responseString.isEmpty()) return emptyList()
         val videoModel = responseString.parseAs<VideoModel>()
         val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
-            server.streams.filter { it.kind != "premium_alert" }
+            server.streams.filter { it.kind != "premium_alert" && it.isGuestAllowed == true }
         } ?: emptyList()
 
         return if (manifestStreams.isNotEmpty()) {
             manifestStreams.map { stream ->
-                Video(stream.url, "${stream.height}p", stream.url)
+                Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = videoHeaders())
             }
         } else {
             emptyList()

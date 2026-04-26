@@ -182,7 +182,7 @@ data class Stream(
     @SerialName("mime_type")
     val mimeType: String? = null,
     val width: Long? = null,
-    val height: String,
+    val height: Int? = null,
     @SerialName("duration_in_ms")
     val durationInMs: Long? = null,
     @SerialName("filesize_mbs")
@@ -232,7 +232,7 @@ data class WindowNuxt(
                     ) {
                         @Serializable
                         data class Stream(
-                            val height: String,
+                            val height: Int? = null,
                             val url: String,
                         )
                     }
@@ -271,7 +271,7 @@ data class ManifestServer(
 data class ManifestStream(
     val id: Long? = null,
     val kind: String? = null,
-    val height: String? = null,
+    val height: Int? = null,
     val url: String = "",
     @SerialName("is_guest_allowed")
     val isGuestAllowed: Boolean? = false,

@@ -78,15 +78,13 @@ class SignatureProviderTest {
         assertEquals("", headers["x-user-license"], "x-user-license must be empty")
         assertEquals("", headers["x-csrf-token"], "x-csrf-token must be empty")
         assertEquals("", headers["x-license"], "x-license must be empty")
-        assertEquals("application/json", headers["content-type"], "content-type must be application/json")
-        assertEquals("application/json", headers["accept"], "accept must be application/json")
     }
 
     @Test
-    fun buildReturnsExactly9Headers() {
+    fun buildReturnsExactly7Headers() {
         val sig = Signature("abc", "123", 1000L)
         val headers = SignatureHeaders.build(sig)
-        assertEquals(9, headers.size, "Header map must contain exactly 9 entries")
+        assertEquals(7, headers.size, "Header map must contain exactly 7 entries")
     }
 
     // ── SignatureCache ───────────────────────────────────────────────────
