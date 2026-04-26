@@ -577,14 +577,13 @@ class Animetsu :
 
         private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
         private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
-        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe", "Kite", "Meg", "Kiss")
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
         private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "pahe", "kite", "meg", "kiss")
 
         private const val PREF_SERVER_KEY = "enabled_servers"
         private val PREF_SERVER_DEFAULT = setOf("pahe", "kite", "meg", "kiss")
-        private val SERVER_ENTRIES = listOf("Pahe", "Kite", "Meg", "Kiss")
+        private val SERVER_ENTRIES = listOf("Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
         private val SERVER_VALUES = listOf("pahe", "kite", "meg", "kiss")
-
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
         private val PREF_PREFERRED_AUDIO_TYPE_ENTRIES = listOf("None", "Sub", "Dub")
