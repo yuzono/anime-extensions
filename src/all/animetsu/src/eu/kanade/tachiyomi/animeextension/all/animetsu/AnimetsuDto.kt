@@ -37,6 +37,7 @@ data class AnimetsuAnimeDto(
     @SerialName("average_score") val averageScore: Int? = null,
     val trailer: String? = null,
     val season: String? = null,
+    val seasons: List<AnimetsuSeasonDto>? = null,
     val episodes: List<AnimetsuEpisodeDto>? = null,
     @SerialName("anilist_id") val anilistId: Int? = null,
     @SerialName("mal_id") val malId: Int? = null,
@@ -80,8 +81,16 @@ data class AnimetsuCoverDto(
 )
 
 @Serializable
+data class AnimetsuSeasonDto(
+    val id: String,
+    val title: AnimetsuTitleDto? = null,
+    val status: String? = null,
+    val relation: String? = null,
+)
+
+@Serializable
 data class AnimetsuEpisodeDto(
-    @SerialName("ep_num") val epNum: Double? = null, // was Int?
+    @SerialName("ep_num") val epNum: Double? = null, // Was Int?
     @SerialName("aired_at") val airedAt: String? = null,
     val desc: String? = null,
     @SerialName("is_filler") val isFiller: Boolean? = null,

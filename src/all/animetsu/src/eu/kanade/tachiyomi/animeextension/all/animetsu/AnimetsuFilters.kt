@@ -304,6 +304,9 @@ object AnimetsuFilters {
         companion object {
             private val SOURCE_ENTRIES = listOf(
                 "Any",
+                "Original",
+                "Anime",
+                "Manga",
                 "Novel",
                 "Light Novel",
                 "Web Novel",
@@ -318,6 +321,9 @@ object AnimetsuFilters {
             )
             private val SOURCE_VALUES = listOf(
                 "",
+                "ORIGINAL",
+                "ANIME",
+                "MANGA",
                 "NOVEL",
                 "LIGHT_NOVEL",
                 "WEB_NOVEL",

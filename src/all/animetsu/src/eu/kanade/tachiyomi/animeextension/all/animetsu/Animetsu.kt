@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -23,7 +24,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class Animetsu :
     AnimeHttpSource(),
@@ -51,11 +52,17 @@ class Animetsu :
     private val hideAdult: Boolean
         get() = preferences.getBoolean(PREF_HIDE_ADULT_KEY, PREF_HIDE_ADULT_DEFAULT)
 
-    private val preferredServer: String
-        get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+    private val enabledServers: Set<String>
+        get() = preferences.getStringSet(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
 
-    private val audioType: String
-        get() = preferences.getString(PREF_AUDIO_TYPE_KEY, PREF_AUDIO_TYPE_DEFAULT) ?: PREF_AUDIO_TYPE_DEFAULT
+    private val preferredServer: String
+        get() = preferences.getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) ?: PREF_PREFERRED_SERVER_DEFAULT
+
+    private val enabledAudioTypes: Set<String>
+        get() = preferences.getStringSet(PREF_AUDIO_TYPE_KEY, PREF_AUDIO_TYPE_DEFAULT) ?: PREF_AUDIO_TYPE_DEFAULT
+
+    private val preferredAudioType: String
+        get() = preferences.getString(PREF_PREFERRED_AUDIO_TYPE_KEY, PREF_PREFERRED_AUDIO_TYPE_DEFAULT) ?: PREF_PREFERRED_AUDIO_TYPE_DEFAULT
 
     private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
         .add("Accept", "application/json, text/plain, */*")
@@ -67,7 +74,7 @@ class Animetsu :
         .build()
 
     override val client = network.client.newBuilder()
-        .rateLimit(5, 1, TimeUnit.SECONDS)
+        .rateLimit(5, 1.seconds)
         .build()
 
     // ============================== Popular ===============================
@@ -131,6 +138,7 @@ class Animetsu :
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val dto = response.parseAs<AnimetsuAnimeDto>()
+        val seenIds = mutableSetOf(dto.id)
 
         fun getTitle(titleDto: AnimetsuTitleDto?): String? = when (titleLanguage) {
             "english" -> titleDto?.english
@@ -141,8 +149,21 @@ class Animetsu :
             ?: titleDto?.english
 
         return buildList {
+            dto.seasons?.mapNotNull { season ->
+                if (season.id.isBlank() || season.id in seenIds) return@mapNotNull null
+                seenIds.add(season.id)
+                val seasonTitle = getTitle(season.title) ?: return@mapNotNull null
+
+                SAnime.create().apply {
+                    url = season.id
+                    title = seasonTitle
+                    status = parseStatus(season.status)
+                }
+            }?.let { addAll(it) }
+
             dto.relations?.mapNotNull { rel ->
-                if (rel.id.isBlank()) return@mapNotNull null
+                if (rel.id.isBlank() || rel.id in seenIds) return@mapNotNull null
+                seenIds.add(rel.id)
                 val relTitle = getTitle(rel.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -153,7 +174,7 @@ class Animetsu :
             }?.let { addAll(it) }
 
             dto.recommendations?.mapNotNull { rec ->
-                if (rec.id.isBlank()) return@mapNotNull null
+                if (rec.id.isBlank() || rec.id in seenIds) return@mapNotNull null
                 val recTitle = getTitle(rec.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -190,7 +211,6 @@ class Animetsu :
         val animeId = parts[0]
         val epNum = parts[1]
         val watchReferer = "$baseUrl/watch/$animeId"
-        val sourceType = audioType
 
         val serverResponse = client.newCall(
             GET("$apiUrl/anime/servers/$animeId/$epNum", apiHeaders(watchReferer)),
@@ -198,79 +218,90 @@ class Animetsu :
 
         val allServers = serverResponse.parseAs<List<AnimetsuServerDto>>()
 
-        val servers = allServers.filter { preferredServer == PREF_SERVER_DEFAULT || preferredServer == it.id }
+        val servers = allServers
+            .filter { server -> server.id in enabledServers }
+            .sortedByDescending { server -> server.id == preferredServer.takeIf { pref -> pref != "none" } }
+
+        val sortedAudioTypes = enabledAudioTypes
+            .sortedByDescending { type -> type == preferredAudioType.takeIf { pref -> pref != "none" } }
 
         val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
-        val audioLabel = sourceType.uppercase()
 
         return servers.parallelCatchingFlatMapBlocking { server ->
-            val sourceResponse = client.newCall(
-                GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
-            ).execute()
+            buildList {
+                for (sourceType in sortedAudioTypes) {
+                    try {
+                        val audioLabel = sourceType.uppercase()
+                        val sourceResponse = client.newCall(
+                            GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
+                        ).execute()
 
-            val dto = sourceResponse.parseAs<AnimetsuVideoDto>()
-            val subtitleTracks = dto.subs?.map { sub ->
-                Track(sub.url, sub.lang ?: "Unknown")
-            } ?: emptyList()
+                        val dto = sourceResponse.parseAs<AnimetsuVideoDto>()
+                        val subtitleTracks = dto.subs?.map { sub ->
+                            Track(sub.url, sub.lang ?: "Unknown")
+                        } ?: emptyList()
 
-            val serverVideos = mutableListOf<Video>()
-            val subLabel = when {
-                server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]" // AnimePahe proxy
-                server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]" // Unknown proxy
-                server.id.equals("meg", ignoreCase = true) -> " [Hard Subs]" // Unknown proxy
-                server.id.equals("kiss", ignoreCase = true) -> " [Soft Subs]" // New addition since "zoro" went down; KickAssAnime proxy?
-                else -> ""
-            }
-
-            for (source in dto.sources) {
-                val fullUrl = when {
-                    source.needProxy -> "$proxyUrl${source.url}"
-                    source.url.startsWith("http") -> source.url
-                    else -> "$baseUrl${source.url}"
-                }
-
-                when {
-                    source.type?.contains("mp4") == true -> {
-                        serverVideos.add(
-                            Video(
-                                fullUrl,
-                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                fullUrl,
-                                apiHeaders(watchReferer),
-                                subtitleTracks,
-                            ),
-                        )
-                    }
-                    source.type?.contains("mpegurl") == true -> {
-                        if (source.oldHls) {
-                            serverVideos.add(
-                                Video(
-                                    fullUrl,
-                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                    fullUrl,
-                                    apiHeaders(watchReferer),
-                                    subtitleTracks,
-                                ),
-                            )
-                        } else {
-                            serverVideos.addAll(
-                                playlistUtils.extractFromHls(
-                                    playlistUrl = fullUrl,
-                                    videoNameGen = { quality ->
-                                        val cleanQuality = quality.substringBefore(" ").let { q ->
-                                            if (q.endsWith("P")) q.lowercase() else q
-                                        }
-                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
-                                    },
-                                    referer = "$baseUrl/",
-                                    subtitleList = subtitleTracks,
-                                ),
-                            )
+                        val subLabel = when {
+                            server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]"
+                            server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]"
+                            server.id.equals("meg", ignoreCase = true) -> " [Hard Subs]"
+                            server.id.equals("kiss", ignoreCase = true) -> " [Soft Subs]"
+                            else -> ""
                         }
+
+                        for (source in dto.sources) {
+                            val fullUrl = when {
+                                source.needProxy -> "$proxyUrl${source.url}"
+                                source.url.startsWith("http") -> source.url
+                                else -> "$baseUrl${source.url}"
+                            }
+
+                            when {
+                                source.type?.contains("mp4") == true -> {
+                                    add(
+                                        Video(
+                                            fullUrl,
+                                            "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                            fullUrl,
+                                            apiHeaders(watchReferer),
+                                            subtitleTracks,
+                                        ),
+                                    )
+                                }
+                                source.type?.contains("mpegurl") == true -> {
+                                    if (source.oldHls) {
+                                        add(
+                                            Video(
+                                                fullUrl,
+                                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                                fullUrl,
+                                                apiHeaders(watchReferer),
+                                                subtitleTracks,
+                                            ),
+                                        )
+                                    } else {
+                                        addAll(
+                                            playlistUtils.extractFromHls(
+                                                playlistUrl = fullUrl,
+                                                videoNameGen = { quality ->
+                                                    val cleanQuality = quality.substringBefore(" ").let { q ->
+                                                        if (q.endsWith("P")) q.lowercase() else q
+                                                    }
+                                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                                },
+                                                referer = "$baseUrl/",
+                                                subtitleList = subtitleTracks,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Ignore if a specific audio type fails for this server
                     }
                 }
             }
-            serverVideos
         }
     }
 
@@ -299,21 +330,39 @@ class Animetsu :
         )
 
         screen.addListPreference(
-            key = PREF_SERVER_KEY,
-            title = "Preferred server",
-            entries = PREF_SERVER_ENTRIES,
-            entryValues = PREF_SERVER_VALUES,
-            default = PREF_SERVER_DEFAULT,
+            key = PREF_PREFERRED_SERVER_KEY,
+            title = "Preferred Host",
+            entries = PREF_PREFERRED_SERVER_ENTRIES,
+            entryValues = PREF_PREFERRED_SERVER_VALUES,
+            default = PREF_PREFERRED_SERVER_DEFAULT,
             summary = "%s",
         )
 
+        screen.addSetPreference(
+            key = PREF_SERVER_KEY,
+            title = "Enable/Disable Hosts",
+            summary = "Select which video hosts to show in the episode list",
+            entries = SERVER_ENTRIES,
+            entryValues = SERVER_VALUES,
+            default = PREF_SERVER_DEFAULT,
+        )
+
         screen.addListPreference(
-            key = PREF_AUDIO_TYPE_KEY,
-            title = "Preferred audio type",
-            entries = PREF_AUDIO_TYPE_ENTRIES,
-            entryValues = PREF_AUDIO_TYPE_VALUES,
-            default = PREF_AUDIO_TYPE_DEFAULT,
+            key = PREF_PREFERRED_AUDIO_TYPE_KEY,
+            title = "Preferred Audio Type",
+            entries = PREF_PREFERRED_AUDIO_TYPE_ENTRIES,
+            entryValues = PREF_PREFERRED_AUDIO_TYPE_VALUES,
+            default = PREF_PREFERRED_AUDIO_TYPE_DEFAULT,
             summary = "%s",
+        )
+
+        screen.addSetPreference(
+            key = PREF_AUDIO_TYPE_KEY,
+            title = "Enable/Disable Audio Types",
+            summary = "Select which audio types to show (Sub, Dub)",
+            entries = AUDIO_TYPE_ENTRIES,
+            entryValues = AUDIO_TYPE_VALUES,
+            default = PREF_AUDIO_TYPE_DEFAULT,
         )
 
         screen.addSwitchPreference(
@@ -348,7 +397,9 @@ class Animetsu :
         genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString(", ")
         status = parseStatus(dto.status)
         description = buildDescription(dto)
-        artist = dto.staff?.firstOrNull { it.role == "Character Design" }?.name ?: ""
+        artist = dto.staff?.filter {
+            it.role in listOf("Original Story", "Original Creator", "Original Character Design")
+        }?.mapNotNull { it.name }?.joinToString(", ") ?: ""
         author = dto.studios?.firstOrNull { it.isMain }?.name ?: ""
     }
 
@@ -457,13 +508,9 @@ class Animetsu :
         }
 
         dto.staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
-            val keyRoles = listOf("Director", "Original Creator", "Series Composition", "Character Design", "Music")
-            val keyStaff = staffList.filter { it.role in keyRoles }
-            if (keyStaff.isNotEmpty()) {
-                desc.append("\n\nStaff:")
-                keyStaff.forEach { s ->
-                    desc.append("\n• ${s.role}: ${s.name}")
-                }
+            desc.append("\n\nStaff:")
+            staffList.forEach { s ->
+                desc.append("\n• ${s.role}: ${s.name}")
             }
         }
 
@@ -501,15 +548,25 @@ class Animetsu :
         private val PREF_TITLE_LANG_ENTRIES = listOf("Romaji", "English", "Japanese (Native)")
         private val PREF_TITLE_LANG_VALUES = listOf("romaji", "english", "native")
 
-        private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "all"
-        private val PREF_SERVER_ENTRIES = listOf("All", "Pahe", "Kite", "Meg", "Kiss")
-        private val PREF_SERVER_VALUES = listOf("all", "pahe", "kite", "meg", "kiss")
+        private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
+        private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe", "Kite", "Meg", "Kiss")
+        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "pahe", "kite", "meg", "kiss")
 
-        private const val PREF_AUDIO_TYPE_KEY = "preferred_audio_type"
-        private const val PREF_AUDIO_TYPE_DEFAULT = "sub"
-        private val PREF_AUDIO_TYPE_ENTRIES = listOf("Sub", "Dub")
-        private val PREF_AUDIO_TYPE_VALUES = listOf("sub", "dub")
+        private const val PREF_SERVER_KEY = "enabled_servers"
+        private val PREF_SERVER_DEFAULT = setOf("pahe", "kite", "meg", "kiss")
+        private val SERVER_ENTRIES = listOf("Pahe", "Kite", "Meg", "Kiss")
+        private val SERVER_VALUES = listOf("pahe", "kite", "meg", "kiss")
+
+        private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
+        private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
+        private val PREF_PREFERRED_AUDIO_TYPE_ENTRIES = listOf("None", "Sub", "Dub")
+        private val PREF_PREFERRED_AUDIO_TYPE_VALUES = listOf("none", "sub", "dub")
+
+        private const val PREF_AUDIO_TYPE_KEY = "enabled_audio_types"
+        private val PREF_AUDIO_TYPE_DEFAULT = setOf("sub")
+        private val AUDIO_TYPE_ENTRIES = listOf("Sub", "Dub")
+        private val AUDIO_TYPE_VALUES = listOf("sub", "dub")
 
         private const val PREF_HIDE_ADULT_KEY = "hide_adult_content"
         private const val PREF_HIDE_ADULT_DEFAULT = true
