@@ -4,7 +4,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -19,11 +18,16 @@ import kotlin.test.assertTrue
 /**
  * Integration tests against the live hanime.tv API endpoints.
  *
- * The manifest endpoint has migrated to a CDN at cached.freeanimehentai.net
- * which has a strict signature freshness requirement (signatures expire within
- * ~2 minutes based on s-maxage=120). Tests generate fresh signatures immediately
- * before manifest requests to avoid timing-related 401 rejections.
- * The hanime.tv origin now rejects all direct manifest requests with 401.
+ * The search endpoint has migrated from search.htv-services.com (POST with
+ * JSON body) to cached.freeanimehentai.net/api/v10/search_hvs (GET with
+ * signature headers). The new endpoint returns ALL content in one response
+ * (no server-side pagination) — filtering and pagination are client-side.
+ *
+ * The manifest endpoint has a strict signature freshness requirement
+ * (signatures expire within ~2 minutes based on s-maxage=120). Tests
+ * generate fresh signatures immediately before manifest requests to
+ * avoid timing-related 401 rejections. The hanime.tv origin now rejects
+ * all direct manifest requests with 401.
  *
  * Tests gracefully skip when the network is unavailable or the WASM
  * binary cannot be fetched — no false failures from environment issues.
@@ -46,7 +50,7 @@ class HanimeApiIntegrationTest {
             "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         const val BASE_URL = "https://hanime.tv"
         const val CDN_BASE_URL = "https://cached.freeanimehentai.net"
-        const val SEARCH_URL = "https://search.htv-services.com/"
+        const val SEARCH_URL = "https://cached.freeanimehentai.net/api/v10/search_hvs"
         const val SKIP_PREFIX = "SKIP:"
     }
 
@@ -171,28 +175,10 @@ class HanimeApiIntegrationTest {
 
     private fun mergedHeaders(base: Map<String, String>, extra: Map<String, String>): Map<String, String> = base + extra
 
-    private fun searchRequestBody(
-        searchText: String = "",
-        tags: List<String> = emptyList(),
-        tagsMode: String = "AND",
-        brands: List<String> = emptyList(),
-        blacklist: List<String> = emptyList(),
-        orderBy: String = "created_at",
-        ordering: String = "desc",
-        page: Int = 0,
-    ): String {
-        val tagsJson = tags.joinToString(",") { "\"$it\"" }
-        val brandsJson = brands.joinToString(",") { "\"$it\"" }
-        val blacklistJson = blacklist.joinToString(",") { "\"$it\"" }
-        return """{"search_text":"$searchText","tags":[$tagsJson],"tags_mode":"$tagsMode","brands":[$brandsJson],"blacklist":[$blacklistJson],"order_by":"$orderBy","ordering":"$ordering","page":$page}"""
-    }
-
-    /** Execute a search and return the parsed JsonObject, or null on failure. */
-    private fun executeSearch(
-        body: String,
-        extraHeaders: Map<String, String> = emptyMap(),
-    ): JsonObject? {
-        val response = httpPost(SEARCH_URL, body, baseHeaders() + extraHeaders) ?: return null
+    /** Execute a GET search with signature headers and return the parsed JsonObject, or null on failure. */
+    private fun executeSearch(provider: ChicorySignatureProvider): JsonObject? {
+        val sigHeaders = getSignatureHeaders(provider)
+        val response = httpGet(SEARCH_URL, mergedHeaders(baseHeaders(), sigHeaders)) ?: return null
         if (!response.isSuccessful) return null
         val responseBody = response.body ?: return null
         return try {
@@ -202,14 +188,9 @@ class HanimeApiIntegrationTest {
         }
     }
 
-    /** Parse the 'hits' field — it's a JSON-encoded string, not a direct array. */
+    /** Parse the 'hits' array directly from the search response. */
     private fun parseHits(result: JsonObject): List<JsonObject>? {
-        val hitsString = result["hits"]?.jsonPrimitive?.contentOrNull ?: return null
-        val hitsArray = try {
-            jsonParser.parseToJsonElement(hitsString).jsonArray
-        } catch (_: Exception) {
-            null
-        } ?: return null
+        val hitsArray = result["hits"]?.jsonArray ?: return null
         return hitsArray.mapNotNull {
             try {
                 it.jsonObject
@@ -219,13 +200,40 @@ class HanimeApiIntegrationTest {
         }
     }
 
+    /** Extract the text- searchable content from a hit (name + search_titles). */
+    private fun hitSearchableText(hit: JsonObject): String {
+        val name = hit["name"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: ""
+        val searchTitles = hit["search_titles"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: ""
+        return "$name $searchTitles"
+    }
+
+    /** Filter hits client-side by keyword matching against name or search_titles. */
+    private fun filterHitsByKeyword(hits: List<JsonObject>, keyword: String): List<JsonObject> {
+        val lowerKeyword = keyword.lowercase()
+        return hits.filter { hit -> hitSearchableText(hit).contains(lowerKeyword) }
+    }
+
+    /** Filter hits client-side by tag matching. */
+    private fun filterHitsByTag(hits: List<JsonObject>, tag: String): List<JsonObject> {
+        val lowerTag = tag.lowercase()
+        return hits.filter { hit ->
+            hit["tags"]?.jsonArray?.any { tagElement ->
+                tagElement.jsonPrimitive.contentOrNull?.lowercase() == lowerTag
+            } == true
+        }
+    }
+
     /** Get the slug from the first search hit, or null on failure. */
     private fun getFirstSearchSlug(): String? {
-        val body = searchRequestBody()
-        val result = executeSearch(body) ?: return null
-        val hits = parseHits(result) ?: return null
-        if (hits.isEmpty()) return null
-        return hits[0]["slug"]?.jsonPrimitive?.contentOrNull
+        val provider = createSignatureProvider() ?: return null
+        return try {
+            val result = executeSearch(provider) ?: return null
+            val hits = parseHits(result) ?: return null
+            if (hits.isEmpty()) return null
+            hits[0]["slug"]?.jsonPrimitive?.contentOrNull
+        } finally {
+            provider.close()
+        }
     }
 
     /** Try to resolve hvId from the video endpoint WITHOUT signature headers. Returns null on failure. */
@@ -260,78 +268,96 @@ class HanimeApiIntegrationTest {
 
     @Test
     fun testSearchEndpointReturnsResults() {
-        val body = searchRequestBody()
-        val result = executeSearch(body)
-        if (result == null) {
-            println("$SKIP_PREFIX Search endpoint returned no valid response — requires network access")
+        val provider = createSignatureProvider()
+        if (provider == null) {
+            println("$SKIP_PREFIX Could not create signature provider — requires network and WASM binary")
             return
         }
 
-        val hits = parseHits(result)
-        assertNotNull(hits, "Response must contain parseable 'hits'")
-        assertTrue(hits.size >= 1, "hits must have at least 1 item, got ${hits.size}")
+        try {
+            val result = executeSearch(provider)
+            if (result == null) {
+                println("$SKIP_PREFIX Search endpoint returned no valid response — requires network access")
+                return
+            }
 
-        val nbPages = result["nbPages"]?.jsonPrimitive?.int
-        assertNotNull(nbPages, "Response must contain 'nbPages'")
-        assertTrue(nbPages > 0, "nbPages must be > 0, got $nbPages")
-
-        val page = result["page"]?.jsonPrimitive?.int
-        assertEquals(0, page, "page must be 0")
+            val hits = parseHits(result)
+            assertNotNull(hits, "Response must contain parseable 'hits' array")
+            assertTrue(hits.isNotEmpty(), "hits must be non-empty, got ${hits.size}")
+        } finally {
+            provider.close()
+        }
     }
 
     // ── Test 2: Search with keyword returns relevant results ───────────
 
     @Test
     fun testSearchWithKeywordReturnsRelevantResults() {
-        val body = searchRequestBody(searchText = "3d")
-        val result = executeSearch(body)
-        if (result == null) {
-            println("$SKIP_PREFIX Search with keyword returned no valid response — requires network access")
+        val provider = createSignatureProvider()
+        if (provider == null) {
+            println("$SKIP_PREFIX Could not create signature provider — requires network and WASM binary")
             return
         }
 
-        val hits = parseHits(result)
-        assertNotNull(hits, "Response must contain parseable 'hits'")
-        assertTrue(hits.isNotEmpty(), "hits must be non-empty for keyword '3d'")
+        try {
+            val result = executeSearch(provider)
+            if (result == null) {
+                println("$SKIP_PREFIX Search with keyword returned no valid response — requires network access")
+                return
+            }
 
-        val nbHits = result["nbHits"]?.jsonPrimitive?.int
-        assertNotNull(nbHits, "Response must contain 'nbHits'")
-        assertTrue(nbHits > 0, "nbHits must be > 0 for keyword '3d', got $nbHits")
+            val hits = parseHits(result)
+            assertNotNull(hits, "Response must contain parseable 'hits' array")
+            assertTrue(hits.isNotEmpty(), "Search must return non-empty hits")
+
+            // Client-side keyword filtering: matches against name or search_titles
+            val keyword = "3d"
+            val filtered = filterHitsByKeyword(hits, keyword)
+            assertTrue(filtered.isNotEmpty(), "Client-side filter for keyword '$keyword' must match at least one hit")
+        } finally {
+            provider.close()
+        }
     }
 
-    // ── Test 3: Search pagination works ───────────────────────────────
+    // ── Test 3: Search client-side pagination works ───────────────────
 
     @Test
     fun testSearchPaginationWorks() {
-        val bodyPage0 = searchRequestBody(page = 0)
-        val bodyPage1 = searchRequestBody(page = 1)
-
-        val result0 = executeSearch(bodyPage0)
-        if (result0 == null) {
-            println("$SKIP_PREFIX Search page 0 returned no valid response — requires network access")
+        val provider = createSignatureProvider()
+        if (provider == null) {
+            println("$SKIP_PREFIX Could not create signature provider — requires network and WASM binary")
             return
         }
 
-        val result1 = executeSearch(bodyPage1)
-        if (result1 == null) {
-            println("$SKIP_PREFIX Search page 1 returned no valid response — requires network access")
-            return
+        try {
+            val result = executeSearch(provider)
+            if (result == null) {
+                println("$SKIP_PREFIX Search endpoint returned no valid response — requires network access")
+                return
+            }
+
+            val hits = parseHits(result)
+            assertNotNull(hits, "Response must contain parseable 'hits' array")
+
+            // The new API returns all results at once; pagination is client-side.
+            // Verify that slicing the hits array at different offsets yields different items.
+            if (hits.size < 2) {
+                println("$SKIP_PREFIX Not enough hits to test client-side pagination — need at least 2, got ${hits.size}")
+                return
+            }
+
+            val pageSize = minOf(25, hits.size / 2)
+            val page0Slugs = hits.drop(0).take(pageSize)
+                .mapNotNull { it["slug"]?.jsonPrimitive?.contentOrNull }.toSet()
+            val page1Slugs = hits.drop(pageSize).take(pageSize)
+                .mapNotNull { it["slug"]?.jsonPrimitive?.contentOrNull }.toSet()
+
+            assertTrue(page0Slugs.isNotEmpty(), "Page 0 must contain at least one slug")
+            assertTrue(page1Slugs.isNotEmpty(), "Page 1 must contain at least one slug")
+            assertTrue(page0Slugs != page1Slugs, "Hits at offset 0 and offset $pageSize must differ")
+        } finally {
+            provider.close()
         }
-
-        val page0 = result0["page"]?.jsonPrimitive?.int
-        val page1 = result1["page"]?.jsonPrimitive?.int
-        assertEquals(0, page0, "Page 0 result must have page == 0")
-        assertEquals(1, page1, "Page 1 result must have page == 1")
-
-        val hits0 = parseHits(result0)
-        val hits1 = parseHits(result1)
-        assertNotNull(hits0, "Page 0 must have parseable hits")
-        assertNotNull(hits1, "Page 1 must have parseable hits")
-
-        // Hits differ between pages (compare slug lists for simplicity)
-        val slugs0 = hits0.mapNotNull { it["slug"]?.jsonPrimitive?.contentOrNull }.toSet()
-        val slugs1 = hits1.mapNotNull { it["slug"]?.jsonPrimitive?.contentOrNull }.toSet()
-        assertTrue(slugs0 != slugs1, "Hits on page 0 and page 1 must differ")
     }
 
     // ── Test 4: Video endpoint returns video details ──────────────────
@@ -544,7 +570,7 @@ class HanimeApiIntegrationTest {
         }
     }
 
-    // ── Test 7: Signature headers are accepted by search endpoint ─────
+    // ── Test 7: Signature headers are required by search endpoint ─────
 
     @Test
     fun testSignatureHeadersAreAcceptedBySearchEndpoint() {
@@ -555,17 +581,15 @@ class HanimeApiIntegrationTest {
         }
 
         try {
-            val sigHeaders = getSignatureHeaders(provider)
-            val body = searchRequestBody()
-
-            val result = executeSearch(body, extraHeaders = sigHeaders)
+            // The new search endpoint requires signature headers on GET requests
+            val result = executeSearch(provider)
             if (result == null) {
                 println("$SKIP_PREFIX Search with signature headers returned no valid response — requires network access")
                 return
             }
 
             val hits = parseHits(result)
-            assertNotNull(hits, "Response must contain parseable 'hits'")
+            assertNotNull(hits, "Response must contain parseable 'hits' array")
             assertTrue(hits.isNotEmpty(), "Search with signature headers must return results")
         } finally {
             provider.close()
@@ -747,15 +771,29 @@ class HanimeApiIntegrationTest {
 
     @Test
     fun testSearchWithTagsReturnsFilteredResults() {
-        val body = searchRequestBody(tags = listOf("3d"))
-        val result = executeSearch(body)
-        if (result == null) {
-            println("$SKIP_PREFIX Search with tags returned no valid response — requires network access")
+        val provider = createSignatureProvider()
+        if (provider == null) {
+            println("$SKIP_PREFIX Could not create signature provider — requires network and WASM binary")
             return
         }
 
-        val hits = parseHits(result)
-        assertNotNull(hits, "Response must contain parseable 'hits'")
-        assertTrue(hits.isNotEmpty(), "Search with tag '3d' must return non-empty hits")
+        try {
+            val result = executeSearch(provider)
+            if (result == null) {
+                println("$SKIP_PREFIX Search with tags returned no valid response — requires network access")
+                return
+            }
+
+            val hits = parseHits(result)
+            assertNotNull(hits, "Response must contain parseable 'hits' array")
+            assertTrue(hits.isNotEmpty(), "Search must return non-empty hits")
+
+            // Client-side tag filtering: matches against the tags array in each hit
+            val tag = "3d"
+            val filtered = filterHitsByTag(hits, tag)
+            assertTrue(filtered.isNotEmpty(), "Client-side filter for tag '$tag' must match at least one hit")
+        } finally {
+            provider.close()
+        }
     }
 }
