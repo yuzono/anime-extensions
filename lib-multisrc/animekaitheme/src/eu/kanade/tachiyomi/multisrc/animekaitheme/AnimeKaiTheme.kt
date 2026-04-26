@@ -310,13 +310,15 @@ abstract class AnimeKaiTheme(
         return VideoData(iframe, name)
     }
 
-    protected open fun Element.getTitle(): String {
+    protected open fun Element.getTitle(): String? {
         val enTitle = attr("title")
         val jpTitle = attr("data-jp")
         return if (useEnglish) {
-            enTitle.ifBlank { text() }
+            enTitle.takeIf(String::isNotBlank)
+                ?: jpTitle.takeIf(String::isNotBlank)
         } else {
-            jpTitle.ifBlank { text() }
+            jpTitle.takeIf(String::isNotBlank)
+                ?: enTitle.takeIf(String::isNotBlank)
         }
     }
 

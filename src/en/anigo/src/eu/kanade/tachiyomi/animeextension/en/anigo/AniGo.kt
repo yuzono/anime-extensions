@@ -49,12 +49,12 @@ class AniGo :
     override fun popularAnimeSelector() = "div.aniCard.medium div.unit:has(a[href^=/watch/])"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
-        val href = element.selectFirst("a.poster")!!.attr("abs:href")
-            .takeIf { it.startsWith("$baseUrl/watch/") }!!
+        val href = element.selectFirst("a.poster")?.attr("abs:href")
+            ?.takeIf { it.startsWith("$baseUrl/watch/") }!!
 
         return SAnime.create().apply {
             setUrlWithoutDomain(href)
-            title = element.selectFirst("h6.title")!!.getTitle()
+            title = element.selectFirst(".title")?.getTitle()!!
             thumbnail_url = element.selectFirst("a.poster img")?.attr("abs:src")
         }
     }
@@ -77,14 +77,16 @@ class AniGo :
     private val jTitleRegex by lazy { """JTitle\(`([^`]*)`\)""".toRegex() }
     override val coverSelector = "div.playerBG"
 
-    override fun Element.getTitle(): String {
-        val enTitle = text().trim()
+    override fun Element.getTitle(): String? {
+        val enTitle = text()
         val xData = attr("x-data")
         val romajiTitle = jTitleRegex.find(xData)?.groupValues?.getOrNull(1)?.trim()
         return if (useEnglish) {
-            enTitle.ifBlank { romajiTitle ?: "" }
+            enTitle.takeUnless(String::isNullOrBlank)
+                ?: romajiTitle?.takeIf(String::isNotBlank)
         } else {
-            romajiTitle?.ifBlank { enTitle } ?: enTitle
+            romajiTitle?.takeIf(String::isNotBlank)
+                ?: enTitle?.takeIf(String::isNotBlank)
         }
     }
 

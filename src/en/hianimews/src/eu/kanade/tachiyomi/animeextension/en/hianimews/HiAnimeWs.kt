@@ -18,19 +18,23 @@ class HiAnimeWs :
 
     override fun popularAnimeSelector() = "div.flw-item"
 
-    override fun popularAnimeFromElement(element: Element): SAnime = element.toSAnime()
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a.film-poster-ahref")?.attr("href")!!)
+        title = element.selectFirst("a.dynamic-name")?.getTitle()!!
+        thumbnail_url = element.selectFirst("img.film-poster-img")?.attr("data-src")
+    }
 
     override fun popularAnimeNextPageSelector() = "nav > ul.pagination > li.active ~ li"
 
     // ============================== Related ==============================
 
     override fun relatedAnimeListSelector() = "section:has(.cat-heading:contains(Related Anime)) li"
-    override fun recommendedAnimeListSelector() = "section:has(.cat-heading:contains(Recommended for you)) .flw-item"
+    override fun recommendedAnimeListSelector() = "section:has(.cat-heading:contains(Recommended for you)) ${popularAnimeSelector()}"
 
     override fun relatedAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         element.selectFirst(".film-name a")!!.let { it: Element ->
-            setUrlWithoutDomain(it.attr("abs:href").takeIf(String::isNotBlank)!!)
-            title = it.getTitle().takeIf(String::isNotBlank)!!
+            setUrlWithoutDomain(it.attr("abs:href"))
+            title = it.getTitle()!!
         }
         thumbnail_url = element.selectFirst("img.film-poster-img")?.attr("data-src").orEmpty()
     }
@@ -98,13 +102,5 @@ class HiAnimeWs :
                 VideoCode(type, serverId, serverName)
             }
         }
-    }
-
-    private fun Element.toSAnime(): SAnime = SAnime.create().apply {
-        selectFirst("a.film-poster-ahref")?.attr("href")?.let {
-            setUrlWithoutDomain(it)
-        }
-        title = selectFirst("a.dynamic-name")?.getTitle().orEmpty()
-        thumbnail_url = selectFirst("img.film-poster-img")?.attr("data-src").orEmpty()
     }
 }

@@ -27,10 +27,8 @@ class AnimeKai :
     override fun popularAnimeSelector() = "div.aitem-wrapper div.aitem"
 
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        element.selectFirst("a.poster")?.attr("href")?.let {
-            setUrlWithoutDomain(it)
-        }
-        title = element.selectFirst("a.title")?.getTitle() ?: ""
+        setUrlWithoutDomain(element.selectFirst("a.poster")?.attr("href")!!)
+        title = element.selectFirst("a.title")?.getTitle()!!
         thumbnail_url = element.select("a.poster img").attr("data-src")
     }
 
