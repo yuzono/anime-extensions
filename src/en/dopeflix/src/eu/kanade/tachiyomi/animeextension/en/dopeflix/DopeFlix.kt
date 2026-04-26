@@ -15,7 +15,7 @@ class DopeFlix :
             "moviesdl.org",
             "movieclub-hd.com",
             // "himovies.sx", (dead)
-            // "movies4kto.lol", (site works but irrelavent)
+            // "movies4kto.lol", (site works but irrelevant)
             // "myflixtor.tv", (merged into livezy.click)
             "series2watch.net",
             "watch32.sx",
