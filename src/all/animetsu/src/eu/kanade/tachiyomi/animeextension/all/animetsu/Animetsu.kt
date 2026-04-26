@@ -64,6 +64,9 @@ class Animetsu :
     private val preferredAudioType: String
         get() = preferences.getString(PREF_PREFERRED_AUDIO_TYPE_KEY, PREF_PREFERRED_AUDIO_TYPE_DEFAULT) ?: PREF_PREFERRED_AUDIO_TYPE_DEFAULT
 
+    private val preferredQuality: String
+        get() = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
+
     private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
         .add("Accept", "application/json, text/plain, */*")
         .add("Accept-Language", "en-US,en;q=0.9")
@@ -309,11 +312,25 @@ class Animetsu :
 
     override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
+    override fun List<Video>.sort(): List<Video> {
+        val quality = preferredQuality
+        val server = preferredServer.takeIf { it != "none" }?.uppercase() ?: ""
+        val type = preferredAudioType.takeIf { it != "none" }?.uppercase() ?: ""
+        val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
+
+        return sortedWith(
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
+                .thenByDescending { it.quality.contains(server, true) }
+                .thenByDescending { it.quality.contains(type, true) },
+        )
+    }
+
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
             key = PREF_DOMAIN_KEY,
-            title = "Preferred domain",
+            title = "Preferred Domain",
             entries = DOMAIN_ENTRIES,
             entryValues = DOMAIN_VALUES,
             default = baseUrl,
@@ -322,10 +339,19 @@ class Animetsu :
 
         screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
-            title = "Preferred title language",
+            title = "Preferred Title Language",
             entries = PREF_TITLE_LANG_ENTRIES,
             entryValues = PREF_TITLE_LANG_VALUES,
             default = PREF_TITLE_LANG_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred Quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_VALUES,
+            default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
 
@@ -338,15 +364,6 @@ class Animetsu :
             summary = "%s",
         )
 
-        screen.addSetPreference(
-            key = PREF_SERVER_KEY,
-            title = "Enable/Disable Hosts",
-            summary = "Select which video hosts to show in the episode list",
-            entries = SERVER_ENTRIES,
-            entryValues = SERVER_VALUES,
-            default = PREF_SERVER_DEFAULT,
-        )
-
         screen.addListPreference(
             key = PREF_PREFERRED_AUDIO_TYPE_KEY,
             title = "Preferred Audio Type",
@@ -354,6 +371,15 @@ class Animetsu :
             entryValues = PREF_PREFERRED_AUDIO_TYPE_VALUES,
             default = PREF_PREFERRED_AUDIO_TYPE_DEFAULT,
             summary = "%s",
+        )
+
+        screen.addSetPreference(
+            key = PREF_SERVER_KEY,
+            title = "Enable/Disable Hosts",
+            summary = "Select which video hosts to show in the episode list",
+            entries = SERVER_ENTRIES,
+            entryValues = SERVER_VALUES,
+            default = PREF_SERVER_DEFAULT,
         )
 
         screen.addSetPreference(
@@ -398,7 +424,7 @@ class Animetsu :
         status = parseStatus(dto.status)
         description = buildDescription(dto)
         artist = dto.staff?.filter {
-            it.role in listOf("Original Story", "Original Creator", "Original Character Design")
+            it.role in listOf("Original Story", "Original Creator", "Original Character Design", "Character Design")
         }?.mapNotNull { it.name }?.joinToString(", ") ?: ""
         author = dto.studios?.firstOrNull { it.isMain }?.name ?: ""
     }
@@ -567,6 +593,11 @@ class Animetsu :
         private val PREF_AUDIO_TYPE_DEFAULT = setOf("sub")
         private val AUDIO_TYPE_ENTRIES = listOf("Sub", "Dub")
         private val AUDIO_TYPE_VALUES = listOf("sub", "dub")
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "1080"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "360")
 
         private const val PREF_HIDE_ADULT_KEY = "hide_adult_content"
         private const val PREF_HIDE_ADULT_DEFAULT = true
