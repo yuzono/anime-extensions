@@ -49,7 +49,9 @@ class ChicoryGlue {
         // ID 17392: Returns current Unix timestamp in seconds
         // JS: () => parseInt(new Date().getTime() / 1e3)
         asmConsts[ASM_CONST_TIMESTAMP] = { _, _ ->
-            System.currentTimeMillis() / 1000L
+            val timestamp = System.currentTimeMillis() / 1000L
+            Log.d(TAG, "ASM_CONST_TIMESTAMP (id=$ASM_CONST_TIMESTAMP): returning timestamp=$timestamp")
+            timestamp
         }
 
         // ID 17442: Captures signature string + timestamp from WASM
@@ -58,8 +60,10 @@ class ChicoryGlue {
         asmConsts[ASM_CONST_SIGNATURE] = { args, instance ->
             val sigPtr = args[0].toInt()
             val timestamp = if (args.size > 1) args[1] else 0L
+            Log.d(TAG, "ASM_CONST_SIGNATURE (id=$ASM_CONST_SIGNATURE): sigPtr=$sigPtr, timestamp=$timestamp")
             capturedSignature = instance.memory().readCString(sigPtr)
             capturedTimestamp = timestamp
+            Log.d(TAG, "ASM_CONST_SIGNATURE: captured signature=${capturedSignature?.take(16)}..., capturedTimestamp=$capturedTimestamp")
             0L
         }
     }
@@ -83,6 +87,18 @@ class ChicoryGlue {
         var offset = 0
 
         // Read signature string character-by-character from WASM memory
+        // First pass: read the full signature string for logging
+        val sigChars = buildString {
+            var scanOffset = 0
+            while (scanOffset < MAX_SIGNATURE_LENGTH) {
+                val ch = mem.readU8(sigPtr + scanOffset).toInt().toChar()
+                if (ch == '\u0000') break
+                append(ch)
+                scanOffset++
+            }
+        }
+        Log.d(TAG, "readEmAsmArgs: sigPtr=$sigPtr, argBuf=$argBuf, signature=\"$sigChars\"")
+
         var iterations = 0
         while (iterations < MAX_SIGNATURE_LENGTH) {
             val ch = mem.readU8(sigPtr + offset).toInt().toChar()
@@ -110,14 +126,18 @@ class ChicoryGlue {
                     else -> 0L // unknown type char — skip with 0
                 },
             )
+            Log.d(TAG, "readEmAsmArgs: arg[$iterations] type='$ch' value=${result.last()}")
             buf += if (wide) 8 else 4
         }
 
-        return result.toLongArray()
+        val parsed = result.toLongArray()
+        Log.d(TAG, "readEmAsmArgs: parsed ${parsed.size} arguments total")
+        return parsed
     }
 
     /** Reset captured state before a new signature generation cycle. */
     fun reset() {
+        Log.d(TAG, "reset: clearing capturedSignature=$capturedSignature, capturedTimestamp=$capturedTimestamp")
         capturedSignature = null
         capturedTimestamp = null
         // NOTE: registeredEventTypes is NOT cleared here.
@@ -128,6 +148,7 @@ class ChicoryGlue {
 
     /** Full reset including event type registrations — use only when re-initializing the WASM instance. */
     fun fullReset() {
+        Log.d(TAG, "fullReset: clearing capturedSignature=$capturedSignature, capturedTimestamp=$capturedTimestamp, eventTypes=${registeredEventTypes.toList()}")
         capturedSignature = null
         capturedTimestamp = null
         registeredEventTypes.clear()
@@ -212,14 +233,19 @@ class ChicoryGlue {
             val code = args[0].toInt()
             val sigPtr = args[1].toInt()
             val argBuf = args[2].toInt()
+            Log.d(TAG, "ASM_CONSTS dispatch: code=$code, sigPtr=$sigPtr, argBuf=$argBuf")
 
             val handler = asmConsts[code]
             val result = if (handler != null) {
+                Log.d(TAG, "ASM_CONSTS dispatch: handler found for code=$code")
                 val parsedArgs = readEmAsmArgs(sigPtr, argBuf, instance)
+                Log.d(TAG, "ASM_CONSTS dispatch: parsedArgs=${parsedArgs.toList()}")
                 handler(parsedArgs, instance)
             } else {
-                0L.also { Log.w("ChicoryGlue", "Unknown ASM_CONSTS ID: $code — returning 0") }
+                Log.w(TAG, "ASM_CONSTS dispatch: unknown ID=$code — returning 0")
+                0L
             }
+            Log.d(TAG, "ASM_CONSTS dispatch: code=$code result=$result")
             longArrayOf(result)
         }
 
@@ -239,7 +265,8 @@ class ChicoryGlue {
                 listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32, ValType.I32),
                 listOf(ValType.F64),
             ),
-        ) { _, _ ->
+        ) { _, args ->
+            Log.d(TAG, "__emval_invoke (i): called with args=${args.toList()}")
             // Return 0.0 as f64 — raw long bits of double 0.0 is 0L
             longArrayOf(0L)
         }
@@ -272,7 +299,8 @@ class ChicoryGlue {
             FunctionType.of(listOf(ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             // Read the string as a side-effect (exercises memory read path)
-            instance.memory().readCString(args[0].toInt())
+            val str = instance.memory().readCString(args[0].toInt())
+            Log.d(TAG, "__emval_new_cstring (m): read string=\"$str\"")
             longArrayOf(0L)
         }
 
@@ -333,6 +361,7 @@ class ChicoryGlue {
             "u",
             FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
+            Log.d(TAG, "_environ_sizes_get (u): writing 0 to envCountPtr=${args[0].toInt()}, envBufPtr=${args[1].toInt()}")
             instance.memory().writeI32(args[0].toInt(), 0) // 0 env vars
             instance.memory().writeI32(args[1].toInt(), 0) // 0 buffer size
             longArrayOf(0L)
@@ -346,6 +375,7 @@ class ChicoryGlue {
             "v",
             FunctionType.of(emptyList(), emptyList()),
         ) { _, _ ->
+            Log.e(TAG, "Error stub 'v' (__abort_js) called — WASM execution error")
             throw RuntimeException(
                 "Emscripten error stub 'v' (__abort_js) called — WASM execution error",
             )
@@ -362,11 +392,14 @@ class ChicoryGlue {
             val requestedSize = args[0].toInt()
             val currentPages = instance.memory().pages()
             val neededPages = (requestedSize + 65535) / 65536
+            Log.d(TAG, "_emscripten_resize_heap (w): requestedSize=$requestedSize, currentPages=$currentPages, neededPages=$neededPages")
             if (neededPages <= currentPages) {
+                Log.d(TAG, "_emscripten_resize_heap (w): already enough memory, returning 1")
                 longArrayOf(1L) // already enough memory
             } else {
                 val delta = neededPages - currentPages
                 val result = instance.memory().grow(delta)
+                Log.d(TAG, "_emscripten_resize_heap (w): growing by $delta pages, grow result=$result")
                 longArrayOf(if (result >= 0) 1L else 0L) // 1 = success, 0 = failure
             }
         }
@@ -377,6 +410,7 @@ class ChicoryGlue {
             "x",
             FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, args ->
+            Log.e(TAG, "Error stub 'x' (___cxa_throw) called — WASM execution error. Args: ${args.toList()}")
             throw RuntimeException(
                 "Emscripten error stub 'x' (___cxa_throw) called — WASM execution error. Args: ${args.toList()}",
             )
@@ -392,14 +426,18 @@ class ChicoryGlue {
         ) { instance, args ->
             val eventTypePtr = args[0].toInt()
             val eventType = instance.memory().readCString(eventTypePtr)
+            Log.d(TAG, "window_on (y): registering event type=\"$eventType\"")
             registeredEventTypes.add(eventType)
             null
         }
 
-        return functions
+        return functions.also {
+            Log.d(TAG, "buildHostFunctions: built ${it.size} host functions for module \"$module\"")
+        }
     }
 
     companion object {
+        private const val TAG = "ChicoryGlue"
         const val ASM_CONST_TIMESTAMP = 17392
         const val ASM_CONST_SIGNATURE = 17442
 

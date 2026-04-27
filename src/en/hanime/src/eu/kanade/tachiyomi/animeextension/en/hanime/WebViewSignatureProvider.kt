@@ -5,6 +5,7 @@ import android.app.Application
 import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceError
@@ -67,17 +68,21 @@ class WebViewSignatureProvider : SignatureProvider {
     // ──────────────────────────────────────────────────────────────────
 
     override suspend fun getSignature(): Signature = withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
+        Log.d(TAG, "getSignature: entry — timeout = ${TOTAL_TIMEOUT_MS}ms")
         suspendCancellableCoroutine { continuation ->
             var webView: WebView? = null
 
             handler.post {
                 try {
+                    Log.d(TAG, "getSignature: creating WebView on main thread")
                     val wv = createWebView()
                     webView = wv
                     activeWebView = wv
                     configureWebView(wv, continuation)
+                    Log.d(TAG, "getSignature: loading URL https://hanime.tv")
                     wv.loadUrl("https://hanime.tv")
                 } catch (e: Exception) {
+                    Log.e(TAG, "getSignature: failed to create WebView — ${e.javaClass.simpleName}: ${e.message}")
                     continuation.resumeWithException(
                         SignatureException("Failed to create WebView: ${e.message}", e),
                     )
@@ -95,6 +100,7 @@ class WebViewSignatureProvider : SignatureProvider {
 
     override fun close() {
         val wv = activeWebView
+        Log.d(TAG, "close: called — activeWebView present = ${wv != null}")
         if (wv != null) {
             handler.post {
                 wv.destroy()
@@ -116,6 +122,7 @@ class WebViewSignatureProvider : SignatureProvider {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
         val wv = WebView(context)
+        Log.d(TAG, "createWebView: WebView instance created")
 
         with(wv.settings) {
             javaScriptEnabled = true
@@ -124,6 +131,7 @@ class WebViewSignatureProvider : SignatureProvider {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             userAgentString = USER_AGENT
         }
+        Log.d(TAG, "createWebView: JS enabled, UA = ${USER_AGENT.take(30)}…")
 
         return wv
     }
@@ -138,6 +146,7 @@ class WebViewSignatureProvider : SignatureProvider {
     ) {
         val jsInterface = SignatureJsInterface()
         webView.addJavascriptInterface(jsInterface, JS_INTERFACE_NAME)
+        Log.d(TAG, "configureWebView: JS interface '$JS_INTERFACE_NAME' added")
 
         // CancellableContinuation lacks an isResumed property, so we track
         // it ourselves to guard against double-resume (which throws
@@ -150,8 +159,10 @@ class WebViewSignatureProvider : SignatureProvider {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                Log.d(TAG, "configureWebView: onPageFinished — url: $url")
 
                 // Give the WASM module time to initialise before polling
+                Log.d(TAG, "configureWebView: scheduling first poll after ${WASM_INIT_DELAY_MS}ms WASM init delay")
                 handler.postDelayed(
                     { pollForSignature(webView, jsInterface, continuation) },
                     WASM_INIT_DELAY_MS,
@@ -163,6 +174,7 @@ class WebViewSignatureProvider : SignatureProvider {
                 sslHandler: SslErrorHandler?,
                 error: SslError?,
             ) {
+                Log.e(TAG, "configureWebView: SSL error — ${error?.toString() ?: "unknown"}")
                 sslHandler?.cancel()
                 if (isResumable()) {
                     resumed = true
@@ -180,6 +192,7 @@ class WebViewSignatureProvider : SignatureProvider {
                 error: WebResourceError?,
             ) {
                 super.onReceivedError(view, request, error)
+                Log.e(TAG, "configureWebView: page load error — ${error?.description ?: "unknown"} (errorCode=${error?.errorCode}), isForMainFrame=${request?.isForMainFrame}")
                 // Only fast-fail for main frame requests — subresource errors are non-fatal
                 if (request?.isForMainFrame == true && isResumable()) {
                     resumed = true
@@ -212,10 +225,13 @@ class WebViewSignatureProvider : SignatureProvider {
         continuation: CancellableContinuation<Signature>,
     ) {
         val deadline = System.currentTimeMillis() + SIGNATURE_POLL_TIMEOUT_MS
+        Log.d(TAG, "pollForSignature: starting — deadline in ${SIGNATURE_POLL_TIMEOUT_MS}ms")
 
         fun poll() {
             if (continuation.isCancelled) return
-            if (System.currentTimeMillis() > deadline) {
+            val now = System.currentTimeMillis()
+            if (now > deadline) {
+                Log.w(TAG, "pollForSignature: timeout reached — ${SIGNATURE_POLL_TIMEOUT_MS}ms elapsed, no signature")
                 resumeOrDestroy(
                     webView,
                     continuation,
@@ -233,6 +249,7 @@ class WebViewSignatureProvider : SignatureProvider {
             // call won't be available until after poll() returns.
             val result = jsInterface.getResult()
             if (result != null) {
+                Log.d(TAG, "pollForSignature: result obtained from jsInterface — signature = ${result.signature.take(8)}…")
                 resumeOrDestroy(webView, continuation) {
                     continuation.resume(result)
                 }
@@ -242,6 +259,7 @@ class WebViewSignatureProvider : SignatureProvider {
             // No result yet — execute the polling script and schedule a
             // follow-up check after POLL_INTERVAL_MS. The script's JS callback
             // will have fired by then.
+            Log.d(TAG, "pollForSignature: no result yet — calling evaluateJavascript (time remaining: ${deadline - now}ms)")
             webView.evaluateJavascript(POLL_SCRIPT, null)
             handler.postDelayed({ poll() }, POLL_INTERVAL_MS)
         }
@@ -285,12 +303,14 @@ class WebViewSignatureProvider : SignatureProvider {
         /** Called from JS when both `window.ssignature` and `window.stime` are set. */
         @JavascriptInterface
         fun onSignatureReady(signature: String, time: String) {
+            Log.d(TAG, "SignatureJsInterface: onSignatureReady — signature = ${signature.take(8)}…, time = $time")
             signatureResult = Signature(signature, time)
         }
 
         /** Called from JS when the signature values are not yet available. */
         @JavascriptInterface
         fun onSignatureNotReady() {
+            Log.d(TAG, "SignatureJsInterface: onSignatureNotReady — WASM signature not yet available")
             // No-op — the poll loop will retry after POLL_INTERVAL_MS
         }
 

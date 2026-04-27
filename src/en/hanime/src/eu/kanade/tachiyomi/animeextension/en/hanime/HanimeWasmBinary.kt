@@ -45,6 +45,9 @@ object HanimeWasmBinary {
     /** Maximum number of retry attempts for fetching the WASM binary. */
     private const val MAX_FETCH_RETRIES = 2
 
+    /** Log tag for debug output. */
+    private const val TAG = "HanimeWasmBinary"
+
     /**
      * Fetch and extract the WASM binary from hanime.tv's vendor.js bundle.
      *
@@ -64,22 +67,30 @@ object HanimeWasmBinary {
     suspend fun fetchWasmBinary(client: OkHttpClient): ByteArray {
         var lastException: Exception? = null
         repeat(MAX_FETCH_RETRIES) { attempt ->
+            val attemptNum = attempt + 1
+            Log.d(TAG, "fetchWasmBinary: attempt $attemptNum of $MAX_FETCH_RETRIES")
             try {
                 return withContext(Dispatchers.IO) {
+                    Log.d(TAG, "fetchWasmBinary: fetching homepage $HANIME_HOME")
                     val html = fetchPage(client, HANIME_HOME)
                     val vendorJsUrl = extractVendorJsUrl(html)
                         ?: throw WasmExtractionException("Could not find vendor.js URL in hanime.tv HTML")
+                    Log.d(TAG, "fetchWasmBinary: resolved vendor.js URL: $vendorJsUrl")
                     val vendorJs = fetchPage(client, vendorJsUrl)
                     extractWasmFromVendorJs(vendorJs)
                 }
             } catch (e: Exception) {
                 lastException = e
+                Log.e(TAG, "fetchWasmBinary: attempt $attemptNum failed — ${e.javaClass.simpleName}: ${e.message}")
                 if (attempt < MAX_FETCH_RETRIES - 1) {
+                    val delayMs = 1000L * (attempt + 1)
+                    Log.d(TAG, "fetchWasmBinary: retrying after ${delayMs}ms delay")
                     // Brief delay before retry to allow transient failures to resolve
-                    delay(1000L * (attempt + 1))
+                    delay(delayMs)
                 }
             }
         }
+        Log.e(TAG, "fetchWasmBinary: all $MAX_FETCH_RETRIES attempts exhausted, lastException: ${lastException?.message}")
         throw WasmExtractionException("Failed to fetch WASM binary after $MAX_FETCH_RETRIES attempts: ${lastException?.message}", lastException)
     }
 
@@ -100,33 +111,40 @@ object HanimeWasmBinary {
      * @throws WasmExtractionException if no WASM binary is found.
      */
     fun extractWasmFromVendorJs(vendorJs: String): ByteArray {
+        Log.d(TAG, "extractWasmFromVendorJs: vendor.js content length = ${vendorJs.length} chars")
+
         val base64Pattern = Regex("""["']([A-Za-z0-9+/=]{100,})["']""")
 
         val matches = base64Pattern.findAll(vendorJs).toList()
-
-        if (matches.isNotEmpty()) {
-            Log.d("HanimeWasmBinary", "Scanning ${matches.size} base64 candidate(s) in vendor.js for WASM magic")
-        }
+        Log.d(TAG, "extractWasmFromVendorJs: found ${matches.size} base64 candidate(s) in vendor.js")
 
         if (matches.isEmpty()) {
             throw WasmExtractionException("No base64 strings found in vendor.js")
         }
 
-        for (match in matches) {
+        for ((index, match) in matches.withIndex()) {
             val base64Str = match.groupValues[1]
+            Log.d(TAG, "extractWasmFromVendorJs: candidate #${index + 1} length = ${base64Str.length} chars")
 
             val decoded = try {
                 decodeBase64(base64Str)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.d(TAG, "extractWasmFromVendorJs: candidate #${index + 1} decode failed — ${e.javaClass.simpleName}: ${e.message}")
                 // Not valid base64 — skip
                 continue
             }
 
-            if (decoded.size >= WASM_MAGIC.size && decoded.sliceArray(0 until WASM_MAGIC.size).contentEquals(WASM_MAGIC)) {
+            val hasWasmMagic = decoded.size >= WASM_MAGIC.size &&
+                decoded.sliceArray(0 until WASM_MAGIC.size).contentEquals(WASM_MAGIC)
+            Log.d(TAG, "extractWasmFromVendorJs: candidate #${index + 1} decoded to ${decoded.size} bytes, WASM magic match = $hasWasmMagic")
+
+            if (hasWasmMagic) {
+                Log.d(TAG, "extractWasmFromVendorJs: valid WASM binary found — ${decoded.size} bytes")
                 return decoded
             }
         }
 
+        Log.w(TAG, "extractWasmFromVendorJs: all ${matches.size} base64 candidates exhausted, none matched WASM magic")
         throw WasmExtractionException("Could not find WASM binary in vendor.js")
     }
 
@@ -140,24 +158,32 @@ object HanimeWasmBinary {
      * @return The fully-qualified vendor.js URL, or `null` if not found.
      */
     fun extractVendorJsUrl(html: String): String? {
+        Log.d(TAG, "extractVendorJsUrl: HTML content length = ${html.length} chars")
+
         // Primary pattern: look for vendor.js in script src attributes
         val primaryPattern = Regex("""src=["']([^"']*vendor[^"']*\.js)["']""")
         val primaryMatch = primaryPattern.find(html)
         if (primaryMatch != null) {
             val path = primaryMatch.groupValues[1]
-            return resolveUrl(path)
+            val resolved = resolveUrl(path)
+            Log.d(TAG, "extractVendorJsUrl: primary pattern matched path: $path, resolved: $resolved")
+            return resolved
         }
+        Log.d(TAG, "extractVendorJsUrl: primary vendor.js pattern found no match, trying fallback")
 
         // Fallback pattern: any JS bundle that might contain the WASM binary
         // Sites sometimes rename bundles — look for large app/build bundles
         val fallbackPattern = Regex("""src=["']([^"']*\d{8,}[^"']*\.js)["']""")
-        for (match in fallbackPattern.findAll(html)) {
+        val fallbackMatches = fallbackPattern.findAll(html).toList()
+        Log.d(TAG, "extractVendorJsUrl: fallback pattern found ${fallbackMatches.size} match(es)")
+        for (match in fallbackMatches) {
             val path = match.groupValues[1]
             val resolved = resolveUrl(path) ?: continue
-            Log.d("HanimeWasmBinary", "Primary vendor.js pattern failed; trying fallback: $resolved")
+            Log.d(TAG, "extractVendorJsUrl: trying fallback URL: $resolved")
             return resolved
         }
 
+        Log.w(TAG, "extractVendorJsUrl: no vendor.js URL found (both primary and fallback patterns exhausted)")
         return null
     }
 
@@ -180,6 +206,7 @@ object HanimeWasmBinary {
      * @throws WasmExtractionException on HTTP failure or empty body.
      */
     private fun fetchPage(client: OkHttpClient, url: String): String {
+        Log.d(TAG, "fetchPage: requesting URL: $url")
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
@@ -194,11 +221,15 @@ object HanimeWasmBinary {
         val response = timeoutClient.newCall(request).execute()
 
         return response.use {
+            Log.d(TAG, "fetchPage: HTTP ${it.code} for $url")
             if (!it.isSuccessful) {
+                Log.e(TAG, "fetchPage: HTTP ${it.code} fetching $url — request failed")
                 throw WasmExtractionException("HTTP ${it.code} fetching $url")
             }
-            it.body.string()
+            val body = it.body.string()
                 ?: throw WasmExtractionException("Empty response body for $url")
+            Log.d(TAG, "fetchPage: response body length = ${body.length} chars for $url")
+            body
         }
     }
 

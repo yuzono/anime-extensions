@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import android.util.Log
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature data model
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,7 +22,12 @@ data class Signature(
     /**
      * Returns `true` when this signature is older than [ttlMs] milliseconds.
      */
-    fun isExpired(ttlMs: Long): Boolean = System.currentTimeMillis() - createdAt > ttlMs
+    fun isExpired(ttlMs: Long): Boolean {
+        val age = System.currentTimeMillis() - createdAt
+        val result = age > ttlMs
+        Log.d("SignatureProvider", "isExpired check: age=${age}ms, ttlMs=$ttlMs, expired=$result")
+        return result
+    }
 
     /**
      * Validates that this signature has the expected format:
@@ -31,19 +38,28 @@ data class Signature(
      * @throws SignatureException if validation fails.
      */
     fun validate(maxAgeMs: Long = 5 * 60 * 1000L) {
+        Log.d("SignatureProvider", "validate: signature length=${signature.length}, signature(prefix)=${signature.take(8)}, matchesPattern=${signature.matches(SIGNATURE_PATTERN)}")
         if (!signature.matches(SIGNATURE_PATTERN)) {
+            Log.e("SignatureProvider", "validate FAILED: signature format invalid (length=${signature.length}, prefix=${signature.take(8)})")
             throw SignatureException("Invalid signature format: expected 64 lowercase hex chars, got '${signature.take(16)}...' (length=${signature.length})")
         }
 
         val timeValue = time.toLongOrNull()
-            ?: throw SignatureException("Invalid timestamp: '$time' is not a valid number")
+        if (timeValue == null) {
+            Log.e("SignatureProvider", "validate FAILED: timestamp '$time' is not a valid number")
+            throw SignatureException("Invalid timestamp: '$time' is not a valid number")
+        }
 
         val now = System.currentTimeMillis() / 1000L
         val ageMs = (now - timeValue) * 1000L
+        Log.d("SignatureProvider", "validate: timeValue=$timeValue, now=$now, ageMs=$ageMs, maxAgeMs=$maxAgeMs, clockSkewToleranceMs=$CLOCK_SKEW_TOLERANCE_MS")
 
         if (ageMs > maxAgeMs || ageMs < -CLOCK_SKEW_TOLERANCE_MS) {
+            Log.e("SignatureProvider", "validate FAILED: timestamp too far from current time (timeValue=$timeValue, ageMs=$ageMs, maxAgeMs=$maxAgeMs)")
             throw SignatureException("Timestamp $timeValue is too far from current time (age=${ageMs}ms, maxAge=${maxAgeMs}ms)")
         }
+
+        Log.d("SignatureProvider", "validate PASSED: signature and timestamp are valid")
     }
 
     companion object {
@@ -96,15 +112,21 @@ object SignatureHeaders {
      * Includes the two dynamic signature headers (`x-signature`, `x-time`)
      * plus the static headers that the server expects.
      */
-    fun build(signature: Signature): Map<String, String> = mapOf(
-        "x-signature" to signature.signature,
-        "x-time" to signature.time,
-        "x-signature-version" to "web2",
-        "x-session-token" to "",
-        "x-user-license" to "",
-        "x-csrf-token" to "",
-        "x-license" to "",
-    )
+    fun build(signature: Signature): Map<String, String> {
+        val sig = signature.signature
+        val time = signature.time
+        Log.d("SignatureProvider", "Building signature headers: x-signature=${sig.take(8)}..., x-time=$time, x-signature-version=web2")
+        Log.d("SignatureProvider", "Building signature headers: x-session-token=absent, x-user-license=absent, x-csrf-token=absent, x-license=absent")
+        return mapOf(
+            "x-signature" to sig,
+            "x-time" to time,
+            "x-signature-version" to "web2",
+            "x-session-token" to "",
+            "x-user-license" to "",
+            "x-csrf-token" to "",
+            "x-license" to "",
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
