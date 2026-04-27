@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -40,6 +42,9 @@ object HanimeWasmBinary {
     /** hanime.tv homepage — used to discover the vendor.js script URL. */
     private const val HANIME_HOME = "https://hanime.tv"
 
+    /** Maximum number of retry attempts for fetching the WASM binary. */
+    private const val MAX_FETCH_RETRIES = 2
+
     /**
      * Fetch and extract the WASM binary from hanime.tv's vendor.js bundle.
      *
@@ -49,19 +54,33 @@ object HanimeWasmBinary {
      * 3. Fetch the vendor.js content.
      * 4. Scan for base64 strings and return the one that decodes to a WASM binary.
      *
+     * Retries up to [MAX_FETCH_RETRIES] times on failure, with an increasing
+     * delay between attempts to allow transient network issues to resolve.
+     *
      * @param client OkHttp client to use for HTTP requests.
      * @return The raw WASM binary bytes.
-     * @throws WasmExtractionException if the binary cannot be extracted.
+     * @throws WasmExtractionException if the binary cannot be extracted after all retries.
      */
-    suspend fun fetchWasmBinary(client: OkHttpClient): ByteArray = withContext(Dispatchers.IO) {
-        val html = fetchPage(client, HANIME_HOME)
-
-        val vendorJsUrl = extractVendorJsUrl(html)
-            ?: throw WasmExtractionException("Could not find vendor.js URL in hanime.tv HTML")
-
-        val vendorJs = fetchPage(client, vendorJsUrl)
-
-        extractWasmFromVendorJs(vendorJs)
+    suspend fun fetchWasmBinary(client: OkHttpClient): ByteArray {
+        var lastException: Exception? = null
+        repeat(MAX_FETCH_RETRIES) { attempt ->
+            try {
+                return withContext(Dispatchers.IO) {
+                    val html = fetchPage(client, HANIME_HOME)
+                    val vendorJsUrl = extractVendorJsUrl(html)
+                        ?: throw WasmExtractionException("Could not find vendor.js URL in hanime.tv HTML")
+                    val vendorJs = fetchPage(client, vendorJsUrl)
+                    extractWasmFromVendorJs(vendorJs)
+                }
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < MAX_FETCH_RETRIES - 1) {
+                    // Brief delay before retry to allow transient failures to resolve
+                    delay(1000L * (attempt + 1))
+                }
+            }
+        }
+        throw WasmExtractionException("Failed to fetch WASM binary after $MAX_FETCH_RETRIES attempts: ${lastException?.message}", lastException)
     }
 
     /**
@@ -84,6 +103,10 @@ object HanimeWasmBinary {
         val base64Pattern = Regex("""["']([A-Za-z0-9+/=]{100,})["']""")
 
         val matches = base64Pattern.findAll(vendorJs).toList()
+
+        if (matches.isNotEmpty()) {
+            Log.d("HanimeWasmBinary", "Scanning ${matches.size} base64 candidate(s) in vendor.js for WASM magic")
+        }
 
         if (matches.isEmpty()) {
             throw WasmExtractionException("No base64 strings found in vendor.js")
@@ -117,18 +140,34 @@ object HanimeWasmBinary {
      * @return The fully-qualified vendor.js URL, or `null` if not found.
      */
     fun extractVendorJsUrl(html: String): String? {
-        val scriptPattern = Regex("""src=["']([^"']*vendor[^"']*\.js)["']""")
-        val match = scriptPattern.find(html) ?: return null
+        // Primary pattern: look for vendor.js in script src attributes
+        val primaryPattern = Regex("""src=["']([^"']*vendor[^"']*\.js)["']""")
+        val primaryMatch = primaryPattern.find(html)
+        if (primaryMatch != null) {
+            val path = primaryMatch.groupValues[1]
+            return resolveUrl(path)
+        }
 
-        val path = match.groupValues[1]
-        return if (path.startsWith("http")) {
-            path
-        } else {
-            try {
-                HANIME_HOME.toHttpUrl().resolve(path)?.toString()
-            } catch (_: Exception) {
-                null
-            }
+        // Fallback pattern: any JS bundle that might contain the WASM binary
+        // Sites sometimes rename bundles — look for large app/build bundles
+        val fallbackPattern = Regex("""src=["']([^"']*\d{8,}[^"']*\.js)["']""")
+        for (match in fallbackPattern.findAll(html)) {
+            val path = match.groupValues[1]
+            val resolved = resolveUrl(path) ?: continue
+            Log.d("HanimeWasmBinary", "Primary vendor.js pattern failed; trying fallback: $resolved")
+            return resolved
+        }
+
+        return null
+    }
+
+    private fun resolveUrl(path: String): String? = if (path.startsWith("http")) {
+        path
+    } else {
+        try {
+            HANIME_HOME.toHttpUrl().resolve(path)?.toString()
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -147,7 +186,12 @@ object HanimeWasmBinary {
             .header("Accept", "text/html,application/javascript,*/*")
             .build()
 
-        val response = client.newCall(request).execute()
+        val timeoutClient = client.newBuilder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        val response = timeoutClient.newCall(request).execute()
 
         return response.use {
             if (!it.isSuccessful) {

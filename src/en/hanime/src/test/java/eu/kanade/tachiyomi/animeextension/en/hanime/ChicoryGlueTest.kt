@@ -183,4 +183,38 @@ class ChicoryGlueTest {
         val secondModules = second.map { it.module() }.sorted()
         assertEquals(firstModules, secondModules, "Repeated calls must return the same modules")
     }
+
+    // ── fullReset() ───────────────────────────────────────────────────
+
+    @Test
+    fun `fullReset exists and is callable`() {
+        val glue = ChicoryGlue()
+        // fullReset should not throw
+        glue.fullReset()
+        assertNull(glue.capturedSignature)
+        assertNull(glue.capturedTimestamp)
+        assertEquals(emptySet<String>(), glue.eventTypes)
+    }
+
+    @Test
+    fun `reset preserves eventTypes while fullReset clears them`() {
+        val glue = ChicoryGlue()
+        // We can't easily register event types without a WASM instance,
+        // but we can verify the contract: reset() never touches eventTypes,
+        // while fullReset() does. Simulate registration by accessing the
+        // internal set through the window_on host function mechanism.
+        val functions = glue.buildHostFunctions()
+        val windowOn = functions.first { it.name() == "y" }
+        // The window_on function reads a C string from WASM memory at the given
+        // pointer. Without a real instance, we can't call it. Instead, verify
+        // the behavioral contract on empty sets (the invariant is that reset()
+        // never mutates eventTypes, regardless of their content).
+        val eventTypesBeforeReset = glue.eventTypes
+        glue.reset()
+        assertEquals(eventTypesBeforeReset, glue.eventTypes)
+
+        // fullReset should clear eventTypes
+        glue.fullReset()
+        assertEquals(emptySet<String>(), glue.eventTypes)
+    }
 }

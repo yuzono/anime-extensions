@@ -120,6 +120,16 @@ class ChicoryGlue {
     fun reset() {
         capturedSignature = null
         capturedTimestamp = null
+        // NOTE: registeredEventTypes is NOT cleared here.
+        // Event type registrations are one-time setup performed during _main()
+        // and must persist for the lifetime of the WASM instance.
+        // Only captured output values need clearing before each new computation.
+    }
+
+    /** Full reset including event type registrations — use only when re-initializing the WASM instance. */
+    fun fullReset() {
+        capturedSignature = null
+        capturedTimestamp = null
         registeredEventTypes.clear()
     }
 

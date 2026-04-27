@@ -73,32 +73,46 @@ class Hanime :
     private val preferences by getPreferencesLazy()
 
     private val context: Application by injectLazy()
+
+    @Volatile
     private var signatureProvider: SignatureProvider? = null
+
+    @Volatile
+    private var signatureProviderMode: String? = null
     private val signatureProviderMutex = Mutex()
 
     private suspend fun ensureSignatureProvider(): SignatureProvider {
-        signatureProvider?.let { return it }
+        val currentProvider = signatureProvider
+        val currentMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
+        if (currentProvider != null && currentMode == signatureProviderMode) {
+            return currentProvider
+        }
 
         return signatureProviderMutex.withLock {
-            // Double-check after acquiring lock
-            signatureProvider?.let { return it }
+            val existing = signatureProvider
+            if (existing != null && signatureProviderMode == currentMode) {
+                return existing
+            }
 
-            val providerMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
-            val provider = when (providerMode) {
-                "webview" -> SignatureCache(WebViewSignatureProvider())
+            existing?.close()
+
+            val provider = when (currentMode) {
+                "webview" -> WebViewSignatureProvider()
                 "wasm" -> {
                     val binary = runCatching {
                         withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
                     }.getOrNull()
                     if (binary != null) {
-                        SignatureCache(ChicorySignatureProvider(binary))
+                        ChicorySignatureProvider(binary)
                     } else {
-                        SignatureCache(WebViewSignatureProvider())
+                        Log.w("Hanime", "WASM binary fetch failed — falling back to WebView provider")
+                        WebViewSignatureProvider()
                     }
                 }
-                else -> SignatureCache(WebViewSignatureProvider())
+                else -> WebViewSignatureProvider()
             }
             signatureProvider = provider
+            signatureProviderMode = currentMode
             provider
         }
     }
@@ -109,13 +123,23 @@ class Hanime :
     @Volatile
     private var cachedSearchHits: List<HitsModel>? = null
 
+    /** Timestamp of when [cachedSearchHits] was last fetched. */
+    @Volatile
+    private var cachedSearchHitsTimestamp: Long = 0L
+
+    /** Maximum age of cached search hits before refetching (10 minutes). */
+    private val searchHitsTtlMs = 10 * 60 * 1000L
+
     /**
      * Fetch or return cached search results from the v10 search API.
      * The API returns all content in a single response — pagination and
      * filtering are handled client-side.
      */
     private suspend fun fetchSearchHits(): List<HitsModel> {
-        cachedSearchHits?.let { return it }
+        val cached = cachedSearchHits
+        if (cached != null && (System.currentTimeMillis() - cachedSearchHitsTimestamp) < searchHitsTtlMs) {
+            return cached
+        }
 
         val signature = ensureSignatureProvider().getSignature()
         val searchHeaders = headers.newBuilder().apply {
@@ -134,6 +158,7 @@ class Hanime :
             }
         }
         cachedSearchHits = hits
+        cachedSearchHitsTimestamp = System.currentTimeMillis()
         return hits
     }
 
@@ -419,8 +444,9 @@ class Hanime :
 
     /**
      * Fetch video streams from the CDN manifest endpoint using signature authentication.
-     * When [retryOnAuthFailure] is true, a 401 response triggers a single retry with a
-     * fresh signature after invalidating the cache.
+     * When [retryOnAuthFailure] is true, a 401 response triggers escalating recovery:
+     * 1. Retry with a fresh signature (no cache, so every call is fresh)
+     * 2. If still 401, close and recreate the provider entirely, then retry
      */
     private suspend fun fetchManifestVideos(hvId: Long, retryOnAuthFailure: Boolean = false): List<Video> {
         val signature = ensureSignatureProvider().getSignature()
@@ -428,36 +454,65 @@ class Hanime :
             SignatureHeaders.build(signature).forEach { (key, value) -> add(key, value) }
         }.build()
 
-        val manifestResponse = client.newCall(
+        var manifestResponseCode = 0
+        val result = client.newCall(
             GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", sigHeaders),
-        ).await()
-
-        val result = manifestResponse.use { response ->
+        ).await().use { response ->
+            manifestResponseCode = response.code
             if (response.isSuccessful) {
-                return@use parseManifestStreams(response)
+                parseManifestStreams(response)
+            } else {
+                emptyList()
             }
-            emptyList()
         }
 
         if (result.isNotEmpty()) return result
 
-        // 401 likely means the signature has expired — retry once with a fresh one
-        if (manifestResponse.code == 401 && retryOnAuthFailure) {
-            (signatureProvider as? SignatureCache)?.invalidate()
+        if (manifestResponseCode == 401 && retryOnAuthFailure) {
+            // Retry with a fresh signature (no cache, so every call is fresh)
             val freshSignature = ensureSignatureProvider().getSignature()
             val retryHeaders = headers.newBuilder().apply {
                 SignatureHeaders.build(freshSignature).forEach { (key, value) -> add(key, value) }
             }.build()
 
-            val retryResponse = client.newCall(
+            var retryResponseCode = 0
+            val retryResult = client.newCall(
                 GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", retryHeaders),
-            ).await()
-
-            return retryResponse.use { response ->
+            ).await().use { response ->
+                retryResponseCode = response.code
                 if (response.isSuccessful) {
                     parseManifestStreams(response)
                 } else {
                     emptyList()
+                }
+            }
+
+            if (retryResult.isNotEmpty()) return retryResult
+
+            // Second retry: the provider itself may be in a bad state — recreate it
+            if (retryResponseCode == 401) {
+                Log.w("Hanime", "Manifest 401 after fresh signature — recreating signature provider")
+                signatureProvider?.close()
+                signatureProvider = null
+                signatureProviderMode = null
+                try {
+                    val recreatedSignature = ensureSignatureProvider().getSignature()
+                    val recreatedHeaders = headers.newBuilder().apply {
+                        SignatureHeaders.build(recreatedSignature).forEach { (key, value) -> add(key, value) }
+                    }.build()
+
+                    return client.newCall(
+                        GET("$cdnBaseUrl/api/v8/guest/videos/$hvId/manifest", recreatedHeaders),
+                    ).await().use { response ->
+                        if (response.isSuccessful) {
+                            parseManifestStreams(response)
+                        } else {
+                            Log.w("Hanime", "Manifest 401 persists after provider recreation — giving up")
+                            emptyList()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("Hanime", "Provider recreation failed during 401 retry", e)
                 }
             }
         }
@@ -979,6 +1034,7 @@ class Hanime :
                 val index = findIndexOfValue(selected)
                 val entry = entryValues[index] as String
                 preferences.edit().putString(key, entry).commit()
+                true
             }
         }
         screen.addPreference(videoQualityPref)
@@ -996,6 +1052,11 @@ class Hanime :
                 val index = findIndexOfValue(selected)
                 val entry = entryValues[index] as String
                 preferences.edit().putString(key, entry).commit()
+                // Force provider recreation on next access with the new preference
+                signatureProvider?.close()
+                signatureProvider = null
+                signatureProviderMode = null
+                true
             }
         }
         screen.addPreference(sigProviderPref)

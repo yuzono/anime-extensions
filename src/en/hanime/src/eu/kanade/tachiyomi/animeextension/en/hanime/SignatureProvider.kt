@@ -1,8 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature data model
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,14 +19,39 @@ data class Signature(
 ) {
     /**
      * Returns `true` when this signature is older than [ttlMs] milliseconds.
-     * The default TTL is intentionally shorter than the server-side 5-minute
-     * window to avoid serving stale signatures.
      */
-    fun isExpired(ttlMs: Long = SIGNATURE_TTL_MS): Boolean = System.currentTimeMillis() - createdAt > ttlMs
+    fun isExpired(ttlMs: Long): Boolean = System.currentTimeMillis() - createdAt > ttlMs
+
+    /**
+     * Validates that this signature has the expected format:
+     * - `signature` is exactly 64 lowercase hexadecimal characters
+     * - `time` is a valid Unix timestamp within a reasonable window
+     *
+     * @param maxAgeMs Maximum age in milliseconds for the timestamp to be considered valid.
+     * @throws SignatureException if validation fails.
+     */
+    fun validate(maxAgeMs: Long = 5 * 60 * 1000L) {
+        if (!signature.matches(SIGNATURE_PATTERN)) {
+            throw SignatureException("Invalid signature format: expected 64 lowercase hex chars, got '${signature.take(16)}...' (length=${signature.length})")
+        }
+
+        val timeValue = time.toLongOrNull()
+            ?: throw SignatureException("Invalid timestamp: '$time' is not a valid number")
+
+        val now = System.currentTimeMillis() / 1000L
+        val ageMs = (now - timeValue) * 1000L
+
+        if (ageMs > maxAgeMs || ageMs < -CLOCK_SKEW_TOLERANCE_MS) {
+            throw SignatureException("Timestamp $timeValue is too far from current time (age=${ageMs}ms, maxAge=${maxAgeMs}ms)")
+        }
+    }
 
     companion object {
-        /** Default signature TTL: 4 minutes (expires before the 5-minute server-side limit). */
-        const val SIGNATURE_TTL_MS = 4 * 60 * 1000L
+        /** Regex pattern for validating signature format: exactly 64 lowercase hex characters. */
+        private val SIGNATURE_PATTERN = Regex("^[0-9a-f]{64}$")
+
+        /** Tolerance for clock skew between client and server (60 seconds). */
+        private const val CLOCK_SKEW_TOLERANCE_MS = 60_000L
     }
 }
 
@@ -40,8 +62,8 @@ data class Signature(
 /**
  * Supplies fresh [Signature] instances for authenticating hanime.tv API requests.
  *
- * Implementations may be expensive (e.g. WebView load, WASM execution), so
- * callers should prefer wrapping the provider with [SignatureCache].
+ * Implementations may involve heavy work (e.g. WebView load, WASM execution),
+ * so callers should avoid calling on the main thread.
  */
 interface SignatureProvider {
 
@@ -56,67 +78,6 @@ interface SignatureProvider {
 
     /** Release any held resources (WebView, memory, etc.). Default is a no-op. */
     fun close() {}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Signature cache
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Time-based caching decorator for any [SignatureProvider].
- *
- * Returns a previously fetched signature as long as it has not exceeded [ttlMs].
- * Uses a coroutine [Mutex] so concurrent callers share a single refresh rather
- * than each triggering an expensive signature computation.
- *
- * @param delegate The underlying provider that performs the actual signature work.
- * @param ttlMs    How long a cached signature is considered valid.
- *                  Defaults to [Signature.SIGNATURE_TTL_MS].
- */
-class SignatureCache(
-    private val delegate: SignatureProvider,
-    private val ttlMs: Long = Signature.SIGNATURE_TTL_MS,
-) : SignatureProvider {
-
-    override val name: String get() = "Cached(${delegate.name})"
-
-    @Volatile
-    private var cached: Signature? = null
-
-    private val lock = Mutex()
-
-    override suspend fun getSignature(): Signature {
-        // Fast path — cached signature is still valid
-        cached?.let { sig ->
-            if (!sig.isExpired(ttlMs)) return sig
-        }
-
-        // Slow path — acquire lock, double-check, then refresh
-        return lock.withLock {
-            cached?.let { sig ->
-                if (!sig.isExpired(ttlMs)) return@withLock sig
-            }
-
-            val fresh = delegate.getSignature()
-            cached = fresh
-            fresh
-        }
-    }
-
-    /**
-     * Force-clear the cached signature so the next call fetches a fresh one.
-     *
-     * Acquires the lock to prevent races with [getSignature]'s double-check
-     * pattern — without the lock, an in-flight refresh could overwrite the
-     * invalidation, leaving a stale signature in the cache.
-     */
-    suspend fun invalidate() {
-        lock.withLock { cached = null }
-    }
-
-    override fun close() {
-        delegate.close()
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

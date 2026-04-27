@@ -7,7 +7,6 @@ import com.dylibso.chicory.wasm.ChicoryException
 import com.dylibso.chicory.wasm.Parser
 import com.dylibso.chicory.wasm.types.MemoryLimits
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -95,6 +94,25 @@ class ChicorySignatureProvider(
         }
     }
 
+    /**
+     * Attempt to re-initialize the WASM runtime after a failure.
+     * Tears down the current instance and rebuilds from scratch.
+     */
+    private suspend fun reinitialize() {
+        withContext(Dispatchers.Default) {
+            initMutex.withLock {
+                // Tear down existing instance
+                isInitialized = false
+                instance = null
+                glue?.fullReset()
+                glue = null
+                if (!isClosed) {
+                    initialize()
+                }
+            }
+        }
+    }
+
     override suspend fun getSignature(): Signature {
         if (isClosed) {
             throw SignatureException("Cannot generate signature — provider has been closed")
@@ -108,71 +126,110 @@ class ChicorySignatureProvider(
         return withContext(Dispatchers.Default) {
             val currentInstance = instance ?: throw SignatureException("WASM instance unavailable — provider may have been closed")
             val currentGlue = glue ?: throw SignatureException("WASM glue unavailable — provider may have been closed")
+
             try {
-                currentGlue.reset()
-                val memory = currentInstance.memory()
-
-                // Allocate strings in WASM memory using the binary's own malloc (export "E")
-                // If malloc isn't available, fall back to the end of memory
-                var eventTypePtr = 0
-                var eventJsonPtr = 0
-                var useMalloc = false
-
-                try {
-                    val malloc = currentInstance.export("E")
-                    eventTypePtr = malloc.apply(2L)[0].toInt() // "e" + null = 2 bytes
-                    eventJsonPtr = malloc.apply(3L)[0].toInt() // "{}" + null = 3 bytes
-                    useMalloc = true
-                } catch (e: Exception) {
-                    throw SignatureException("WASM module does not export required malloc function (export E): ${e.message}", e)
-                }
-
-                try {
-                    // Write the event type and JSON into WASM memory
-                    memory.writeCString(eventTypePtr, "e")
-                    memory.writeCString(eventJsonPtr, "{}")
-
-                    // Call _on_window_event(eventTypePtr, eventJsonPtr) — export "B"
-                    currentInstance.export("B").apply(
-                        eventTypePtr.toLong(),
-                        eventJsonPtr.toLong(),
-                    )
-                } finally {
-                    // Free allocated memory if we used malloc
-                    if (useMalloc) {
-                        try {
-                            val free = currentInstance.export("F")
-                            free.apply(eventTypePtr.toLong())
-                            free.apply(eventJsonPtr.toLong())
-                        } catch (_: Exception) {
-                            // Free failure is non-fatal
-                        }
-                    }
-                }
-
-                // Read captured signature and timestamp from the glue layer
-                val signature = currentGlue.capturedSignature
-                    ?: throw SignatureException("WASM execution did not produce a signature")
-                val timestamp = currentGlue.capturedTimestamp
-                    ?: throw SignatureException("WASM execution did not produce a timestamp")
-
-                Signature(signature, timestamp.toString())
+                generateSignature(currentInstance, currentGlue)
             } catch (e: SignatureException) {
-                throw e
-            } catch (e: Exception) {
-                throw SignatureException("WASM signature generation failed: ${e.message}", e)
+                // If the WASM instance may be in a bad state, try re-initializing once
+                if (isClosed) throw e
+                try {
+                    reinitialize()
+                    val newInstance = instance
+                        ?: throw SignatureException("WASM instance unavailable after re-initialization")
+                    val newGlue = glue
+                        ?: throw SignatureException("WASM glue unavailable after re-initialization")
+                    generateSignature(newInstance, newGlue)
+                } catch (retryEx: SignatureException) {
+                    throw SignatureException(
+                        "Signature generation failed after re-initialization: ${retryEx.message}",
+                        retryEx,
+                    )
+                }
             }
         }
     }
 
-    override fun close() {
-        runBlocking {
-            initMutex.withLock {
-                isClosed = true
-                instance = null
-                glue = null
-                isInitialized = false
+    /**
+     * Generate a signature using the given WASM instance and glue layer.
+     * This is the core computation extracted for retry support.
+     */
+    private fun generateSignature(currentInstance: Instance, currentGlue: ChicoryGlue): Signature {
+        try {
+            currentGlue.reset()
+            val memory = currentInstance.memory()
+
+            // Allocate strings in WASM memory using the binary's own malloc (export "E")
+            var eventTypePtr = 0
+            var eventJsonPtr = 0
+            var useMalloc = false
+
+            try {
+                val malloc = currentInstance.export("E")
+                eventTypePtr = malloc.apply(2L)[0].toInt()
+                if (eventTypePtr == 0) {
+                    throw SignatureException("WASM malloc returned null pointer for event type string")
+                }
+                eventJsonPtr = malloc.apply(3L)[0].toInt()
+                if (eventJsonPtr == 0) {
+                    throw SignatureException("WASM malloc returned null pointer for event JSON string")
+                }
+                useMalloc = true
+            } catch (e: SignatureException) {
+                throw e
+            } catch (e: Exception) {
+                throw SignatureException("WASM module does not export required malloc function (export E): ${e.message}", e)
             }
+
+            try {
+                // Write the event type and JSON into WASM memory
+                memory.writeCString(eventTypePtr, "e")
+                memory.writeCString(eventJsonPtr, "{}")
+
+                // Call _on_window_event(eventTypePtr, eventJsonPtr) — export "B"
+                currentInstance.export("B").apply(
+                    eventTypePtr.toLong(),
+                    eventJsonPtr.toLong(),
+                )
+            } finally {
+                // Free allocated memory if we used malloc
+                if (useMalloc) {
+                    try {
+                        val free = currentInstance.export("F")
+                        free.apply(eventTypePtr.toLong())
+                        free.apply(eventJsonPtr.toLong())
+                    } catch (_: Exception) {
+                        // Free failure is non-fatal
+                    }
+                }
+            }
+
+            // Read captured signature and timestamp from the glue layer
+            val signature = currentGlue.capturedSignature
+                ?: throw SignatureException("WASM execution did not produce a signature")
+            val timestamp = currentGlue.capturedTimestamp
+                ?: throw SignatureException("WASM execution did not produce a timestamp")
+
+            // Validate the signature before returning — a corrupted or stale
+            // signature would cause 401 errors on the manifest endpoint.
+            return Signature(signature, timestamp.toString()).also { it.validate() }
+        } catch (e: SignatureException) {
+            throw e
+        } catch (e: Exception) {
+            throw SignatureException("WASM signature generation failed: ${e.message}", e)
         }
+    }
+
+    override fun close() {
+        // Mark closed first to prevent new getSignature() calls from proceeding.
+        // This must happen-before the field nulling below.
+        isClosed = true
+        isInitialized = false
+
+        // Null out heavy resources without acquiring the mutex.
+        // If a getSignature() call is in progress, it holds its own references
+        // on the stack and will complete (or fail on next attempt).
+        instance = null
+        glue?.fullReset()
+        glue = null
     }
 }
