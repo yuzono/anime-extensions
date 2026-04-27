@@ -27,6 +27,12 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -528,7 +534,7 @@ class Animelib :
         url = href
         title = rusName
         thumbnail_url = cover.default
-        description = summary
+        description = summary.toDescriptionText()
         status = convertStatus(animeStatus.id)
         author = publisher?.joinToString { it.name }
         artist = authors?.joinToString { it.name }
@@ -539,5 +545,38 @@ class Animelib :
         name = "Сезон $season Серия $number $episodeName"
         episode_number = number.toFloat()
         date_upload = dateFormatter.tryParse(date)
+    }
+
+    private fun JsonElement?.toDescriptionText(): String? {
+        val element = this ?: return null
+
+        return when (element) {
+            is JsonPrimitive -> element.contentOrNull
+            is JsonObject -> {
+                val text = element.collectText().trim()
+                text.ifEmpty { null }
+            }
+            is JsonArray -> {
+                val text = element.joinToString("\n") { it.collectText() }.trim()
+                text.ifEmpty { null }
+            }
+        }
+    }
+
+    private fun JsonElement.collectText(): String = when (this) {
+        is JsonPrimitive -> contentOrNull ?: ""
+        is JsonArray -> joinToString("\n") { it.collectText() }
+        is JsonObject -> {
+            if (this["type"]?.jsonPrimitive?.contentOrNull == "hardBreak") {
+                return "\n"
+            }
+
+            val ownText = this["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val contentText = this["content"]?.collectText().orEmpty()
+
+            listOf(ownText, contentText)
+                .filter { it.isNotBlank() }
+                .joinToString("\n")
+        }
     }
 }
