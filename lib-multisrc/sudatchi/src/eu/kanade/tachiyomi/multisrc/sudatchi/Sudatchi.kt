@@ -23,7 +23,6 @@ import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.TimeUnit
 
 open class Sudatchi(
     override val name: String = "Sudatchi",
@@ -33,7 +32,7 @@ open class Sudatchi(
     override val baseUrl = "https://sudatchi.com"
 
     override val client = network.client.newBuilder()
-        .rateLimitHost("$baseUrl/api/".toHttpUrl(), 5, 1L, TimeUnit.SECONDS)
+        .rateLimitHost("$baseUrl/api/".toHttpUrl(), 5)
         .build()
 
     override val lang = "all"
