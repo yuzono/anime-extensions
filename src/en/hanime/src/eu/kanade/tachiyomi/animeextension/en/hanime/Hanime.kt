@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
 import android.app.Application
+import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
@@ -363,11 +364,10 @@ class Hanime :
         }
     }
 
-    /** Last resort: try to parse streams from the /api/v8/video response (decoy manifest). */
-    private fun tryParseDecoyStreams(videoString: String): List<Video> = try {
-        parseVideoModelStreams(videoString)
-    } catch (_: Exception) {
-        emptyList()
+    /** Last resort: the /api/v8/video response contains decoy manifest URLs (streamable.cloud) that don't work. Return empty rather than broken streams. */
+    private fun tryParseDecoyStreams(@Suppress("UNUSED_PARAMETER") videoString: String): List<Video> {
+        Log.w("Hanime", "Falling back to decoy streams — these URLs are non-functional, returning empty list")
+        return emptyList()
     }
 
     /**
@@ -459,8 +459,19 @@ class Hanime :
             .substringBeforeLast(";")
         val parsed = nuxtData.parseAs<WindowNuxt>()
 
-        val playerHeaders = playerVideoHeaders()
+        // Try CDN guest manifest first — it has real Golem server streams (not Shiva decoys)
+        val hvId = parsed.state.data.video.hentai_video?.id
+        if (hvId != null) {
+            try {
+                val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
+                if (manifestStreams.isNotEmpty()) return manifestStreams
+            } catch (_: Exception) {
+                // Fall through to __NUXT__ streams below
+            }
+        }
 
+        // Fallback: parse __NUXT__ manifest streams (may contain decoy URLs for premium-only content)
+        val playerHeaders = playerVideoHeaders()
         return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
             server.streams.filter { it.url.contains(".m3u8") }.flatMap { stream ->
                 try {
@@ -471,7 +482,7 @@ class Hanime :
                         videoNameGen = { quality -> "${server.name} - $quality" },
                     )
                 } catch (_: Exception) {
-                    listOf(Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
+                    emptyList()
                 }
             }
         }

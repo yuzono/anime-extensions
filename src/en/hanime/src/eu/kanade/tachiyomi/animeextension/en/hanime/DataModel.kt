@@ -220,6 +220,8 @@ data class WindowNuxt(
         ) {
             @Serializable
             data class DataVideo(
+                @SerialName("hentai_video")
+                val hentai_video: HentaiVideo? = null,
                 val videos_manifest: VideosManifest,
             ) {
                 @Serializable
