@@ -250,7 +250,7 @@ class Animetsu :
                             Track(sub.url, sub.lang ?: "Unknown")
                         } ?: emptyList()
 
-                        // Following order: AnimePahe proxy server, Unknown proxy server, AnimeGG proxy server and KickAssAnime proxy server
+                        // Following order: AnimePahe proxy server, Anikoto proxy server, AnimeGG proxy server and KickAssAnime proxy server
                         val subLabel = when {
                             server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]"
                             server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]"
