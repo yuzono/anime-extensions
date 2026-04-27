@@ -13,7 +13,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
@@ -24,7 +25,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import kotlin.time.Duration.Companion.seconds
+import java.util.concurrent.TimeUnit
 
 class Animetsu :
     AnimeHttpSource(),
@@ -76,9 +77,13 @@ class Animetsu :
         .add("Sec-Fetch-Site", "same-origin")
         .build()
 
-    override val client = network.client.newBuilder()
-        .rateLimit(5, 1.seconds)
-        .build()
+    private val rateLimit = 5
+
+    override var client by LazyMutable {
+        network.client.newBuilder()
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1, unit = TimeUnit.SECONDS)
+            .build()
+    }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/anime/search/?sort=popularity&page=$page&per_page=35", apiHeaders())
