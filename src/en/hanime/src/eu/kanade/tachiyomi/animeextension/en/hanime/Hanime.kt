@@ -437,7 +437,10 @@ class Hanime :
                             playlistUrl = stream.url,
                             masterHeaders = playerHeaders,
                             videoHeaders = playerHeaders,
-                            videoNameGen = { quality -> "${server.name} - $quality" },
+                            videoNameGen = { quality ->
+                                val label = if (quality == "Video") "${stream.height ?: "unknown"}p" else quality
+                                "${server.name} - $label"
+                            },
                         )
                     } catch (_: Exception) {
                         // Fallback: create a single Video from the stream URL
@@ -479,7 +482,10 @@ class Hanime :
                         playlistUrl = stream.url,
                         masterHeaders = playerHeaders,
                         videoHeaders = playerHeaders,
-                        videoNameGen = { quality -> "${server.name} - $quality" },
+                        videoNameGen = { quality ->
+                            val label = if (quality == "Video") "${stream.height ?: "unknown"}p" else quality
+                            "${server.name} - $label"
+                        },
                     )
                 } catch (_: Exception) {
                     emptyList()
