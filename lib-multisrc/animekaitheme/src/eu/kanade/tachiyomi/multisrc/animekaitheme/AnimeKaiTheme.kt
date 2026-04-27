@@ -75,7 +75,7 @@ abstract class AnimeKaiTheme(
     // Go back to depreciated rate limit method, as apps e.g. Dantotsu do not support kotlin.time yet
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
             .build()
     }
 
@@ -362,7 +362,7 @@ abstract class AnimeKaiTheme(
 
     protected open fun updateDomainConfig() {
         client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
             .build()
         docHeaders = headersBuilder().build()
         megaUpExtractor = MegaUpExtractor(client, docHeaders, context)
