@@ -366,20 +366,55 @@ class Hanime :
         val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
-            ?: return tryParseDecoyStreams(videoString)
 
-        return try {
-            val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
-            if (manifestStreams.isNotEmpty()) manifestStreams else tryParseDecoyStreams(videoString)
-        } catch (_: Exception) {
-            tryParseDecoyStreams(videoString)
+        if (hvId != null) {
+            try {
+                val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
+                if (manifestStreams.isNotEmpty()) return manifestStreams
+            } catch (_: Exception) {
+                // Fall through to unfiltered fallback below
+            }
         }
+
+        // Final fallback: parse manifest streams from API response without guest filter
+        return parseVideoModelStreamsUnfiltered(videoModel)
     }
 
     /** Last resort: the /api/v8/video response contains decoy manifest URLs (streamable.cloud) that don't work. Return empty rather than broken streams. */
     private fun tryParseDecoyStreams(@Suppress("UNUSED_PARAMETER") videoString: String): List<Video> {
         Log.w("Hanime", "Falling back to decoy streams — these URLs are non-functional, returning empty list")
         return emptyList()
+    }
+
+    /**
+     * Parse manifest streams from a VideoModel without the isGuestAllowed filter.
+     * Unlike [parseManifestStreams] which requires isGuestAllowed == true, this method
+     * includes all streams except premium_alert kinds, making it effective as a fallback
+     * when the CDN manifest endpoint fails (e.g. for non-premium multi-episode content).
+     */
+    private suspend fun parseVideoModelStreamsUnfiltered(videoModel: VideoModel): List<Video> {
+        val servers = videoModel.videosManifest?.servers ?: return emptyList()
+        val playerHeaders = playerVideoHeaders()
+
+        return servers.flatMap { server ->
+            server.streams
+                .filter { it.kind != "premium_alert" && it.url.contains(".m3u8") }
+                .flatMap { stream ->
+                    try {
+                        playlistUtils.extractFromHls(
+                            playlistUrl = stream.url,
+                            masterHeaders = playerHeaders,
+                            videoHeaders = playerHeaders,
+                            videoNameGen = { quality ->
+                                val label = if (quality == "Video") "${stream.height ?: "unknown"}p" else quality
+                                "${server.name} - $label"
+                            },
+                        )
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+        }
     }
 
     /**
@@ -498,25 +533,23 @@ class Hanime :
             }
         }
 
-        // Fallback: parse __NUXT__ manifest streams (may contain decoy URLs for premium-only content)
-        val playerHeaders = playerVideoHeaders()
-        return parsed.state.data.video.videos_manifest.servers.flatMap { server ->
-            server.streams.filter { it.url.contains(".m3u8") }.flatMap { stream ->
-                try {
-                    playlistUtils.extractFromHls(
-                        playlistUrl = stream.url,
-                        masterHeaders = playerHeaders,
-                        videoHeaders = playerHeaders,
-                        videoNameGen = { quality ->
-                            val label = if (quality == "Video") "${stream.height ?: "unknown"}p" else quality
-                            "${server.name} - $label"
+        // Final fallback: parse manifest streams without guest filter
+        val nuxtVideoModel = VideoModel(
+            videosManifest = eu.kanade.tachiyomi.animeextension.en.hanime.VideosManifest(
+                servers = parsed.state.data.video.videos_manifest.servers.map { nuxtServer ->
+                    eu.kanade.tachiyomi.animeextension.en.hanime.Server(
+                        name = nuxtServer.name,
+                        streams = nuxtServer.streams.map { nuxtStream ->
+                            eu.kanade.tachiyomi.animeextension.en.hanime.Stream(
+                                height = nuxtStream.height,
+                                url = nuxtStream.url,
+                            )
                         },
                     )
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
-        }
+                },
+            ),
+        )
+        return parseVideoModelStreamsUnfiltered(nuxtVideoModel)
     }
 
     override fun videoListParse(response: Response): List<Video> = parseVideoModelStreams(response.body.string())
