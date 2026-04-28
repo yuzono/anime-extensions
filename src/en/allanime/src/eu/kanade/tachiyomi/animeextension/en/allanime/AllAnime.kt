@@ -279,14 +279,13 @@ class AllAnime :
         val payload = episode.url
             .toRequestBody("application/json; charset=utf-8".toMediaType())
 
-        val siteUrl = preferences.siteUrl
         val postHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
             add("Content-Length", payload.contentLength().toString())
             add("Content-Type", payload.contentType().toString())
             add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", siteUrl)
-            add("Referer", "$apiUrl/")
+            add("Origin", GRAPHQL_ORIGIN)
+            add("Referer", "$GRAPHQL_ORIGIN/")
         }.build()
 
         return POST("$apiUrl/api", headers = postHeaders, body = payload)
@@ -459,14 +458,13 @@ class AllAnime :
     private fun buildPost(dataObject: JsonObject): Request {
         val payload = dataObject.toJsonString().toJsonBody()
 
-        val siteUrl = preferences.siteUrl
         val postHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
             add("Content-Length", payload.contentLength().toString())
             add("Content-Type", payload.contentType().toString())
             add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", siteUrl)
-            add("Referer", "$apiUrl/")
+            add("Origin", GRAPHQL_ORIGIN)
+            add("Referer", "$GRAPHQL_ORIGIN/")
         }.build()
 
         return POST("$apiUrl/api", headers = postHeaders, body = payload)
@@ -540,6 +538,7 @@ class AllAnime :
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
+        private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
         private val INTERAL_HOSTER_NAMES = arrayOf(
             "Default", "Ac", "Ak", "Kir", "Rab", "Luf-mp4",
             "Si-Hls", "S-mp4", "Ac-Hls", "Uv-mp4", "Pn-Hls",
