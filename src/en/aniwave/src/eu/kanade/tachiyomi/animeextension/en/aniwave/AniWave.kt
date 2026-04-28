@@ -7,7 +7,6 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -20,7 +19,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -62,13 +60,12 @@ class AniWave :
         add("Referer", "$baseUrl/")
     }.build()
 
-    private val markFiller get() = preferences.getBoolean(PREF_MARK_FILLERS_KEY, PREF_MARK_FILLERS_DEFAULT)
     private val scorePosition get() = preferences.getString(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)!!
     private val useEnglish get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) == "English"
 
     private val json: Json by injectLazy()
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private val kwikExtractor by lazy { KwikExtractor(client, headers) }
+    private val kwikExtractor by lazy { KwikExtractor(client) }
 
     // ============================== Popular ===============================
 
@@ -345,7 +342,6 @@ class AniWave :
         val sub = if (element.attr("data-sub").toIntOrNull() == 1) "Sub" else ""
         val dub = if (element.attr("data-dub").toIntOrNull() == 1) "Dub" else ""
         val softSub = if (SOFTSUB_REGEX.find(title) != null) "SoftSub" else ""
-        val extraInfo = if (element.hasClass("filler") && markFiller) " • Filler Episode" else ""
         val name = element.parent()?.select("span.d-title")?.text().orEmpty()
         val namePrefix = "Episode $epNum"
 
@@ -354,7 +350,7 @@ class AniWave :
             this.url = "$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum"
             episode_number = epNum.toFloatOrNull() ?: 0f
             date_upload = RELEASE_REGEX.find(title)?.let { parseDate(it.groupValues[1]) } ?: 0L
-            scanlator = arrayOf(sub, softSub, dub).filter(String::isNotBlank).joinToString(", ") + extraInfo
+            scanlator = arrayOf(sub, softSub, dub).filter(String::isNotBlank).joinToString(", ")
         }
     }
 
@@ -426,7 +422,6 @@ class AniWave :
 
     private fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
         val embedLink = getEmbedLink(server.serverId, epUrl)
-            ?: throw Exception("Failed to fetch embed link from API")
 
         if (server.serverName.contains("kiwi", true)) {
             extractFromKiwistream(embedLink, server)
@@ -439,7 +434,7 @@ class AniWave :
         emptyList()
     }
 
-    private fun getEmbedLink(serverId: String, epUrl: String): String? {
+    private fun getEmbedLink(serverId: String, epUrl: String): String {
         val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", baseUrl + epUrl)
@@ -519,7 +514,7 @@ class AniWave :
 
         Log.d("AniWave", "Kiwi-Stream: kwik URL = $kwikUrl")
 
-        val m3u8 = runBlocking { kwikExtractor.getHlsStreamUrl(kwikUrl, embedUrl) }
+        val m3u8 = kwikExtractor.getHlsStreamUrl(kwikUrl, referer = embedUrl)
 
         if (!m3u8.startsWith("http")) {
             throw Exception("Invalid m3u8 from kwik: $m3u8")
@@ -588,7 +583,6 @@ class AniWave :
                 }
             }
             is JsonPrimitive -> sources.content
-            else -> null
         }
         return rawUrl?.takeIf { it.startsWith("http") }
     }
@@ -617,7 +611,7 @@ class AniWave :
         if (href.isNullOrBlank()) return null
         val path = try {
             href.toHttpUrl().encodedPath
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return null
         }
         val cleanPath = EP_URL_SUFFIX_REGEX.replace(path, "")
@@ -673,7 +667,7 @@ class AniWave :
     }
 
     companion object {
-        private val DOMAINS = arrayOf("animewave.to", "aniwave.id", "aniwave.best", "aniwave.ro") // aniwave.cz also works but some minor changes in how it loads anime details
+        private val DOMAINS = arrayOf("animewave.to", "aniwave.id", "aniwave.best", "aniwave.ro")
         private val BASE_URLS = DOMAINS.map { "https://$it" }.toTypedArray()
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
@@ -698,14 +692,9 @@ class AniWave :
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "vidstream"
 
-        private const val PREF_MARK_FILLERS_KEY = "mark_fillers"
-        private const val PREF_MARK_FILLERS_DEFAULT = true
-
         private const val PREF_HOSTER_KEY = "hoster_selection"
         private val HOSTERS = arrayOf("MegaPlay", "Vidstream", "VidCloud", "Kiwi-Stream")
         private val HOSTERS_NAMES = arrayOf("megaplay", "vidstream", "vidcloud", "kiwi-stream")
-
-        private const val PREF_SINGLE_SERVER_KEY = "single_server_mode"
 
         private const val PREF_SERVER_NUMS_KEY = "server_number_selection"
 
@@ -713,7 +702,6 @@ class AniWave :
         private val SERVER_NUM_VALUES = arrayOf("1", "2", "3")
 
         private val PREF_SERVER_NUMS_DEFAULT = SERVER_NUM_VALUES.toSet()
-        private const val PREF_SINGLE_SERVER_DEFAULT = false
 
         private val PREF_HOSTER_DEFAULT = HOSTERS_NAMES.toSet()
 
@@ -741,7 +729,7 @@ class AniWave :
 
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
-            title = "Preferred domain"
+            title = "Preferred Domain"
             entries = DOMAINS
             entryValues = BASE_URLS
             setDefaultValue(PREF_DOMAIN_DEFAULT)
@@ -754,7 +742,7 @@ class AniWave :
 
         ListPreference(screen.context).apply {
             key = PREF_TITLE_LANG_KEY
-            title = "Preferred title language"
+            title = "Preferred Title Language"
             entries = PREF_TITLE_LANG_LIST
             entryValues = PREF_TITLE_LANG_LIST
             setDefaultValue(PREF_TITLE_LANG_DEFAULT)
@@ -766,7 +754,7 @@ class AniWave :
 
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
-            title = "Preferred quality"
+            title = "Preferred Quality"
             entries = arrayOf("1080p", "720p", "480p", "360p")
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue(PREF_QUALITY_DEFAULT)
@@ -791,7 +779,7 @@ class AniWave :
         ListPreference(screen.context).apply {
             key = PREF_LANG_KEY
             title = "Preferred Type"
-            entries = arrayOf("Sub", "Hard Sub", "Dub", "Audio Dub")
+            entries = arrayOf("Sub", "Dub")
             entryValues = TYPES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
@@ -802,23 +790,13 @@ class AniWave :
 
         ListPreference(screen.context).apply {
             key = PREF_SCORE_POSITION_KEY
-            title = "Score display position"
+            title = "Score Display Position"
             entries = PREF_SCORE_POSITION_ENTRIES
             entryValues = PREF_SCORE_POSITION_VALUES
             setDefaultValue(PREF_SCORE_POSITION_DEFAULT)
             summary = "%s"
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit().putString(key, entryValues[findIndexOfValue(newValue as String)] as String).commit()
-            }
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_MARK_FILLERS_KEY
-            title = "Mark filler episodes"
-            setDefaultValue(PREF_MARK_FILLERS_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                Toast.makeText(screen.context, "Restart App to apply new setting.", Toast.LENGTH_LONG).show()
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
             }
         }.also(screen::addPreference)
 
@@ -859,7 +837,7 @@ class AniWave :
             key = PREF_TYPE_TOGGLE_KEY
             title = "Enable/Disable Types"
             summary = "Select which video types to show"
-            entries = arrayOf("Sub", "Hard Sub", "Dub", "Audio Dub")
+            entries = arrayOf("Sub", "Dub")
             entryValues = TYPES
             setDefaultValue(PREF_TYPES_TOGGLE_DEFAULT)
             setOnPreferenceChangeListener { _, newValue ->
@@ -877,7 +855,7 @@ class AniWave :
 
         EditTextPreference(screen.context).apply {
             key = PREF_CUSTOM_DOMAIN_KEY
-            title = "Custom domain"
+            title = "Custom Domain"
             setDefaultValue(null)
             val currentValue = preferences.getString(PREF_CUSTOM_DOMAIN_KEY, null)
             summary = if (currentValue.isNullOrBlank()) "Custom domain of your choosing" else "Domain: \"$currentValue\". \nLeave blank to disable. Overrides any domain preferences!"
