@@ -1110,8 +1110,8 @@ class Hanime :
         private val QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")
 
         private const val PREF_SIG_PROVIDER_KEY = "signature_provider"
-        private const val PREF_SIG_PROVIDER_DEFAULT = "wasm"
-        private val SIG_PROVIDER_LIST = arrayOf("wasm", "webview")
+        private const val PREF_SIG_PROVIDER_DEFAULT = "webview"
+        private val SIG_PROVIDER_LIST = arrayOf("webview", "wasm")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -1136,7 +1136,7 @@ class Hanime :
         val sigProviderPref = ListPreference(screen.context).apply {
             key = PREF_SIG_PROVIDER_KEY
             title = "Signature provider"
-            entries = arrayOf("Chicory WASM Runtime", "WebView (fallback)")
+            entries = arrayOf("WebView (Recommended)", "Chicory WASM Runtime (Experimental)")
             entryValues = SIG_PROVIDER_LIST
             setDefaultValue(PREF_SIG_PROVIDER_DEFAULT)
             summary = "%s"
