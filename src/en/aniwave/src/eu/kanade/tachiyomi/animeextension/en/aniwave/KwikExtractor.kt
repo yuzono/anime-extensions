@@ -54,7 +54,11 @@ class KwikExtractor(private val client: OkHttpClient) {
      * through all of them and return the first one that yields an m3u8 URL.
      */
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
-        val document = client.newCall(GET(kwikUrl))
+        val requestHeaders = headers.newBuilder()
+            .set("Referer", referer)
+            .build()
+
+        val document = client.newCall(GET(kwikUrl, headers = requestHeaders))
             .await()
             .useAsJsoup()
 
