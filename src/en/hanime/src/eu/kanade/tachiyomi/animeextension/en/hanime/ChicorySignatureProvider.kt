@@ -160,7 +160,7 @@ class ChicorySignatureProvider(
 
             try {
                 val sig = generateSignature(currentInstance, currentGlue)
-                Log.d(TAG, "getSignature() — signature generated: ${sig.signature.take(8)}..., time=${sig.time}")
+                Log.d(TAG, "getSignature() — signature generated (length=${sig.signature.length}), time=${sig.time}")
                 sig
             } catch (e: SignatureException) {
                 Log.w(TAG, "getSignature() — SignatureException: ${e.message}, will attempt re-initialization")
@@ -174,7 +174,7 @@ class ChicorySignatureProvider(
                     val newGlue = glue
                         ?: throw SignatureException("WASM glue unavailable after re-initialization")
                     val retrySig = generateSignature(newInstance, newGlue)
-                    Log.d(TAG, "getSignature() — retry signature generated: ${retrySig.signature.take(8)}..., time=${retrySig.time}")
+                    Log.d(TAG, "getSignature() — retry signature generated (length=${retrySig.signature.length}), time=${retrySig.time}")
                     retrySig
                 } catch (retryEx: SignatureException) {
                     Log.e(TAG, "getSignature() — retry FAILED after re-initialization: ${retryEx.message}", retryEx)
@@ -254,12 +254,12 @@ class ChicorySignatureProvider(
                 ?: throw SignatureException("WASM execution did not produce a signature")
             val timestamp = currentGlue.capturedTimestamp
                 ?: throw SignatureException("WASM execution did not produce a timestamp")
-            Log.d(TAG, "generateSignature() — captured signature: ${signature.take(16)}..., timestamp=$timestamp")
+            Log.d(TAG, "generateSignature() — captured signature (length=${signature.length}), timestamp=$timestamp")
 
             // Validate the signature before returning — a corrupted or stale
             // signature would cause 401 errors on the manifest endpoint.
             val result = Signature(signature, timestamp.toString()).also { it.validate() }
-            Log.d(TAG, "generateSignature() — signature validated OK, returning Signature(signature=${result.signature.take(16)}..., time=${result.time})")
+            Log.d(TAG, "generateSignature() — signature validated OK, returning Signature(length=${result.signature.length}, time=${result.time})")
             return result
         } catch (e: SignatureException) {
             throw e

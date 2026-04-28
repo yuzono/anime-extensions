@@ -87,49 +87,46 @@ class Hanime :
     private val signatureProviderMutex = Mutex()
 
     private suspend fun ensureSignatureProvider(): SignatureProvider {
-        Log.d(TAG, "ensureSignatureProvider() called — currentMode=${preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)}, existingMode=$signatureProviderMode, hasProvider=${signatureProvider != null}")
+        // Fast path: check if provider exists and mode hasn't changed
         val currentProvider = signatureProvider
         val currentMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
         if (currentProvider != null && currentMode == signatureProviderMode) {
-            Log.d(TAG, "ensureSignatureProvider() — returning cached provider (mode=$currentMode)")
             return currentProvider
         }
 
+        // Slow path: acquire lock and revalidate
         return signatureProviderMutex.withLock {
-            val existing = signatureProvider
-            if (existing != null && signatureProviderMode == currentMode) {
-                Log.d(TAG, "ensureSignatureProvider() — double-check: returning cached provider (mode=$currentMode)")
-                return existing
+            val lockedProvider = signatureProvider
+            val lockedMode = signatureProviderMode
+            if (lockedProvider != null && lockedMode == currentMode) {
+                lockedProvider
+            } else {
+                val existing = signatureProvider
+                val newProvider = createSignatureProvider(lockedMode)
+                Log.d(TAG, "Signature provider created: ${newProvider.javaClass.simpleName}")
+                signatureProvider = newProvider
+                existing?.close()
+                newProvider
             }
+        }
+    }
 
-            existing?.close()
-
-            val provider = when (currentMode) {
-                "webview" -> {
-                    Log.d(TAG, "ensureSignatureProvider() — creating WebViewSignatureProvider")
-                    WebViewSignatureProvider()
-                }
-                "wasm" -> {
-                    val binary = runCatching {
-                        withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
-                    }.getOrNull()
-                    if (binary != null) {
-                        Log.d(TAG, "ensureSignatureProvider() — WASM binary fetched (${binary.size} bytes), creating ChicorySignatureProvider")
-                        ChicorySignatureProvider(binary)
-                    } else {
-                        Log.w(TAG, "WASM binary fetch failed — falling back to WebView provider")
-                        WebViewSignatureProvider()
-                    }
-                }
-                else -> {
-                    Log.w(TAG, "ensureSignatureProvider() — unknown mode '$currentMode', falling back to WebViewSignatureProvider")
-                    WebViewSignatureProvider()
-                }
+    private suspend fun createSignatureProvider(mode: String?): SignatureProvider = when (mode) {
+        "webview" -> WebViewSignatureProvider()
+        "wasm" -> {
+            val binary = runCatching {
+                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
+            }.getOrNull()
+            if (binary != null) {
+                ChicorySignatureProvider(binary)
+            } else {
+                Log.w(TAG, "WASM binary fetch failed — falling back to WebView provider")
+                WebViewSignatureProvider()
             }
-            Log.d(TAG, "ensureSignatureProvider() — provider created successfully: ${provider.javaClass.simpleName}")
-            signatureProvider = provider
-            signatureProviderMode = currentMode
-            provider
+        }
+        else -> {
+            Log.w(TAG, "Unknown signature provider mode '$mode', falling back to WebViewSignatureProvider")
+            WebViewSignatureProvider()
         }
     }
 
@@ -146,57 +143,52 @@ class Hanime :
     /** Maximum age of cached search hits before refetching (10 minutes). */
     private val searchHitsTtlMs = 10 * 60 * 1000L
 
+    /** Mutex to prevent concurrent search cache refreshes. */
+    private val searchCacheMutex = Mutex()
+
     /**
      * Fetch or return cached search results from the v10 search API.
      * The API returns all content in a single response — pagination and
      * filtering are handled client-side.
      */
     private suspend fun fetchSearchHits(): List<HitsModel> {
+        // Fast path: check cache without lock
+        val now = System.currentTimeMillis()
         val cached = cachedSearchHits
-        if (cached != null && (System.currentTimeMillis() - cachedSearchHitsTimestamp) < searchHitsTtlMs) {
-            val ageMs = System.currentTimeMillis() - cachedSearchHitsTimestamp
-            Log.d(TAG, "fetchSearchHits() — cache HIT (${cached.size} hits, age=${ageMs}ms, ttl=$searchHitsTtlMs ms)")
+        if (cached != null && now - cachedSearchHitsTimestamp < searchHitsTtlMs) {
             return cached
         }
-        Log.d(TAG, "fetchSearchHits() — cache MISS (cached=${cached != null}, age=${if (cached != null) System.currentTimeMillis() - cachedSearchHitsTimestamp else "N/A"}ms, ttl=$searchHitsTtlMs ms)")
 
-        val signature = ensureSignatureProvider().getSignature()
-        Log.d(TAG, "fetchSearchHits() — signature obtained: ${signature.signature.take(8)}...")
-        val searchHeaders = headers.newBuilder().apply {
-            SignatureHeaders.build(signature).forEach { (key, value) ->
-                add(key, value)
-            }
-        }.build()
-
-        val response = client.newCall(GET(SEARCH_API_URL, searchHeaders)).await()
-        val hits = response.use { resp ->
-            Log.d(TAG, "fetchSearchHits() — search API response code: ${resp.code}")
-            val jsonLine = resp.body.string()
-            if (jsonLine.isEmpty()) {
-                Log.w(TAG, "fetchSearchHits() — search API returned empty body")
-                emptyList()
+        // Slow path: acquire lock to prevent redundant fetches
+        return searchCacheMutex.withLock {
+            // Re-check cache after acquiring lock (another thread may have fetched)
+            val nowLocked = System.currentTimeMillis()
+            val cachedLocked = cachedSearchHits
+            if (cachedLocked != null && nowLocked - cachedSearchHitsTimestamp < searchHitsTtlMs) {
+                cachedLocked
             } else {
-                jsonLine.parseAs<List<HitsModel>>()
+                val signature = ensureSignatureProvider().getSignature()
+                val searchHeaders = headers.newBuilder().apply {
+                    SignatureHeaders.build(signature).forEach { (key, value) ->
+                        add(key, value)
+                    }
+                }.build()
+
+                val response = client.newCall(GET(SEARCH_API_URL, searchHeaders)).await()
+                val result = response.use { resp ->
+                    val jsonLine = resp.body.string()
+                    if (jsonLine.isEmpty()) {
+                        Log.w(TAG, "fetchSearchHits() — search API returned empty body")
+                        emptyList()
+                    } else {
+                        jsonLine.parseAs<List<HitsModel>>()
+                    }
+                }
+                cachedSearchHits = result
+                cachedSearchHitsTimestamp = System.currentTimeMillis()
+                result
             }
         }
-        Log.d(TAG, "fetchSearchHits() — parsed ${hits.size} hits from search API")
-        cachedSearchHits = hits
-        cachedSearchHitsTimestamp = System.currentTimeMillis()
-        return hits
-    }
-
-    /**
-     * Build a GET request to the search API with signature authentication headers.
-     * The v10 search endpoint requires x-signature, x-time, and x-signature-version headers.
-     */
-    private suspend fun searchApiRequest(): Request {
-        val signature = ensureSignatureProvider().getSignature()
-        val searchHeaders = headers.newBuilder().apply {
-            SignatureHeaders.build(signature).forEach { (key, value) ->
-                add(key, value)
-            }
-        }.build()
-        return GET(SEARCH_API_URL, searchHeaders)
     }
 
     // ── Popular Anime ──────────────────────────────────────────────────
@@ -235,6 +227,7 @@ class Hanime :
             includedTags = includedTags,
             blackListedTags = blackListedTags,
             brands = brands,
+            tagsMode = tagsMode,
             orderBy = orderBy,
             ordering = ordering,
         )
@@ -280,6 +273,7 @@ class Hanime :
         includedTags: List<String> = emptyList(),
         blackListedTags: List<String> = emptyList(),
         brands: List<String> = emptyList(),
+        tagsMode: String = "OR",
         orderBy: String = "likes",
         ordering: String = "desc",
     ): AnimesPage {
@@ -298,8 +292,13 @@ class Hanime :
         // Apply tag inclusion filter
         if (includedTags.isNotEmpty()) {
             val lowerTags = includedTags.map { it.lowercase(Locale.US) }
+            val isAndMode = tagsMode.equals("and", ignoreCase = true)
             filtered = filtered.filter { hit ->
-                lowerTags.any { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
+                if (isAndMode) {
+                    lowerTags.all { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
+                } else {
+                    lowerTags.any { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
+                }
             }
         }
 
@@ -325,6 +324,7 @@ class Hanime :
             "likes" -> compareByDescending<HitsModel> { it.likes ?: 0L }
             "created_at_unix", "published_at_unix" -> compareByDescending<HitsModel> { it.createdAtUnix ?: 0L }
             "released_at_unix" -> compareByDescending<HitsModel> { it.releasedAtUnix ?: 0L }
+            "title_sortable" -> compareBy<HitsModel> { it.name.lowercase(Locale.US) }
             else -> compareByDescending<HitsModel> { it.likes ?: 0L }
         }
         val sorted = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
@@ -340,16 +340,24 @@ class Hanime :
 
     // ── Helpers ────────────────────────────────────────────────────────
 
-    private fun isNumber(num: String) = (num.toIntOrNull() != null)
-
     private fun getTitle(title: String): String {
         val trimmed = title.trim()
         if (trimmed.contains(" Ep ")) {
             return trimmed.split(" Ep ")[0].trim()
         }
-        val split = trimmed.split(" ")
-        return if (split.size > 1 && isNumber(split.last())) {
-            split.dropLast(1).joinToString(" ").trim()
+        // Only strip trailing number if it's a standalone episode number
+        // (1-3 digits at the end, preceded by a space, NOT preceded by 'x' connector)
+        val episodeSuffixRegex = Regex("""\s(\d{1,3})$""")
+        val match = episodeSuffixRegex.find(trimmed)
+        return if (match != null) {
+            val beforeNumber = trimmed.substring(0, match.range.first)
+            // Don't strip if the number is part of a compound like "x 3" or "- 3"
+            val prefixRegex = Regex("""[xX\-–]$""")
+            if (!prefixRegex.containsMatchIn(beforeNumber)) {
+                beforeNumber.trim()
+            } else {
+                trimmed
+            }
         } else {
             trimmed
         }
@@ -376,16 +384,12 @@ class Hanime :
     override fun videoListRequest(episode: SEpisode) = GET(episode.url)
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        Log.d(TAG, "getVideoList() — episode.url=${episode.url}")
         setAuthCookie()
-        Log.d(TAG, "getVideoList() — authCookie ${if (authCookie != null) "present" else "absent"}")
-        if (authCookie != null) {
-            Log.d(TAG, "getVideoList() — taking premium branch")
-            return fetchVideoListPremium(episode)
+        return if (authCookie != null) {
+            fetchVideoListPremium(episode)
+        } else {
+            fetchVideoListWithSignature(episode)
         }
-        // Try manifest endpoint with WASM signature first
-        Log.d(TAG, "getVideoList() — taking signature branch")
-        return fetchVideoListWithSignature(episode)
     }
 
     /**
@@ -400,11 +404,9 @@ class Hanime :
     private suspend fun fetchVideoListWithSignature(episode: SEpisode): List<Video> {
         // If hvid is embedded in the episode URL, skip the /api/v8/video call
         val directHvId = extractHvIdFromUrl(episode.url)
-        Log.d(TAG, "fetchVideoListWithSignature() — directHvId=${directHvId ?: "null"}")
         if (directHvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(directHvId, retryOnAuthFailure = true)
-                Log.d(TAG, "fetchVideoListWithSignature() — directHvId manifest returned ${manifestStreams.size} streams")
                 if (manifestStreams.isNotEmpty()) return manifestStreams
             } catch (e: Exception) {
                 Log.w(TAG, "fetchVideoListWithSignature() — directHvId manifest failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -412,26 +414,20 @@ class Hanime :
         }
 
         // Fallback: resolve hvId via /api/v8/video (backward compatibility for single-episode URLs)
-        val slug = episode.url.substringAfter("id=").substringBefore("&")
-        Log.d(TAG, "fetchVideoListWithSignature() — extracting slug='$slug' for /api/v8/video fallback")
+        val slug = extractSlugFromUrl(episode.url)
 
-        var videoResponseCode = 0
         val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await().use {
-            videoResponseCode = it.code
             it.body.string()
         }
-        Log.d(TAG, "fetchVideoListWithSignature() — /api/v8/video HTTP $videoResponseCode (body ${videoString.length} chars)")
         if (videoString.isEmpty()) return emptyList()
 
         val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
-        Log.d(TAG, "fetchVideoListWithSignature() — hvId resolved from video model: ${hvId ?: "null"}")
 
         if (hvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
-                Log.d(TAG, "fetchVideoListWithSignature() — API hvId manifest returned ${manifestStreams.size} streams")
                 if (manifestStreams.isNotEmpty()) return manifestStreams
             } catch (e: Exception) {
                 Log.w(TAG, "fetchVideoListWithSignature() — API hvId manifest failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -439,14 +435,7 @@ class Hanime :
         }
 
         // Final fallback: parse manifest streams from API response without guest filter
-        Log.d(TAG, "fetchVideoListWithSignature() — falling back to parseVideoModelStreamsUnfiltered")
         return parseVideoModelStreamsUnfiltered(videoModel)
-    }
-
-    /** Last resort: the /api/v8/video response contains decoy manifest URLs (streamable.cloud) that don't work. Return empty rather than broken streams. */
-    private fun tryParseDecoyStreams(@Suppress("UNUSED_PARAMETER") videoString: String): List<Video> {
-        Log.w("Hanime", "Falling back to decoy streams — these URLs are non-functional, returning empty list")
-        return emptyList()
     }
 
     /**
@@ -458,11 +447,9 @@ class Hanime :
     private suspend fun parseVideoModelStreamsUnfiltered(videoModel: VideoModel): List<Video> {
         val servers = videoModel.videosManifest?.servers ?: return emptyList()
         val playerHeaders = playerVideoHeaders()
-        Log.d(TAG, "parseVideoModelStreamsUnfiltered() — ${servers.size} servers in videoModel")
 
         return servers.flatMap { server ->
             val filtered = server.streams.filter { it.kind != "premium_alert" && it.url.contains(".m3u8") }
-            Log.d(TAG, "parseVideoModelStreamsUnfiltered() — server '${server.name}': ${server.streams.size} total streams, ${filtered.size} after filter (kind!=premium_alert, has .m3u8)")
             filtered.flatMap { stream ->
                 try {
                     playlistUtils.extractFromHls(
@@ -475,7 +462,7 @@ class Hanime :
                         },
                     )
                 } catch (e: Exception) {
-                    Log.w(TAG, "parseVideoModelStreamsUnfiltered() — playlist extraction failed for server '${server.name}' stream ${stream.height ?: "unknown"}p: ${e.javaClass.simpleName}: ${e.message}")
+                    Log.w(TAG, "Playlist extraction failed for server '${server.name}' stream ${stream.height ?: "unknown"}p: ${e.javaClass.simpleName}: ${e.message}")
                     emptyList()
                 }
             }
@@ -494,9 +481,6 @@ class Hanime :
         val sigHeaders = headers.newBuilder().apply {
             SignatureHeaders.build(signature).forEach { (key, value) -> add(key, value) }
         }.build()
-        Log.d(TAG, "fetchManifestVideos() — requesting manifest URL: $manifestUrl")
-        Log.d(TAG, "fetchManifestVideos() — signature headers: x-signature=${signature.signature.take(8)}..., x-time=${signature.time}, x-signature-version=web2")
-        Log.d(TAG, "fetchManifestVideos() — request headers include content-type: ${sigHeaders["content-type"]}")
 
         var manifestResponseCode = 0
         val result = client.newCall(
@@ -505,7 +489,6 @@ class Hanime :
             val contentType = response.body.contentType()
             val bodyString = response.body.string()
             manifestResponseCode = response.code
-            Log.d(TAG, "fetchManifestVideos() — manifest HTTP $manifestResponseCode (body ${bodyString.length} chars)")
             if (response.isSuccessful) {
                 response.newBuilder().body(bodyString.toResponseBody(contentType)).build().let { rebuilt ->
                     parseManifestStreams(rebuilt)
@@ -521,7 +504,7 @@ class Hanime :
 
         if (manifestResponseCode == 401 && retryOnAuthFailure) {
             // Retry with a fresh signature (no cache, so every call is fresh)
-            Log.d(TAG, "fetchManifestVideos() — 401 received, retry #1 with fresh signature")
+            Log.d(TAG, "fetchManifestVideos() — 401 received, retrying with fresh signature")
             val freshSignature = ensureSignatureProvider().getSignature()
             val retryHeaders = headers.newBuilder().apply {
                 SignatureHeaders.build(freshSignature).forEach { (key, value) -> add(key, value) }
@@ -534,14 +517,13 @@ class Hanime :
                 val contentType = response.body.contentType()
                 val bodyString = response.body.string()
                 retryResponseCode = response.code
-                Log.d(TAG, "fetchManifestVideos() — retry #1 manifest HTTP $retryResponseCode (body ${bodyString.length} chars)")
                 if (response.isSuccessful) {
                     response.newBuilder().body(bodyString.toResponseBody(contentType)).build().let { rebuilt ->
                         parseManifestStreams(rebuilt)
                     }
                 } else {
                     val truncated = if (bodyString.length > 500) bodyString.take(500) + "..." else bodyString
-                    Log.w(TAG, "fetchManifestVideos() — retry #1 non-2xx ($retryResponseCode) body: $truncated")
+                    Log.w(TAG, "fetchManifestVideos() — retry non-2xx ($retryResponseCode) body: $truncated")
                     emptyList()
                 }
             }
@@ -555,9 +537,7 @@ class Hanime :
                 signatureProvider = null
                 signatureProviderMode = null
                 try {
-                    Log.d(TAG, "fetchManifestVideos() — retry #2 after provider recreation")
                     val recreatedSignature = ensureSignatureProvider().getSignature()
-                    Log.d(TAG, "fetchManifestVideos() — recreated signature: ${recreatedSignature.signature.take(8)}..., time=${recreatedSignature.time}")
                     val recreatedHeaders = headers.newBuilder().apply {
                         SignatureHeaders.build(recreatedSignature).forEach { (key, value) -> add(key, value) }
                     }.build()
@@ -568,7 +548,6 @@ class Hanime :
                         val contentType = response.body.contentType()
                         val bodyString = response.body.string()
                         val responseCode = response.code
-                        Log.d(TAG, "fetchManifestVideos() — retry #2 manifest HTTP $responseCode (body ${bodyString.length} chars)")
                         if (response.isSuccessful) {
                             response.newBuilder().body(bodyString.toResponseBody(contentType)).build().let { rebuilt ->
                                 parseManifestStreams(rebuilt)
@@ -578,7 +557,7 @@ class Hanime :
                                 Log.e(TAG, "fetchManifestVideos() — 401 persists after provider recreation — giving up")
                             } else {
                                 val truncated = if (bodyString.length > 500) bodyString.take(500) + "..." else bodyString
-                                Log.w(TAG, "fetchManifestVideos() — retry #2 non-2xx ($responseCode) body: $truncated")
+                                Log.w(TAG, "fetchManifestVideos() — retry non-2xx ($responseCode) body: $truncated")
                             }
                             emptyList()
                         }
@@ -602,11 +581,9 @@ class Hanime :
         val manifestData = responseString.parseAs<ManifestWrapper>()
         val playerHeaders = playerVideoHeaders()
         val servers = manifestData.videosManifest.servers
-        Log.d(TAG, "parseManifestStreams() — ${servers.size} servers in manifest")
 
         return servers.flatMap { server ->
             val guestStreams = server.streams.filter { it.isGuestAllowed == true && it.url.contains(".m3u8") }
-            Log.d(TAG, "parseManifestStreams() — server '${server.name}': ${server.streams.size} total streams, ${guestStreams.size} pass isGuestAllowed filter")
             guestStreams.flatMap { stream ->
                 try {
                     playlistUtils.extractFromHls(
@@ -623,7 +600,7 @@ class Hanime :
                     listOf(Video(stream.url, "${server.name} - ${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
                 }
             }
-        }.also { Log.d(TAG, "parseManifestStreams() — total videos produced: ${it.size}") }
+        }
     }
 
     private suspend fun fetchVideoListPremium(episode: SEpisode): List<Video> {
@@ -631,11 +608,9 @@ class Hanime :
 
         // If hvid is embedded in the episode URL, skip the HTML page parse
         val directHvId = extractHvIdFromUrl(episode.url)
-        Log.d(TAG, "fetchVideoListPremium() — directHvId=${directHvId ?: "null"}")
         if (directHvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(directHvId, retryOnAuthFailure = true)
-                Log.d(TAG, "fetchVideoListPremium() — directHvId manifest returned ${manifestStreams.size} streams")
                 if (manifestStreams.isNotEmpty()) return manifestStreams
             } catch (_: Exception) {
                 // Fall through to HTML parsing below
@@ -644,9 +619,8 @@ class Hanime :
         }
 
         // Fallback: resolve hvId from the HTML page (backward compatibility)
-        val slug = episode.url.substringAfter("?id=").substringBefore("&")
+        val slug = extractSlugFromUrl(episode.url)
         val headers = headers.newBuilder().add("cookie", cookie)
-        Log.d(TAG, "fetchVideoListPremium() — fetching HTML page for slug='$slug' to extract __NUXT__ data")
         val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().asJsoup()
 
         val nuxtScript = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
@@ -657,11 +631,9 @@ class Hanime :
 
         // Try CDN guest manifest first — it has real Golem server streams (not Shiva decoys)
         val hvId = parsed.state.data.video.hentai_video?.id
-        Log.d(TAG, "fetchVideoListPremium() — hvId from __NUXT__: ${hvId ?: "null"}")
         if (hvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
-                Log.d(TAG, "fetchVideoListPremium() — NUXT hvId manifest returned ${manifestStreams.size} streams")
                 if (manifestStreams.isNotEmpty()) return manifestStreams
             } catch (_: Exception) {
                 // Fall through to __NUXT__ streams below
@@ -670,7 +642,6 @@ class Hanime :
         }
 
         // Final fallback: parse manifest streams without guest filter
-        Log.d(TAG, "fetchVideoListPremium() — falling back to NUXT parseVideoModelStreamsUnfiltered")
         val nuxtVideoModel = VideoModel(
             videosManifest = eu.kanade.tachiyomi.animeextension.en.hanime.VideosManifest(
                 servers = parsed.state.data.video.videos_manifest.servers.map { nuxtServer ->
@@ -687,28 +658,6 @@ class Hanime :
             ),
         )
         return parseVideoModelStreamsUnfiltered(nuxtVideoModel)
-    }
-
-    override fun videoListParse(response: Response): List<Video> {
-        Log.d(TAG, "videoListParse() — attempting parseVideoModelStreams")
-        return parseVideoModelStreams(response.body.string())
-    }
-
-    private fun parseVideoModelStreams(responseString: String): List<Video> {
-        if (responseString.isEmpty()) return emptyList()
-        val videoModel = responseString.parseAs<VideoModel>()
-        val manifestStreams = videoModel.videosManifest?.servers?.flatMap { server ->
-            server.streams.filter { it.kind != "premium_alert" && it.isGuestAllowed == true }
-        } ?: emptyList()
-        Log.d(TAG, "parseVideoModelStreams() — ${manifestStreams.size} streams after filtering")
-
-        return if (manifestStreams.isNotEmpty()) {
-            manifestStreams.map { stream ->
-                Video(stream.url, "${stream.height ?: "unknown"}p", stream.url, headers = playerVideoHeaders())
-            }
-        } else {
-            emptyList()
-        }
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -733,18 +682,14 @@ class Hanime :
         val videoModel = responseString.parseAs<VideoModel>()
 
         val currentSeriesName = getTitle(videoModel.hentaiVideo?.name ?: "")
-        Log.d(TAG, "episodeListParse() — hentaiVideo name: ${videoModel.hentaiVideo?.name}, currentSeriesName: $currentSeriesName")
         val allFranchiseVideos = videoModel.hentaiFranchiseHentaiVideos ?: return emptyList()
-        Log.d(TAG, "episodeListParse() — franchise video count: ${allFranchiseVideos.size}")
 
         val seriesVideos = allFranchiseVideos
             .filter { getTitle(it.name ?: "") == currentSeriesName }
-        Log.d(TAG, "episodeListParse() — series videos matching '$currentSeriesName': ${seriesVideos.size} of ${allFranchiseVideos.size}")
 
         if (seriesVideos.isEmpty()) {
             // No matching series found in franchise; return just the current video as a single episode
             val currentVideo = videoModel.hentaiVideo ?: return emptyList()
-            Log.d(TAG, "episodeListParse() — no series match, returning single episode: ${currentVideo.name}")
             return listOf(
                 SEpisode.create().apply {
                     episode_number = 1f
@@ -764,7 +709,7 @@ class Hanime :
                 val hvidParam = it.id?.let { id -> "&hvid=$id" } ?: ""
                 url = "$baseUrl/api/v8/video?id=${it.slug}$hvidParam"
             }
-        }.reversed().also { Log.d(TAG, "episodeListParse() — produced ${it.size} episodes") }
+        }.reversed()
     }
 
     // ── URL Helpers ───────────────────────────────────────────────────
@@ -772,19 +717,18 @@ class Hanime :
     /** Extract the `hvid` query parameter from an episode URL, or null if absent. */
     private fun extractHvIdFromUrl(url: String): Long? {
         val hvidParam = url.substringAfter("&hvid=", missingDelimiterValue = "").substringBefore("&")
-        val result = hvidParam.toLongOrNull()
-        Log.d(TAG, "extractHvIdFromUrl() — url=$url, hvidParam='$hvidParam', result=${result ?: "null"}")
-        return result
+        return hvidParam.toLongOrNull()
     }
+
+    /** Extract the slug (id query parameter) from an episode URL. */
+    private fun extractSlugFromUrl(url: String): String = url.substringAfter("id=").substringBefore("&")
 
     // ── Auth ───────────────────────────────────────────────────────────
 
     private fun setAuthCookie() {
         if (authCookie == null) {
             val cookieList = client.cookieJar.loadForRequest(baseUrl.toHttpUrl())
-            Log.d(TAG, "setAuthCookie() — cookie jar has ${cookieList.size} cookies for $baseUrl")
             val sessionCookie = cookieList.firstOrNull { it.name == "htv3session" }
-            Log.d(TAG, "setAuthCookie() — htv3session ${if (sessionCookie != null) "found, value=${sessionCookie.value.take(8)}..." else "not found"}")
             sessionCookie?.let { authCookie = "${it.name}=${it.value}" }
         }
     }

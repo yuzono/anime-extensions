@@ -227,7 +227,7 @@ object HanimeWasmBinary {
                 throw WasmExtractionException("HTTP ${it.code} fetching $url")
             }
             val body = it.body.string()
-                ?: throw WasmExtractionException("Empty response body for $url")
+            if (body.isBlank()) throw WasmExtractionException("Empty vendor.js body for $url")
             Log.d(TAG, "fetchPage: response body length = ${body.length} chars for $url")
             body
         }

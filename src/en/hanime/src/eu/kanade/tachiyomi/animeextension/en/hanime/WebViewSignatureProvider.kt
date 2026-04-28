@@ -118,7 +118,7 @@ class WebViewSignatureProvider : SignatureProvider {
                 }
             }.also { signature ->
                 cachedSignature = signature
-                Log.d(TAG, "getSignature: signature cached (sig=${signature.signature.take(8)}...)")
+                Log.d(TAG, "getSignature: signature cached (length=${signature.signature.length})")
             }
         }
     } ?: throw SignatureException("WebView signature extraction timed out after ${TOTAL_TIMEOUT_MS}ms")
@@ -270,7 +270,7 @@ class WebViewSignatureProvider : SignatureProvider {
             // call won't be available until after poll() returns.
             val result = jsInterface.getResult()
             if (result != null) {
-                Log.d(TAG, "pollForSignature: result obtained from jsInterface -- signature = ${result.signature.take(8)}...")
+                Log.d(TAG, "pollForSignature: result obtained from jsInterface -- signature length=${result.signature.length}")
                 resumeOrDestroy(webView, continuation, resumed) {
                     continuation.resume(result)
                 }
@@ -330,7 +330,7 @@ class WebViewSignatureProvider : SignatureProvider {
         /** Called from JS when both `window.ssignature` and `window.stime` are set. */
         @JavascriptInterface
         fun onSignatureReady(signature: String, time: String) {
-            Log.d(TAG, "SignatureJsInterface: onSignatureReady -- signature = ${signature.take(8)}..., time = $time")
+            Log.d(TAG, "SignatureJsInterface: onSignatureReady -- signature length=${signature.length}, time=$time")
             signatureResult = Signature(signature, time)
         }
 
