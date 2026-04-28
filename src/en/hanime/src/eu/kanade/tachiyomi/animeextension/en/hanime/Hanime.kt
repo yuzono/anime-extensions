@@ -50,8 +50,12 @@ class Hanime :
         .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
         .add("Accept", "application/json")
         .add("Accept-Language", "en-US,en;q=0.9")
+        .add("content-type", "application/json")
         .add("Origin", "https://hanime.tv")
         .add("Referer", "https://hanime.tv/")
+        .add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
+        .add("sec-ch-ua-mobile", "?0")
+        .add("sec-ch-ua-platform", "\"Android\"")
 
     private fun videoHeaders(): Headers = headers.newBuilder()
         .set("Referer", "https://player.hanime.tv/")
@@ -492,6 +496,7 @@ class Hanime :
         }.build()
         Log.d(TAG, "fetchManifestVideos() — requesting manifest URL: $manifestUrl")
         Log.d(TAG, "fetchManifestVideos() — signature headers: x-signature=${signature.signature.take(8)}..., x-time=${signature.time}, x-signature-version=web2")
+        Log.d(TAG, "fetchManifestVideos() — request headers include content-type: ${sigHeaders["content-type"]}")
 
         var manifestResponseCode = 0
         val result = client.newCall(
