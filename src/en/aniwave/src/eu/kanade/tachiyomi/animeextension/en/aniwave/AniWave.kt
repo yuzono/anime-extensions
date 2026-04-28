@@ -723,9 +723,9 @@ class AniWave :
             entryValues = BASE_URLS
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
+            setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, "Restart App to apply changes", Toast.LENGTH_LONG).show()
-                preferences.edit().putString(key, newValue as String).commit()
+                true
             }
         }.also(screen::addPreference)
 
