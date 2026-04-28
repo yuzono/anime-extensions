@@ -341,12 +341,35 @@ class ChicoryGlue {
 
         // ═══ ENVIRONMENT / TIMEZONE ═══
 
-        // s = __tzset_js (i32, i32, i32, i32) -> () — no-op
+// s = __tzset_js (i32, i32, i32, i32) -> () — writes timezone data to WASM memory
+//   timezonePtr: pointer to write current timezone UTC offset (minutes, i32)
+//   dstPtr: pointer to write DST offset (minutes, i32)
+//   tznamePtr: pointer to write timezone name string (null-terminated)
+//   tznameLen: max length of timezone name string buffer
         functions += HostFunction(
             module,
             "s",
             FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32), emptyList()),
-        ) { _, _ -> null }
+        ) { instance, args ->
+            val timezonePtr = args[0].toInt()
+            val dstPtr = args[1].toInt()
+            val tznamePtr = args[2].toInt()
+            val tznameLen = args[3].toInt()
+
+            // Java ZONE_OFFSET sign convention is opposite to JS getTimezoneOffset():
+            //   JS:  UTC-5 → getTimezoneOffset() returns 300  (positive = west of UTC)
+            //   Java: UTC-5 → ZONE_OFFSET returns -18000000ms (negative = west of UTC)
+            //   So we negate to match the JS convention the WASM binary expects.
+            val rawOffsetMs = java.util.Calendar.getInstance().get(java.util.Calendar.ZONE_OFFSET)
+            val jsOffsetMinutes = -(rawOffsetMs / 60000)
+
+            instance.memory().writeI32(timezonePtr, jsOffsetMinutes)
+            instance.memory().writeI32(dstPtr, jsOffsetMinutes)
+            instance.memory().writeCString(tznamePtr, java.util.TimeZone.getDefault().id ?: "UTC")
+
+            Log.d(TAG, "__tzset_js (s): offset=$jsOffsetMinutes min, tzName=\"${java.util.TimeZone.getDefault().id}\", timezonePtr=$timezonePtr, dstPtr=$dstPtr, tznamePtr=$tznamePtr (maxLen=$tznameLen)")
+            null
+        }
 
         // t = _environ_get (i32, i32) -> (i32) — returns 0 (success)
         functions += HostFunction(
