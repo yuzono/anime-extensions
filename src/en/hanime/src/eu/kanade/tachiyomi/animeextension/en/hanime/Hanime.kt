@@ -94,17 +94,18 @@ class Hanime :
             return currentProvider
         }
 
-        // Slow path: acquire lock and revalidate
+        // Slow path: acquire lock and re-read preference inside the lock
         return signatureProviderMutex.withLock {
+            val mode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
             val lockedProvider = signatureProvider
-            val lockedMode = signatureProviderMode
-            if (lockedProvider != null && lockedMode == currentMode) {
+            if (lockedProvider != null && signatureProviderMode == mode) {
                 lockedProvider
             } else {
                 val existing = signatureProvider
-                val newProvider = createSignatureProvider(lockedMode)
+                val newProvider = createSignatureProvider(mode)
                 Log.d(TAG, "Signature provider created: ${newProvider.javaClass.simpleName}")
                 signatureProvider = newProvider
+                signatureProviderMode = mode
                 existing?.close()
                 newProvider
             }
@@ -112,6 +113,7 @@ class Hanime :
     }
 
     private suspend fun createSignatureProvider(mode: String?): SignatureProvider = when (mode) {
+        "native" -> NativeSignatureProvider()
         "webview" -> WebViewSignatureProvider()
         "wasm" -> {
             val binary = runCatching {
@@ -1054,8 +1056,8 @@ class Hanime :
         private val QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")
 
         private const val PREF_SIG_PROVIDER_KEY = "signature_provider"
-        private const val PREF_SIG_PROVIDER_DEFAULT = "webview"
-        private val SIG_PROVIDER_LIST = arrayOf("webview", "wasm")
+        private const val PREF_SIG_PROVIDER_DEFAULT = "native"
+        private val SIG_PROVIDER_LIST = arrayOf("native", "webview", "wasm")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -1080,7 +1082,7 @@ class Hanime :
         val sigProviderPref = ListPreference(screen.context).apply {
             key = PREF_SIG_PROVIDER_KEY
             title = "Signature provider"
-            entries = arrayOf("WebView (Recommended)", "Chicory WASM Runtime (Experimental)")
+            entries = arrayOf("Direct SHA-256 computation (Recommended)", "WebView", "Chicory WASM Runtime (Experimental)")
             entryValues = SIG_PROVIDER_LIST
             setDefaultValue(PREF_SIG_PROVIDER_DEFAULT)
             summary = "%s"

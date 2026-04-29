@@ -34,8 +34,7 @@ class ChicoryGlueTest {
     fun resetClearsCapturedSignature() {
         val glue = ChicoryGlue()
         // Simulate state that would be set during WASM execution
-        // (We can't set these directly since they have private setters,
-        //  but reset() should still work even from initial state)
+        // (We can't set these directly since they have private setters,  // but reset() should still work even from initial state)
         glue.reset()
         assertNull(glue.capturedSignature, "capturedSignature must be null after reset()")
     }
@@ -216,5 +215,228 @@ class ChicoryGlueTest {
         // fullReset should clear eventTypes
         glue.fullReset()
         assertEquals(emptySet<String>(), glue.eventTypes)
+    }
+
+    // ── EmvalHandleManager tests ───────────────────────────────────────
+
+    @Test
+    fun testEmvalHandleAllocation() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val value = ChicoryGlue.EmvalHandleManager.EmvalValue.JsString("hello")
+        val handle = manager.allocate(value)
+        assertTrue(handle > 0, "Allocated handle must be positive")
+        val retrieved = manager.get(handle)
+        assertNotNull(retrieved, "Retrieved value must not be null")
+        assertEquals("hello", (retrieved as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString).value)
+    }
+
+    @Test
+    fun testEmvalAllocateUndefinedReturnsZero() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val handle = manager.allocate(ChicoryGlue.EmvalHandleManager.EmvalValue.JsUndefined)
+        assertEquals(0, handle, "Allocating JsUndefined must return handle 0")
+    }
+
+    @Test
+    fun testEmvalGetZeroReturnsUndefined() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val value = manager.get(0)
+        assertTrue(value is ChicoryGlue.EmvalHandleManager.EmvalValue.JsUndefined, "Handle 0 must return JsUndefined")
+    }
+
+    @Test
+    fun testEmvalGetGlobalWindow() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val windowHandle = manager.windowHandle
+        assertTrue(windowHandle > 0, "windowHandle must be a valid (positive) handle")
+        val windowVal = manager.get(windowHandle)
+        assertNotNull(windowVal, "window value must not be null")
+        assertTrue(windowVal is ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject, "window must be a JsObject")
+    }
+
+    @Test
+    fun testEmvalGetGlobalUnknown() {
+        // Unknown globals are not pre-registered — they would return 0 (undefined)
+        // in the host function. Test the handle manager directly.
+        val manager = ChicoryGlue.EmvalHandleManager()
+        // Handle for "unknownGlobal" is not allocated, so get() returns null
+        val result = manager.get(99999)
+        assertNull(result, "Non-existent handle must return null")
+    }
+
+    @Test
+    fun testEmvalGetLocationOrigin() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        // Chain: window → location → origin
+        val windowVal = manager.get(manager.windowHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+        val locationHandle = windowVal.properties["location"]
+        assertNotNull(locationHandle, "window.location must be a valid handle")
+        assertTrue(locationHandle > 0, "location handle must be positive")
+
+        val locationVal = manager.get(locationHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+        val originHandle = locationVal.properties["origin"]
+        assertNotNull(originHandle, "location.origin must be a valid handle")
+        assertTrue(originHandle > 0, "origin handle must be positive")
+
+        val originVal = manager.get(originHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("https://hanime.tv", originVal.value, "location.origin must be 'https://hanime.tv'")
+    }
+
+    @Test
+    fun testEmvalNewCstring() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val handle = manager.allocate(ChicoryGlue.EmvalHandleManager.EmvalValue.JsString("test-string"))
+        assertTrue(handle > 0, "New C-string handle must be positive")
+        val value = manager.get(handle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("test-string", value.value, "Retrieved string must match original")
+    }
+
+    @Test
+    fun testEmvalDecref() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val handle = manager.allocate(ChicoryGlue.EmvalHandleManager.EmvalValue.JsString("temporary"))
+        assertTrue(handle > 0)
+        assertNotNull(manager.get(handle), "Handle must exist before decref")
+        manager.release(handle)
+        assertNull(manager.get(handle), "Handle must not exist after decref")
+    }
+
+    @Test
+    fun testEmvalDecrefZeroIsNoOp() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        // Releasing handle 0 (undefined) must not throw
+        manager.release(0)
+        // Handle 0 still returns JsUndefined per emscripten convention
+        assertTrue(manager.get(0) is ChicoryGlue.EmvalHandleManager.EmvalValue.JsUndefined)
+    }
+
+    @Test
+    fun testFullResetClearsEmvalHandles() {
+        val glue = ChicoryGlue()
+        // Allocate a temporary handle beyond the pre-registered ones
+        val tempHandle = glue.emvalManager.allocate(
+            ChicoryGlue.EmvalHandleManager.EmvalValue.JsString("temp"),
+        )
+        assertTrue(tempHandle > 0, "Temporary handle must be positive")
+        assertNotNull(glue.emvalManager.get(tempHandle), "Temporary handle must exist before reset")
+
+        // fullReset should clear all handles and re-initialize the mock environment
+        glue.fullReset()
+
+        // The temporary handle should no longer exist after re-initialization
+        assertNull(glue.emvalManager.get(tempHandle), "Temporary handle must be gone after fullReset")
+
+        // But the pre-registered handles should be re-initialized
+        assertTrue(glue.emvalManager.windowHandle > 0, "windowHandle must be valid after fullReset")
+        assertNotNull(glue.emvalManager.get(glue.emvalManager.windowHandle), "window must exist after fullReset")
+    }
+
+    @Test
+    fun testWindowTopSelfReference() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        // window.top === window (self-reference)
+        val windowVal = manager.get(manager.windowHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+        val topHandle = windowVal.properties["top"]
+        assertNotNull(topHandle, "window.top must exist")
+        assertEquals(manager.windowHandle, topHandle, "window.top must equal window (self-reference)")
+    }
+
+    @Test
+    fun testWindowLocationProperties() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val windowVal = manager.get(manager.windowHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+
+        // Verify all expected window properties exist
+        assertTrue(windowVal.properties.containsKey("location"), "window must have 'location' property")
+        assertTrue(windowVal.properties.containsKey("addEventListener"), "window must have 'addEventListener' property")
+        assertTrue(windowVal.properties.containsKey("dispatchEvent"), "window must have 'dispatchEvent' property")
+        assertTrue(windowVal.properties.containsKey("top"), "window must have 'top' property")
+        assertTrue(windowVal.properties.containsKey("ssignature"), "window must have 'ssignature' property")
+        assertTrue(windowVal.properties.containsKey("stime"), "window must have 'stime' property")
+
+        // ssignature and stime are initially undefined (handle 0)
+        assertEquals(0, windowVal.properties["ssignature"], "window.ssignature must be undefined (0) initially")
+        assertEquals(0, windowVal.properties["stime"], "window.stime must be undefined (0) initially")
+    }
+
+    @Test
+    fun testLocationObjectProperties() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val locationVal = manager.get(manager.locationHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+
+        // Verify all expected location properties
+        assertTrue(locationVal.properties.containsKey("origin"), "location must have 'origin'")
+        assertTrue(locationVal.properties.containsKey("href"), "location must have 'href'")
+        assertTrue(locationVal.properties.containsKey("hostname"), "location must have 'hostname'")
+        assertTrue(locationVal.properties.containsKey("protocol"), "location must have 'protocol'")
+
+        // Verify string values
+        val origin = manager.get(locationVal.properties["origin"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("https://hanime.tv", origin.value)
+
+        val href = manager.get(locationVal.properties["href"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("https://hanime.tv/", href.value)
+
+        val hostname = manager.get(locationVal.properties["hostname"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("hanime.tv", hostname.value)
+
+        val protocol = manager.get(locationVal.properties["protocol"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("https:", protocol.value)
+    }
+
+    @Test
+    fun testDocumentObjectProperties() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val docVal = manager.get(manager.documentHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+
+        val domain = manager.get(docVal.properties["domain"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("hanime.tv", domain.value)
+
+        val referrer = manager.get(docVal.properties["referrer"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("", referrer.value)
+
+        val cookie = manager.get(docVal.properties["cookie"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("", cookie.value)
+    }
+
+    @Test
+    fun testNavigatorObjectProperties() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val navVal = manager.get(manager.navigatorHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsObject
+
+        val userAgent = manager.get(navVal.properties["userAgent"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertTrue(userAgent.value.contains("Chrome/130"), "navigator.userAgent must contain Chrome/130")
+
+        val platform = manager.get(navVal.properties["platform"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("Linux armv81", platform.value)
+
+        val language = manager.get(navVal.properties["language"]!!) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+        assertEquals("en-US", language.value)
+    }
+
+    @Test
+    fun testEmvalStringLengthProperty() {
+        val manager = ChicoryGlue.EmvalHandleManager()
+        val strHandle = manager.allocate(ChicoryGlue.EmvalHandleManager.EmvalValue.JsString("hello"))
+        val strVal = manager.get(strHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsString
+
+        // Simulate __emval_get_property for "length" on a JsString
+        val lengthHandle = manager.allocate(
+            ChicoryGlue.EmvalHandleManager.EmvalValue.JsNumber(strVal.value.length.toDouble()),
+        )
+        assertTrue(lengthHandle > 0, "length handle must be positive")
+        val lengthVal = manager.get(lengthHandle) as ChicoryGlue.EmvalHandleManager.EmvalValue.JsNumber
+        assertEquals(5.0, lengthVal.value, "String 'hello' length must be 5")
+    }
+
+    @Test
+    fun testEmvalHandleManagerIsAccessibleFromGlue() {
+        val glue = ChicoryGlue()
+        assertNotNull(glue.emvalManager, "emvalManager must be accessible as a public property")
+        assertTrue(glue.emvalManager.windowHandle > 0, "windowHandle must be valid")
+        assertTrue(glue.emvalManager.locationHandle > 0, "locationHandle must be valid")
+        assertTrue(glue.emvalManager.documentHandle > 0, "documentHandle must be valid")
+        assertTrue(glue.emvalManager.navigatorHandle > 0, "navigatorHandle must be valid")
+        assertTrue(glue.emvalManager.consoleHandle > 0, "consoleHandle must be valid")
     }
 }
