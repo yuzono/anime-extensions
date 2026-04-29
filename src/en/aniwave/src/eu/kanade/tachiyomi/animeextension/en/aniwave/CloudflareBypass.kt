@@ -4,13 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 data class CloudFlareBypassResult(
     val cookies: String,
@@ -20,80 +18,69 @@ data class CloudFlareBypassResult(
 class CloudflareBypass(private val context: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun getCookies(pageUrl: String): CloudFlareBypassResult? {
-        if (!pageUrl.startsWith("http")) return null
-
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
+    fun getCookies(pageUrl: String, referer: String = ""): CloudFlareBypassResult? {
 
         val latch = CountDownLatch(1)
         var result: CloudFlareBypassResult? = null
-        val completed = AtomicBoolean(false)
         var webView: WebView? = null
 
         Handler(Looper.getMainLooper()).post {
-            try {
-                webView = WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                }
-                val defaultUserAgent = webView.settings.userAgentString
+            webView = WebView(context)
+            webView.settings.javaScriptEnabled = true
+            webView.settings.domStorageEnabled = true
 
-                webView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, loadedUrl: String) {
-                        pollForClearance(pageUrl, defaultUserAgent, completed) { bypassResult ->
-                            if (completed.compareAndSet(false, true)) {
-                                result = bypassResult
-                                latch.countDown()
-                            }
-                        }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+            val defaultUserAgent = webView.settings.userAgentString
+
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, loadedUrl: String) {
+                    pollForClearance(pageUrl, defaultUserAgent) { bypassResult ->
+                        result = bypassResult
+                        latch.countDown()
                     }
                 }
-                webView.loadUrl(pageUrl)
-            } catch (e: Exception) {
-                Log.e("AniWave-CF", "WebView failed: ${e.message}")
-                if (completed.compareAndSet(false, true)) latch.countDown()
             }
+
+            CookieManager.getInstance().setCookie(pageUrl, "")
+
+            val extraHeaders = mutableMapOf<String, String>()
+            if (referer.isNotBlank()) {
+                extraHeaders["Referer"] = referer
+            }
+            webView.loadUrl(pageUrl, extraHeaders)
         }
 
         try {
             latch.await(30, TimeUnit.SECONDS)
-        } catch (_: InterruptedException) {
-            return null
         } finally {
-            // Destroy WebView securely on the main thread to prevent memory leaks
-            Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    webView?.stopLoading()
-                    webView?.destroy()
-                } catch (_: Exception) {}
-            }, 1000)
+            Handler(Looper.getMainLooper()).post {
+                webView?.destroy()
+            }
         }
+
         return result
     }
 
     private fun pollForClearance(
         url: String,
         userAgent: String,
-        completed: AtomicBoolean,
         onComplete: (CloudFlareBypassResult) -> Unit,
     ) {
         val handler = Handler(Looper.getMainLooper())
-        val startTime = System.currentTimeMillis()
 
-        handler.postDelayed(
-            object : Runnable {
-                override fun run() {
-                    if (completed.get() || System.currentTimeMillis() - startTime > 25_000L) return
-                    val cookies = CookieManager.getInstance().getCookie(url)
-                    if (cookies?.contains("cf_clearance=") == true) {
-                        onComplete(CloudFlareBypassResult(cookies, userAgent))
-                    } else {
-                        handler.postDelayed(this, 500)
-                    }
+        val runnable = object : Runnable {
+            override fun run() {
+                val cookies = CookieManager.getInstance().getCookie(url)
+
+                if (cookies?.contains("cf_clearance=") == true) {
+                    val finalResult = CloudFlareBypassResult(cookies, userAgent)
+                    onComplete(finalResult)
+                } else {
+                    handler.postDelayed(this, 500)
                 }
-            },
-            500,
-        )
+            }
+        }
+        handler.post(runnable)
     }
 }
