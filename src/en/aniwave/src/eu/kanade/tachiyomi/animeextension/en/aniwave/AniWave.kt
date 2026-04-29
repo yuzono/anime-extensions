@@ -539,6 +539,30 @@ class AniWave :
         return downloadObj.entries.firstOrNull()?.let { (it.value as? JsonPrimitive)?.content }
     }
 
+    private fun resolveDownloadUrl(url: String, maxHops: Int = 5): String {
+        val noRedirectClient = client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+
+        val dlHeaders = headers.newBuilder()
+            .add("Accept", "*/*")
+            .add("Referer", "$baseUrl/")
+            .build()
+
+        var currentUrl = url
+        repeat(maxHops) {
+            noRedirectClient.newCall(GET(currentUrl, dlHeaders)).execute().use { response ->
+                if (response.code in 301..308) {
+                    currentUrl = response.header("location") ?: return currentUrl
+                } else {
+                    return currentUrl
+                }
+            }
+        }
+        return currentUrl
+    }
+
     private fun getServerInfo(serverName: String): Triple<String, String, String?> {
         val qualityMatch = Regex("""(\d+)p$""").find(serverName)
         val quality = qualityMatch?.value
@@ -666,9 +690,10 @@ class AniWave :
                 .add("Origin", "https://kwik.cx")
                 .build()
 
+            // Try mapper download URL first
             server.downloadUrl?.let { dlUrl ->
                 try {
-                    val mp4Url = kwikExtractor.getMp4FromOnline(dlUrl)
+                    val mp4Url = resolveDownloadUrl(dlUrl)
                     if (mp4Url.isNotBlank() && mp4Url.startsWith("http")) {
                         return listOf(Video(mp4Url, videoLabel, mp4Url, headers = videoHeaders))
                     }
@@ -677,7 +702,8 @@ class AniWave :
                 }
             }
 
-            val mp4Url = kwikExtractor.getMp4StreamUrl(embedUrl, "https://kwik.cx/")
+            // Fallback: MP4 via kwik
+            val mp4Url = kwikExtractor.getMp4StreamUrl(embedUrl, referer)
             listOf(Video(mp4Url, videoLabel, mp4Url, headers = videoHeaders))
         }
     }
@@ -809,7 +835,7 @@ class AniWave :
         private val TYPES = arrayOf("Sub", "H-Sub", "Dub", "A-Dub")
         private val PREF_TYPES_TOGGLE_DEFAULT = TYPES.toSet()
 
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type" // MP4 needs more work, so forced to use HLS temporarily
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type" // MP4 needs more work, forcing HLS until a better CF bypass gets implemented
         private const val PREF_LINK_TYPE_DEFAULT = true
 
         private const val PREF_SCORE_POSITION_KEY = "score_position"
@@ -916,15 +942,15 @@ class AniWave :
             }
         }.also(screen::addPreference)
 
-        // SwitchPreferenceCompat(screen.context).apply {
-        //  key = PREF_LINK_TYPE_KEY
-        //  title = "Use HLS Links (Kiwi-Stream)"
-        //  summary = "Enable for HLS streaming (allows seeking).\nDisable for direct MP4 downloads.\nApplies to Kiwi-Stream only."
-        //  setDefaultValue(PREF_LINK_TYPE_DEFAULT)
-        //  setOnPreferenceChangeListener { _, newValue ->
-        //      preferences.edit().putBoolean(key, newValue as Boolean).commit()
-        //  }
-        // }.also(screen::addPreference)
+//        SwitchPreferenceCompat(screen.context).apply {
+//            key = PREF_LINK_TYPE_KEY
+//            title = "Use HLS Links (Kiwi-Stream)"
+//            summary = "Enable for HLS streaming (allows seeking).\nDisable for direct MP4 downloads.\nApplies to Kiwi-Stream only."
+//            setDefaultValue(PREF_LINK_TYPE_DEFAULT)
+//            setOnPreferenceChangeListener { _, newValue ->
+//                preferences.edit().putBoolean(key, newValue as Boolean).commit()
+//            }
+//        }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
             key = PREF_SERVER_NUMS_KEY

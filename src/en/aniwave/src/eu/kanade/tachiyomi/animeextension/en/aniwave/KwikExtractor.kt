@@ -4,16 +4,11 @@ import android.app.Application
 import android.util.Log
 import dev.datlag.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import okhttp3.FormBody
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import okhttp3.Response
+import okhttp3.Request
 import org.jsoup.Jsoup
-import java.util.concurrent.TimeUnit
-
-data class KwikContent(val cookies: String, val html: String, val finalUrl: String)
 
 class KwikExtractor(
     private val client: OkHttpClient,
@@ -27,18 +22,13 @@ class KwikExtractor(
         private val KWIK_FORM_TOKEN = Regex("""value="([^"]+)"""")
     }
 
-    private val kwikClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(client.connectTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-            .readTimeout(client.readTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-            .writeTimeout(client.writeTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-            .build()
-    }
+    private val cfBypass by lazy { appContext?.let { CloudflareBypass(it) } }
 
-    private val bypassCache = mutableMapOf<String, Pair<CloudFlareBypassResult, Long>>()
-    private val bypassCacheTtl = 5 * 60 * 1000L // 5 minutes
-
-    // ========================= HLS =========================
+    @Volatile
+    private var cachedBypass: CloudFlareBypassResult? = null
+    private var bypassTimestamp = 0L
+    private val bypassLock = Any()
+    private val bypassCacheTtl = 5 * 60 * 1000L
 
     fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val html = client.newCall(GET(kwikUrl, buildEPageHeaders(referer))).execute().use { response ->
@@ -47,6 +37,149 @@ class KwikExtractor(
         }
         return parseHlsFromHtml(html, kwikUrl)
     }
+
+    fun getMp4StreamUrl(kwikEmbedUrl: String, referer: String): String {
+        val fileUrl = kwikEmbedUrl.replace("/e/", "/f/")
+        Log.d(TAG, "MP4 extraction: $fileUrl")
+
+        // Visit /e/ first to establish session
+        val sessionCookies = try {
+            client.newCall(GET(kwikEmbedUrl, buildEPageHeaders(referer))).execute().use { resp ->
+                resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Session fetch failed: ${e.message}")
+            ""
+        }
+
+        // Fetch /f/ page
+        val fHeaders = buildFPageHeaders(referer, sessionCookies)
+        var (html, allCookies) = client.newCall(GET(fileUrl, fHeaders)).execute().use { resp ->
+            val fCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+            val combined = buildString {
+                if (sessionCookies.isNotBlank()) append(sessionCookies).append("; ")
+                append(fCookies)
+            }
+            (resp.body.string() ?: "") to combined
+        }
+
+        // Try CF bypass if decryption params missing
+        if (!KWIK_PARAMS_REGEX.containsMatchIn(html) && !html.contains("eval(function(")) {
+            Log.w(TAG, "/f/ missing decryption params, trying CF bypass...")
+            cfBypass?.let {
+                getOrRefreshBypass(fileUrl)?.let { bypass ->
+                    val bypassCookies = buildString {
+                        if (allCookies.isNotBlank()) append(allCookies).append("; ")
+                        append(bypass.cookies)
+                    }
+                    client.newCall(GET(fileUrl, buildFPageHeaders(referer, bypassCookies))).execute().use { resp ->
+                        html = resp.body.string() ?: ""
+                        val extraCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+                        allCookies = "$bypassCookies; $extraCookies"
+                    }
+                }
+            }
+        }
+
+        val match = KWIK_PARAMS_REGEX.find(html)
+            ?: throw KwikException.ExtractionException("Decryption params not found in /f/ page")
+
+        val (fullString, key, v1Str, v2Str) = match.destructured
+        val decrypted = decrypt(fullString, key, v1Str.toIntOrNull() ?: 0, v2Str.toIntOrNull() ?: 0)
+
+        val formAction = KWIK_FORM_URL.find(decrypted)?.groupValues?.get(1)
+            ?: throw KwikException.ExtractionException("No form action found")
+        val token = KWIK_FORM_TOKEN.find(decrypted)?.groupValues?.get(1)
+            ?: throw KwikException.ExtractionException("No form token found")
+
+        // POST form with retry on 403/419
+        val noRedirectClient = client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+
+        var kwikLocation: String? = null
+        var code = 419
+        var tries = 0
+        var currentCookies = allCookies
+
+        while (code != 302 && tries < 5) {
+            val postHeaders = Headers.Builder()
+                .add("Referer", fileUrl)
+                .add("Cookie", currentCookies)
+                .add("Content-Type", "application/x-www-form-urlencoded")
+                .add("Origin", "https://kwik.cx")
+                .build()
+
+            noRedirectClient.newCall(
+                Request.Builder()
+                    .url(formAction)
+                    .headers(postHeaders)
+                    .post(FormBody.Builder().add("_token", token).build())
+                    .build(),
+            ).execute().use { resp ->
+                code = resp.code
+                kwikLocation = resp.header("location")
+                val respCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+                if (respCookies.isNotBlank()) currentCookies = "$currentCookies; $respCookies"
+            }
+
+            if ((code == 403 || code == 419) && cfBypass != null) {
+                Log.w(TAG, "POST HTTP $code, refreshing CF bypass...")
+                synchronized(bypassLock) { cachedBypass = null }
+                getOrRefreshBypass(fileUrl)?.let { bypass ->
+                    currentCookies = "$currentCookies; ${bypass.cookies}"
+                    tries = 0
+                }
+            }
+            tries++
+        }
+
+        return kwikLocation ?: throw KwikException.ExtractionException("MP4 extraction failed after $tries tries (HTTP $code)")
+    }
+
+    // ========================= Headers =========================
+
+    private fun buildEPageHeaders(referer: String): Headers = Headers.Builder()
+        .add("Referer", referer)
+        .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("Sec-Fetch-Dest", "iframe")
+        .add("Sec-Fetch-Mode", "navigate")
+        .add("Sec-Fetch-Site", "cross-site")
+        .add("Sec-Fetch-User", "?1")
+        .add("Upgrade-Insecure-Requests", "1")
+        .build()
+
+    private fun buildFPageHeaders(referer: String, cookies: String = ""): Headers = Headers.Builder().apply {
+        add("Referer", referer)
+            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .add("Accept-Language", "en-US,en;q=0.9")
+            .add("Sec-Fetch-Dest", "document")
+            .add("Sec-Fetch-Mode", "navigate")
+            .add("Sec-Fetch-Site", "same-site")
+            .add("Upgrade-Insecure-Requests", "1")
+        if (cookies.isNotBlank()) add("Cookie", cookies)
+    }.build()
+
+    // ========================= CF Bypass =========================
+
+    private fun getOrRefreshBypass(url: String): CloudFlareBypassResult? {
+        synchronized(bypassLock) {
+            if (cachedBypass != null && System.currentTimeMillis() - bypassTimestamp < bypassCacheTtl) {
+                return cachedBypass
+            }
+        }
+        Log.d(TAG, "Requesting CF bypass for $url")
+        return cfBypass?.getCookies(url)?.also {
+            synchronized(bypassLock) {
+                cachedBypass = it
+                bypassTimestamp = System.currentTimeMillis()
+            }
+        }
+    }
+
+    // ========================= HLS Parsing =========================
 
     private fun parseHlsFromHtml(html: String, baseUrl: String): String {
         val document = Jsoup.parse(html, baseUrl)
@@ -101,182 +234,11 @@ class KwikExtractor(
         return M3U8_REGEX.find(unpacked)?.groupValues?.get(1)
     }
 
-    // ========================= MP4 =========================
-
-    fun getMp4StreamUrl(kwikEmbedUrl: String, referer: String): String {
-        val fUrl = kwikEmbedUrl.replace("/e/", "/f/")
-        return getStreamUrlFromFPage(fUrl, referer)
-    }
-
-    fun getMp4FromOnline(onlineUrl: String): String {
-        val noRedirectClient = kwikClient.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-
-        val bypass = appContext?.let { getOrRefreshBypass(onlineUrl, onlineUrl) }
-
-        var currentUrl = onlineUrl
-        var finalHtml = ""
-        var combinedCookies = bypass?.cookies ?: ""
-
-        repeat(3) {
-            val reqHeaders = Headers.Builder().apply {
-                add("referer", currentUrl)
-                if (combinedCookies.isNotBlank()) add("cookie", combinedCookies)
-                bypass?.let { add("User-Agent", it.userAgent) }
-            }.build()
-
-            noRedirectClient.newCall(GET(currentUrl, reqHeaders)).execute().use { response ->
-                val respCookies = response.extractCookies()
-                combinedCookies = if (combinedCookies.isNotBlank()) "$combinedCookies; $respCookies" else respCookies
-
-                if (response.code in 301..308) {
-                    val location = response.header("location") ?: return@repeat
-                    currentUrl = if (location.startsWith("http")) {
-                        location
-                    } else {
-                        "https://${currentUrl.toHttpUrl().host}$location"
-                    }
-                } else {
-                    finalHtml = response.body.string() ?: ""
-                    return@repeat
-                }
-            }
-        }
-
-        val kwikFRegex = Regex("""["']https://kwik\.cx/f/([^"']+)""")
-        val kwikId = kwikFRegex.find(finalHtml)?.groupValues?.get(1)
-            ?: throw KwikException.ExtractionException("Could not find kwik.cx/f/ in online response")
-
-        val fUrl = "https://kwik.cx/f/$kwikId"
-
-        return getStreamUrlFromFPage(fUrl, onlineUrl)
-    }
-
-    private fun getStreamUrlFromFPage(fUrl: String, referer: String): String {
-        val noRedirectClient = kwikClient.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-
-        var (fContentCookies, fContentString, fContentUrl) = fetchKwikHtml(fUrl, referer)
-        var cloudFlareBypassResult: CloudFlareBypassResult? = null
-
-        val match = KWIK_PARAMS_REGEX.find(fContentString)
-            ?: throw KwikException.ExtractionException("Could not find decryption parameters in Kwik HTML.")
-
-        val (fullString, key, v1, v2) = match.destructured
-        val decrypted = decrypt(fullString, key, v1.toIntOrNull() ?: 0, v2.toIntOrNull() ?: 0)
-
-        val uri = KWIK_FORM_URL.find(decrypted)?.groupValues?.get(1)
-            ?: throw KwikException.ExtractionException("Failed to decrypt stream URI.")
-        val tok = KWIK_FORM_TOKEN.find(decrypted)?.groupValues?.get(1)
-            ?: throw KwikException.ExtractionException("Failed to decrypt stream Token.")
-
-        var kwikLocation: String? = null
-        var code = 419
-        var tries = 0
-        val tryLimit = 5
-
-        while (code != 302 && tries < tryLimit) {
-            val headersBuilder = Headers.Builder()
-                .add("referer", fContentUrl)
-                .add("cookie", fContentCookies)
-
-            cloudFlareBypassResult?.let { headersBuilder.add("User-Agent", it.userAgent) }
-
-            noRedirectClient.newCall(
-                POST(uri, headersBuilder.build(), FormBody.Builder().add("_token", tok).build()),
-            ).execute().use { response ->
-                code = response.code
-                kwikLocation = response.header("location")
-            }
-
-            if ((code == 403 || code == 419) && cloudFlareBypassResult == null) {
-                cloudFlareBypassResult = getOrRefreshBypass(fUrl, referer)
-                    ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
-
-                fContentCookies = "$fContentCookies; ${cloudFlareBypassResult.cookies}"
-                tries = 0
-            }
-            tries++
-        }
-
-        return kwikLocation ?: throw KwikException.ExtractionException("Failed to extract stream URI after $tries attempts.")
-    }
-
-    // ========================= Shared Utilities =========================
-
-    private fun fetchKwikHtml(fUrl: String, referer: String): KwikContent {
-        val initialResponse = kwikClient.newCall(
-            GET(fUrl, Headers.headersOf("referer", referer)),
-        ).execute()
-
-        val (html, cookies, finalUrl) = initialResponse.use { resp ->
-            Triple(resp.body.string(), resp.extractCookies(), resp.request.url.toString())
-        }
-
-        if (html.contains("eval(function(")) {
-            return KwikContent(cookies, html, finalUrl)
-        }
-
-        getOrRefreshBypass(fUrl, referer)?.let { cfResult ->
-            val bypassHeaders = Headers.Builder()
-                .add("referer", referer)
-                .add("cookie", cfResult.cookies)
-                .add("User-Agent", cfResult.userAgent)
-                .build()
-
-            kwikClient.newCall(GET(fUrl, bypassHeaders)).execute().use { resp ->
-                val bypassHtml = resp.body.string()
-                val bypassCookies = resp.extractCookies()
-
-                if (bypassHtml.contains("eval(function(")) {
-                    return KwikContent("$bypassCookies; ${cfResult.cookies}", bypassHtml, resp.request.url.toString())
-                }
-            }
-        }
-
-        throw KwikException.CloudflareBlockedException("Cloudflare challenge not solved.")
-    }
-
-    private fun getOrRefreshBypass(url: String, referer: String): CloudFlareBypassResult? {
-        val host = url.toHttpUrl().host
-
-        synchronized(host) {
-            bypassCache[host]?.let { (result, time) ->
-                if (System.currentTimeMillis() - time < bypassCacheTtl) return result
-            }
-
-            val result = appContext?.let { ctx ->
-                CloudflareBypass(ctx).getCookies(url)
-            }
-
-            if (result != null) {
-                bypassCache[host] = result to System.currentTimeMillis()
-            } else {
-                bypassCache.remove(host)
-            }
-
-            return result
-        }
-    }
-
-    private fun buildEPageHeaders(referer: String): Headers = Headers.Builder()
-        .add("Referer", referer)
-        .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Sec-Fetch-Dest", "iframe")
-        .add("Sec-Fetch-Mode", "navigate")
-        .add("Sec-Fetch-Site", "cross-site")
-        .add("Sec-Fetch-User", "?1")
-        .add("Upgrade-Insecure-Requests", "1")
-        .build()
-
-    private fun Response.extractCookies(): String = headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+    // ========================= Decryption =========================
 
     private fun decrypt(fullString: String, key: String, v1: Int, v2: Int): String {
+        if (key.isEmpty() || v2 !in key.indices) return ""
+
         val keyIndexMap = key.withIndex().associate { it.value to it.index }
         val sb = StringBuilder()
         var i = 0
@@ -284,17 +246,24 @@ class KwikExtractor(
 
         while (i < fullString.length) {
             val nextIndex = fullString.indexOf(toFind, i)
+            if (nextIndex == -1) break
+
             val decodedCharStr = buildString {
                 for (j in i until nextIndex) {
                     append(keyIndexMap[fullString[j]] ?: -1)
                 }
             }
-
             i = nextIndex + 1
-            val decodedChar = (decodedCharStr.toInt(v2) - v1).toChar()
-            sb.append(decodedChar)
-        }
 
+            try {
+                val charCode = decodedCharStr.toInt(v2) - v1
+                if (charCode in Char.MIN_VALUE.code..Char.MAX_VALUE.code) {
+                    sb.append(charCode.toChar())
+                }
+            } catch (_: Exception) {
+                // Ignore invalid number formats securely
+            }
+        }
         return sb.toString()
     }
 }
