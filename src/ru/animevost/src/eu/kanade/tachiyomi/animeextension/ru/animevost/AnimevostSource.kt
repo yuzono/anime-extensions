@@ -206,13 +206,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         }
 
         val body = animeData.description?.replace("<br />", "") ?: ""
-        val truncated = if (body.length > 300) {
-            body.take(300).trimEnd() + "...\nПолное описание можно посмотреть на сайте."
-        } else {
-            body
-        }
-        description += truncated
-
+        description += body
         return description
     }
 
