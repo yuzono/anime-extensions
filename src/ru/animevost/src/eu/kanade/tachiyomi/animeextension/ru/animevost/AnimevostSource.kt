@@ -125,7 +125,11 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         val img = document.selectFirst("img[src*='/uploads/']")
         if (img != null) {
             val src = img.attr("src")
-            anime.thumbnail_url = if (src.startsWith("http")) src else "$baseUrl$src"
+            anime.thumbnail_url = if (src.startsWith("http")) {
+                src
+            } else {
+                "${baseUrl.trimEnd('/')}/${src.removePrefix("/")}"
+            }
         }
 
         // Title
