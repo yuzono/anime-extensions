@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
@@ -84,17 +83,24 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     private fun animeRequest(page: Int, sortBy: SortBy, sortDirection: SortDirection = SortDirection.DESC, genre: String = "all"): Request {
         val url = baseUrl.toHttpUrlOrNull()!!.newBuilder()
 
-        if (genre != "all") {
+        var body = FormBody.Builder()
+            .add("dlenewssortby", sortBy.by)
+            .add("dledirection", sortDirection.direction)
+
+        body = if (genre != "all") {
             url.addPathSegment("zhanr")
             url.addPathSegment(genre)
+            body.add("set_new_sort", "dle_sort_cat")
+                .add("set_direction_sort", "dle_direction_cat")
+        } else {
+            body.add("set_new_sort", "dle_sort_main")
+                .add("set_direction_sort", "dle_direction_main")
         }
 
         url.addPathSegment("page")
         url.addPathSegment("$page")
 
-        // Add sorting as query parameters if needed
-        // For now, just use the URL without sorting POST
-        return GET(url.build().toString())
+        return POST(url.toString(), headers, body.build())
     }
 
     // Anime details
