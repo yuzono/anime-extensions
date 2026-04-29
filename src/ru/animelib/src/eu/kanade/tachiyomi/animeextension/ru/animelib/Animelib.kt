@@ -547,36 +547,22 @@ class Animelib :
         date_upload = dateFormatter.tryParse(date)
     }
 
-    private fun JsonElement?.toDescriptionText(): String? {
-        val element = this ?: return null
-
-        return when (element) {
-            is JsonPrimitive -> element.contentOrNull
-            is JsonObject -> {
-                val text = element.collectText().trim()
-                text.ifEmpty { null }
-            }
-            is JsonArray -> {
-                val text = element.joinToString("\n") { it.collectText() }.trim()
-                text.ifEmpty { null }
-            }
-        }
-    }
+    private fun JsonElement?.toDescriptionText(): String? =
+        this?.collectText()?.trim()?.ifEmpty { null }
 
     private fun JsonElement.collectText(): String = when (this) {
         is JsonPrimitive -> contentOrNull ?: ""
-        is JsonArray -> joinToString("\n") { it.collectText() }
+        is JsonArray -> joinToString("") { it.collectText() }
         is JsonObject -> {
-            if (this["type"]?.jsonPrimitive?.contentOrNull == "hardBreak") {
-                return "\n"
+            val type = this["type"]?.jsonPrimitive?.contentOrNull
+            if (type == "hardBreak") {
+                "\n"
+            } else {
+                val text = this["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val content = this["content"]?.collectText().orEmpty()
+                val result = text + content
+                if (type == "paragraph" || type == "heading") "$result\n" else result
             }
-
-            val ownText = this["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val contentText = this["content"]?.collectText().orEmpty()
-
-            listOf(ownText, contentText)
-                .filter { it.isNotBlank() }
-                .joinToString("\n")
         }
     }
 }
