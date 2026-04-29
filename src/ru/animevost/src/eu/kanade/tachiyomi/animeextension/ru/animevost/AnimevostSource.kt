@@ -5,10 +5,12 @@ import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
@@ -21,6 +23,8 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.text.Regex
+import kotlin.text.toRegex
 
 data class AnimeDescription(
     val year: String? = null,
@@ -52,41 +56,45 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     override val supportsLatest = true
 
-    private val animeSelector = "div.shortstoryContent"
+    private val nextPageSelector = "span.nav_ext + a, td.block_4 span:not(.nav_ext) + a"
 
-    private val nextPageSelector = "td.block_4 span:not(.nav_ext) + a"
-
-    private fun animeFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
-        anime.setUrlWithoutDomain(element.select("table div > a").attr("href"))
-        anime.thumbnail_url = baseUrl + element.select("table div > a img").attr("src")
-        anime.title = element.select("table div > a img").attr("alt")
-        return anime
+    // Helper to extract thumbnail from a given element
+    private fun extractThumbnail(from: Element): String? {
+        // 1) direct img inside
+        val img = from.selectFirst("img")
+        var src = img?.attr("src")?.takeIf { it.isNotEmpty() } ?: img?.attr("data-src")
+        if (src.isNullOrEmpty()) {
+            // 2) background-image in style
+            val style = from.attr("style")
+            val m = Regex("background-image:\\s*url\\(([^)]+)\\)").find(style)
+            if (m != null) {
+                src = m.groupValues[1].trim().trim('"')
+            }
+        }
+        if (!src.isNullOrEmpty()) {
+            return when {
+                src.startsWith("http") -> src
+                src.startsWith("/") -> baseUrl.trimEnd('/') + src
+                else -> baseUrl.trimEnd('/') + "/" + src
+            }
+        }
+        return null
     }
 
     private fun animeRequest(page: Int, sortBy: SortBy, sortDirection: SortDirection = SortDirection.DESC, genre: String = "all"): Request {
-        val headers: Headers =
-            Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
         val url = baseUrl.toHttpUrlOrNull()!!.newBuilder()
 
-        var body = FormBody.Builder()
-            .add("dlenewssortby", sortBy.by)
-            .add("dledirection", sortDirection.direction)
-
-        body = if (genre != "all") {
+        if (genre != "all") {
             url.addPathSegment("zhanr")
             url.addPathSegment(genre)
-            body.add("set_new_sort", "dle_sort_cat")
-                .add("set_direction_sort", "dle_direction_cat")
-        } else {
-            body.add("set_new_sort", "dle_sort_main")
-                .add("set_direction_sort", "dle_direction_main")
         }
 
         url.addPathSegment("page")
         url.addPathSegment("$page")
 
-        return POST(url.toString(), headers, body.build())
+        // Add sorting as query parameters if needed
+        // For now, just use the URL without sorting POST
+        return GET(url.build().toString())
     }
 
     // Anime details
@@ -94,26 +102,70 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
 
-        val animeContent = document.select(".shortstory > .shortstoryContent td:first-of-type")
-        anime.thumbnail_url = "$baseUrl/${animeContent.select("img:first-of-type").attr("src")}"
-        anime.genre = animeContent.select("p:nth-of-type(2)").text().replace("Жанр: ", "")
-        anime.author = animeContent.select("p:nth-of-type(5) a").text()
-        val description = animeContent.select("p:nth-of-type(6) > span").text()
+        // Isolate the main story content block to avoid pulling in user comments.
+        // DLE (animevost engine) uses different class names depending on version/theme.
+        // Clone so we can strip comment nodes without mutating the live document.
+        val contentBlock = document.selectFirst(
+            ".shortstoryContent, .full_story, .fullstory, .shortstory, #dle-content",
+        )?.clone()
 
-        val year = animeContent.select("p:nth-of-type(1)").text().replace("Год выхода: ", "")
-        val rating = animeContent.select(".current-rating").text().toInt()
-        val type = animeContent.select("p:nth-of-type(3)").text().replace("Тип: ", "")
-        val votes = animeContent.select("div:nth-of-type(2) span span").text().toInt()
+        // Strip DLE comment sub-trees injected after the description.
+        contentBlock?.select(
+            "#comments, .comments, .comment_list, .comment_block, " +
+                ".zcomment, #zcomment, [class*=comment], [id*=comment]",
+        )?.remove()
 
-        anime.title = document.select(".shortstory > .shortstoryHead h1").text()
+        // Thumbnail
+        val img = document.selectFirst("img[src*='/uploads/']")
+        if (img != null) {
+            val src = img.attr("src")
+            anime.thumbnail_url = if (src.startsWith("http")) src else "$baseUrl$src"
+        }
 
+        // Title
+        anime.title = document.selectFirst("h1, .title, .shortstoryHead h1")?.text() ?: document.title()
+
+        // Use only the sanitised content block — never the whole document — so that
+        // user comments cannot bleed into the description or the metadata fields.
+        val contentText = contentBlock?.text() ?: ""
+
+        // Extract fields from text
+        val yearRegex = "Год выхода:\\s*(.+?)(?=Тип:|Жанр:|$)".toRegex()
+        val genreRegex = "Жанр:\\s*(.+?)(?=Тип:|Год выхода:|$)".toRegex()
+        val typeRegex = "Тип:\\s*(.+?)(?=Жанр:|Год выхода:|$)".toRegex()
+
+        var year = ""
+        var genre = ""
+        var type = ""
+
+        yearRegex.find(contentText)?.let { year = it.groupValues[1].trim() }
+        genreRegex.find(contentText)?.let { genre = it.groupValues[1].trim() }
+        typeRegex.find(contentText)?.let { type = it.groupValues[1].trim() }
+
+        // Rating — comes from its own dedicated element, not the content block
+        val ratingText = document.selectFirst(".current-rating, .rating")?.text() ?: ""
+        val rating = try {
+            ratingText.toInt()
+        } catch (_: Exception) {
+            0
+        }
+
+        // Strip "Поле: Значение" metadata lines so they don't duplicate
+        // the structured fields already formatted by formatDescription.
+        val metaLineRegex = """[А-Яа-яЁё][А-Яа-яЁё ]+:\s*[^\n]+""".toRegex()
+        val pureDescription = contentText
+            .replace(metaLineRegex, "")
+            .replace("""\s{2,}""".toRegex(), " ")
+            .trim()
+
+        anime.genre = genre
         anime.description = formatDescription(
             AnimeDescription(
-                year,
-                type,
-                rating,
-                votes,
-                description,
+                year.ifEmpty { null },
+                type.ifEmpty { null },
+                rating.takeIf { it > 0 },
+                null,
+                pureDescription.ifEmpty { null },
             ),
         )
         return anime
@@ -127,9 +179,12 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         }
 
         if (animeData.rating != null && animeData.votes != null) {
-            val rating = 5 * animeData.rating / 100
+            val ratingValue = animeData.rating!!
+            val stars = 5 * ratingValue / 100
+            val fullStars = "★".repeat(stars)
+            val emptyStars = "☆".repeat((5 - stars).coerceAtLeast(0))
 
-            description += "Рейтинг: ${"★".repeat(rating)}${"☆".repeat((5 - rating).coerceAtLeast(0))} (Голосов: ${animeData.votes})\n"
+            description += "Рейтинг: $fullStars$emptyStars (Голосов: ${animeData.votes})\n"
         }
 
         if (animeData.type != null) {
@@ -140,7 +195,13 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
             description += "\n"
         }
 
-        description += animeData.description?.replace("<br />", "")
+        val body = animeData.description?.replace("<br />", "") ?: ""
+        val truncated = if (body.length > 300) {
+            body.take(300).trimEnd() + "...\nПолное описание можно посмотреть на сайте."
+        } else {
+            body
+        }
+        description += truncated
 
         return description
     }
@@ -195,72 +256,137 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     // Latest
 
-    override fun latestUpdatesFromElement(element: Element) = animeFromElement(element)
-
-    override fun latestUpdatesNextPageSelector() = nextPageSelector
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeList(response)
 
     override fun latestUpdatesRequest(page: Int) = animeRequest(page, SortBy.DATE)
 
-    override fun latestUpdatesSelector() = animeSelector
+    override fun latestUpdatesSelector() = "a[href*='/tip/']"
+
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
+
+    override fun latestUpdatesNextPageSelector() = nextPageSelector
 
     // Popular Anime
 
-    override fun popularAnimeFromElement(element: Element) = animeFromElement(element)
-
-    override fun popularAnimeNextPageSelector() = nextPageSelector
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
 
     override fun popularAnimeRequest(page: Int) = animeRequest(page, SortBy.RATING)
 
-    override fun popularAnimeSelector() = animeSelector
+    override fun popularAnimeSelector() = "a[href*='/tip/']"
+
+    override fun popularAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
+
+    override fun popularAnimeNextPageSelector() = nextPageSelector
 
     // Search
 
-    override fun searchAnimeFromElement(element: Element) = animeFromElement(element)
+    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimeList(response)
 
-    override fun searchAnimeNextPageSelector() = nextPageSelector
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        if (query.isNotBlank()) {
+            val searchStart = if (page <= 1) 0 else page
+            val resultFrom = (page - 1) * 10 + 1
+            val headers: Headers =
+                Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
+            val body = FormBody.Builder()
+                .add("do", "search")
+                .add("subaction", "search")
+                .add("search_start", searchStart.toString())
+                .add("full_search", "0")
+                .add("result_from", resultFrom.toString())
+                .add("story", query)
+                .build()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
-        val searchStart = if (page <= 1) 0 else page
-        val resultFrom = (page - 1) * 10 + 1
-        val headers: Headers =
-            Headers.headersOf("Content-Type", "application/x-www-form-urlencoded", "charset", "UTF-8")
-        val body = FormBody.Builder()
-            .add("do", "search")
-            .add("subaction", "search")
-            .add("search_start", searchStart.toString())
-            .add("full_search", "0")
-            .add("result_from", resultFrom.toString())
-            .add("story", query)
-            .build()
+            return POST("$baseUrl/index.php?do=search", headers, body)
+        } else {
+            var sortBy = SortBy.DATE
+            var sortDirection = SortDirection.DESC
+            var genre = "all"
 
-        POST("$baseUrl/index.php?do=search", headers, body)
-    } else {
-        var sortBy = SortBy.DATE
-        var sortDirection = SortDirection.DESC
-        var genre = "all"
-
-        filters.forEach { filter ->
-            when (filter) {
-                is GenreFilter -> {
-                    genre = filter.toString()
-                }
-
-                is SortFilter -> {
-                    if (filter.state != null) {
-                        sortBy = sortableList[filter.state!!.index].second
-
-                        sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
+            filters.forEach { filter ->
+                when (filter) {
+                    is GenreFilter -> {
+                        genre = filter.toString()
                     }
+
+                    is SortFilter -> {
+                        if (filter.state != null) {
+                            sortBy = sortableList[filter.state!!.index].second
+
+                            sortDirection = if (filter.state!!.ascending) SortDirection.ASC else SortDirection.DESC
+                        }
+                    }
+
+                    else -> {}
                 }
-
-                else -> {}
             }
-        }
 
-        animeRequest(page, sortBy, sortDirection, genre)
+            return animeRequest(page, sortBy, sortDirection, genre)
+        }
     }
 
-    override fun searchAnimeSelector() = animeSelector
+    // Required by ParsedAnimeHttpSource but unused — searchAnimeParse() is fully overridden.
+    override fun searchAnimeSelector() = throw UnsupportedOperationException()
+    override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+
+    // Common anime list parser
+    private fun parseAnimeList(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val seenUrls = mutableSetOf<String>()
+        val animes = mutableListOf<SAnime>()
+
+        // DLE cards are always div.shortstory; fall back to div.post / article if the
+        // theme uses different markup.  We deliberately avoid broad selectors like
+        // .content or div:has(...) because they match parent wrappers and cause
+        // duplicates and wrong thumbnail lookups.
+        val containers = document.select("div.shortstory, div.post, article")
+            .ifEmpty {
+                // Last-resort fallback: any div that directly wraps a /tip/ link
+                document.select("a[href*='/tip/']")
+                    .mapNotNull { it.parent() }
+                    .distinctBy { it.cssSelector() }
+            }
+
+        containers.forEach { container ->
+            // Canonical URL comes from the first /tip/ link inside the card
+            val link = container.selectFirst("a[href*='/tip/']") ?: return@forEach
+            val href = link.attr("abs:href").ifEmpty { link.attr("href") }
+            if (href.isEmpty() || !seenUrls.add(href)) return@forEach
+
+            val anime = SAnime.create()
+            anime.setUrlWithoutDomain(href)
+
+            // Title: prefer the link title-attribute or img alt (set by the site),
+            // then any heading text, then the link text itself.
+            val imgInLink = link.selectFirst("img")
+            anime.title = link.attr("title")
+                .ifEmpty { imgInLink?.attr("alt") ?: "" }
+                .ifEmpty { container.selectFirst("h1, h2, h3, h4, .shortstoryHead a, .shortstoryHead")?.text() ?: "" }
+                .ifEmpty { link.text() }
+                .ifEmpty { "No title" }
+
+            // Thumbnail: look for a poster-sized upload image in the whole card.
+            // DLE puts posters under /uploads/; we prefer that over any other img.
+            val posterImg = container.selectFirst("img[src*='/uploads/']")
+                ?: container.selectFirst("img")
+            posterImg?.let { img ->
+                val src = img.attr("src").ifEmpty { img.attr("data-src") }
+                if (src.isNotEmpty()) {
+                    anime.thumbnail_url = when {
+                        src.startsWith("http") -> src
+                        src.startsWith("/") -> baseUrl.trimEnd('/') + src
+                        else -> "${baseUrl.trimEnd('/')}/$src"
+                    }
+                }
+            }
+
+            animes.add(anime)
+        }
+
+        val hasNextPage = document.select(nextPageSelector).first() != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // Video
 
@@ -268,14 +394,14 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         val videoList = mutableListOf<Video>()
         val document = response.asJsoup()
         val html = document.html()
-        val fileData = Regex(""""file":"(.+?)"""")
+        val fileData = Regex("\"file\"\\s*:\\s*\"(.+?)\"")
             .findAll(html)
             .map { it.groupValues[1] }
             .filter { it.contains("http") }
             .maxByOrNull { it.length }
             ?: return emptyList()
 
-        val qualityPattern = """\[([^]]+)](.+?)(?=,\[|$)""".toRegex()
+        val qualityPattern = "\\[([^]]+)](.+?)(?=,\\[|\\$)".toRegex()
 
         qualityPattern.findAll(fileData).forEach { match ->
             val quality = match.groupValues[1]
