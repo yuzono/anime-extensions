@@ -925,7 +925,7 @@ class AniWave :
         //  setOnPreferenceChangeListener { _, newValue ->
         //      preferences.edit().putBoolean(key, newValue as Boolean).commit()
         //  }
-        //}.also(screen::addPreference)
+        // }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
             key = PREF_SERVER_NUMS_KEY
