@@ -57,7 +57,9 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        val episodeUrl = element.attr("href")
+        val episodeUrl = element.attr("href").let { href ->
+            if (href.startsWith("http")) href.toHttpUrl().encodedPath else href
+        }
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             setUrlWithoutDomain(episodeUrl.toSeriesUrl())
             title = element.selectFirst("img")!!.attr("alt").let { alt ->
@@ -158,7 +160,12 @@ class Hstream :
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             return doc.select("div.grid > div.relative > a[href*=/hentai/]")
                 .mapNotNull { element ->
-                    val href = element.attr("href").removePrefix(baseUrl)
+                    val rawHref = element.attr("href")
+                    val href = if (rawHref.startsWith("http")) {
+                        rawHref.toHttpUrl().encodedPath
+                    } else {
+                        rawHref
+                    }
                     val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(1)
                         ?: return@mapNotNull null
                     SEpisode.create().apply {
