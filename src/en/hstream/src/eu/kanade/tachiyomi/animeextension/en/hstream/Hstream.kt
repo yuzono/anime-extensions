@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
@@ -46,7 +47,7 @@ class Hstream :
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
-    override val versionId = 2
+    override val versionId = 3
 
     private val preferences by getPreferencesLazy()
 
@@ -56,10 +57,19 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("img")!!.attr("alt")
-        val episode = url.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        val episodeUrl = element.attr("href")
+        if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            setUrlWithoutDomain(episodeUrl.toSeriesUrl())
+            title = element.selectFirst("img")!!.attr("alt").let { alt ->
+                REGEX_EPISODE_SUFFIX.replace(alt) { "" }
+            }
+            thumbnail_url = "$baseUrl/images$url/cover-ep-1.webp"
+        } else {
+            setUrlWithoutDomain(episodeUrl)
+            title = element.selectFirst("img")!!.attr("alt")
+            val episode = url.substringAfterLast("-").substringBefore("/")
+            thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        }
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
@@ -78,7 +88,12 @@ class Hstream :
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
         val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/hentai/$id"))
+        val url = if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            "$baseUrl/hentai/${id.toSeriesSlug()}"
+        } else {
+            "$baseUrl/hentai/$id"
+        }
+        client.newCall(GET(url))
             .awaitSuccess()
             .use(::searchAnimeByIdParse)
     } else {
@@ -131,6 +146,24 @@ class Hstream :
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
+
+        if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            return doc.select("div.grid > div.relative > a[href*=/hentai/]")
+                .mapNotNull { element ->
+                    val href = element.attr("href")
+                    val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(1)
+                        ?: return@mapNotNull null
+                    SEpisode.create().apply {
+                        setUrlWithoutDomain(href)
+                        episode_number = epNum.toFloatOrNull() ?: 1F
+                        name = "Episode $epNum"
+                        date_upload = 0L
+                    }
+                }
+                .sortedByDescending { it.episode_number }
+        }
+
+        // Original behavior: single episode from the page
         val episode = SEpisode.create().apply {
             date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
             setUrlWithoutDomain(doc.location())
@@ -203,6 +236,13 @@ class Hstream :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addSwitchPreference(
+            key = PREF_GROUP_BY_SERIES_KEY,
+            default = PREF_GROUP_BY_SERIES_DEFAULT,
+            title = PREF_GROUP_BY_SERIES_TITLE,
+            summary = PREF_GROUP_BY_SERIES_SUMMARY,
+        )
+
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = PREF_QUALITY_TITLE
@@ -221,6 +261,17 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
+
+    /** Strips the trailing episode number from a URL path, converting an episode URL to a series URL.
+     * e.g. "/hentai/slug-name-1" -> "/hentai/slug-name"
+     */
+    private fun String.toSeriesUrl(): String = REGEX_TRAILING_EP_NUM.replace(this) { it.groupValues[1] }
+
+    /** Strips the trailing episode number from a slug (no leading path).
+     * e.g. "slug-name-1" -> "slug-name"
+     */
+    private fun String.toSeriesSlug(): String = REGEX_TRAILING_EP_NUM.replace(this) { it.groupValues[1] }
+
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
 
@@ -238,6 +289,17 @@ class Hstream :
         }
 
         const val PREFIX_SEARCH = "id:"
+
+        /** Matches the trailing "-N" where N is a numeric episode number at the end of a string. */
+        private val REGEX_TRAILING_EP_NUM = Regex("^(.+)-(\\d+)$")
+
+        /** Matches " - N" suffix in img alt text where N is the episode number. */
+        private val REGEX_EPISODE_SUFFIX = Regex("\\s*-\\s*\\d+$")
+
+        private const val PREF_GROUP_BY_SERIES_KEY = "pref_group_by_series_key"
+        private const val PREF_GROUP_BY_SERIES_TITLE = "Group by series"
+        private const val PREF_GROUP_BY_SERIES_SUMMARY = "Merge episodes of the same series into a single entry"
+        private const val PREF_GROUP_BY_SERIES_DEFAULT = true
 
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
