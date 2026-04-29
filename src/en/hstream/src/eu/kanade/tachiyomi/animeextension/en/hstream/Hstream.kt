@@ -133,9 +133,17 @@ class Hstream :
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = SAnime.COMPLETED
 
-        val floatleft = document.selectFirst("div.relative > div.justify-between > div")!!
-        title = floatleft.selectFirst("div > h1")!!.text()
-        artist = floatleft.select("div > a:nth-of-type(3)").text()
+        val detailsSection = document.selectFirst("div.relative > div.justify-between > div")
+        if (detailsSection != null) {
+            // Episode page: h1 is inside div.justify-between > div
+            title = detailsSection.selectFirst("div > h1")!!.text()
+            artist = detailsSection.select("div > a:nth-of-type(3)").text()
+        } else {
+            // Series page: h1 is a direct child of div.relative
+            title = document.selectFirst("div.relative > h1")?.text()
+                ?: document.selectFirst("h1")!!.text()
+            artist = ""
+        }
 
         thumbnail_url = document.selectFirst("div.float-left > img.object-cover")?.absUrl("src")
         genre = document.select("ul.list-none > li > a").eachText().joinToString()
@@ -150,7 +158,7 @@ class Hstream :
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             return doc.select("div.grid > div.relative > a[href*=/hentai/]")
                 .mapNotNull { element ->
-                    val href = element.attr("href")
+                    val href = element.attr("href").removePrefix(baseUrl)
                     val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(1)
                         ?: return@mapNotNull null
                     SEpisode.create().apply {
