@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
 import android.app.Application
+import android.text.InputType
 import android.util.Log
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -16,6 +16,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +28,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -39,8 +43,14 @@ class Hanime :
 
     override val baseUrl = "https://hanime.tv"
 
-    /** CDN base URL for manifest and search API requests. */
-    private val cdnBaseUrl = "https://cached.freeanimehentai.net"
+    /** Default CDN base URL for manifest and search API requests. */
+    private val defaultCdnBaseUrl = DEFAULT_CDN_BASE_URL
+
+    /** CDN base URL — uses custom domain if set and valid, otherwise the default. */
+    private val cdnBaseUrl: String
+        get() = preferences.getString(PREF_CUSTOM_CDN_KEY, PREF_CUSTOM_CDN_DEFAULT)
+            ?.takeIf { it.isNotBlank() && it.toHttpUrlOrNull() != null }
+            ?: defaultCdnBaseUrl
 
     override val lang = "en"
 
@@ -142,8 +152,11 @@ class Hanime :
     @Volatile
     private var cachedSearchHitsTimestamp: Long = 0L
 
-    /** Maximum age of cached search hits before refetching (10 minutes). */
-    private val searchHitsTtlMs = 10 * 60 * 1000L
+    /** Maximum age of cached search hits before refetching (based on preference, default 10 minutes). */
+    private val searchHitsTtlMs: Long
+        get() = preferences.getString(PREF_CACHE_TTL_KEY, PREF_CACHE_TTL_DEFAULT)
+            ?.toLongOrNull()?.times(60 * 1000L)
+            ?: (10L * 60 * 1000L)
 
     /** Mutex to prevent concurrent search cache refreshes. */
     private val searchCacheMutex = Mutex()
@@ -154,10 +167,12 @@ class Hanime :
      * filtering are handled client-side.
      */
     private suspend fun fetchSearchHits(): List<HitsModel> {
+        val ttlMs = searchHitsTtlMs
+
         // Fast path: check cache without lock
         val now = System.currentTimeMillis()
         val cached = cachedSearchHits
-        if (cached != null && now - cachedSearchHitsTimestamp < searchHitsTtlMs) {
+        if (cached != null && now - cachedSearchHitsTimestamp < ttlMs) {
             return cached
         }
 
@@ -166,7 +181,7 @@ class Hanime :
             // Re-check cache after acquiring lock (another thread may have fetched)
             val nowLocked = System.currentTimeMillis()
             val cachedLocked = cachedSearchHits
-            if (cachedLocked != null && nowLocked - cachedSearchHitsTimestamp < searchHitsTtlMs) {
+            if (cachedLocked != null && nowLocked - cachedSearchHitsTimestamp < ttlMs) {
                 cachedLocked
             } else {
                 val signature = ensureSignatureProvider().getSignature()
@@ -176,7 +191,7 @@ class Hanime :
                     }
                 }.build()
 
-                val response = client.newCall(GET(SEARCH_API_URL, searchHeaders)).await()
+                val response = client.newCall(GET("$cdnBaseUrl/api/v10/search_hvs", searchHeaders)).await()
                 val result = response.use { resp ->
                     val jsonLine = resp.body.string()
                     if (jsonLine.isEmpty()) {
@@ -310,6 +325,14 @@ class Hanime :
             filtered = filtered.filterNot { hit ->
                 lowerBlacklist.any { tag -> hit.tags.any { it.lowercase(Locale.US) == tag } }
             }
+        }
+
+        // Censored content filter
+        val censoredFilter = preferences.getString(PREF_CENSORED_KEY, PREF_CENSORED_DEFAULT) ?: PREF_CENSORED_DEFAULT
+        filtered = when (censoredFilter) {
+            "uncensored" -> filtered.filter { it.isCensored != true } // != true includes null/unknown items as potentially uncensored
+            "censored" -> filtered.filter { it.isCensored == true }
+            else -> filtered
         }
 
         // Apply brand filter
@@ -447,6 +470,7 @@ class Hanime :
      * when the CDN manifest endpoint fails (e.g. for non-premium multi-episode content).
      */
     private suspend fun parseVideoModelStreamsUnfiltered(videoModel: VideoModel): List<Video> {
+        // Note: Premium filter not applied here — fallback path intentionally includes all available streams for reliability
         val servers = videoModel.videosManifest?.servers ?: return emptyList()
         val playerHeaders = playerVideoHeaders()
 
@@ -585,7 +609,8 @@ class Hanime :
         val servers = manifestData.videosManifest.servers
 
         return servers.flatMap { server ->
-            val guestStreams = server.streams.filter { it.isGuestAllowed == true && it.url.contains(".m3u8") }
+            val includePremium = preferences.getBoolean(PREF_PREMIUM_STREAMS_KEY, PREF_PREMIUM_STREAMS_DEFAULT)
+            val guestStreams = server.streams.filter { (it.isGuestAllowed == true || (includePremium && it.isMemberAllowed == true)) && it.url.contains(".m3u8") }
             guestStreams.flatMap { stream ->
                 try {
                     playlistUtils.extractFromHls(
@@ -1049,7 +1074,7 @@ class Hanime :
 
     companion object {
         private const val TAG = "Hanime"
-        private const val SEARCH_API_URL = "https://cached.freeanimehentai.net/api/v10/search_hvs"
+        private const val DEFAULT_CDN_BASE_URL = "https://cached.freeanimehentai.net"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
@@ -1058,47 +1083,85 @@ class Hanime :
         private const val PREF_SIG_PROVIDER_KEY = "signature_provider"
         private const val PREF_SIG_PROVIDER_DEFAULT = "native"
         private val SIG_PROVIDER_LIST = arrayOf("native", "webview", "wasm")
+
+        private const val PREF_CENSORED_KEY = "censored_filter"
+        private const val PREF_CENSORED_DEFAULT = "all"
+        private val CENSORED_LIST = arrayOf("all", "uncensored", "censored")
+
+        private const val PREF_PREMIUM_STREAMS_KEY = "premium_streams"
+        private const val PREF_PREMIUM_STREAMS_DEFAULT = false
+
+        private const val PREF_CACHE_TTL_KEY = "cache_duration"
+        private const val PREF_CACHE_TTL_DEFAULT = "10"
+        private val CACHE_TTL_LIST = arrayOf("1", "5", "10", "30")
+
+        private const val PREF_CUSTOM_CDN_KEY = "custom_cdn"
+        private const val PREF_CUSTOM_CDN_DEFAULT = ""
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
+        // Preferred Quality
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST.toList(),
+            entryValues = QUALITY_LIST.toList(),
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-                true
-            }
+        // Signature Provider
+        screen.addListPreference(
+            key = PREF_SIG_PROVIDER_KEY,
+            title = "Signature provider",
+            entries = listOf("Direct SHA-256 computation (Recommended)", "WebView", "Chicory WASM Runtime (Experimental)"),
+            entryValues = SIG_PROVIDER_LIST.toList(),
+            default = PREF_SIG_PROVIDER_DEFAULT,
+            summary = "%s",
+        ) { _ ->
+            signatureProvider?.close()
+            signatureProvider = null
+            signatureProviderMode = null
         }
-        screen.addPreference(videoQualityPref)
 
-        val sigProviderPref = ListPreference(screen.context).apply {
-            key = PREF_SIG_PROVIDER_KEY
-            title = "Signature provider"
-            entries = arrayOf("Direct SHA-256 computation (Recommended)", "WebView", "Chicory WASM Runtime (Experimental)")
-            entryValues = SIG_PROVIDER_LIST
-            setDefaultValue(PREF_SIG_PROVIDER_DEFAULT)
-            summary = "%s"
+        // Censored Content Filter
+        screen.addListPreference(
+            key = PREF_CENSORED_KEY,
+            title = "Censored content filter",
+            entries = listOf("Show All", "Uncensored Only", "Censored Only"),
+            entryValues = CENSORED_LIST.toList(),
+            default = PREF_CENSORED_DEFAULT,
+            summary = "%s",
+        )
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-                // Force provider recreation on next access with the new preference
-                signatureProvider?.close()
-                signatureProvider = null
-                signatureProviderMode = null
-                true
-            }
-        }
-        screen.addPreference(sigProviderPref)
+        // Premium Streams Toggle
+        screen.addSwitchPreference(
+            key = PREF_PREMIUM_STREAMS_KEY,
+            title = "Include premium streams",
+            summary = "Show streams that require a premium account. These will fail to play without a premium login cookie.",
+            default = PREF_PREMIUM_STREAMS_DEFAULT,
+        )
+
+        // Search Cache Duration
+        screen.addListPreference(
+            key = PREF_CACHE_TTL_KEY,
+            title = "Search cache duration",
+            entries = listOf("1 minute", "5 minutes", "10 minutes", "30 minutes"),
+            entryValues = CACHE_TTL_LIST.toList(),
+            default = PREF_CACHE_TTL_DEFAULT,
+            summary = "%s",
+        )
+
+        // Custom CDN Domain
+        screen.addEditTextPreference(
+            key = PREF_CUSTOM_CDN_KEY,
+            default = PREF_CUSTOM_CDN_DEFAULT,
+            title = "Custom CDN domain",
+            summary = "Leave empty for default: $DEFAULT_CDN_BASE_URL",
+            dialogMessage = "Enter custom CDN domain URL (leave empty for default: $DEFAULT_CDN_BASE_URL)",
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
+            validate = { it.isBlank() || it.toHttpUrlOrNull() != null },
+            validationMessage = { "Must be a valid HTTP/HTTPS URL or empty" },
+        )
     }
 }
