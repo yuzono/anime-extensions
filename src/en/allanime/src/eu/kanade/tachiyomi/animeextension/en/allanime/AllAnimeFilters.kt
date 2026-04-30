@@ -110,7 +110,7 @@ object AllAnimeFilters {
 
         // current year, but not less than 2026
         private val currentYear = Calendar.getInstance().get(Calendar.YEAR).coerceAtLeast(2026)
-        val YEARS = arrayOf(ALL) + (currentYear downTo 1975)
+        val YEARS = arrayOf(ALL) + (currentYear + 1 downTo 1975)
             .map { Pair(it.toString(), it.toString()) }
             .toTypedArray()
 
