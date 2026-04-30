@@ -41,10 +41,9 @@ class AniWave :
 
     override val name = "AniWave (Unofficial)"
 
-    override val baseUrl by lazy {
-        preferences.getString(PREF_CUSTOM_DOMAIN_KEY, null)?.takeIf { it.isNotBlank() }
+    override val baseUrl: String
+        get() = preferences.getString(PREF_CUSTOM_DOMAIN_KEY, null)?.takeIf { it.isNotBlank() }
             ?: preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-    }
 
     override val lang = "en"
     override val supportsLatest = true
@@ -863,9 +862,8 @@ class AniWave :
             entryValues = BASE_URLS
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
-            setOnPreferenceChangeListener { _, _ ->
-                Toast.makeText(screen.context, "Restart App to apply changes", Toast.LENGTH_LONG).show()
-                true
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
             }
         }.also(screen::addPreference)
 
