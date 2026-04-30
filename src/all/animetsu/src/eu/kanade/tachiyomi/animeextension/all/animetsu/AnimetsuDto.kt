@@ -17,6 +17,13 @@ data class AnimetsuSearchDto(
 )
 
 @Serializable
+data class AnimetsuRecentDto(
+    val results: List<AnimetsuAnimeDto>,
+    @SerialName("current_page") val currentPage: Int,
+    @SerialName("last_page") val lastPage: Int,
+)
+
+@Serializable
 data class AnimetsuAnimeDto(
     val id: String,
     val type: String? = null,
@@ -64,13 +71,6 @@ data class AnimetsuTitleDto(
     val romaji: String? = null,
     val english: String? = null,
     val native: String? = null,
-)
-
-@Serializable
-data class AnimetsuRecentDto(
-    val results: List<AnimetsuAnimeDto>,
-    @SerialName("current_page") val currentPage: Int,
-    @SerialName("last_page") val lastPage: Int,
 )
 
 @Serializable

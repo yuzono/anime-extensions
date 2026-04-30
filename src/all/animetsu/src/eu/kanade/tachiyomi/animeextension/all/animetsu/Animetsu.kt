@@ -18,6 +18,7 @@ import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
@@ -88,13 +89,7 @@ class Animetsu :
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/anime/search/?sort=popularity&page=$page&per_page=35", apiHeaders())
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val dto = response.parseAs<AnimetsuSearchDto>()
-        val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.map { it.toSAnime() }
-
-        return AnimesPage(animes, dto.page < dto.lastPage)
-    }
+    override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = GET("$apiUrl/anime/recent?page=$page&per_page=35", apiHeaders())
@@ -117,22 +112,36 @@ class Animetsu :
 
             if (query.isNotBlank()) addQueryParameter("query", query)
 
-            filters.filterIsInstance<AnimetsuFilters.SortFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("sort", it) }
-            filters.filterIsInstance<AnimetsuFilters.FormatFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("format", it) }
-            filters.filterIsInstance<AnimetsuFilters.StatusFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("status", it) }
-            filters.filterIsInstance<AnimetsuFilters.SeasonFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("season", it) }
-            filters.filterIsInstance<AnimetsuFilters.YearFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("year", it) }
-            filters.filterIsInstance<AnimetsuFilters.CountryFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("country", it) }
-            filters.filterIsInstance<AnimetsuFilters.SourceFilter>().firstOrNull()?.getValue()?.let { addQueryParameter("source", it) }
-
-            filters.filterIsInstance<AnimetsuFilters.GenreFilter>().firstOrNull()?.getSelectedValues()?.takeIf { it.isNotEmpty() }?.let { addQueryParameter("genres", it) }
-            filters.filterIsInstance<AnimetsuFilters.TagFilter>().firstOrNull()?.getSelectedValues()?.takeIf { it.isNotEmpty() }?.let { addQueryParameter("tags", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.SortFilter>()?.getValue()
+                ?.let { addQueryParameter("sort", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.FormatFilter>()?.getValue()
+                ?.let { addQueryParameter("format", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.StatusFilter>()?.getValue()
+                ?.let { addQueryParameter("status", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.SeasonFilter>()?.getValue()
+                ?.let { addQueryParameter("season", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.YearFilter>()?.getValue()
+                ?.let { addQueryParameter("year", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.CountryFilter>()?.getValue()
+                ?.let { addQueryParameter("country", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.SourceFilter>()?.getValue()
+                ?.let { addQueryParameter("source", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.GenreFilter>()?.getSelectedValues()?.takeIf(String::isNotBlank)
+                ?.let { addQueryParameter("genres", it) }
+            filters.firstInstanceOrNull<AnimetsuFilters.TagFilter>()?.getSelectedValues()?.takeIf(String::isNotBlank)
+                ?.let { addQueryParameter("tags", it) }
         }
 
         return GET(urlBuilder.build(), apiHeaders())
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val dto = response.parseAs<AnimetsuSearchDto>()
+        val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
+        val animes = filteredResults.map { it.toSAnime() }
+
+        return AnimesPage(animes, dto.page < dto.lastPage)
+    }
 
     // =========================== Anime Details ============================
 
@@ -225,10 +234,10 @@ class Animetsu :
 
         val servers = allServers
             .filter { server -> server.id in enabledServers }
-            .sortedByDescending { server -> server.id == preferredServer.takeIf { pref -> pref != "none" } }
+            .sortedByDescending { server -> server.id == preferredServer }
 
         val sortedAudioTypes = enabledAudioTypes
-            .sortedByDescending { type -> type == preferredAudioType.takeIf { pref -> pref != "none" } }
+            .sortedByDescending { type -> type == preferredAudioType }
 
         val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
 
@@ -417,10 +426,12 @@ class Animetsu :
             "english" -> dto.title?.english
             "native" -> dto.title?.native
             else -> dto.title?.romaji
-        }?.takeIf { it.isNotBlank() }
-            ?: dto.title?.romaji
-            ?: dto.title?.english
-            ?: "Unknown Title"
+        }?.takeIf(String::isNotBlank)
+            ?: listOfNotNull(
+                dto.title?.romaji?.takeIf(String::isNotBlank),
+                dto.title?.english?.takeIf(String::isNotBlank),
+                dto.title?.native?.takeIf(String::isNotBlank),
+            ).firstOrNull()!!
 
         thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
         genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString(", ")
