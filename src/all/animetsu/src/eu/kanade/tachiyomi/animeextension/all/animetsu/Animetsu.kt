@@ -20,7 +20,7 @@ import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -156,47 +156,39 @@ class Animetsu :
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val dto = response.parseAs<AnimetsuAnimeDto>()
 
-        fun getTitle(titleDto: AnimetsuTitleDto?): String? = when (titleLanguage) {
-            "english" -> titleDto?.english
-            "native" -> titleDto?.native
-            else -> titleDto?.romaji
-        }?.takeIf { it.isNotBlank() }
-            ?: titleDto?.romaji
-            ?: titleDto?.english
-
         return buildList {
             dto.seasons?.mapNotNull { season ->
                 if (season.id.isBlank()) return@mapNotNull null
-                val seasonTitle = getTitle(season.title) ?: return@mapNotNull null
+                val seasonTitle = season.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
                     url = season.id
                     title = seasonTitle
                     status = parseStatus(season.status)
                 }
-            }?.let { addAll(it) }
+            }?.let(::addAll)
 
             dto.relations?.mapNotNull { rel ->
                 if (rel.id.isBlank()) return@mapNotNull null
-                val relTitle = getTitle(rel.title) ?: return@mapNotNull null
+                val relTitle = rel.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
                     url = rel.id
                     title = relTitle
                     status = parseStatus(rel.status)
                 }
-            }?.let { addAll(it) }
+            }?.let(::addAll)
 
             dto.recommendations?.mapNotNull { rec ->
                 if (rec.id.isBlank()) return@mapNotNull null
-                val recTitle = getTitle(rec.title) ?: return@mapNotNull null
+                val recTitle = rec.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
                     url = rec.id
                     title = recTitle
                     status = parseStatus(rec.status)
                 }
-            }?.let { addAll(it) }
+            }?.let(::addAll)
         }
     }
 
@@ -216,7 +208,6 @@ class Animetsu :
     }
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
@@ -241,14 +232,14 @@ class Animetsu :
 
         val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
 
-        return servers.parallelCatchingFlatMapBlocking { server ->
+        return servers.parallelCatchingFlatMap { server ->
             buildList {
                 for (sourceType in sortedAudioTypes) {
                     try {
                         val audioLabel = sourceType.uppercase()
                         val sourceResponse = client.newCall(
                             GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
-                        ).execute()
+                        ).awaitSuccess()
 
                         val dto = sourceResponse.parseAs<AnimetsuVideoDto>()
                         val subtitleTracks = dto.subs?.map { sub ->
@@ -321,13 +312,12 @@ class Animetsu :
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
-
     override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferredQuality
-        val server = preferredServer.takeIf { it != "none" }?.uppercase() ?: ""
-        val type = preferredAudioType.takeIf { it != "none" }?.uppercase() ?: ""
+        val server = preferredServer
+        val type = preferredAudioType
         val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
 
         return sortedWith(

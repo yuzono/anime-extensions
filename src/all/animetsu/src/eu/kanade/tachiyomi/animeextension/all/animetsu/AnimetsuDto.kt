@@ -70,17 +70,7 @@ data class AnimetsuAnimeDto(
     fun toSAnime(titleLanguage: String) = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
-        title = when (titleLanguage) {
-            "english" -> dto.title?.english
-            "native" -> dto.title?.native
-            else -> dto.title?.romaji
-        }?.takeIf(String::isNotBlank)
-            ?: listOfNotNull(
-                dto.title?.romaji?.takeIf(String::isNotBlank),
-                dto.title?.english?.takeIf(String::isNotBlank),
-                dto.title?.native?.takeIf(String::isNotBlank),
-            ).firstOrNull()!!
-
+        title = dto.title?.preferredTitle(titleLanguage)!!
         thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
         genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString()
         status = parseStatus(dto.status)
@@ -185,7 +175,7 @@ data class AnimetsuAnimeDto(
                         append(y)
                     }
                 }
-                desc.append("\n• $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
+                desc.append("\n* $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
             }
         }
 
@@ -194,7 +184,7 @@ data class AnimetsuAnimeDto(
             desc.append("**Main Characters**:")
             chars.forEach { char ->
                 val va = char.voiceActor?.let { "${it.name} (${it.language})" } ?: "Unknown"
-                desc.append("\n• ${char.name} (VA: $va)")
+                desc.append("\n* ${char.name} (VA: $va)")
             }
         }
 
@@ -202,7 +192,7 @@ data class AnimetsuAnimeDto(
             if (desc.isNotBlank()) desc.append("\n\n")
             desc.append("**Staff**:")
             staffList.forEach { s ->
-                desc.append("\n• ${s.role}: ${s.name}")
+                desc.append("\n* ${s.role}: ${s.name}")
             }
         }
 
@@ -245,7 +235,18 @@ data class AnimetsuTitleDto(
     val romaji: String? = null,
     val english: String? = null,
     val native: String? = null,
-)
+) {
+    fun preferredTitle(language: String): String? = when (language) {
+        "english" -> english
+        "native" -> native
+        else -> romaji
+    }?.takeIf(String::isNotBlank)
+        ?: listOfNotNull(
+            romaji,
+            english,
+            native,
+        ).firstOrNull(String::isNotBlank)
+}
 
 @Serializable
 data class AnimetsuCoverDto(
