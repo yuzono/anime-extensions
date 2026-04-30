@@ -59,7 +59,6 @@ object AllAnimeFilters {
         )
 
     val FILTER_LIST get() = AnimeFilterList(
-        TrackFilter(),
         OriginFilter(),
         SeasonFilter(),
         ReleaseYearFilter(),
@@ -82,7 +81,6 @@ object AllAnimeFilters {
         if (filters.isEmpty()) return FilterSearchParams()
 
         return FilterSearchParams(
-            filters.asQueryPart<TrackFilter>(),
             filters.asQueryPart<OriginFilter>(),
             filters.asQueryPart<SeasonFilter>(),
             filters.asQueryPart<ReleaseYearFilter>(),

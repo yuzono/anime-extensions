@@ -139,7 +139,6 @@ class AllAnime :
                 }
                 put("limit", PAGE_SIZE)
                 put("page", page)
-                put("translationType", translationType)
                 put("countryOrigin", filters.origin)
             }
             put("query", SEARCH_QUERY)
