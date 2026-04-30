@@ -166,7 +166,7 @@ class Hstream :
                     } else {
                         rawHref
                     }
-                    val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(1)
+                    val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(2)
                         ?: return@mapNotNull null
                     SEpisode.create().apply {
                         setUrlWithoutDomain(href)
