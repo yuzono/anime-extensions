@@ -41,7 +41,6 @@ object AllAnimeFilters {
             }
         }
 
-    class TrackFilter : QueryPartFilter("Tracks", AllAnimeFiltersData.TRACKS)
     class OriginFilter : QueryPartFilter("Origin", AllAnimeFiltersData.ORIGIN)
     class SeasonFilter : QueryPartFilter("Season", AllAnimeFiltersData.SEASONS)
     class ReleaseYearFilter : QueryPartFilter("Released at", AllAnimeFiltersData.YEARS)
@@ -71,7 +70,6 @@ object AllAnimeFilters {
     )
 
     data class FilterSearchParams(
-        val tracks: String = "",
         val origin: String = "",
         val season: String = "",
         val releaseYear: String = "",
@@ -96,11 +94,6 @@ object AllAnimeFilters {
 
     private object AllAnimeFiltersData {
         val ALL = Pair("All", "all")
-
-        val TRACKS = arrayOf(
-            Pair("Sub", "sub"),
-            Pair("Dub", "dub"),
-        )
 
         val ORIGIN = arrayOf(
             Pair("All", "ALL"),
