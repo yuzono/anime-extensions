@@ -97,7 +97,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.map { it.toSAnime() }
+        val animes = filteredResults.map { it.toSAnime(titleLanguage) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -138,7 +138,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.map { it.toSAnime() }
+        val animes = filteredResults.map { it.toSAnime(titleLanguage) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -149,7 +149,7 @@ class Animetsu :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/info/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime()
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(titleLanguage)
 
     // ============================== Related ===============================
 
@@ -412,171 +412,6 @@ class Animetsu :
     }
 
     // ============================= Utilities ==============================
-    private fun parseStatus(status: String?): Int = when (status) {
-        "RELEASING" -> SAnime.ONGOING
-        "FINISHED" -> SAnime.COMPLETED
-        "NOT_YET_RELEASED" -> SAnime.UNKNOWN
-        else -> SAnime.UNKNOWN
-    }
-
-    private fun AnimetsuAnimeDto.toSAnime() = SAnime.create().apply {
-        val dto = this@toSAnime
-        url = dto.id
-        title = when (titleLanguage) {
-            "english" -> dto.title?.english
-            "native" -> dto.title?.native
-            else -> dto.title?.romaji
-        }?.takeIf(String::isNotBlank)
-            ?: listOfNotNull(
-                dto.title?.romaji?.takeIf(String::isNotBlank),
-                dto.title?.english?.takeIf(String::isNotBlank),
-                dto.title?.native?.takeIf(String::isNotBlank),
-            ).firstOrNull()!!
-
-        thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
-        genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString(", ")
-        status = parseStatus(dto.status)
-        description = buildDescription(dto)
-        artist = dto.staff?.filter {
-            it.role in listOf("Original Story", "Original Creator", "Original Character Design")
-        }?.mapNotNull { it.name }?.joinToString(", ") ?: ""
-        author = dto.studios?.firstOrNull { it.isMain }?.name ?: ""
-    }
-
-    private fun buildDescription(dto: AnimetsuAnimeDto): String {
-        val desc = StringBuilder()
-
-        dto.description?.cleanHtml()?.let {
-            desc.append(it)
-        }
-
-        val meta = mutableListOf<String>()
-        dto.format?.let { meta.add(it.replace("_", " ").titleCase()) }
-        dto.source?.let { meta.add("Source: ${it.replace("_", " ").titleCase()}") }
-        dto.status?.let {
-            val statusStr = when (it) {
-                "RELEASING" -> "Airing"
-                "FINISHED" -> "Finished"
-                "NOT_YET_RELEASED" -> "Upcoming"
-                "CANCELLED" -> "Cancelled"
-                else -> it.replace("_", " ").titleCase()
-            }
-            meta.add(statusStr)
-        }
-        dto.totalEps?.let { meta.add("Episodes: $it") }
-        dto.duration?.let { meta.add("Duration: $it min") }
-        dto.season?.let { season ->
-            val year = dto.year
-            meta.add(if (year != null) "${season.titleCase()} $year" else season.titleCase())
-        }
-        dto.country?.let { meta.add("Country: $it") }
-        if (meta.isNotEmpty()) {
-            desc.append("\n\n").append(meta.joinToString(" | "))
-        }
-
-        val dates = mutableListOf<String>()
-        dto.startDate?.let { dates.add("Start: $it") }
-        dto.endDate?.let { dates.add("End: $it") }
-        if (dates.isNotEmpty()) {
-            desc.append("\n\n").append(dates.joinToString(" | "))
-        }
-
-        dto.averageScore?.let { score ->
-            desc.append("\n\nScore: $score/100")
-            dto.meanScore?.takeIf { it != score }?.let { mean ->
-                desc.append(" (Mean: $mean/100)")
-            }
-        }
-
-        val stats = mutableListOf<String>()
-        dto.popularity?.let { stats.add("Popularity: $it") }
-        dto.favourites?.let { stats.add("Favourites: $it") }
-        dto.trending?.let { if (it > 0) stats.add("Trending: $it") }
-        if (stats.isNotEmpty()) {
-            desc.append("\n").append(stats.joinToString(" | "))
-        }
-
-        dto.studios?.takeIf { it.isNotEmpty() }?.let { studios ->
-            val mainStudio = studios.firstOrNull { it.isMain }?.name
-            val otherStudios = studios.filter { !it.isMain }.map { it.name }
-            desc.append("\n\nStudio: ")
-            if (mainStudio != null && otherStudios.isNotEmpty()) {
-                desc.append("$mainStudio (${otherStudios.joinToString(", ")})")
-            } else {
-                desc.append(studios.joinToString(", ") { it.name })
-            }
-        }
-
-        dto.synonyms?.takeIf { it.isNotEmpty() }?.let {
-            desc.append("\n\nSynonyms: ").append(it.joinToString(", "))
-        }
-
-        dto.hashtag?.takeIf { it.isNotBlank() }?.let {
-            desc.append("\nHashtag: $it")
-        }
-
-        val ids = mutableListOf<String>()
-        dto.anilistId?.let { ids.add("AniList: $it") }
-        dto.malId?.let { ids.add("MAL: $it") }
-        if (ids.isNotEmpty()) {
-            desc.append("\n\n").append(ids.joinToString(" | "))
-        }
-
-        dto.relations?.takeIf { it.isNotEmpty() }?.let { relations ->
-            desc.append("\n\nRelations:")
-            relations.forEach { rel ->
-                val relTitle = rel.title?.english ?: rel.title?.romaji ?: rel.title?.native ?: "Unknown"
-                val relType = rel.relationType?.replace("_", " ")?.titleCase() ?: ""
-                val relFormat = rel.format?.replace("_", " ")?.titleCase() ?: ""
-                val relSeasonYear = buildString {
-                    rel.season?.let { append(it.titleCase()) }
-                    rel.year?.let { y ->
-                        if (isNotEmpty()) append(" ")
-                        append(y)
-                    }
-                }
-                desc.append("\n• $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
-            }
-        }
-
-        dto.characters?.filter { it.role == "MAIN" }?.takeIf { it.isNotEmpty() }?.let { chars ->
-            desc.append("\n\nMain Characters:")
-            chars.forEach { char ->
-                val va = char.voiceActor?.let { "${it.name} (${it.language})" } ?: "Unknown"
-                desc.append("\n• ${char.name} (VA: $va)")
-            }
-        }
-
-        dto.staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
-            desc.append("\n\nStaff:")
-            staffList.forEach { s ->
-                desc.append("\n• ${s.role}: ${s.name}")
-            }
-        }
-
-        dto.trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
-            desc.append("\n\nTrailer: https://www.youtube.com/watch?v=$it")
-        }
-
-        return desc.toString().trim()
-    }
-
-    private fun String.cleanHtml(): String = this
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<BR>", "\n")
-        .replace("<BR/>", "\n")
-        .replace("<i>", "")
-        .replace("</i>", "")
-        .replace("<b>", "")
-        .replace("</b>", "")
-        .replace("<em>", "")
-        .replace("</em>", "")
-        .trim()
-
-    private fun String.titleCase(): String = split(" ").joinToString(" ") { word ->
-        word.lowercase().replaceFirstChar { it.uppercase() }
-    }
 
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
@@ -614,5 +449,12 @@ class Animetsu :
 
         private const val PREF_HIDE_ADULT_KEY = "hide_adult_content"
         private const val PREF_HIDE_ADULT_DEFAULT = true
+
+        fun parseStatus(status: String?): Int = when (status) {
+            "RELEASING" -> SAnime.ONGOING
+            "FINISHED" -> SAnime.COMPLETED
+            "NOT_YET_RELEASED" -> SAnime.UNKNOWN
+            else -> SAnime.UNKNOWN
+        }
     }
 }

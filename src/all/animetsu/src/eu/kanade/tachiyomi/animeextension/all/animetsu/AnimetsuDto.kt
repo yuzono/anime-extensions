@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
+import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.parseStatus
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.tryParse
 import kotlinx.serialization.SerialName
@@ -64,7 +66,179 @@ data class AnimetsuAnimeDto(
     val color: String? = null,
     @SerialName("clear_logo") val clearLogo: String? = null,
     val users: Int? = null,
-)
+) {
+    fun toSAnime(titleLanguage: String) = SAnime.create().apply {
+        val dto = this@AnimetsuAnimeDto
+        url = dto.id
+        title = when (titleLanguage) {
+            "english" -> dto.title?.english
+            "native" -> dto.title?.native
+            else -> dto.title?.romaji
+        }?.takeIf(String::isNotBlank)
+            ?: listOfNotNull(
+                dto.title?.romaji?.takeIf(String::isNotBlank),
+                dto.title?.english?.takeIf(String::isNotBlank),
+                dto.title?.native?.takeIf(String::isNotBlank),
+            ).firstOrNull()!!
+
+        thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
+        genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString()
+        status = parseStatus(dto.status)
+        description = dto.buildDescription()
+        artist = dto.staff?.filter {
+            it.role in listOf("Original Story", "Original Creator", "Original Character Design")
+        }?.mapNotNull { it.name }?.joinToString()
+        author = dto.studios?.firstOrNull { it.isMain }?.name
+            ?: dto.studios?.joinToString { it.name }
+    }
+
+    fun buildDescription(): String {
+        val desc = StringBuilder()
+
+        description?.cleanHtml()?.let {
+            desc.append(it)
+        }
+
+        val meta = mutableListOf<String>()
+        format?.let { meta.add(it.replace("_", " ").titleCase()) }
+        source?.let { meta.add("**Source**: ${it.replace("_", " ").titleCase()}") }
+        status?.let {
+            val statusStr = when (it) {
+                "RELEASING" -> "Airing"
+                "FINISHED" -> "Finished"
+                "NOT_YET_RELEASED" -> "Upcoming"
+                "CANCELLED" -> "Cancelled"
+                else -> it.replace("_", " ").titleCase()
+            }
+            meta.add(statusStr)
+        }
+        totalEps?.let { meta.add("**Episodes**: $it") }
+        duration?.let { meta.add("**Duration**: $it min") }
+        season?.let { season ->
+            val year = year
+            meta.add(if (year != null) "${season.titleCase()} $year" else season.titleCase())
+        }
+        country?.let { meta.add("**Country**: $it") }
+        if (meta.isNotEmpty()) {
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append(meta.joinToString(" | "))
+        }
+
+        val dates = mutableListOf<String>()
+        startDate?.let { dates.add("**Start**: $it") }
+        endDate?.let { dates.add("**End**: $it") }
+        if (dates.isNotEmpty()) {
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append(dates.joinToString(" | "))
+        }
+
+        averageScore?.let { score ->
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Score**: $score/100")
+            meanScore?.takeIf { it != score }?.let { mean ->
+                desc.append(" *(Mean: $mean/100)*")
+            }
+        }
+
+        val stats = mutableListOf<String>()
+        popularity?.let { stats.add("**Popularity**: $it") }
+        favourites?.let { stats.add("**Favourites**: $it") }
+        trending?.let { if (it > 0) stats.add("**Trending**: $it") }
+        if (stats.isNotEmpty()) {
+            if (desc.isNotBlank()) desc.append("\n")
+            desc.append(stats.joinToString(" | "))
+        }
+
+        studios?.takeIf { it.isNotEmpty() }?.let { studios ->
+            val mainStudio = studios.firstOrNull { it.isMain }?.name
+            val otherStudios = studios.filter { !it.isMain }.map { it.name }
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Studio**: ")
+            if (mainStudio != null && otherStudios.isNotEmpty()) {
+                desc.append("$mainStudio (${otherStudios.joinToString(", ")})")
+            } else {
+                desc.append(studios.joinToString(", ") { it.name })
+            }
+        }
+
+        synonyms?.takeIf { it.isNotEmpty() }?.let {
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Synonyms**: ").append(it.joinToString(", "))
+        }
+
+        hashtag?.takeIf { it.isNotBlank() }?.let {
+            if (desc.isNotBlank()) desc.append("\n")
+            desc.append("**Hashtag**: $it")
+        }
+
+        relations?.takeIf { it.isNotEmpty() }?.let { relations ->
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Relations**:")
+            relations.forEach { rel ->
+                val relTitle = rel.title?.english ?: rel.title?.romaji ?: rel.title?.native ?: "Unknown"
+                val relType = rel.relationType?.replace("_", " ")?.titleCase() ?: ""
+                val relFormat = rel.format?.replace("_", " ")?.titleCase() ?: ""
+                val relSeasonYear = buildString {
+                    rel.season?.let { append(it.titleCase()) }
+                    rel.year?.let { y ->
+                        if (isNotEmpty()) append(" ")
+                        append(y)
+                    }
+                }
+                desc.append("\n• $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
+            }
+        }
+
+        characters?.filter { it.role == "MAIN" }?.takeIf { it.isNotEmpty() }?.let { chars ->
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Main Characters**:")
+            chars.forEach { char ->
+                val va = char.voiceActor?.let { "${it.name} (${it.language})" } ?: "Unknown"
+                desc.append("\n• ${char.name} (VA: $va)")
+            }
+        }
+
+        staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("**Staff**:")
+            staffList.forEach { s ->
+                desc.append("\n• ${s.role}: ${s.name}")
+            }
+        }
+
+        val ids = mutableListOf<String>()
+        anilistId?.let { ids.add("[AniList](https://anilist.co/anime/$it)") }
+        malId?.let { ids.add("[MAL](https://myanimelist.net/anime/$it)") }
+        if (ids.isNotEmpty()) {
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append(ids.joinToString(" | "))
+        }
+
+        trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
+            if (desc.isNotBlank()) desc.append("\n\n")
+            desc.append("[Trailer](https://www.youtube.com/watch?v=$it)")
+        }
+
+        return desc.toString().trim()
+    }
+
+    private fun String.titleCase(): String = split(" ").joinToString(" ") { word ->
+        word.lowercase().replaceFirstChar { it.uppercase() }
+    }
+
+    private fun String.cleanHtml(): String = this
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<BR>", "\n")
+        .replace("<BR/>", "\n")
+        .replace("<i>", "")
+        .replace("</i>", "")
+        .replace("<b>", "")
+        .replace("</b>", "")
+        .replace("<em>", "")
+        .replace("</em>", "")
+        .trim()
+}
 
 @Serializable
 data class AnimetsuTitleDto(
