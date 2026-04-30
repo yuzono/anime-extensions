@@ -121,47 +121,31 @@ class AllAnime :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filters = AllAnimeFilters.getSearchParameters(filters)
+        val translationType = if (filters.tracks == "") preferences.subPref else filters.tracks
 
-        return if (query.isNotEmpty()) {
-            val data = buildJsonObject {
-                putJsonObject("variables") {
-                    putJsonObject("search") {
-                        put("query", query)
-                        put("allowAdult", true)
-                        put("allowUnknown", true)
+        val data = buildJsonObject {
+            putJsonObject("variables") {
+                putJsonObject("search") {
+                    if (query.isNotEmpty()) put("query", query)
+                    put("allowAdult", true)
+                    put("allowUnknown", true)
+                    if (filters.sortBy != "Recent") put("sortBy", filters.sortBy)
+                    if (filters.season != "all") put("season", filters.season)
+                    if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
+                    if (filters.genres != "all") {
+                        put("genres", filters.genres.parseAs<JsonElement>())
+                        put("excludeGenres", buildJsonArray { })
                     }
-                    put("limit", PAGE_SIZE)
-                    put("page", page)
-                    put("translationType", preferences.subPref)
-                    put("countryOrigin", "ALL")
+                    if (filters.types != "all") put("types", filters.types.parseAs<JsonElement>())
                 }
-                put("query", SEARCH_QUERY)
+                put("limit", PAGE_SIZE)
+                put("page", page)
+                put("translationType", translationType)
+                put("countryOrigin", filters.origin)
             }
-            buildPost(data)
-        } else {
-            val data = buildJsonObject {
-                putJsonObject("variables") {
-                    putJsonObject("search") {
-                        put("allowAdult", true)
-                        put("allowUnknown", true)
-                        if (filters.season != "all") put("season", filters.season)
-                        if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
-                        if (filters.genres != "all") {
-                            put("genres", filters.genres.parseAs<JsonElement>())
-                            put("excludeGenres", buildJsonArray { })
-                        }
-                        if (filters.types != "all") put("types", filters.types.parseAs<JsonElement>())
-                        if (filters.sortBy != "update") put("sortBy", filters.sortBy)
-                    }
-                    put("limit", PAGE_SIZE)
-                    put("page", page)
-                    put("translationType", preferences.subPref)
-                    put("countryOrigin", filters.origin)
-                }
-                put("query", SEARCH_QUERY)
-            }
-            buildPost(data)
+            put("query", SEARCH_QUERY)
         }
+        return buildPost(data)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseAnime(response)
