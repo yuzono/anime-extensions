@@ -67,10 +67,10 @@ data class AnimetsuAnimeDto(
     @SerialName("clear_logo") val clearLogo: String? = null,
     val users: Int? = null,
 ) {
-    fun toSAnime(titleLanguage: String) = SAnime.create().apply {
+    fun toSAnime(titleLanguage: String): SAnime? = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
-        title = dto.title?.preferredTitle(titleLanguage)!!
+        title = dto.title?.preferredTitle(titleLanguage) ?: return null
         thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
         genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString()
         status = parseStatus(dto.status)

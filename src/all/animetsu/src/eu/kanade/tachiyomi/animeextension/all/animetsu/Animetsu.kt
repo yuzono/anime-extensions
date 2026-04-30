@@ -14,7 +14,6 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
@@ -82,7 +81,7 @@ class Animetsu :
 
     private val rateLimit = 5
 
-    override val client by LazyMutable {
+    override val client by lazy {
         network.client.newBuilder()
             .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
             .build()
@@ -99,7 +98,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.map { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -140,7 +139,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.map { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -151,7 +150,7 @@ class Animetsu :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/info/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(titleLanguage)
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(titleLanguage)!!
 
     // ============================== Related ===============================
 
