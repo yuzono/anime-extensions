@@ -19,8 +19,10 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -80,7 +82,7 @@ class Animetsu :
 
     private val rateLimit = 5
 
-    override var client by LazyMutable {
+    override val client by LazyMutable {
         network.client.newBuilder()
             .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
             .build()
@@ -205,6 +207,7 @@ class Animetsu :
         return response.parseAs<List<AnimetsuEpisodeDto>>()
             .mapNotNull { it.toSEpisode(animeId) }
             .sortedByDescending { it.episode_number }
+            .takeIf { it.isNotEmpty() } ?: throw Exception("No episodes found")
     }
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
@@ -232,79 +235,66 @@ class Animetsu :
 
         val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
 
-        return servers.parallelCatchingFlatMap { server ->
-            buildList {
-                for (sourceType in sortedAudioTypes) {
-                    try {
-                        val audioLabel = sourceType.uppercase()
-                        val sourceResponse = client.newCall(
-                            GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
-                        ).awaitSuccess()
+        return servers.parallelFlatMap { server ->
+            sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
+                val audioLabel = sourceType.uppercase()
+                val sourceResponse = client.newCall(
+                    GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
+                ).awaitSuccess()
 
-                        val dto = sourceResponse.parseAs<AnimetsuVideoDto>()
-                        val subtitleTracks = dto.subs?.map { sub ->
-                            Track(sub.url, sub.lang ?: "Unknown")
-                        } ?: emptyList()
+                val dto = sourceResponse.parseAs<AnimetsuVideoDto>()
+                val subtitleTracks = dto.subs?.map { sub ->
+                    Track(sub.url, sub.lang ?: "Unknown")
+                }.orEmpty()
 
-                        // Following order: AnimePahe proxy server, Anikoto proxy server, AnimeGG proxy server and KickAssAnime proxy server
-                        val subLabel = when {
-                            server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]"
-                            server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]"
-                            server.id.equals("meg", ignoreCase = true) -> " [Hard Subs]"
-                            server.id.equals("kiss", ignoreCase = true) -> " [Soft Subs]"
-                            else -> ""
-                        }
+                // Following order: AnimePahe proxy server, Anikoto proxy server, AnimeGG proxy server and KickAssAnime proxy server
+                val subLabel = when {
+                    server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]"
+                    server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]"
+                    server.id.equals("meg", ignoreCase = true) -> " [Hard Subs]"
+                    server.id.equals("kiss", ignoreCase = true) -> " [Soft Subs]"
+                    else -> ""
+                }
 
-                        for (source in dto.sources) {
-                            val fullUrl = when {
-                                source.needProxy -> "$proxyUrl${source.url}"
-                                source.url.startsWith("http") -> source.url
-                                else -> "$baseUrl${source.url}"
+                dto.sources.flatMapCatching { source ->
+                    val fullUrl = when {
+                        source.needProxy -> "$proxyUrl${source.url}"
+                        source.url.startsWith("http") -> source.url
+                        else -> "$baseUrl${source.url}"
+                    }
+
+                    when {
+                        source.type?.contains("mp4") == true ->
+                            Video(
+                                fullUrl,
+                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                fullUrl,
+                                apiHeaders(watchReferer),
+                                subtitleTracks,
+                            ).let(::listOf)
+                        source.type?.contains("mpegurl") == true ->
+                            if (source.oldHls) {
+                                Video(
+                                    fullUrl,
+                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                    fullUrl,
+                                    apiHeaders(watchReferer),
+                                    subtitleTracks,
+                                ).let(::listOf)
+                            } else {
+                                playlistUtils.extractFromHls(
+                                    playlistUrl = fullUrl,
+                                    videoNameGen = { quality ->
+                                        val cleanQuality = quality.substringBefore(" ").let { q ->
+                                            if (q.endsWith("P")) q.lowercase() else q
+                                        }
+                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                    },
+                                    referer = "$baseUrl/",
+                                    subtitleList = subtitleTracks,
+                                )
                             }
-
-                            when {
-                                source.type?.contains("mp4") == true -> {
-                                    add(
-                                        Video(
-                                            fullUrl,
-                                            "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                            fullUrl,
-                                            apiHeaders(watchReferer),
-                                            subtitleTracks,
-                                        ),
-                                    )
-                                }
-                                source.type?.contains("mpegurl") == true -> {
-                                    if (source.oldHls) {
-                                        add(
-                                            Video(
-                                                fullUrl,
-                                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                                fullUrl,
-                                                apiHeaders(watchReferer),
-                                                subtitleTracks,
-                                            ),
-                                        )
-                                    } else {
-                                        addAll(
-                                            playlistUtils.extractFromHls(
-                                                playlistUrl = fullUrl,
-                                                videoNameGen = { quality ->
-                                                    val cleanQuality = quality.substringBefore(" ").let { q ->
-                                                        if (q.endsWith("P")) q.lowercase() else q
-                                                    }
-                                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
-                                                },
-                                                referer = "$baseUrl/",
-                                                subtitleList = subtitleTracks,
-                                            ),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {
-                        // Ignore if a specific audio type fails for this server
+                        else -> emptyList()
                     }
                 }
             }
@@ -333,6 +323,7 @@ class Animetsu :
         screen.addListPreference(
             key = PREF_DOMAIN_KEY,
             title = "Preferred Domain",
+            restartRequired = true,
             entries = DOMAIN_ENTRIES,
             entryValues = DOMAIN_VALUES,
             default = baseUrl,
