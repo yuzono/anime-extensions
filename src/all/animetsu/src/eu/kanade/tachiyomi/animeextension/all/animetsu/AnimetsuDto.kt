@@ -12,7 +12,7 @@ import java.util.TimeZone
 data class AnimetsuSearchDto(
     val results: List<AnimetsuAnimeDto>,
     val page: Int,
-    val last_page: Int,
+    @SerialName("last_page") val lastPage: Int,
     val total: Int,
 )
 

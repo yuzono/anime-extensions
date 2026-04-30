@@ -93,7 +93,7 @@ class Animetsu :
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
         val animes = filteredResults.map { it.toSAnime() }
 
-        return AnimesPage(animes, dto.page < dto.last_page)
+        return AnimesPage(animes, dto.page < dto.lastPage)
     }
 
     // =============================== Latest ===============================
@@ -146,7 +146,6 @@ class Animetsu :
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val dto = response.parseAs<AnimetsuAnimeDto>()
-        val seenIds = mutableSetOf(dto.id)
 
         fun getTitle(titleDto: AnimetsuTitleDto?): String? = when (titleLanguage) {
             "english" -> titleDto?.english
@@ -158,8 +157,7 @@ class Animetsu :
 
         return buildList {
             dto.seasons?.mapNotNull { season ->
-                if (season.id.isBlank() || season.id in seenIds) return@mapNotNull null
-                seenIds.add(season.id)
+                if (season.id.isBlank()) return@mapNotNull null
                 val seasonTitle = getTitle(season.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -170,8 +168,7 @@ class Animetsu :
             }?.let { addAll(it) }
 
             dto.relations?.mapNotNull { rel ->
-                if (rel.id.isBlank() || rel.id in seenIds) return@mapNotNull null
-                seenIds.add(rel.id)
+                if (rel.id.isBlank()) return@mapNotNull null
                 val relTitle = getTitle(rel.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -182,8 +179,7 @@ class Animetsu :
             }?.let { addAll(it) }
 
             dto.recommendations?.mapNotNull { rec ->
-                if (rec.id.isBlank() || rec.id in seenIds) return@mapNotNull null
-                seenIds.add(rec.id)
+                if (rec.id.isBlank()) return@mapNotNull null
                 val recTitle = getTitle(rec.title) ?: return@mapNotNull null
 
                 SAnime.create().apply {
