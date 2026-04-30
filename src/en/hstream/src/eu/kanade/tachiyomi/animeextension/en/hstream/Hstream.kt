@@ -33,6 +33,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -159,9 +160,31 @@ class Hstream :
         val doc = response.asJsoup()
 
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
-            return doc.select("div.grid > div.relative > a[href*=/hentai/]")
+            // Series page is JS-rendered, so episode grid isn't available in JSoup HTML.
+            // Instead, use the search endpoint to find all episodes of this series.
+            val seriesUrl = response.request.url.toString().normalizeHref()
+
+            // Get series title from the page, strip Japanese name for matching
+            val seriesTitle = doc.selectFirst("div.relative > div.justify-between > div > div > h1")
+                ?.text()
+                ?: doc.selectFirst("div.relative > h1")?.text()
+                ?: doc.selectFirst("h1")?.text()
+                ?: ""
+            val matchTitle = seriesTitle.substringBefore("(").trim()
+
+            val searchUrl = "$baseUrl/search?search=${URLEncoder.encode(matchTitle, "UTF-8")}"
+            val searchDoc = client.newCall(GET(searchUrl)).execute().asJsoup()
+
+            return searchDoc.select(popularAnimeSelector())
                 .mapNotNull { element ->
                     val href = element.attr("href").normalizeHref()
+
+                    // Only include episodes that belong to this series
+                    if (!href.startsWith("$seriesUrl-")) return@mapNotNull null
+
+                    val alt = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
+                    if (!alt.contains(matchTitle, ignoreCase = true)) return@mapNotNull null
+
                     val epNum = href.extractEpisodeNumber() ?: return@mapNotNull null
                     SEpisode.create().apply {
                         setUrlWithoutDomain(href)

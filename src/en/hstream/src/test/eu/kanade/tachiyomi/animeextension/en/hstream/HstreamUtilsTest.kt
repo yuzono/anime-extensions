@@ -153,4 +153,17 @@ class HstreamUtilsTest {
     fun `normalizeHref handles different domains`() {
         assertEquals("/hentai/slug-name-1", "https://other-domain.com/hentai/slug-name-1".normalizeHref())
     }
+
+    @Test
+    fun `normalizeHref extracts path from full series URL`() {
+        assertEquals("/hentai/slug-name", "https://hstream.moe/hentai/slug-name".normalizeHref())
+    }
+
+    @Test
+    fun `normalizeHref handles series URL without episode number`() {
+        assertEquals(
+            "/hentai/jk-to-inkou-kyoushi-4-feat-ero-giin-sensei",
+            "https://hstream.moe/hentai/jk-to-inkou-kyoushi-4-feat-ero-giin-sensei".normalizeHref(),
+        )
+    }
 }
