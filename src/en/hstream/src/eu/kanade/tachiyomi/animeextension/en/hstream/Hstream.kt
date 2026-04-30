@@ -2,6 +2,11 @@ package eu.kanade.tachiyomi.animeextension.en.hstream
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.extractEpisodeNumber
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.normalizeHref
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.stripEpisodeSuffix
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.toSeriesSlug
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.toSeriesUrl
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -57,14 +62,10 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        val episodeUrl = element.attr("href").let { href ->
-            if (href.startsWith("http")) href.toHttpUrl().encodedPath else href
-        }
+        val episodeUrl = element.attr("href").normalizeHref()
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             setUrlWithoutDomain(episodeUrl.toSeriesUrl())
-            title = element.selectFirst("img")!!.attr("alt").let { alt ->
-                REGEX_EPISODE_SUFFIX.replace(alt) { "" }
-            }
+            title = element.selectFirst("img")!!.attr("alt").stripEpisodeSuffix()
             thumbnail_url = "$baseUrl/images$url/cover-ep-1.webp"
         } else {
             setUrlWithoutDomain(episodeUrl)
@@ -160,14 +161,8 @@ class Hstream :
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             return doc.select("div.grid > div.relative > a[href*=/hentai/]")
                 .mapNotNull { element ->
-                    val rawHref = element.attr("href")
-                    val href = if (rawHref.startsWith("http")) {
-                        rawHref.toHttpUrl().encodedPath
-                    } else {
-                        rawHref
-                    }
-                    val epNum = REGEX_TRAILING_EP_NUM.find(href)?.groupValues?.get(2)
-                        ?: return@mapNotNull null
+                    val href = element.attr("href").normalizeHref()
+                    val epNum = href.extractEpisodeNumber() ?: return@mapNotNull null
                     SEpisode.create().apply {
                         setUrlWithoutDomain(href)
                         episode_number = epNum.toFloatOrNull() ?: 1F
@@ -277,16 +272,6 @@ class Hstream :
 
     // ============================= Utilities ==============================
 
-    /** Strips the trailing episode number from a URL path, converting an episode URL to a series URL.
-     * e.g. "/hentai/slug-name-1" -> "/hentai/slug-name"
-     */
-    private fun String.toSeriesUrl(): String = REGEX_TRAILING_EP_NUM.replace(this) { it.groupValues[1] }
-
-    /** Strips the trailing episode number from a slug (no leading path).
-     * e.g. "slug-name-1" -> "slug-name"
-     */
-    private fun String.toSeriesSlug(): String = REGEX_TRAILING_EP_NUM.replace(this) { it.groupValues[1] }
-
     private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
         .getOrNull() ?: 0L
 
@@ -304,12 +289,6 @@ class Hstream :
         }
 
         const val PREFIX_SEARCH = "id:"
-
-        /** Matches the trailing "-N" where N is a numeric episode number at the end of a string. */
-        private val REGEX_TRAILING_EP_NUM = Regex("^(.+)-(\\d+)$")
-
-        /** Matches " - N" suffix in img alt text where N is the episode number. */
-        private val REGEX_EPISODE_SUFFIX = Regex("\\s*-\\s*\\d+$")
 
         private const val PREF_GROUP_BY_SERIES_KEY = "pref_group_by_series_key"
         private const val PREF_GROUP_BY_SERIES_TITLE = "Group by series"
