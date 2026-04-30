@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
+import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.newLineRegex
 import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.parseStatus
+import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.textStyleRegex
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.tryParse
@@ -217,16 +219,8 @@ data class AnimetsuAnimeDto(
     }
 
     private fun String.cleanHtml(): String = this
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<BR>", "\n")
-        .replace("<BR/>", "\n")
-        .replace("<i>", "")
-        .replace("</i>", "")
-        .replace("<b>", "")
-        .replace("</b>", "")
-        .replace("<em>", "")
-        .replace("</em>", "")
+        .replace(newLineRegex, "\n")
+        .replace(textStyleRegex, "")
         .trim()
 }
 

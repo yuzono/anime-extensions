@@ -436,5 +436,8 @@ class Animetsu :
             "NOT_YET_RELEASED" -> SAnime.UNKNOWN
             else -> SAnime.UNKNOWN
         }
+
+        val newLineRegex by lazy { Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE) }
+        val textStyleRegex by lazy { Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE) }
     }
 }
