@@ -326,8 +326,8 @@ class Hstream :
         val doc = response.asJsoup()
 
         val token = client.cookieJar.loadForRequest(response.request.url)
-            .first { it.name.equals("XSRF-TOKEN") }
-            .value
+            .find { it.name == "XSRF-TOKEN" }?.value
+            ?: throw Exception("XSRF-TOKEN cookie not found")
         HstreamLogger.debug("videoListParse", "XSRF token found: ${token.take(10)}...")
 
         val episodeId = doc.selectFirst("input#e_id")!!.attr("value")
