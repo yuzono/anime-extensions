@@ -1,8 +1,46 @@
 ext {
     extName = 'hanime.tv'
     extClass = '.Hanime'
-    extVersionCode = 18
+    extVersionCode = 19
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
+
+android {
+    // Chicory WASM runtime uses MethodHandle.invoke/invokeExact which requires API 26+;
+    // D8 cannot desugar these bytecode patterns. Override the project-wide minSdk (21).
+    defaultConfig {
+        minSdk = 26
+    }
+
+    sourceSets {
+        main {
+            java.exclude 'test/**'
+            kotlin.exclude 'test/**'
+        }
+        test {
+            java.directories.clear()
+            java.directories.add("src/test/java")
+            java.directories.add("src/test/kotlin")
+            kotlin.directories.clear()
+            kotlin.directories.add("src/test/java")
+            kotlin.directories.add("src/test/kotlin")
+        }
+    }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+}
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+    implementation("com.dylibso.chicory:runtime:1.7.5")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.3.0")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+}
