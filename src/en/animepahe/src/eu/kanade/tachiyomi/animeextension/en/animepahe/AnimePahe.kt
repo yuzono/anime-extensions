@@ -47,7 +47,7 @@ class AnimePahe :
         .addInterceptor(interceptor)
         .build()
 
-    private val appCtx: Application by injectLazy()
+    private val context: Application by injectLazy()
 
     override val name = "AnimePahe"
 
@@ -335,7 +335,7 @@ class AnimePahe :
         val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
             KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
         } else {
-            KwikExtractor(client).getStreamUrlFromKwik(appCtx, paheUrl)
+            KwikExtractor(client).getStreamUrlFromKwik(context, paheUrl)
         }
 
         return Video(
