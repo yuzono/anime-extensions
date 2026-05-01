@@ -423,7 +423,7 @@ class AllAnime :
 
         if (keyType == null) {
             XOR_MASKS.forEach { mask ->
-                val decrypted = parsedChunks.map { ((it xor mask) and 0xFF).toChar() }.joinToString("")
+                val decrypted = String(CharArray(parsedChunks.size) { i -> ((parsedChunks[i] xor mask) and 0xFF).toChar() })
                 if (decrypted.contains("/clock") || decrypted.contains("http")) return decrypted
             }
             return this
