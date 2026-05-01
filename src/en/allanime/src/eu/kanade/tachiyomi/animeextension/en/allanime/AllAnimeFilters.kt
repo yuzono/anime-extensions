@@ -27,14 +27,11 @@ object AllAnimeFilters {
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
     ): String = (this.getFirst<R>() as CheckBoxFilterList).state
-        .mapNotNull { checkbox ->
-            if (checkbox.state) {
-                options.find { it.first == checkbox.name }!!.second
-            } else {
-                null
-            }
-        }.joinToString("\",\"", "[\"", "\"]")
-        .ifBlank { "all" }
+        .filter { it.state }
+        .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString("\",\"", "[\"", "\"]")
+        ?: "all"
 
     class OriginFilter : QueryPartFilter("Origin", AllAnimeFiltersData.ORIGIN)
     class SeasonFilter : QueryPartFilter("Season", AllAnimeFiltersData.SEASONS)
