@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.aniwatch
 
+import aniyomi.lib.megacloudextractor.MegaCloudExtractor
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.megacloudextractor.MegaCloudExtractor
 import eu.kanade.tachiyomi.multisrc.zorotheme.ZoroTheme
 import eu.kanade.tachiyomi.network.GET
 import okhttp3.Request

@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.streamingcommunity
 
+import aniyomi.lib.i18n.Intl
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
-import eu.kanade.tachiyomi.lib.i18n.Intl
 import okhttp3.HttpUrl
 import java.util.Calendar
 

@@ -1,7 +1,7 @@
 ext {
     extName = 'ANIMEWORLD.tv'
     extClass = '.ANIMEWORLD'
-    extVersionCode = 54
+    extVersionCode = 57
 }
 
 apply from: "$rootDir/common.gradle"
@@ -9,6 +9,6 @@ apply from: "$rootDir/common.gradle"
 dependencies {
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:doodextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:vidguardextractor'))
 }

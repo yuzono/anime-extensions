@@ -1,15 +1,10 @@
 ext {
-    extName = 'AnimesBr'
+    extName = 'AnimesBr (Dead)'
     extClass = '.AnimesBr'
     themePkg = 'dooplay'
     baseUrl = 'https://animesbr.tv'
-    overrideVersionCode = 4
+    overrideVersionCode = 7
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(libs.jsunpacker)
-    implementation(project(":lib:vidmolyextractor"))
-}

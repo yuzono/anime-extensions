@@ -2,6 +2,13 @@ package eu.kanade.tachiyomi.animeextension.es.legionanime
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.es.legionanime.extractors.JkanimeExtractor
 import eu.kanade.tachiyomi.animeextension.es.legionanime.extractors.MediaFireExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -12,17 +19,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -60,17 +62,14 @@ class LegionAnime :
     override fun animeDetailsParse(document: Document): SAnime {
         val jsonResponse = json.decodeFromString<JsonObject>(document.body().text())["response"]!!.jsonObject
         val anime = jsonResponse["anime"]!!.jsonObject
-        val studioId = anime["studios"]!!.jsonPrimitive.content.split(",")
-        val studio = try {
-            studioId.map { id -> STUDIOS_MAP.filter { it.value == id.toInt() }.keys.first() }
-        } catch (e: Exception) {
-            emptyList()
-        }
+        val studioIds = anime["studios"]!!.jsonPrimitive.content.split(",")
+        val studio = studioIds.mapNotNull { it.toIntOrNull() }
+            .mapNotNull { id -> STUDIOS_MAP.filter { it.value == id }.keys.firstOrNull() }
         val malid = anime["mal_id"]!!.jsonPrimitive.content
         var thumb: String? = null
 
         try {
-            val jikanResponse = client.newCall(GET("https://api.jikan.moe/v4/anime/$malid")).execute().asJsoup().body().text()
+            val jikanResponse = client.newCall(GET("https://api.jikan.moe/v4/anime/$malid")).execute().useAsJsoup().body().text()
             val jikanJson = json.decodeFromString<JsonObject>(jikanResponse)
             val pictures = jikanJson["data"]!!.jsonObject["images"]!!.jsonObject["jpg"]!!.jsonObject
             thumb = pictures["large_image_url"]!!.jsonPrimitive.content
@@ -85,7 +84,7 @@ class LegionAnime :
             }
             description = anime["synopsis"]!!.jsonPrimitive.content
             genre = anime["genres"]!!.jsonPrimitive.content
-            author = studio.joinToString { it.toString() }
+            author = studio.joinToString { it }
             status = when (anime["status"]!!.jsonPrimitive.content) {
                 "En emisión" -> SAnime.ONGOING
                 "Finalizado" -> SAnime.COMPLETED
@@ -144,7 +143,7 @@ class LegionAnime :
                 },
                 true,
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return AnimesPage(emptyList(), false)
         }
     }
@@ -234,7 +233,7 @@ class LegionAnime :
                 },
                 false,
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return AnimesPage(emptyList(), false)
         }
     }
@@ -252,8 +251,7 @@ class LegionAnime :
         val jsonResponse = json.decodeFromString<JsonObject>(response.asJsoup().body().text())
         val responseArray = jsonResponse["response"]!!.jsonObject
         val players = responseArray["players"]!!.jsonArray
-        val videoList = mutableListOf<Video>()
-        players.forEach {
+        return players.parallelCatchingFlatMapBlocking {
             val server = it.jsonObject["option"]!!.jsonPrimitive.content
             val preUrl = it.jsonObject["name"]!!.jsonPrimitive.content
 
@@ -262,100 +260,28 @@ class LegionAnime :
             } else {
                 preUrl.substringAfter("-").reversed()
             }
-            videoList.addAll(parseExtractors(url, server))
+            parseExtractors(url, server)
         }
-
-        return videoList.filter { it.url.contains("http") }
     }
 
-    private fun parseExtractors(url: String, server: String): List<Video> = when {
+    private suspend fun parseExtractors(url: String, server: String): List<Video> = when {
         url.contains("streamwish") -> StreamWishExtractor(client, headers).videosFromUrl(url, prefix = "StreamWish")
-
-        url.contains("mediafire") -> {
-            val video = MediaFireExtractor(client).getVideoFromUrl(url, server)
-            if (video != null) {
-                listOf(video)
-            } else {
-                emptyList()
-            }
-        }
-
-        url.contains("streamtape") -> {
-            val video = StreamTapeExtractor(client).videoFromUrl(url, server)
-            if (video != null) {
-                listOf(video)
-            } else {
-                emptyList()
-            }
-        }
-
-        url.contains("jkanime") -> {
-            val video = JkanimeExtractor(client).getDesuFromUrl(url)
-            if (video != null) {
-                listOf(video)
-            } else {
-                emptyList()
-            }
-        }
-
+        url.contains("mediafire") -> listOfNotNull(MediaFireExtractor(client).getVideoFromUrl(url, server))
+        url.contains("streamtape") -> listOfNotNull(StreamTapeExtractor(client).videoFromUrl(url, server))
+        url.contains("jkanime") -> listOfNotNull(JkanimeExtractor(client).getDesuFromUrl(url))
         url.contains("/stream/amz.php?") -> {
-            try {
-                val video = JkanimeExtractor(client).amazonExtractor(url)
-                if (video.isNotBlank()) {
-                    listOf(Video(video, server, video))
-                } else {
-                    emptyList()
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
+            val videoUrl = JkanimeExtractor(client).amazonExtractor(url).takeIf { it.isNotBlank() } ?: return emptyList()
+            listOf(Video(videoUrl, server, videoUrl))
         }
-
-        url.contains("yourupload") -> {
-            YourUploadExtractor(client).videoFromUrl(url, headers)
-        }
-
-        url.contains("mp4upload") -> {
-            Mp4uploadExtractor(client).videosFromUrl(url, headers)
-        }
-
-        url.contains("dood") -> {
-            try {
-                val video = DoodExtractor(client).videoFromUrl(url)
-                if (video != null) {
-                    listOf(video)
-                } else {
-                    emptyList()
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
-        }
-
-        url.contains("ok.ru") -> {
-            OkruExtractor(client).videosFromUrl(url)
-        }
-
-        url.contains("flvvideo") && (url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
-            if (url.contains("http")) {
-                listOf(Video(url, "VideoFLV", url))
-            } else {
-                emptyList()
-            }
-        }
-
-        url.contains("cdnlat4animecen") && (url.endsWith(".class") || url.endsWith(".m3u8") || url.endsWith(".mp4")) -> {
-            if (url.contains("http")) {
-                listOf(Video(url, "AnimeCen", url))
-            } else {
-                emptyList()
-            }
-        }
-
-        url.contains("uqload") -> {
-            UqloadExtractor(client).videosFromUrl(url)
-        }
-
+        url.contains("yourupload") -> YourUploadExtractor(client).videoFromUrl(url, headers)
+        url.contains("mp4upload") -> Mp4uploadExtractor(client).videosFromUrl(url, headers)
+        url.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(url))
+        url.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(url)
+        url.startsWith("http") && url.contains("flvvideo") && (url.endsWith(".m3u8") || url.endsWith(".mp4")) ->
+            listOf(Video(url, "VideoFLV", url))
+        url.startsWith("http") && url.contains("cdnlat4animecen") && (url.endsWith(".class") || url.endsWith(".m3u8") || url.endsWith(".mp4")) ->
+            listOf(Video(url, "AnimeCen", url))
+        url.contains("uqload") -> UqloadExtractor(client).videosFromUrl(url)
         else -> emptyList()
     }
 

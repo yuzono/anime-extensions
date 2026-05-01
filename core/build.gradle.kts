@@ -1,7 +1,6 @@
 plugins {
     id("com.android.library")
     id("keiyoushi.lint")
-    id("kotlinx-serialization")
 }
 
 android {
@@ -27,4 +26,6 @@ kotlin {
 
 dependencies {
     compileOnly(versionCatalogs.named("libs").findBundle("common").get())
+    testImplementation(libs.okhttp)
+    testImplementation(kotlin("test-junit"))
 }

@@ -1,8 +1,11 @@
 package eu.kanade.tachiyomi.animeextension.de.aniworld
 
-import androidx.preference.ListPreference
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.aniworld.extractors.VidozaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -11,20 +14,22 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -60,12 +65,12 @@ class AniWorld :
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/beliebte-animes")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
         val linkElement = element.selectFirst("a")!!
-        anime.url = linkElement.attr("href")
-        anime.thumbnail_url = baseUrl + linkElement.selectFirst("img")!!.attr("data-src")
-        anime.title = element.selectFirst("h3")!!.text()
-        return anime
+        return SAnime.create().apply {
+            title = element.selectFirst("h3")!!.text()
+            setUrlWithoutDomain(linkElement.attr("abs:href"))
+            thumbnail_url = linkElement.selectFirst("img")?.attr("abs:data-src")
+        }
     }
 
     // ===== LATEST ANIME =====
@@ -75,292 +80,198 @@ class AniWorld :
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/neu")
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
-        val linkElement = element.selectFirst("a")!!
-        anime.url = linkElement.attr("href")
-        anime.thumbnail_url = baseUrl + linkElement.selectFirst("img")!!.attr("data-src")
-        anime.title = element.selectFirst("h3")!!.text()
-        return anime
-    }
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
     // ===== SEARCH =====
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val headers = Headers.Builder()
-            .add("Referer", "https://aniworld.to/search")
+            .add("Referer", "$baseUrl/search")
             .add("origin", baseUrl)
-            .add("connection", "keep-alive")
-            .add("user-agent", "Mozilla/5.0 (Linux; Android 12; Pixel 5 Build/SP2A.220405.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/100.0.4896.127 Safari/537.36")
-            .add("Upgrade-Insecure-Requests", "1")
-            .add("content-length", query.length.plus(8).toString())
-            .add("cache-control", "")
-            .add("accept", "*/*")
-            .add("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
             .add("x-requested-with", "XMLHttpRequest")
             .build()
-        return POST("$baseUrl/ajax/search", body = FormBody.Builder().add("keyword", query).build(), headers = headers)
+        val httpUrl = "$baseUrl/ajax/seriesSearch".toHttpUrl().newBuilder().apply {
+            addQueryParameter("keyword", query)
+        }.build()
+        return GET(httpUrl, headers = headers)
     }
     override fun searchAnimeSelector() = throw UnsupportedOperationException()
 
     override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val body = response.body.string()
+        val body = response.bodyString()
         val results = json.decodeFromString<JsonArray>(body)
-        val animes = results.filter {
-            val link = it.jsonObject["link"]!!.jsonPrimitive.content
-            link.startsWith("/anime/stream/") &&
-                link.count { c -> c == '/' } == 3
-        }.map {
-            animeFromSearch(it.jsonObject)
+        val animes = results.mapNotNull {
+            val obj = it.jsonObject
+            val name = obj["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val link = obj["link"]?.jsonPrimitive?.content ?: return@mapNotNull null
+
+            SAnime.create().apply {
+                title = name
+                url = "/anime/stream/$link"
+                thumbnail_url = obj["cover"]?.jsonPrimitive?.content?.replace("150x225", "220x330")
+                    ?.let { cover -> UrlUtils.fixUrl(cover, baseUrl) }
+                description = obj["description"]?.jsonPrimitive?.content
+            }
         }
         return AnimesPage(animes, false)
-    }
-
-    private fun animeFromSearch(result: JsonObject): SAnime {
-        val anime = SAnime.create()
-        val title = result["title"]!!.jsonPrimitive.content
-        val link = result["link"]!!.jsonPrimitive.content
-        anime.title = title.replace("<em>", "").replace("</em>", "")
-        val thumpage = client.newCall(GET("$baseUrl$link")).execute().asJsoup()
-        anime.thumbnail_url = baseUrl +
-            thumpage.selectFirst("div.seriesCoverBox img")!!.attr("data-src")
-        anime.url = link
-        return anime
     }
 
     override fun searchAnimeFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ===== ANIME DETAILS =====
-    override fun animeDetailsParse(document: Document): SAnime {
-        val anime = SAnime.create()
-        anime.title = document.selectFirst("div.series-title h1 span")!!.text()
-        anime.thumbnail_url = baseUrl +
-            document.selectFirst("div.seriesCoverBox img")!!.attr("data-src")
-        anime.genre = document.select("div.genres ul li").joinToString { it.text() }
-        anime.description = document.selectFirst("p.seri_des")!!.attr("data-full-description")
-        document.selectFirst("div.cast li:contains(Produzent:) ul")?.let {
-            val author = it.select("li").joinToString { li -> li.text() }
-            anime.author = author
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.selectFirst("div.series-title h1 span")!!.text()
+        thumbnail_url = document.selectFirst("div.seriesCoverBox img")?.attr("abs:data-src")
+        genre = document.select("div.genres ul li").joinToString { it.text() }
+        description = document.selectFirst("p.seri_des")?.attr("data-full-description")
+        document.selectFirst("div.cast li:contains(Produzent:) ul")?.let { producerList: Element ->
+            author = producerList.select("li").joinToString { li -> li.text() }
         }
-        anime.status = SAnime.UNKNOWN
-        return anime
+        status = SAnime.UNKNOWN
     }
 
     // ===== EPISODE =====
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        val episodeList = mutableListOf<SEpisode>()
+        val document = response.useAsJsoup()
         val seasonsElements = document.select("#stream > ul:nth-child(1) > li > a")
-        if (seasonsElements.attr("href").contains("/filme")) {
-            seasonsElements.forEach {
-                val seasonEpList = parseMoviesFromSeries(it)
-                episodeList.addAll(seasonEpList)
-            }
-        } else {
-            seasonsElements.forEach {
-                val seasonEpList = parseEpisodesFromSeries(it)
-                episodeList.addAll(seasonEpList)
-            }
-        }
-        return episodeList.reversed()
+        return seasonsElements.parallelCatchingFlatMapBlocking {
+            parseEpisodesFromSeries(it)
+        }.reversed()
     }
 
-    private fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
+    private suspend fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
         val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().asJsoup()
+        val episodesHtml = client.newCall(GET(seasonId)).awaitSuccess().useAsJsoup()
         val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
-        return episodeElements.map { episodeFromElement(it) }
-    }
-
-    private fun parseMoviesFromSeries(element: Element): List<SEpisode> {
-        val seasonId = element.attr("abs:href")
-        val episodesHtml = client.newCall(GET(seasonId)).execute().asJsoup()
-        val episodeElements = episodesHtml.select("table.seasonEpisodesList tbody tr")
-        return episodeElements.map { episodeFromElement(it) }
+        return episodeElements.mapNotNull { runCatching { episodeFromElement(it) }.getOrNull() }
     }
 
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
-        if (element.select("td.seasonEpisodeTitle a").attr("href").contains("/film")) {
-            val num = element.attr("data-episode-season-id")
-            episode.name = "Film $num" + " : " + element.select("td.seasonEpisodeTitle a span").text()
-            episode.episode_number = element.attr("data-episode-season-id").toFloat()
-            episode.url = element.selectFirst("td.seasonEpisodeTitle a")!!.attr("href")
-        } else {
-            val season = element.select("td.seasonEpisodeTitle a").attr("href")
-                .substringAfter("staffel-").substringBefore("/episode")
-            val num = element.attr("data-episode-season-id")
-            episode.name = "Staffel $season Folge $num" + " : " + element.select("td.seasonEpisodeTitle a span").text()
-            episode.episode_number = element.select("td meta").attr("content").toFloat()
-            episode.url = element.selectFirst("td.seasonEpisodeTitle a")!!.attr("href")
+        val num = element.attr("data-episode-season-id")
+        element.selectFirst("td.seasonEpisodeTitle a")!!.let { seasonEpisode: Element ->
+            val name = seasonEpisode.select("span").text()
+            val url = seasonEpisode.attr("href")
+            if (url.contains("/filme")) {
+                episode.name = "Film $num : $name"
+                num.toFloatOrNull()?.let { episode.episode_number = it }
+                episode.url = url
+            } else {
+                val season = url
+                    .substringAfter("staffel-").substringBefore("/episode")
+                episode.name = "Staffel $season Folge $num : $name"
+                element.select("td meta").attr("content").toFloatOrNull()?.let { episode.episode_number = it }
+                episode.url = url
+            }
         }
         return episode
     }
 
     // ===== VIDEO SOURCES =====
+    private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
+    private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
+    private val vidozaExtractor by lazy { VidozaExtractor(client) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
+
     override fun videoListSelector() = throw UnsupportedOperationException()
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val redirectlink = document.select("ul.row li")
-        val videoList = mutableListOf<Video>()
-        val hosterSelection = preferences.getStringSet(AWConstants.HOSTER_SELECTION, null)
-        redirectlink.forEach {
-            val langkey = it.attr("data-lang-key")
-            val language = getlanguage(langkey)
-            val redirectgs = baseUrl + it.selectFirst("a.watchEpisode")!!.attr("href")
-            val hoster = it.select("a h4").text()
-            if (hosterSelection != null) {
-                when {
-                    hoster.contains("VOE") && hosterSelection.contains(AWConstants.NAME_VOE) -> {
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        videoList.addAll(VoeExtractor(client, headers).videosFromUrl(url, "($language) "))
-                    }
-
-                    hoster.contains("Doodstream") && hosterSelection.contains(AWConstants.NAME_DOOD) -> {
-                        val quality = "Doodstream $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = DoodExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
-
-                    hoster.contains("Streamtape") && hosterSelection.contains(AWConstants.NAME_STAPE) -> {
-                        val quality = "Streamtape $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = StreamTapeExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
-
-                    hoster.contains("Vidoza") && hosterSelection.contains(AWConstants.NAME_VIZ) -> {
-                        val quality = "Vidoza $language"
-                        val url = client.newCall(GET(redirectgs)).execute().request.url.toString()
-                        val video = VidozaExtractor(client).videoFromUrl(url, quality)
-                        if (video != null) {
-                            videoList.add(video)
-                        }
-                    }
-                }
-            }
-        }
-        return videoList
-    }
-
-    private fun getlanguage(langkey: String): String? {
-        when {
-            langkey.contains("${AWConstants.KEY_GER_SUB}") -> {
-                return "Deutscher Sub"
-            }
-
-            langkey.contains("${AWConstants.KEY_GER_DUB}") -> {
-                return "Deutscher Dub"
-            }
-
-            langkey.contains("${AWConstants.KEY_ENG_SUB}") -> {
-                return "Englischer Sub"
-            }
-
-            else -> {
-                return null
-            }
+        val allowedHosters = PREF_HOSTER_NAMES - excludedHosters
+        return redirectlink.parallelCatchingFlatMapBlocking { elm ->
+            val langkey = elm.attr("data-lang-key")
+            val language = getLanguage(langkey)
+            val redirectgs = elm.selectFirst("a.watchEpisode")!!.attr("abs:href")
+            val hoster = elm.select("a h4").text()
+            val matchedHoster = allowedHosters
+                .firstOrNull { hoster.contains(it, true) }
+                ?: return@parallelCatchingFlatMapBlocking emptyList()
+            val url = getRedirectedUrl(redirectgs)
+            when (matchedHoster) {
+                NAME_VOE -> voeExtractor.videosFromUrl(url, "($language) ")
+                NAME_DOOD -> doodExtractor.videoFromUrl(url, "($language)", false)?.let(::listOf)
+                NAME_STAPE -> streamTapeExtractor.videoFromUrl(url, "($language) $NAME_STAPE")?.let(::listOf)
+                NAME_VIZ -> vidozaExtractor.videoFromUrl(url, "($language) $NAME_VIZ")?.let(::listOf)
+                NAME_FILEMOON -> filemoonExtractor.videosFromUrl(url, "($language) $NAME_FILEMOON ", headers)
+                NAME_VIDMOLY -> vidmolyExtractor.videosFromUrl(url, "($language)")
+                else -> null
+            } ?: emptyList()
         }
     }
+
+    private suspend fun getRedirectedUrl(url: String) = client.newCall(GET(url)).awaitSuccess().use { it.request.url.toString() }
+
+    private fun getLanguage(langKey: String) = LANGS.keys.firstOrNull { langKey.contains(it) }?.let { LANGS[it] } ?: "?"
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> {
-        val hoster = preferences.getString(AWConstants.PREFERRED_HOSTER, null)
-        val subPreference = preferences.getString(AWConstants.PREFERRED_LANG, "Sub")!!
-        val hosterList = mutableListOf<Video>()
-        val otherList = mutableListOf<Video>()
-        if (hoster != null) {
-            for (video in this) {
-                if (video.url.contains(hoster)) {
-                    hosterList.add(video)
-                } else {
-                    otherList.add(video)
-                }
-            }
-        } else {
-            otherList += this
-        }
-        val newList = mutableListOf<Video>()
-        var preferred = 0
-        for (video in hosterList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-        for (video in otherList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-
-        return newList
-    }
+    override fun List<Video>.sort() = sortedWith(
+        compareByDescending<Video> { it.quality.contains(preferredHoster, true) }
+            .thenByDescending { it.quality.contains(preferredLang, true) },
+    )
 
     override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ===== PREFERENCES ======
-    @Suppress("UNCHECKED_CAST")
+    private val preferredLang by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
+    private val preferredHosterPref by preferences.delegate(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
+    private val preferredHoster
+        get() = preferredHosterPref.takeIf { it in PREF_HOSTER_NAMES } ?: PREF_HOSTER_DEFAULT
+    private val excludedHosters by preferences.delegate(PREF_EXCLUDED_HOSTERS_KEY, emptySet<String>())
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val hosterPref = ListPreference(screen.context).apply {
-            key = AWConstants.PREFERRED_HOSTER
-            title = "Standard-Hoster"
-            entries = AWConstants.HOSTER_NAMES
-            entryValues = AWConstants.HOSTER_URLS
-            setDefaultValue(AWConstants.URL_STAPE)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_LANG_KEY,
+            title = "Bevorzugte Sprache",
+            entries = PREF_LANGS,
+            entryValues = PREF_LANGS,
+            default = PREF_LANG_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_HOSTER_KEY,
+            title = "Bevorzugter Hoster",
+            entries = PREF_HOSTER_NAMES,
+            entryValues = PREF_HOSTER_NAMES,
+            default = PREF_HOSTER_DEFAULT,
+            summary = "%s",
+        )
+        screen.addSetPreference(
+            key = PREF_EXCLUDED_HOSTERS_KEY,
+            title = "Ausgeschlossene Hoster",
+            entries = PREF_HOSTER_NAMES,
+            entryValues = PREF_HOSTER_NAMES,
+            default = emptySet(),
+            summary = "Wählen Sie die Hoster aus, die Sie nicht wünschen.",
+        )
+    }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val subPref = ListPreference(screen.context).apply {
-            key = AWConstants.PREFERRED_LANG
-            title = "Bevorzugte Sprache"
-            entries = AWConstants.LANGS
-            entryValues = AWConstants.LANGS
-            setDefaultValue(AWConstants.LANG_GER_SUB)
-            summary = "%s"
+    companion object {
+        private const val PREF_HOSTER_KEY = "preferred_hoster"
+        private const val PREF_EXCLUDED_HOSTERS_KEY = "excluded_hosters"
+        private const val NAME_DOOD = "Doodstream"
+        private const val NAME_STAPE = "Streamtape"
+        private const val NAME_VOE = "VOE"
+        private const val NAME_VIZ = "Vidoza"
+        private const val NAME_FILEMOON = "Filemoon"
+        private const val NAME_VIDMOLY = "Vidmoly"
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val hosterSelection = MultiSelectListPreference(screen.context).apply {
-            key = AWConstants.HOSTER_SELECTION
-            title = "Hoster auswählen"
-            entries = AWConstants.HOSTER_NAMES
-            entryValues = AWConstants.HOSTER_NAMES
-            setDefaultValue(AWConstants.HOSTER_NAMES.toSet())
+        private val PREF_HOSTER_NAMES = listOf(NAME_VOE, NAME_DOOD, NAME_STAPE, NAME_VIZ, NAME_FILEMOON, NAME_VIDMOLY)
+        private val PREF_HOSTER_DEFAULT = PREF_HOSTER_NAMES.first()
 
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }
-        screen.addPreference(subPref)
-        screen.addPreference(hosterPref)
-        screen.addPreference(hosterSelection)
+        private const val PREF_LANG_KEY = "preferred_lang"
+        private val LANGS = mapOf(
+            "3" to "Deutscher Sub",
+            "1" to "Deutscher Dub",
+            "2" to "Englischer Sub",
+        )
+        private val PREF_LANGS = LANGS.values.toList()
+        private val PREF_LANG_DEFAULT = PREF_LANGS.first()
     }
 }

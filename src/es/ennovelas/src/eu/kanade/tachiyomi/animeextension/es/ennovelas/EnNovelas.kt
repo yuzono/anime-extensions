@@ -10,22 +10,14 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import okhttp3.Headers
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -39,7 +31,7 @@ class EnNovelas :
 
     override val name = "EnNovelas"
 
-    override val baseUrl = "https://tv.ennovelas.net/"
+    override val baseUrl = "https://l.ennovelas-tv.com"
 
     override val lang = "es"
 
@@ -68,7 +60,7 @@ class EnNovelas :
         val seasonIds = document.select(".listSeasons li[data-season]")
         var noEp = 1F
         if (seasonIds.any()) {
-            seasonIds.reversed().map {
+            seasonIds.reversed().forEach {
                 try {
                     val headers = headers.newBuilder()
                         .add("authority", response.request.url.toString().substringAfter("https://").substringBefore("/wp-content"))
@@ -91,7 +83,7 @@ class EnNovelas :
                         .readTimeout(35, TimeUnit.SECONDS)
                         .build()
                     tmpClient.newCall(GET("$baseUrl/wp-content/themes/vo2022/temp/ajax/seasons.php?seriesID=${it.attr("data-season")}", headers = headers))
-                        .execute().asJsoup().select(".block-post").forEach { element ->
+                        .execute().useAsJsoup().select(".block-post").forEach { element ->
                             val ep = SEpisode.create()
                             val noEpisode = getNumberFromEpsString(element.selectFirst("a .episodeNum span:nth-child(2)")!!.text()).ifEmpty { noEp }
                             ep.setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
@@ -123,11 +115,10 @@ class EnNovelas :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
         val form = document.selectFirst("#btnServers form")
         val urlRequest = form?.attr("action") ?: ""
         val watch = form?.selectFirst("input")?.attr("value")
-        val domainRegex = Regex("^(?:https?:\\/\\/)?(?:[^@\\/\\n]+@)?(?:www\\.)?([^:\\/?\\n]+)")
+        val domainRegex = Regex("^(?:https?://)?(?:[^@/\\n]+@)?(?:www\\.)?([^:/?\\n]+)")
         val domainUrl = domainRegex.findAll(urlRequest).firstOrNull()?.value ?: ""
 
         val mediaType = "application/x-www-form-urlencoded".toMediaType()
@@ -143,58 +134,31 @@ class EnNovelas :
             .add("upgrade-insecure-requests", "1")
             .build()
 
-        client.newCall(POST(urlRequest, headers, body)).execute().asJsoup().select(".serversList li").map { it ->
-            val frameString = it.attr("abs:data-server")
-            val link = frameString.substringAfter("src='").substringBefore("'")
-                .replace("https://api.mycdn.moe/sblink.php?id=", "https://streamsb.net/e/")
-                .replace("https://api.mycdn.moe/uqlink.php?id=", "https://uqload.co/embed-")
-            if (link.contains("ok.ru")) {
-                try {
-                    OkruExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
+        return client.newCall(POST(urlRequest, headers, body)).execute().useAsJsoup()
+            .select(".serversList li")
+            .parallelCatchingFlatMapBlocking { elm ->
+                val frameString = elm.attr("abs:data-server")
+                val link = frameString.substringAfter("src='").substringBefore("'")
+                    .replace("https://api.mycdn.moe/sblink.php?id=", "https://streamsb.net/e/")
+                    .replace("https://api.mycdn.moe/uqlink.php?id=", "https://uqload.is/embed-")
+
+                when {
+//                    link.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(link)
+//                    link.contains("vidmoly") -> VidmolyExtractor(client).getVideoList(link, "")
+//                    link.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(link)
+//                    link.contains("vudeo") -> VudeoExtractor(client).videosFromUrl(link)
+//                    link.contains("streamtape") -> listOfNotNull(StreamTapeExtractor(client).videoFromUrl(link))
+//                    link.contains("uqload") -> {
+//                        val htmlLink = if (link.contains(".html")) link else "$link.html"
+//                        UqloadExtractor(client).videosFromUrl(htmlLink, "Uqload")
+//                    }
+//
+//                    link.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(link))
+//                    link.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(link)
+//                    link.contains("dailymotion") -> DailymotionExtractor(client, headers).videosFromUrl(link)
+                    else -> emptyList()
+                }
             }
-            if (link.contains("vidmoly")) {
-                try {
-                    VidmolyExtractor(client).getVideoList(link, "").let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("voe")) {
-                try {
-                    VoeExtractor(client, headers).videosFromUrl(link).also(videoList::addAll)
-                } catch (_: Exception) {}
-            }
-            if (link.contains("vudeo")) {
-                try {
-                    VudeoExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("streamtape")) {
-                try {
-                    StreamTapeExtractor(client).videoFromUrl(link)?.let { videoList.add(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("uqload")) {
-                try {
-                    UqloadExtractor(client).videosFromUrl(if (link.contains(".html")) link else "$link.html", "Uqload").let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("dood")) {
-                try {
-                    DoodExtractor(client).videoFromUrl(link)?.let { videoList.add(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("streamlare")) {
-                try {
-                    StreamlareExtractor(client).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-            if (link.contains("dailymotion")) {
-                try {
-                    DailymotionExtractor(client, headers).videosFromUrl(link).let { videoList.addAll(it) }
-                } catch (_: Exception) {}
-            }
-        }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -225,7 +189,7 @@ class EnNovelas :
         val document = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
         val hasNextPage = document.select(".pagination .current ~ a").any()
-        document.select(".block-post").map { element ->
+        document.select(".block-post").forEach { element ->
             if (element.selectFirst("a")?.attr("href")?.contains("/series/") == true) {
                 val anime = SAnime.create()
                 anime.setUrlWithoutDomain(element.select("a").attr("href"))
@@ -390,25 +354,5 @@ class EnNovelas :
             }
         }
         screen.addPreference(videoQualityPref)
-    }
-}
-
-class VidmolyExtractor(private val client: OkHttpClient) {
-    fun getVideoList(url: String, lang: String): List<Video> {
-        val body = client.newCall(GET(url)).execute()
-            .body.string()
-        val playlistUrl = Regex("file:\"(\\S+?)\"").find(body)!!.groupValues.get(1)
-        val headers = Headers.headersOf("Referer", "https://vidmoly.to")
-        val playlistData = client.newCall(GET(playlistUrl, headers)).execute()
-            .body.string()
-
-        val separator = "#EXT-X-STREAM-INF:"
-        return playlistData.substringAfter(separator).split(separator).map {
-            val quality = it.substringAfter("RESOLUTION=")
-                .substringAfter("x")
-                .substringBefore(",") + "p"
-            val videoUrl = it.substringAfter("\n").substringBefore("\n")
-            Video(videoUrl, "$lang - $quality", videoUrl, headers)
-        }
     }
 }

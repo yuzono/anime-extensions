@@ -3,23 +3,24 @@ package eu.kanade.tachiyomi.animeextension.es.animejl
 import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
@@ -71,17 +72,17 @@ class Animejl :
 
         val script = document.select("script:containsData(var episodes =)").firstOrNull()?.data() ?: return emptyList()
 
-        val episodesPattern = Regex("var episodes = (\\[.*?\\]);", RegexOption.DOT_MATCHES_ALL)
+        val episodesPattern = Regex("var episodes = (\\[.*?]);", RegexOption.DOT_MATCHES_ALL)
         val episodesMatch = episodesPattern.find(script) ?: return emptyList()
         val episodesString = episodesMatch.groupValues[1]
 
-        val animeInfoPattern = Regex("var anime_info = \\[(.*?)\\];")
+        val animeInfoPattern = Regex("var anime_info = \\[(.*?)];")
         val animeInfoMatch = animeInfoPattern.find(script) ?: return emptyList()
         val animeInfo = animeInfoMatch.groupValues[1].split(",").map { it.trim('"') }
 
         val animeSlug = animeInfo.getOrNull(2) ?: ""
         val animeId = animeInfo.getOrNull(0) ?: ""
-        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"\\]")
+        val episodePattern = Regex("\\[(\\d+),\"(.*?)\",\"(.*?)\",\"(.*?)\"]")
         val episodeMatches = episodePattern.findAll(episodesString)
 
         episodeMatches.forEach { match ->
@@ -111,7 +112,7 @@ class Animejl :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
@@ -120,25 +121,22 @@ class Animejl :
         val document = response.asJsoup()
         val scriptContent = document.selectFirst("script:containsData(var video = [)")?.data()
             ?: return emptyList()
-        val videoList = mutableListOf<Video>()
-        val videoPattern = Regex("""video\[\d+\] = '<iframe src="(.*?)"""")
+        val videoPattern = Regex("""video\[\d+] = '<iframe src="(.*?)"""")
         val matches = videoPattern.findAll(scriptContent)
-        matches.forEach { match ->
+        return matches.toList().catchingFlatMapBlocking { match ->
             val url = match.groupValues[1]
-            val videos = when {
+            when {
                 url.contains("streamtape") -> listOfNotNull(streamTapeExtractor.videoFromUrl(url))
                 url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
                 url.contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
                 url.contains("streamwish") || url.contains("playerwish") -> streamWishExtractor.videosFromUrl(url)
-                url.contains("streamhidevid") -> streamHideVidExtractor.videosFromUrl(url)
+                url.contains("streamhidevid") -> vidHideExtractor.videosFromUrl(url)
                 url.contains("voe") -> voeExtractor.videosFromUrl(url)
                 url.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
                 url.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers)
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
-            videoList.addAll(videos)
         }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()

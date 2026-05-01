@@ -2,6 +2,12 @@ package eu.kanade.tachiyomi.animeextension.ar.asia2tv
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -9,16 +15,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -70,8 +72,8 @@ class Asia2TV :
     override fun videoListSelector() = "ul.server-list-menu li"
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val document = client.newCall(GET(baseUrl + episode.url)).execute()
-            .asJsoup()
+        val document = client.newCall(GET(baseUrl + episode.url))
+            .execute().useAsJsoup()
         val link = document.selectFirst("div.loop-episode a.current")!!.attr("href")
         return GET(link)
     }
@@ -91,7 +93,7 @@ class Asia2TV :
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val vidbomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun getVideosFromUrl(url: String): List<Video> = when {
+    private suspend fun getVideosFromUrl(url: String): List<Video> = when {
         "dood" in url || "ds2play" in url -> doodExtractor.videosFromUrl(url)
 
         "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
@@ -105,13 +107,10 @@ class Asia2TV :
         VID_BOM_DOMAINS.any(url::contains) -> vidbomExtractor.videosFromUrl(url)
 
         "youdbox" in url || "yodbox" in url -> {
-            client.newCall(GET(url)).execute().let {
-                val doc = it.asJsoup()
-                val videoUrl = doc.selectFirst("source")?.attr("abs:src")
-                when (videoUrl) {
-                    null -> emptyList()
-                    else -> listOf(Video(videoUrl, "Yodbox: mirror", videoUrl))
-                }
+            val doc = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+            when (val videoUrl = doc.selectFirst("source")?.attr("abs:src")) {
+                null -> emptyList()
+                else -> listOf(Video(videoUrl, "Yodbox: mirror", videoUrl))
             }
         }
 

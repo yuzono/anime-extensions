@@ -4,6 +4,12 @@ import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.fr.anisama.extractors.VidCdnExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -12,19 +18,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parallelMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -177,7 +177,7 @@ class AniSama :
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val vidCdnExtractor by lazy { VidCdnExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
     override fun videoListRequest(episode: SEpisode) = GET(
         "$baseUrl${episode.url}",
@@ -204,7 +204,7 @@ class AniSama :
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(this, prefix)
                         contains("voe.sx") -> voeExtractor.videosFromUrl(this, prefix)
                         contains(Regex("(d000d|dood)")) -> doodExtractor.videosFromUrl(this, "${prefix}DoodStream")
-                        contains("vidhide") -> streamHideVidExtractor.videosFromUrl(this, videoNameGen = { "$prefix$it StreamHideVid" })
+                        contains("vidhide") -> vidHideExtractor.videosFromUrl(this, videoNameGen = { "$prefix$it StreamHideVid" })
                         else -> emptyList()
                     }
                 }

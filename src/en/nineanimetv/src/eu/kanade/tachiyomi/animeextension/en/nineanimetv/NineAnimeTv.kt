@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.nineanimetv
 
+import aniyomi.lib.rapidcloudextractor.RapidCloudExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.rapidcloudextractor.RapidCloudExtractor
 import eu.kanade.tachiyomi.multisrc.zorotheme.ZoroTheme
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess

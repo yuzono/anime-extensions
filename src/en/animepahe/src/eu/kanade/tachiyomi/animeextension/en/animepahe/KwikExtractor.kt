@@ -27,81 +27,76 @@ SOFTWARE.
 
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.await
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
-import okhttp3.Response
 
 class KwikExtractor(private val client: OkHttpClient) {
-    private var cookies: String = ""
-
     private val kwikParamsRegex = Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""")
     private val kwikDUrl = Regex("action=\"([^\"]+)\"")
     private val kwikDToken = Regex("value=\"([^\"]+)\"")
 
-    private fun isNumber(s: String?): Boolean = s?.toIntOrNull() != null
-
-    fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
+    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val eContent = client.newCall(GET(kwikUrl, Headers.headersOf("referer", referer)))
-            .execute().asJsoup()
+            .await().useAsJsoup()
         val script = eContent.selectFirst("script:containsData(eval\\(function)")!!.data().substringAfterLast("eval(function(")
         val unpacked = JsUnpacker.unpackAndCombine("eval(function($script")!!
         return unpacked.substringAfter("const source=\\'").substringBefore("\\';")
     }
 
-    fun getStreamUrlFromKwik(paheUrl: String): String {
-        val noRedirects = client.newBuilder()
+    suspend fun getStreamUrlFromKwik(paheUrl: String): String {
+        val noRedirectClient = client.newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
-        val kwikUrl = "https://" + noRedirects.newCall(GET("$paheUrl/i")).execute()
-            .header("location")!!.substringAfterLast("https://")
-        val fContent =
-            client.newCall(GET(kwikUrl, Headers.headersOf("referer", "https://kwik.cx/"))).execute()
-        cookies += fContent.header("set-cookie")!!
-        val fContentString = fContent.body.string()
+        val kwikUrl = "https://" + noRedirectClient.newCall(GET("$paheUrl/i")).await()
+            .use { it.header("location")!!.substringAfterLast("https://") }
+        val (fContentCookies, fContentString, fContentUrl) =
+            client.newCall(GET(kwikUrl, Headers.headersOf("referer", "https://kwik.cx/"))).await()
+                .use { response ->
+                    Triple(
+                        response.headers("set-cookie").joinToString("; ") { it.substringBefore(";") },
+                        response.body.string(),
+                        response.request.url.toString(),
+                    )
+                }
 
         val (fullString, key, v1, v2) = kwikParamsRegex.find(fContentString)!!.destructured
         val decrypted = decrypt(fullString, key, v1.toInt(), v2.toInt())
         val uri = kwikDUrl.find(decrypted)!!.destructured.component1()
         val tok = kwikDToken.find(decrypted)!!.destructured.component1()
-        var content: Response? = null
 
+        var kwikLocation: String? = null
         var code = 419
         var tries = 0
 
-        val noRedirectClient = OkHttpClient().newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .cookieJar(client.cookieJar)
-            .build()
-
         while (code != 302 && tries < 20) {
-            content = noRedirectClient.newCall(
+            noRedirectClient.newCall(
                 POST(
                     uri,
                     Headers.headersOf(
                         "referer",
-                        fContent.request.url.toString(),
+                        fContentUrl,
                         "cookie",
-                        fContent.header("set-cookie")!!.replace("path=/;", ""),
+                        fContentCookies,
                     ),
                     FormBody.Builder().add("_token", tok).build(),
                 ),
-            ).execute()
-            code = content.code
+            ).await().use { content ->
+                code = content.code
+                kwikLocation = content.header("location")
+            }
             ++tries
         }
         if (tries > 19) {
             throw Exception("Failed to extract the stream uri from kwik.")
         }
-        val location = content?.header("location").toString()
-        content?.close()
-        return location
+        return kwikLocation!!
     }
 
     private fun decrypt(fullString: String, key: String, v1: Int, v2: Int): String {

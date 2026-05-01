@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.uk.uakino
 
 import android.util.Log
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
@@ -8,10 +9,15 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
@@ -28,42 +34,28 @@ class UAKino : ParsedAnimeHttpSource() {
     private val animeSelector = "div.movie-item"
     private val nextPageSelector = "a:contains(Далі)"
 
-    override val baseUrl = "https://uakino.club"
+    override val baseUrl = "https://uakino.best"
     private val animeUrl = "/animeukr"
-    private val popularUrl = "/f/c.year=1921,2024/sort=rating;desc"
-
-    private val episodesAPI = "https://uakino.club/engine/ajax/playlists.php?news_id=%s&xfield=playlist" // %s - ID title
+    private val popularUrl = "/f/c.year=1921,2026/sort=rating;desc"
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        val anime = SAnime.create()
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.select("h1 span.solototle").text()
 
-        anime.title = document.select("h1 span.solototle").text()
-
-        // Poster can be /upload... or https://...
-        val posterUrl = document.select("a[data-fancybox=gallery]").attr("href")
-        if (posterUrl.contains("https://uakino.club")) {
-            anime.thumbnail_url = posterUrl
-        } else {
-            anime.thumbnail_url = baseUrl + posterUrl
-        }
-
-        anime.description = document.select("div.full-text[itemprop=description]").text()
-        Log.d("animeDetailsParse", anime.thumbnail_url!!)
-
-        return anime
+        val posterUrl = document.select("a[data-fancybox=gallery]").attr("abs:href")
+        thumbnail_url = UrlUtils.fixUrl(posterUrl, baseUrl)
+        description = document.select("div.full-text[itemprop=description]").text()
     }
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("a.movie-title").attr("href"))
+        title = element.select("a.movie-title").text()
 
-        anime.setUrlWithoutDomain(element.select("a.movie-title").attr("href"))
-        anime.thumbnail_url = baseUrl + element.select("div.movie-img img").attr("src")
-        anime.title = element.select("a.movie-title").text()
-        return anime
+        val posterUrl = element.select("div.movie-img img").attr("abs:src")
+        thumbnail_url = UrlUtils.fixUrl(posterUrl, baseUrl)
     }
 
     override fun popularAnimeNextPageSelector() = nextPageSelector
@@ -94,10 +86,19 @@ class UAKino : ParsedAnimeHttpSource() {
             .add("subaction", "search")
             .add("story", query)
             .build()
-        return POST(baseUrl, body = body)
+
+        return POST(
+            "$baseUrl/ua/",
+            headers = headers.newBuilder()
+                .set("Referer", "$baseUrl/")
+                .set("User-Agent", "Mozilla/5.0")
+                .set("Content-Type", "application/x-www-form-urlencoded")
+                .build(),
+            body = body,
+        )
     }
 
-    override fun searchAnimeSelector() = animeSelector
+    override fun searchAnimeSelector() = "div.movie-item.short-item"
 
     // ============================== Episode ===============================
 
@@ -105,73 +106,93 @@ class UAKino : ParsedAnimeHttpSource() {
 
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     override fun episodeListParse(response: Response): List<SEpisode> {
         val animePage = response.asJsoup()
 
         // Get ID title
-        var titleID = animePage.select("input[id=post_id]").attr("value")
+        val titleID = animePage.selectFirst("input[id=post_id]")
+            ?.attr("value")
+            ?.takeIf(String::isNotBlank)
+            ?: return emptyList()
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("engine")
+            addPathSegment("ajax")
+            addPathSegment("playlists.php")
+            addQueryParameter("news_id", titleID)
+            addQueryParameter("xfield", "playlist")
+        }.build().toString()
 
         // Do call
-        val episodesList = client.newCall(GET(episodesAPI.format(titleID)))
+        val episodesList = client.newCall(
+            GET(
+                url,
+                headers = Headers.Builder()
+                    .set("Referer", "$baseUrl/")
+                    .set("X-Requested-With", "XMLHttpRequest")
+                    .set("User-Agent", "Mozilla/5.0")
+                    .build(),
+            ),
+        )
             .execute()
-            .body.string()
+            .bodyString()
 
         // Parse JSON
-        Log.d("episodeListParse", episodesAPI.format(titleID))
-        val jsonObject = JSONTokener(episodesList).nextValue() as JSONObject
+        val parsed = try {
+            JSONTokener(episodesList).nextValue()
+        } catch (e: Exception) {
+            Log.e("UAKino", "JSON parse error: ${e.message}")
+            return emptyList()
+        }
+
+        if (parsed !is JSONObject) {
+            Log.e("UAKino", "Invalid JSON response")
+            return emptyList()
+        }
 
         // List episodes
         val episodeList = mutableListOf<SEpisode>()
 
-        // If "success" is false - is not anime serial(or another player)
-        if (jsonObject.getBoolean("success")) {
-            Jsoup.parse(jsonObject.getString("response")).select("div.playlists-videos li").forEach {
-                val episode = SEpisode.create()
-                episode.name = it.text() + " " + it.select("li").attr("data-voice")
-                var episodeUrl = it.select("li").attr("data-file")
-
-                // Can be without https:
-                if (episodeUrl.contains("https://")) {
-                    episode.url = episodeUrl
-                } else {
-                    episode.url = "https:" + episodeUrl
+        // If "success" is false - is not anime serial (or another player)
+        if (parsed.optBoolean("success")) {
+            Jsoup.parse(parsed.getString("response")).select("div.playlists-videos li").forEach {
+                val episodeUrl = UrlUtils.fixUrl(it.attr("data-file"), baseUrl) ?: return@forEach
+                val episode = SEpisode.create().apply {
+                    this.url = episodeUrl
+                    name = it.text() + " " + it.attr("data-voice")
                 }
-
                 episodeList.add(episode)
             }
         } else {
             val playerUrl = animePage.select("iframe#pre").attr("src")
             // Another player
             if (playerUrl.contains("/serial/")) {
-                Log.d("episodeListParse", playerUrl)
                 val playerScript = client.newCall(GET(playerUrl))
                     .execute()
-                    .asJsoup()
+                    .useAsJsoup()
                     .select("script")
                     .html()
 
                 // Get m3u8 url
-                val regexM3u8 = """file:'(.*?)'""".toRegex()
-                val m3u8JSONString = regexM3u8.find(playerScript)!!.value.substring(6).dropLast(1) // Drop file:"..."
-                Log.d("episodeListParse", m3u8JSONString)
-                val episodesJSON = json.decodeFromString<List<AshdiModel>>(m3u8JSONString)
+                val m3u8JSONString = regexM3u8.find(playerScript)?.groupValues?.getOrNull(1)
+                    ?: return emptyList()
+                val episodesJSON = m3u8JSONString.parseAs<List<AshdiModel>>()
                 for (itemVoice in episodesJSON) { // Voice
                     for (itemSeason in itemVoice.folder) { // Season
                         for (itemVideo in itemSeason.folder) { // Video
-
-                            val episode = SEpisode.create()
-                            episode.name = "${itemSeason.title} ${itemVideo.title} ${itemVoice.title}" // "Сезон 1 Серія 1 Озвучення"
-                            episode.url = itemVideo.file
+                            val episode = SEpisode.create().apply {
+                                name = "${itemSeason.title} ${itemVideo.title} ${itemVoice.title}" // "Сезон 1 Серія 1 Озвучення"
+                                this.url = itemVideo.file
+                            }
                             episodeList.add(episode)
                         }
                     }
                 }
             } else { // Search as one video
-                val episode = SEpisode.create()
-                episode.name = animePage.select("span.solototle").text()
-                episode.url = playerUrl
+                val episode = SEpisode.create().apply {
+                    this.url = playerUrl
+                    name = animePage.select("span.solototle").text() + " Фільм"
+                }
                 episodeList.add(episode)
             }
         }
@@ -182,31 +203,36 @@ class UAKino : ParsedAnimeHttpSource() {
     // ============================ Video ===============================
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        Log.d("fetchVideoList", episode.url)
-
-        val videoList = mutableListOf<Video>()
         var m3u8Episode = episode.url
         if (!episode.url.contains(".m3u8")) { // If not from another player
             // Get player script
-            val playerScript = client.newCall(GET(episode.url)).execute().asJsoup().select("script").html()
+            val document = client.newCall(GET(episode.url))
+                .awaitSuccess()
+                .useAsJsoup()
+
+            val scripts = document.select("script")
 
             // Get m3u8 url
-            val regexM3u8 = """file:"(.*?)"""".toRegex()
-            m3u8Episode = regexM3u8.find(playerScript)!!.value.substring(6).dropLast(1) // Drop file:"..."
+            for (script in scripts) {
+                val data = script.data()
+                val match = regexM3u8.find(data)
+                if (match != null) {
+                    m3u8Episode = match.groupValues[1]
+                    break
+                }
+            }
         }
 
         // Parse m3u (480p/720p/1080p)
         // GET Calll m3u8 url
-        val masterPlaylist = client.newCall(GET(m3u8Episode)).execute().body.string()
-        // Parse quality and videoUrl from m3u8 file
-        masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:").forEach {
-            val quality = it.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p"
-            val videoUrl = it.substringAfter("\n").substringBefore("\n")
-
-            videoList.add(Video(videoUrl, quality, videoUrl))
+        if (!m3u8Episode.contains(".m3u8")) {
+            return emptyList()
         }
 
-        return videoList
+        return playlistUtils.extractFromHls(
+            m3u8Episode,
+            referer = baseUrl,
+        )
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
@@ -214,4 +240,10 @@ class UAKino : ParsedAnimeHttpSource() {
     override fun videoListSelector() = throw UnsupportedOperationException()
 
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
+
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
+    companion object {
+        private val regexM3u8 by lazy { Regex("""file\s*:\s*["']([^"']+)["']""") }
+    }
 }

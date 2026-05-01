@@ -1,23 +1,22 @@
 package eu.kanade.tachiyomi.animeextension.fr.frenchanime
 
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamhubextractor.StreamHubExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
+import aniyomi.lib.vidoextractor.VidoExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamhubextractor.StreamHubExtractor
-import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidmolyextractor.VidMolyExtractor
-import eu.kanade.tachiyomi.lib.vidoextractor.VidoExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.multisrc.datalifeengine.DataLifeEngine
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -93,13 +92,12 @@ class FrenchAnime :
     private val upstreamExtractor by lazy { UpstreamExtractor(client) }
     private val vudeoExtractor by lazy { VudeoExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
-    private val streamVidExtractor by lazy { StreamVidExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidoExtractor by lazy { VidoExtractor(client) }
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamHubExtractor by lazy { StreamHubExtractor(client) }
-    private val vidmolyExtractor by lazy { VidMolyExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
@@ -116,9 +114,8 @@ class FrenchAnime :
                     contains("uqload") -> uqloadExtractor.videosFromUrl(this)
 
                     contains("guccihide") ||
-                        contains("streamhide") -> streamHideVidExtractor.videosFromUrl(this)
-
-                    contains("streamvid") -> streamVidExtractor.videosFromUrl(this)
+                        contains("streamhide") ||
+                        contains("streamvid") -> vidHideExtractor.videosFromUrl(this)
 
                     contains("vido") -> vidoExtractor.videosFromUrl(this)
 

@@ -2,7 +2,7 @@ plugins {
     id("lib-multisrc")
 }
 
-baseVersionCode = 1
+baseVersionCode = 4
 
 dependencies {
     api(project(":lib:vudeoextractor"))
@@ -20,7 +20,7 @@ dependencies {
     api(project(":lib:burstcloudextractor"))
     api(project(":lib:fastreamextractor"))
     api(project(":lib:upstreamextractor"))
-    api(project(":lib:streamhidevidextractor"))
+    api(project(":lib:vidhideextractor"))
     api(project(":lib:streamsilkextractor"))
     api(project(":lib:vidguardextractor"))
     api(project(":lib:universalextractor"))

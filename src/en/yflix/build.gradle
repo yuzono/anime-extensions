@@ -1,7 +1,7 @@
 ext {
     extName = 'YFlix'
     extClass = '.YFlix'
-    extVersionCode = 2
+    extVersionCode = 3
     isNsfw = true
 }
 

@@ -2,7 +2,11 @@ package eu.kanade.tachiyomi.animeextension.es.mundodonghua
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.animeextension.es.mundodonghua.extractors.JsUnpacker
+import aniyomi.lib.autoUnpacker
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,12 +14,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -81,11 +82,9 @@ class MundoDonghua :
         return episode
     }
 
-    private fun getAndUnpack(string: String): Sequence<String> = JsUnpacker.unpack(string)
-
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -97,17 +96,17 @@ class MundoDonghua :
                 val packedRegex = Regex("eval\\(function\\(p,a,c,k,e,.*\\)\\)")
                 packedRegex.findAll(script.data()).map {
                     it.value
-                }.toList().map {
-                    val unpack = getAndUnpack(it).first()
+                }.toList().forEach {
+                    val unpack = autoUnpacker(it) ?: return@forEach
                     if (unpack.contains("amagi_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 VoeExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
                             } catch (_: Exception) {}
                         }
                     }
                     if (unpack.contains("fmoon_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 val newHeaders = headers.newBuilder()
                                     .add("authority", url.toHttpUrl().host)
@@ -128,7 +127,9 @@ class MundoDonghua :
                                 .add("accept", "*/*")
                                 .build()
 
-                            val slugPlayer = client.newCall(GET("$baseUrl/api_donghua.php?slug=$slug", headers = newHeaders)).execute().asJsoup().body().toString().substringAfter("\"url\":\"").substringBefore("\"")
+                            val slugPlayer = client.newCall(GET("$baseUrl/api_donghua.php?slug=$slug", headers = newHeaders))
+                                .execute().bodyString()
+                                .substringAfter("\"url\":\"").substringBefore("\"")
 
                             val videoHeaders = headers.newBuilder()
                                 .add("authority", "www.mdplayer.xyz")
@@ -136,13 +137,14 @@ class MundoDonghua :
                                 .build()
 
                             val videoId = client.newCall(GET("https://www.mdplayer.xyz/nemonicplayer/dmplayer.php?key=$slugPlayer", headers = videoHeaders))
-                                .execute().asJsoup().body().toString().substringAfter("video-id=\"").substringBefore("\"")
+                                .execute().bodyString()
+                                .substringAfter("video-id=\"").substringBefore("\"")
 
                             DailymotionExtractor(client, headers).videosFromUrl("https://www.dailymotion.com/embed/video/$videoId", prefix = "Dailymotion:").let { videoList.addAll(it) }
                         } catch (_: Exception) {}
                     }
                     if (unpack.contains("asura_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 if (url.contains("redirector")) {
                                     val newHeaders = headers.newBuilder()

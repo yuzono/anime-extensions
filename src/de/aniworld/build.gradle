@@ -1,7 +1,7 @@
 ext {
     extName = 'AniWorld'
     extClass = '.AniWorld'
-    extVersionCode = 31
+    extVersionCode = 36
 }
 
 apply from: "$rootDir/common.gradle"
@@ -10,4 +10,6 @@ dependencies {
     implementation(project(':lib:voeextractor'))
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:vidmolyextractor'))
 }

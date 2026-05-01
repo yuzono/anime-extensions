@@ -2,6 +2,15 @@ package eu.kanade.tachiyomi.animeextension.ar.animerco
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidbomextractor.VidBomExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.ar.animerco.extractors.SharedExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -10,20 +19,14 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -38,7 +41,7 @@ class Animerco :
 
     override val name = "Animerco"
 
-    override val baseUrl = "https://web.animerco.org"
+    override val baseUrl = "https://zeta.animerco.org"
 
     override val lang = "ar"
 
@@ -167,9 +170,9 @@ class Animerco :
             )
         }
 
-        return document.select(episodeListSelector()).flatMap { el ->
-            val doc = client.newCall(GET(el.attr("abs:href"), headers)).execute()
-                .asJsoup()
+        return document.select(episodeListSelector()).parallelCatchingFlatMapBlocking { el ->
+            val doc = client.newCall(GET(el.attr("abs:href"), headers))
+                .awaitSuccess().useAsJsoup()
             val seasonName = doc.selectFirst("div.media-title h1")?.text() ?: "Season"
             val seasonNum = seasonName.substringAfterLast(" ").toIntOrNull() ?: 1
             doc.select(episodeListSelector()).map {
@@ -209,7 +212,7 @@ class Animerco :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
-    private fun getPlayerVideos(player: Element): List<Video> {
+    private suspend fun getPlayerVideos(player: Element): List<Video> {
         val url = getPlayerUrl(player) ?: return emptyList()
         val name = player.selectFirst("span.server")?.text()?.lowercase() ?: "Unknown"
         return when {
@@ -240,7 +243,7 @@ class Animerco :
         } ?: emptyList()
     }
 
-    private fun getPlayerUrl(player: Element): String? {
+    private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "player_ajax")
             .add("post", player.attr("data-post"))
@@ -249,14 +252,12 @@ class Animerco :
             .build()
 
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute()
-            .use { response ->
-                response.body.string()
-                    .substringAfter("\"embed_url\":\"")
-                    .substringBefore("\",")
-                    .replace("\\", "")
-                    .takeIf(String::isNotBlank)
-            }
+            .awaitSuccess()
+            .bodyString()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
+            .takeIf(String::isNotBlank)
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()

@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.streamingcommunity
 
+import aniyomi.lib.i18n.Intl
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.lib.i18n.Intl
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt

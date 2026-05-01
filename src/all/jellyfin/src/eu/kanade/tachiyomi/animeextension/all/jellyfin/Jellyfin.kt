@@ -23,7 +23,6 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.HttpException
-import eu.kanade.tachiyomi.util.parallelFlatMap
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.Source
 import keiyoushi.utils.addEditTextPreference
@@ -33,6 +32,7 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.get
 import keiyoushi.utils.getListPreference
+import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toJsonBody

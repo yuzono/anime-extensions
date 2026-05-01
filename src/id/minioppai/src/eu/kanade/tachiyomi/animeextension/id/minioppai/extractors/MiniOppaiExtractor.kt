@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.id.minioppai.extractors
 
+import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Headers

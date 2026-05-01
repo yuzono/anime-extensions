@@ -3,6 +3,14 @@ package eu.kanade.tachiyomi.animeextension.ar.anime4up
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidbomextractor.VidBomExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.ar.anime4up.extractors.SharedExtractor
 import eu.kanade.tachiyomi.animeextension.ar.anime4up.extractors.VidYardExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -11,17 +19,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
@@ -36,7 +37,7 @@ class Anime4Up :
 
     override val name = "Anime4Up"
 
-    override val baseUrl = "https://anime4up.rest"
+    override val baseUrl = "https://w1.anime4up.rest"
 
     override val lang = "ar"
 
@@ -181,7 +182,7 @@ class Anime4Up :
         // Use the same logic as the old implementation
         val streamLinks = with(qualities) { fhd + hd + sd }
 
-        return streamLinks.values.distinct().flatMap(::extractVideos)
+        return streamLinks.values.distinct().parallelCatchingFlatMapBlocking(::extractVideos)
     }
 
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
@@ -195,7 +196,7 @@ class Anime4Up :
     private val vidyardExtractor by lazy { VidYardExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun extractVideos(url: String): List<Video> = when {
+    private suspend fun extractVideos(url: String): List<Video> = when {
         url.contains("drive.google") -> {
             val embedUrlG = "https://gdriveplayer.to/embed2.php?link=$url"
             gdriveplayerExtractor.videosFromUrl(embedUrlG, "GdrivePlayer", headers)

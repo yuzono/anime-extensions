@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.putlocker.extractors
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.en.putlocker.CryptoAES
 import eu.kanade.tachiyomi.animeextension.en.putlocker.EpResp
 import eu.kanade.tachiyomi.animeextension.en.putlocker.Sources
@@ -7,10 +8,9 @@ import eu.kanade.tachiyomi.animeextension.en.putlocker.SubTrack
 import eu.kanade.tachiyomi.animeextension.en.putlocker.VidSource
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl

@@ -3,6 +3,16 @@ package eu.kanade.tachiyomi.animeextension.es.monoschinos
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -10,20 +20,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -36,7 +39,7 @@ class MonosChinos :
 
     override val name = "MonosChinos"
 
-    override val baseUrl = "https://monoschinos2.net"
+    override val baseUrl = "https://vww.monoschinos2.net"
 
     override val id = 6957694006954649296
 
@@ -148,7 +151,7 @@ class MonosChinos :
                 .build()
             pageIdx++
 
-            client.newCall(request).execute().getEpisodes()
+            client.newCall(request).awaitSuccess().use { it.getEpisodes() }
         }
     }
 
@@ -171,11 +174,15 @@ class MonosChinos :
             .header("x-requested-with", "XMLHttpRequest")
             .build()
 
-        val serverDocument = client.newCall(request).execute().asJsoup()
+        val serverDocument = client.newCall(request).execute().useAsJsoup()
 
         return serverDocument.select("[data-player]")
-            .map { String(Base64.decode(it.attr("data-player"), Base64.DEFAULT)) }
-            .parallelCatchingFlatMapBlocking { serverVideoResolver(it) }
+            .mapNotNull {
+                runCatching {
+                    String(Base64.decode(it.attr("data-player"), Base64.DEFAULT))
+                }.getOrNull()
+            }
+            .catchingFlatMapBlocking { serverVideoResolver(it) }
     }
 
     override fun getFilterList(): AnimeFilterList = MonosChinosFilters.FILTER_LIST
@@ -191,7 +198,7 @@ class MonosChinos :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
@@ -236,13 +243,10 @@ class MonosChinos :
     private fun Double.ceilPage(): Int = if (this % 1 == 0.0) this.toInt() else ceil(this).toInt()
 
     private fun Response.getEpisodes(): List<SEpisode> {
-        val document = this.asJsoup()
+        val document = asJsoup()
         return document.select(".ko").mapIndexed { idx, it ->
-            val episodeNumber = try {
-                it.select("h2").text().substringAfter("Capítulo").trim().toFloat()
-            } catch (e: Exception) {
-                idx + 1f
-            }
+            val episodeNumber = it.select("h2").text().substringAfter("Capítulo").trim()
+                .toFloatOrNull() ?: (idx + 1f)
 
             SEpisode.create().apply {
                 name = it.select(".fs-6").text()

@@ -1,30 +1,32 @@
 package eu.kanade.tachiyomi.animeextension.fr.wiflix
 
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.streamdavextractor.StreamDavExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.vidoextractor.VidoExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.streamdavextractor.StreamDavExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidoextractor.VidoExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.multisrc.datalifeengine.DataLifeEngine
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
+/**
+ * Domain list: https://wiflix-news.site | https://ww1.wiflix-adresses.fun
+ */
 class Wiflix :
     DataLifeEngine(
         "Wiflix",
-        "https://wiflix.voto",
+        "https://flemmix.best",
         "fr",
     ) {
-
     override val categories = arrayOf(
         Pair("<Sélectionner>", ""),
         Pair("Séries", "/serie-en-streaming/"),
@@ -84,7 +86,7 @@ class Wiflix :
                     contains("uqload.co") -> UqloadExtractor(client).videosFromUrl(this)
                     contains("waaw1.tv") -> emptyList()
                     contains("vudeo.co") -> VudeoExtractor(client).videosFromUrl(this)
-                    contains("streamvid.net") -> StreamHideVidExtractor(client, headers).videosFromUrl(this)
+                    contains("streamvid.net") -> VidHideExtractor(client, headers).videosFromUrl(this)
                     contains("upstream.to") -> UpstreamExtractor(client).videosFromUrl(this)
                     contains("streamdav.com") -> StreamDavExtractor(client).videosFromUrl(this)
                     contains("voe.sx") -> VoeExtractor(client, headers).videosFromUrl(this)

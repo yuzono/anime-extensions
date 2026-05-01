@@ -3,6 +3,17 @@ package eu.kanade.tachiyomi.animeextension.es.latanime
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,20 +21,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -294,28 +296,40 @@ class Latanime :
     // ============================ Video Links =============================
 
     override fun videoListParse(response: Response): List<Video> {
-        val videoList = mutableListOf<Video>()
         val document = response.asJsoup()
-        document.select(videoListSelector()).forEach { videoElement ->
-            val serverTitle = videoElement.ownText().trim()
-            val url = String(Base64.decode(videoElement.attr("data-player"), Base64.DEFAULT))
-            val prefix = "$serverTitle - "
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "okru" -> okruExtractor.videosFromUrl(url, prefix)
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
-                "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = prefix)
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-            }.also(videoList::addAll)
-        }
-        return videoList
+        return document.select(videoListSelector())
+            .mapNotNull { videoElement ->
+                val serverTitle = videoElement.ownText()
+                val url = runCatching {
+                    String(Base64.decode(videoElement.attr("data-player"), Base64.DEFAULT))
+                }.getOrNull() ?: return@mapNotNull null
+                val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() } }?.first
+                Triple(matched, serverTitle, url)
+            }
+            .partition { it.first != null }
+            .let { (matched, unmatched) ->
+                val extractors = matched.parallelCatchingFlatMapBlocking { (matched, serverTitle, url) ->
+                    val prefix = "$serverTitle - "
+                    when (matched) {
+                        "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+                        "okru" -> okruExtractor.videosFromUrl(url, prefix)
+                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+                        "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+                        "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+                        "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
+                        "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+                        "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+                        "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+                        "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = prefix)
+                        else -> emptyList()
+                    }
+                }
+                val universal = unmatched.catchingFlatMapBlocking { (_, serverTitle, url) ->
+                    val prefix = "$serverTitle - "
+                    universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+                }
+                extractors + universal
+            }
     }
 
     private val conventions = listOf(

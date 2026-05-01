@@ -5,6 +5,17 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.tr.anizm.AnizmFilters.applyFilterParams
 import eu.kanade.tachiyomi.animeextension.tr.anizm.extractors.AincradExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -14,32 +25,19 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
-import uy.kohesive.injekt.injectLazy
 
 class Anizm :
     ParsedAnimeHttpSource(),
@@ -56,8 +54,6 @@ class Anizm :
     override fun headersBuilder() = super.headersBuilder()
         .add("Origin", baseUrl)
         .add("Referer", "$baseUrl/")
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -107,10 +103,10 @@ class Anizm :
         val filtered = animeList.applyFilterParams(params)
         val results = filtered.chunked(30).toList()
         val hasNextPage = results.size > page
-        val currentPage = if (results.size == 0) {
-            emptyList<SAnime>()
+        val currentPage = if (results.isEmpty()) {
+            emptyList()
         } else {
-            results.get(page - 1).map {
+            results[page - 1].map {
                 SAnime.create().apply {
                     title = it.title
                     url = "/" + it.slug
@@ -136,7 +132,7 @@ class Anizm :
 
     override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -187,33 +183,25 @@ class Anizm :
 
         val chosenHosts = preferences.getStringSet(PREF_HOSTS_SELECTION_KEY, PREF_HOSTS_SELECTION_DEFAULT)!!
 
-        val playerUrls = fansubUrls.flatMap { pair ->
+        val playerUrls = fansubUrls.parallelCatchingFlatMapBlocking { pair ->
             val (fansub, url) = pair
-            runCatching {
-                client.newCall(GET(url, headers)).execute()
-                    .parseAs<ResponseDto>()
-                    .data
-                    .let(Jsoup::parse)
-                    .select("a.videoPlayerButtons")
-                    .toList()
-                    .filter { host ->
-                        val hostName = host.text().trim()
-                        chosenHosts.any { hostName.contains(it, true) }
-                    }
-                    .map { fansub to it.attr("video").replace("/video/", "/player/") }
-            }.getOrElse { emptyList() }
+            client.newCall(GET(url, headers)).awaitSuccess()
+                .parseAs<ResponseDto>()
+                .data
+                .let(Jsoup::parse)
+                .select("a.videoPlayerButtons")
+                .toList()
+                .filter { host ->
+                    val hostName = host.text().trim()
+                    chosenHosts.any { hostName.contains(it, true) }
+                }
+                .map { fansub to it.attr("video").replace("/video/", "/player/") }
         }
 
-        return playerUrls.parallelCatchingFlatMapBlocking { pair ->
-            val (fansub, url) = pair
+        return playerUrls.parallelCatchingFlatMapBlocking { (fansub, url) ->
             getVideosFromUrl(url).map {
-                Video(
-                    it.url,
-                    "[$fansub] ${it.quality}",
-                    it.videoUrl,
-                    it.headers,
-                    it.subtitleTracks,
-                    it.audioTracks,
+                it.copy(
+                    quality = "[$fansub] ${it.quality}",
                 )
             }
         }
@@ -223,7 +211,7 @@ class Anizm :
         client.newBuilder().followRedirects(false).build()
     }
 
-    private val aincradExtractor by lazy { AincradExtractor(client, headers, json) }
+    private val aincradExtractor by lazy { AincradExtractor(client, headers) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
@@ -236,8 +224,8 @@ class Anizm :
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
-    private fun getVideosFromUrl(firstUrl: String): List<Video> {
-        val url = noRedirectClient.newCall(GET(firstUrl, headers)).execute()
+    private suspend fun getVideosFromUrl(firstUrl: String): List<Video> {
+        val url = noRedirectClient.newCall(GET(firstUrl, headers)).awaitSuccess()
             .use { it.headers["location"] }
             ?: return emptyList()
 

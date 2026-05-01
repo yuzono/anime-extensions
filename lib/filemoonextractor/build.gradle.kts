@@ -3,6 +3,6 @@ plugins {
 }
 
 dependencies {
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(":lib:playlistutils"))
 }

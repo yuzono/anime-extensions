@@ -2,11 +2,11 @@ package eu.kanade.tachiyomi.animeextension.pl.desuonline
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.animeextension.pl.desuonline.extractors.CDAExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import okhttp3.Response
 import java.text.SimpleDateFormat

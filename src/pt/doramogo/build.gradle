@@ -1,7 +1,7 @@
 ext {
     extName = 'Doramogo'
     extClass = '.Doramogo'
-    extVersionCode = 11
+    extVersionCode = 14
 }
 
 apply from: "$rootDir/common.gradle"
@@ -11,5 +11,5 @@ dependencies {
     implementation(project(":lib:googledriveextractor"))
     implementation(project(":lib:okruextractor"))
     implementation(project(":lib:playlistutils"))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

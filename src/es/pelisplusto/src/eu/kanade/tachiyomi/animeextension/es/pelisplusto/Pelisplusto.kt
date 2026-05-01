@@ -9,7 +9,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.pelisplus.Filters
 import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -65,8 +68,8 @@ class Pelisplusto : PelisPlus() {
             val jsonStrData = jsoup.selectFirst("script:containsData(const seasonUrl =)")?.data() ?: return emptyList()
             val jsonParse = json.decodeFromString<JsonObject>(jsonStrData.substringAfter("seasonsJson = ").substringBefore(";"))
             var index = 0
-            jsonParse.entries.map {
-                it.value.jsonArray.reversed().map { element ->
+            jsonParse.entries.forEach {
+                it.value.jsonArray.reversed().forEach { element ->
                     index += 1
                     val jsonElement = element.jsonObject
                     val season = jsonElement["season"]!!.jsonPrimitive.content
@@ -95,27 +98,29 @@ class Pelisplusto : PelisPlus() {
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        return document.select(".bg-tabs ul li").flatMap {
-            val prefix = it.parent()?.parent()?.selectFirst("button")?.ownText()?.lowercase()?.getLang()
-            val decode = String(Base64.decode(it.attr("data-server"), Base64.DEFAULT))
+        val document = response.useAsJsoup()
+        return document.select(".bg-tabs ul li")
+            .catchingFlatMapBlocking {
+                val prefix = it.parent()?.parent()?.selectFirst("button")?.ownText()?.lowercase()?.getLang()
+                val decode = String(Base64.decode(it.attr("data-server"), Base64.DEFAULT))
 
-            val url = if (!REGEX_LINK.containsMatchIn(decode)) {
-                "$baseUrl/player/${String(Base64.encode(it.attr("data-server").toByteArray(), Base64.DEFAULT))}"
-            } else {
-                decode
+                val url = if (!REGEX_LINK.containsMatchIn(decode)) {
+                    "$baseUrl/player/${String(Base64.encode(it.attr("data-server").toByteArray(), Base64.DEFAULT))}"
+                } else {
+                    decode
+                }
+
+                val videoUrl = if (url.contains("/player/")) {
+                    val script = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+                        .selectFirst("script:containsData(window.onload)")?.data() ?: ""
+                    fetchUrls(script).firstOrNull() ?: ""
+                } else {
+                    url
+                }.replace("https://sblanh.com", "https://lvturbo.com")
+                    .replace(Regex("([a-zA-Z0-9]{0,8}[a-zA-Z0-9_-]+)=https://ww3.pelisplus.to.*"), "")
+
+                serverVideoResolver(videoUrl, prefix ?: "")
             }
-
-            val videoUrl = if (url.contains("/player/")) {
-                val script = client.newCall(GET(url)).execute().asJsoup().selectFirst("script:containsData(window.onload)")?.data() ?: ""
-                fetchUrls(script).firstOrNull() ?: ""
-            } else {
-                url
-            }.replace("https://sblanh.com", "https://lvturbo.com")
-                .replace(Regex("([a-zA-Z0-9]{0,8}[a-zA-Z0-9_-]+)=https://ww3.pelisplus.to.*"), "")
-
-            serverVideoResolver(videoUrl, prefix ?: "")
-        }
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(

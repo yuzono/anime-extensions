@@ -1,12 +1,12 @@
 ext {
     extName = 'Animelib'
     extClass = '.Animelib'
-    extVersionCode = 10
+    extVersionCode = 13
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation project(':lib:playlistutils')
+    implementation(project(':lib:playlistutils'))
 }

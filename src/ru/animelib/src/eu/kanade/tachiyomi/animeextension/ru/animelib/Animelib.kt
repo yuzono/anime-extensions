@@ -7,6 +7,7 @@ import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
+import aniyomi.lib.playlistutils.PlaylistUtils
 import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -16,15 +17,16 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -44,9 +46,13 @@ class Animelib :
 
     override val supportsLatest = true
 
-    private val domain = "v3.animelib.org"
-    override val baseUrl = "https://$domain/ru"
-    private val apiSite = "https://api.cdnlibs.org"
+    private val domain: String
+        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+
+    override val baseUrl: String
+        get() = "https://$domain/ru"
+
+    private val apiSite = "https://hapi.hentaicdn.org"
     private val apiUrl = "$apiSite/api"
     private val coverDomain = "cover.imglib.info"
 
@@ -54,6 +60,10 @@ class Animelib :
     private val dateFormatter by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
 
     companion object {
+        private const val PREF_DOMAIN_KEY = "pref_domain"
+        private val PREF_DOMAIN_ENTRIES = arrayOf("animelib.org", "v3.animelib.org", "v4.animelib.org", "v5.animelib.org")
+        private const val PREF_DOMAIN_DEFAULT = "animelib.org"
+
         private const val PREF_QUALITY_KEY = "pref_quality"
         private val PREF_QUALITY_ENTRIES = arrayOf("360", "720", "1080", "2160")
 
@@ -93,16 +103,21 @@ class Animelib :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
+            key = PREF_DOMAIN_KEY
+            title = "Домен"
+            entries = PREF_DOMAIN_ENTRIES
+            entryValues = PREF_DOMAIN_ENTRIES
+            summary = "Текущий домен: %s"
+            setDefaultValue(PREF_DOMAIN_DEFAULT)
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Предпочитаемый сервер плеера Animelib"
             entries = PREF_SERVER_ENTRIES
             entryValues = PREF_SERVER_ENTRIES
             summary = "%s"
             setDefaultValue(PREF_SERVER_ENTRIES[0])
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -133,11 +148,6 @@ class Animelib :
                 entryValues = PREF_QUALITY_ENTRIES
                 summary = "При отсутствии нужного качества могут возникать ошибки!"
                 setDefaultValue(PREF_QUALITY_ENTRIES.toSet())
-
-                setOnPreferenceChangeListener { _, newValue ->
-                    @Suppress("UNCHECKED_CAST")
-                    preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-                }
             }.also(screen::addPreference)
         }
 
@@ -146,10 +156,6 @@ class Animelib :
             title = "Включить парсинг видео из плеера Kodik"
             summary = "Некоторые видео доступны только в нем, но он может работать нестабильно"
             setDefaultValue(PREF_USE_KODIK_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -157,10 +163,6 @@ class Animelib :
             title = "Игнорировать субтитры"
             summary = "Исключает видео с субтитрами"
             setDefaultValue(PREF_IGNORE_SUBS_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
@@ -168,10 +170,6 @@ class Animelib :
             title = "Предпочитаемые студии озвучки"
             summary = "Список студий или ключевых слов через запятую (экспериментальная функция)"
             setDefaultValue("")
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
         }.also(screen::addPreference)
     }
 
@@ -255,18 +253,16 @@ class Animelib :
         } ?: preferredTeams
 
         val ignoreSubs = preferences.getBoolean(PREF_IGNORE_SUBS_KEY, PREF_IGNORE_SUBS_DEFAULT)
-        return videoInfoList?.parallelFlatMap { videoInfo ->
+        return videoInfoList?.parallelCatchingFlatMap { videoInfo ->
             if (ignoreSubs && videoInfo.translationInfo.id == 1) {
-                return@parallelFlatMap emptyList()
+                return@parallelCatchingFlatMap emptyList()
             }
             val playerName = videoInfo.player.lowercase()
-            runCatching {
-                when (playerName) {
-                    "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
-                    "animelib" -> animelibVideoLinks(videoInfo, videoServer)
-                    else -> emptyList()
-                }
-            }.getOrElse { emptyList() }
+            when (playerName) {
+                "kodik" -> kodikVideoLinks(videoInfo.src, videoInfo.team.name)
+                "animelib" -> animelibVideoLinks(videoInfo, videoServer)
+                else -> emptyList()
+            }
         } ?: emptyList()
     }
 
@@ -352,8 +348,8 @@ class Animelib :
         url.addPathSegment("constants")
         url.addQueryParameter("fields[]", "videoServers")
 
-        val videoServerResponse = client.newCall(GET(url.build())).awaitSuccess()
-        val videoServers = videoServerResponse.parseAs<VideoServerData>()
+        val videoServers = client.newCall(GET(url.build())).awaitSuccess()
+            .parseAs<VideoServerData>()
 
         val serverPreference = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_ENTRIES[0])
         if (serverPreference.isNullOrEmpty()) {
@@ -375,13 +371,12 @@ class Animelib :
             return emptyList()
         }
 
-        val kodikPage = UrlUtils.fixUrl(playerUrl)
+        val kodikPage = UrlUtils.fixUrl(playerUrl) ?: return emptyList()
         val headers = Headers.Builder()
-        headers.add("Referer", baseUrl)
-        val kodikPageResponse = client.newCall(GET(kodikPage, headers.build())).awaitSuccess()
+        headers.add("Referer", "$baseUrl/")
 
         // Parse form parameters for video link request
-        val page = kodikPageResponse.asJsoup()
+        val page = client.newCall(GET(kodikPage, headers.build())).awaitSuccess().useAsJsoup()
         val urlParams = page.selectFirst("script:containsData($domain)")?.data()
             ?: return emptyList()
 
@@ -408,13 +403,12 @@ class Animelib :
         formBody.add("hash", urlParts[5])
 
         val videoInfoRequest = POST("https://$kodikDomain/ftor", body = formBody.build())
-        val videoInfoResponse = client.newCall(videoInfoRequest).awaitSuccess()
-        val kodikData = videoInfoResponse.parseAs<KodikData>()
+        val kodikData = client.newCall(videoInfoRequest).awaitSuccess().parseAs<KodikData>()
 
         // Load js with encode algorithm and parse it
         val scriptUrl = page.selectFirst("script[src*=player_single]")?.attr("abs:src")
             ?: return emptyList()
-        val jsScript = client.newCall(GET(scriptUrl)).execute().body.string()
+        val jsScript = client.newCall(GET(scriptUrl)).awaitSuccess().bodyString()
         val atob = ATOB_REGEX.find(jsScript) ?: return emptyList()
 
         var encodeScript = ""
@@ -464,7 +458,7 @@ class Animelib :
             }.toString()
 
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
-            val playlistUrl = UrlUtils.fixUrl(hlsUrl)
+            val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
             playlistUtils.extractFromHls(
                 playlistUrl,
                 videoNameGen = { "$teamName (${quality}p Kodik)" },
@@ -544,6 +538,6 @@ class Animelib :
         url = "api/episodes/$id"
         name = "Сезон $season Серия $number $episodeName"
         episode_number = number.toFloat()
-        date_upload = dateFormatter.parse(date)?.time ?: 0L
+        date_upload = dateFormatter.tryParse(date)
     }
 }

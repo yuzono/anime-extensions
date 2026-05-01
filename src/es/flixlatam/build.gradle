@@ -3,7 +3,7 @@ ext {
     extClass = '.FlixLatam'
     themePkg = 'dooplay'
     baseUrl = 'https://flixlatam.com'
-    overrideVersionCode = 13
+    overrideVersionCode = 16
 }
 
 apply from: "$rootDir/common.gradle"
@@ -24,7 +24,7 @@ dependencies {
     implementation(project(':lib:burstcloudextractor'))
     implementation(project(':lib:fastreamextractor'))
     implementation(project(':lib:upstreamextractor'))
-    implementation(project(':lib:streamhidevidextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:streamsilkextractor'))
     implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:cryptoaes'))

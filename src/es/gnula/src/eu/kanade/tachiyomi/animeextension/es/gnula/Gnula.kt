@@ -2,6 +2,21 @@ package eu.kanade.tachiyomi.animeextension.es.gnula
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.fastreamextractor.FastreamExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,25 +25,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.fastreamextractor.FastreamExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -37,6 +40,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
+import java.util.Locale
 
 class Gnula :
     ParsedAnimeHttpSource(),
@@ -73,7 +77,7 @@ class Gnula :
         private val LANGUAGE_LIST = arrayOf("[LAT]", "[CAST]", "[SUB]")
 
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
         }
     }
 
@@ -129,7 +133,7 @@ class Gnula :
                         val episode = SEpisode.create().apply {
                             episode_number = episodeCounter++
                             name = "T${season.number} - E${ep.number} - ${ep.title}"
-                            date_upload = ep.releaseDate?.toDate() ?: 0L
+                            date_upload = ep.releaseDate?.let(DATE_FORMATTER::tryParse) ?: 0L
                             setUrlWithoutDomain("$baseUrl/series/${ep.slug.name}/seasons/${ep.slug.season}/episodes/${ep.slug.episode}")
                         }
                         episode
@@ -157,7 +161,7 @@ class Gnula :
         return videoList
     }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url, prefix)
@@ -201,7 +205,7 @@ class Gnula :
 
             embedUrl.contains("streamtape") || embedUrl.contains("stp") || embedUrl.contains("stape") -> listOf(StreamTapeExtractor(client).videoFromUrl(url, quality = "$prefix StreamTape")!!)
 
-            embedUrl.contains("ahvsh") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+            embedUrl.contains("ahvsh") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> VidHideExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
 
             else -> UniversalExtractor(client).videosFromUrl(url, headers, prefix = prefix)
         }
@@ -252,14 +256,14 @@ class Gnula :
         }
     }
 
-    private fun List<Region>.toVideoList(lang: String): List<Video> = this.parallelCatchingFlatMapBlocking {
-        var url = ""
-        client.newCall(GET(it.result)).execute().asJsoup().select("script").map { sc ->
-            if (sc.data().contains("var url = '")) {
-                url = sc.data().substringAfter("var url = '").substringBefore("';")
-            }
-        }
-        serverVideoResolver(url, lang)
+    private fun List<Region>.toVideoList(lang: String): List<Video> = catchingFlatMapBlocking {
+        client.newCall(GET(it.result)).awaitSuccess().useAsJsoup().select("script")
+            .map { sc -> sc.data() }
+            .firstOrNull { data -> data.contains("var url = '") }
+            ?.let { data ->
+                val url = data.substringAfter("var url = '").substringBefore("';")
+                serverVideoResolver(url, lang)
+            } ?: emptyList()
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -294,8 +298,6 @@ class Gnula :
     }
 
     private inline fun <reified T> String.parseTo(): T = json.decodeFromString<T>(this)
-
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
     private fun urlSolverByType(type: String, slug: String): String = when (type) {
         "PaginatedMovie", "PaginatedGenre" -> "$baseUrl/movies/$slug"

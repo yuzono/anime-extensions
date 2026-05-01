@@ -1,7 +1,7 @@
 ext {
     extName = 'Kuronime'
     extClass = '.Kuronime'
-    extVersionCode = 10
+    extVersionCode = 12
 }
 
 apply from: "$rootDir/common.gradle"
@@ -10,5 +10,5 @@ dependencies {
     implementation(project(':lib:streamlareextractor'))
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:youruploadextractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
 }

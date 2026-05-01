@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.rouvideo
 
+import aniyomi.lib.i18n.Intl
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
-import eu.kanade.tachiyomi.lib.i18n.Intl
 
 internal object RouVideoFilter {
 

@@ -3,6 +3,16 @@ package eu.kanade.tachiyomi.animeextension.tr.animeler
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.AnimeEpisodes
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.FullAnimeDto
 import eu.kanade.tachiyomi.animeextension.tr.animeler.dto.SearchRequestDto
@@ -17,24 +27,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.vudeoextractor.VudeoExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -54,7 +53,7 @@ class Animeler :
 
     override val name = "Animeler"
 
-    override val baseUrl = "https://animeler.me"
+    override val baseUrl = "https://animeler.pw"
 
     override val lang = "tr"
 
@@ -262,13 +261,13 @@ class Animeler :
 
         return filteredSources.parallelCatchingFlatMapBlocking {
             val body = playerBody(it.key)
-            val res = client.newCall(POST(actionUrl, headers, body)).await()
+            val res = client.newCall(POST(actionUrl, headers, body)).awaitSuccess()
                 .parseAs<VideoDto>()
             videosFromUrl(res.videoSrc)
         }
     }
 
-    private fun videosFromUrl(url: String): List<Video> = when {
+    private suspend fun videosFromUrl(url: String): List<Video> = when {
         "dood" in url -> doodExtractor.videosFromUrl(url)
 
         "drive.google" in url -> {

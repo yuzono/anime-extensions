@@ -4,7 +4,6 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.CloseloadExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.RapidrameExtractor
-import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.VidmolyExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.XBetExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -15,12 +14,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
 import okhttp3.MultipartBody
@@ -173,7 +172,7 @@ class HDFilmCehennemi :
 
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -237,7 +236,6 @@ class HDFilmCehennemi :
     }
 
     // ============================ Video Links =============================
-    private val vidmolyExtractor by lazy { VidmolyExtractor(client, headers) }
     private val closeloadExtractor by lazy { CloseloadExtractor(client, headers) }
     private val rapidrameExtractor by lazy { RapidrameExtractor(client, headers) }
     private val xbetExtractor by lazy { XBetExtractor(client, headers) }
@@ -256,13 +254,12 @@ class HDFilmCehennemi :
 
     private suspend fun extractVideos(info: Triple<String, String, String>): List<Video> {
         val name = "[${info.first}] ${info.second}"
-        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).await()
-            .body.string()
+        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).awaitSuccess()
+            .bodyString()
             .substringAfter("src=")
             .substringBefore(' ')
             .trim('\\', '"', '\'', ' ')
             .replace("\\/", "/")
-        println(url)
         return when {
             url.contains("/rplayer") -> rapidrameExtractor.videosFromUrl(url, name)
 
@@ -270,8 +267,6 @@ class HDFilmCehennemi :
                 url,
                 name,
             )
-
-            name.contains("vidmoly") -> vidmolyExtractor.videosFromUrl(url, name)
 
             url.contains("trstx.org") -> xbetExtractor.videosFromUrl(url)
 
@@ -294,13 +289,6 @@ class HDFilmCehennemi :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
