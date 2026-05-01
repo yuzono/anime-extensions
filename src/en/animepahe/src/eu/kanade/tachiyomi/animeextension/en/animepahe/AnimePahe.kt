@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -317,18 +318,24 @@ class AnimePahe :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        return document.select("div#resolutionMenu > button").withIndex().mapNotNull { (index, btn) ->
+        val links = document.select("div#resolutionMenu > button").withIndex().mapNotNull { (index, btn) ->
             val kwikLink = btn.attr("data-src")
             val quality = btn.text()
             val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
                 ?: return@mapNotNull null
-            runCatching {
-                if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-                    KwikExtractor(client).getHlsVideo(kwikLink, referer = "$baseUrl/", quality)
-                } else {
+            Triple(kwikLink, paheWinLink, quality)
+        }
+
+        return if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
+            links.parallelMapBlocking { (kwikLink, _, quality) ->
+                KwikExtractor(client).getHlsVideo(kwikLink, referer = "$baseUrl/", quality)
+            }
+        } else {
+            links.mapNotNull { (_, paheWinLink, quality) ->
+                runCatching {
                     KwikExtractor(client).getStreamVideo(context, paheWinLink, quality)
-                }
-            }.getOrNull()
+                }.getOrNull()
+            }
         }
     }
 
