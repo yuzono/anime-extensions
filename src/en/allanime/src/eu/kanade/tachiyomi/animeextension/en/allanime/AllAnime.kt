@@ -46,6 +46,8 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+internal const val FALLBACK_PLAYER_DOMAIN = "https://blog.allanime.day"
+
 class AllAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
@@ -342,25 +344,26 @@ class AllAnime :
             }
         }
 
+        // Fetch and cache the endpoint BEFORE the parallel processing
+        val iframeEndpoint = runCatching {
+            client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
+                .parseAs<AllAnimeExtractor.VersionResponse>()
+                .episodeIframeHead
+        }.getOrDefault(FALLBACK_PLAYER_DOMAIN)
+
         videoList.addAll(
             serverList.parallelCatchingFlatMap { server ->
                 val sName = server.sourceName
                 when {
                     sName.startsWith("internal ") -> {
-                        allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName)
+                        allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
                     }
 
                     sName.startsWith("player@") -> {
-                        val endPoint = runCatching {
-                            client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
-                                .parseAs<AllAnimeExtractor.VersionResponse>()
-                                .episodeIframeHead
-                        }.getOrDefault("https://blog.allanime.day")
-
                         val videoHeaders = headers.newBuilder().apply {
                             add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
                             add("Host", server.sourceUrl.toHttpUrl().host)
-                            add("Referer", "$endPoint/")
+                            add("Referer", "$iframeEndpoint/")
                         }.build()
 
                         Video(
@@ -419,7 +422,11 @@ class AllAnime :
             else -> this to null
         }
 
-        val parsedChunks = hexPayload.chunked(2).mapNotNull { it.toIntOrNull(16) }
+        val parsedChunks = try {
+            hexPayload.chunked(2).map { it.toInt(16) }
+        } catch (e: NumberFormatException) {
+            return this // Fail fast and return the original string instead of a corrupted decryption
+        }
 
         if (keyType == null) {
             XOR_MASKS.forEach { mask ->
