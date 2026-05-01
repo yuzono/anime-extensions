@@ -58,12 +58,16 @@ class Hstream :
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/search?order=view-count&page=$page")
+    override fun popularAnimeRequest(page: Int): Request {
+        HstreamLogger.debug("popularAnimeRequest", "Building request: page=$page")
+        return GET("$baseUrl/search?order=view-count&page=$page")
+    }
 
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        val episodeUrl = element.attr("href").normalizeHref()
+        val rawHref = element.attr("href")
+        val episodeUrl = rawHref.normalizeHref()
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             setUrlWithoutDomain(episodeUrl.toSeriesUrl())
             title = element.selectFirst("img")!!.attr("alt").stripEpisodeSuffix()
@@ -74,12 +78,16 @@ class Hstream :
             val episode = url.substringAfterLast("-").substringBefore("/")
             thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
         }
+        HstreamLogger.debug("popularAnimeFromElement", "rawHref='$rawHref', url='$url', title='$title'")
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
+    override fun latestUpdatesRequest(page: Int): Request {
+        HstreamLogger.debug("latestUpdatesRequest", "Building request: page=$page")
+        return GET("$baseUrl/search?order=recently-uploaded&page=$page")
+    }
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
@@ -91,6 +99,7 @@ class Hstream :
     override fun getFilterList() = HstreamFilters.FILTER_LIST
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        HstreamLogger.debug("getSearchAnime", "query='$query', page=$page, startsWithPrefix=true")
         val id = query.removePrefix(PREFIX_SEARCH)
         val url = if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             "$baseUrl/hentai/${id.toSeriesSlug()}"
@@ -105,6 +114,7 @@ class Hstream :
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
+        HstreamLogger.debug("searchAnimeByIdParse", "Parsing detail page: ${response.request.url}")
         val details = animeDetailsParse(response.asJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
@@ -114,6 +124,7 @@ class Hstream :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = HstreamFilters.getSearchParameters(filters)
+        HstreamLogger.debug("searchAnimeRequest", "Building request: query='$query', page=$page, filters=${filters.size}")
 
         val url = "$baseUrl/search".toHttpUrl().newBuilder().apply {
             if (query.isNotBlank()) addQueryParameter("search", query)
@@ -124,6 +135,7 @@ class Hstream :
             params.studios.forEach { addQueryParameter("studios[]", it) }
         }.build()
 
+        HstreamLogger.debug("searchAnimeRequest", "Search URL: $url")
         return GET(url.toString())
     }
 
@@ -135,15 +147,18 @@ class Hstream :
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
+        HstreamLogger.debug("animeDetailsParse", "Parsing details from: ${document.location()}")
         status = SAnime.COMPLETED
 
         val detailsSection = document.selectFirst("div.relative > div.justify-between > div")
         if (detailsSection != null) {
             // Episode page: h1 is inside div.justify-between > div
+            HstreamLogger.debug("animeDetailsParse", "Page type: episode (has upload-link)")
             title = detailsSection.selectFirst("div > h1")!!.text()
             artist = detailsSection.select("div > a:nth-of-type(3)").text()
         } else {
             // Series page: h1 is a direct child of div.relative
+            HstreamLogger.debug("animeDetailsParse", "Page type: series (no upload-link)")
             title = document.selectFirst("div.relative > h1")?.text()
                 ?: document.selectFirst("h1")!!.text()
             artist = ""
@@ -153,16 +168,21 @@ class Hstream :
         genre = document.select("ul.list-none > li > a").eachText().joinToString()
 
         description = document.selectFirst("div.relative > p.leading-tight")?.text()
+        val genres = genre?.split(", ")?.size ?: 0
+        HstreamLogger.debug("animeDetailsParse", "Parsed: title='$title', artist='$artist', genres=$genres, description length=${description?.length ?: 0}")
     }
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
+        val requestUrl = response.request.url.toString()
+        HstreamLogger.debug("episodeListParse", "called for URL: $requestUrl")
 
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             // Series page is JS-rendered, so episode grid isn't available in JSoup HTML.
             // Instead, use the search endpoint to find all episodes of this series.
-            val seriesUrl = response.request.url.toString().normalizeHref()
+            val seriesUrl = requestUrl.normalizeHref()
+            HstreamLogger.debug("episodeListParse", "seriesUrl after normalizeHref: '$seriesUrl'")
 
             // Get series title from the page, strip Japanese name for matching
             val seriesTitle = doc.selectFirst("div.relative > div.justify-between > div > div > h1")
@@ -170,39 +190,61 @@ class Hstream :
                 ?: doc.selectFirst("div.relative > h1")?.text()
                 ?: doc.selectFirst("h1")?.text()
                 ?: ""
+            HstreamLogger.debug("episodeListParse", "seriesTitle: '$seriesTitle'")
+
             val matchTitle = seriesTitle.substringBefore("(").trim()
+            HstreamLogger.debug("episodeListParse", "matchTitle: '$matchTitle'")
 
             val searchUrl = "$baseUrl/search?search=${URLEncoder.encode(matchTitle, "UTF-8")}"
+            HstreamLogger.debug("episodeListParse", "searchUrl: $searchUrl")
             val searchDoc = client.newCall(GET(searchUrl)).execute().asJsoup()
 
-            return searchDoc.select(popularAnimeSelector())
-                .mapNotNull { element ->
-                    val href = element.attr("href").normalizeHref()
+            val searchResults = searchDoc.select(popularAnimeSelector())
+            HstreamLogger.debug("episodeListParse", "searchResults count: ${searchResults.size}")
 
-                    // Only include episodes that belong to this series
-                    if (!href.startsWith("$seriesUrl-")) return@mapNotNull null
+            val episodes = searchResults.mapNotNull { element ->
+                val rawHref = element.attr("href")
+                HstreamLogger.debug("episodeListParse", "  raw href: '$rawHref'")
+                val href = rawHref.normalizeHref()
+                HstreamLogger.debug("episodeListParse", "  normalized href: '$href'")
 
-                    val alt = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
-                    if (!alt.contains(matchTitle, ignoreCase = true)) return@mapNotNull null
+                val prefixCheck = href.startsWith("$seriesUrl-")
+                HstreamLogger.debug("episodeListParse", "  startsWith '$seriesUrl-': $prefixCheck")
+                if (!prefixCheck) return@mapNotNull null
 
-                    val epNum = href.extractEpisodeNumber() ?: return@mapNotNull null
-                    SEpisode.create().apply {
-                        setUrlWithoutDomain(href)
-                        episode_number = epNum.toFloatOrNull() ?: 1F
-                        name = "Episode $epNum"
-                        date_upload = 0L
-                    }
+                val alt = element.selectFirst("img")?.attr("alt")
+                HstreamLogger.debug("episodeListParse", "  img alt: '$alt'")
+                if (alt == null) return@mapNotNull null
+
+                val titleCheck = alt.contains(matchTitle, ignoreCase = true)
+                HstreamLogger.debug("episodeListParse", "  alt contains matchTitle: $titleCheck")
+                if (!titleCheck) return@mapNotNull null
+
+                val epNum = href.extractEpisodeNumber()
+                HstreamLogger.debug("episodeListParse", "  extractEpisodeNumber: '$epNum'")
+                if (epNum == null) return@mapNotNull null
+
+                SEpisode.create().apply {
+                    setUrlWithoutDomain(href)
+                    episode_number = epNum.toFloatOrNull() ?: 1F
+                    name = "Episode $epNum"
+                    date_upload = 0L
+                    HstreamLogger.debug("episodeListParse", "  CREATED episode: name='$name', url='$url', epNum=$episode_number")
                 }
-                .sortedByDescending { it.episode_number }
+            }
+            HstreamLogger.debug("episodeListParse", "final episode count: ${episodes.size}")
+            return episodes.sortedByDescending { it.episode_number }
         }
 
         // Original behavior: single episode from the page
+        HstreamLogger.debug("episodeListParse", "FALLING BACK to ungrouped path (grouping disabled?)")
         val episode = SEpisode.create().apply {
             date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
             setUrlWithoutDomain(doc.location())
             val num = url.substringAfterLast("-").substringBefore("/")
             episode_number = num.toFloatOrNull() ?: 1F
             name = "Episode $num"
+            HstreamLogger.debug("episodeListParse", "ungrouped episode: name='$name', url='$url'")
         }
 
         return listOf(episode)
@@ -214,13 +256,16 @@ class Hstream :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
+        HstreamLogger.debug("videoListParse", "Parsing video list from: ${response.request.url}")
         val doc = response.asJsoup()
 
         val token = client.cookieJar.loadForRequest(response.request.url)
             .first { it.name.equals("XSRF-TOKEN") }
             .value
+        HstreamLogger.debug("videoListParse", "XSRF token found: ${token.take(10)}...")
 
         val episodeId = doc.selectFirst("input#e_id")!!.attr("value")
+        HstreamLogger.debug("videoListParse", "Episode ID: $episodeId")
 
         val newHeaders = headersBuilder().apply {
             set("Referer", doc.location())
@@ -232,25 +277,33 @@ class Hstream :
         val body = """{"episode_id": "$episodeId"}""".toRequestBody("application/json".toMediaType())
         val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
             .parseAs<PlayerApiResponse>()
+        HstreamLogger.debug("videoListParse", "API response: legacy=${data.legacy}, resolution=${data.resolution}, stream_url=${data.stream_url}, domains=${data.stream_domains.size}")
 
         val urlBase = data.stream_domains.random() + "/" + data.stream_url
         val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
 
         val resolutions = listOfNotNull("720", "1080", if (data.resolution == "4k") "2160" else null)
-        return resolutions.map { resolution ->
+        val videos = resolutions.map { resolution ->
             val url = urlBase + getVideoUrlPath(data.legacy != 0, resolution)
             Video(url, "${resolution}p", url, subtitleTracks = subtitleList)
         }
+        HstreamLogger.debug("videoListParse", "Built ${videos.size} videos")
+        return videos
     }
 
-    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
-        if (resolution.equals("720")) {
-            "/x264.720p.mp4"
+    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String {
+        HstreamLogger.debug("getVideoUrlPath", "legacy=$isLegacy, resolution=$resolution")
+        val path = if (isLegacy) {
+            if (resolution.equals("720")) {
+                "/x264.720p.mp4"
+            } else {
+                "/av1.$resolution.webm"
+            }
         } else {
-            "/av1.$resolution.webm"
+            "/$resolution/manifest.mpd"
         }
-    } else {
-        "/$resolution/manifest.mpd"
+        HstreamLogger.debug("getVideoUrlPath", "Result path: $path")
+        return path
     }
 
     @Serializable
@@ -269,6 +322,7 @@ class Hstream :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        HstreamLogger.debug("setupPreferenceScreen", "Setting up preferences")
         screen.addSwitchPreference(
             key = PREF_GROUP_BY_SERIES_KEY,
             default = PREF_GROUP_BY_SERIES_DEFAULT,
@@ -300,10 +354,14 @@ class Hstream :
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        HstreamLogger.debug("sort", "Sorting ${this.size} videos, preferred quality: $quality")
 
-        return sortedWith(
+        val sorted = sortedWith(
             compareBy { it.quality.contains(quality) },
         ).reversed()
+
+        HstreamLogger.debug("sort", "Sorted order: ${sorted.map { it.quality }}")
+        return sorted
     }
 
     companion object {

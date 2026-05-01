@@ -46,5 +46,16 @@ object HstreamUtils {
      * If the href is an absolute URL, extract just the encoded path.
      * If it's already a relative path, return it as-is.
      */
-    fun String.normalizeHref(): String = if (startsWith("http")) toHttpUrl().encodedPath else this
+    fun String.normalizeHref(): String = if (startsWith("http")) {
+        try {
+            val result = toHttpUrl().encodedPath
+            HstreamLogger.debug("normalizeHref", "'$this' -> '$result'")
+            result
+        } catch (e: Exception) {
+            HstreamLogger.error("normalizeHref", "FAILED for '$this'", e)
+            this // fallback: return raw href
+        }
+    } else {
+        this
+    }
 }
