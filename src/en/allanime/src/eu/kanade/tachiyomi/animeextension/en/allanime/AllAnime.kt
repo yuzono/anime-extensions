@@ -300,9 +300,6 @@ class AllAnime :
             responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
         }
 
-        val videoList = mutableListOf<Pair<Video, Float>>()
-        val serverList = mutableListOf<Server>()
-
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
 
@@ -317,6 +314,7 @@ class AllAnime :
             "streamwish" to listOf("wish"),
         )
 
+        val serverList = mutableListOf<Server>()
         sourceUrls.forEach { video ->
             val videoUrl = video.sourceUrl.decryptSource()
 
@@ -329,15 +327,18 @@ class AllAnime :
                     Regex("""\b${it.lowercase()}\b""").find(video.sourceName.lowercase()) != null &&
                         hosterSelection.contains(it.lowercase())
                 } -> {
-                    serverList.add(Server(videoUrl, "internal ${video.sourceName}", video.priority))
+                    Server(videoUrl, "internal ${video.sourceName}", video.priority)
+                        .let(serverList::add)
                 }
 
                 altHosterSelection.contains("player") && video.type == "player" -> {
-                    serverList.add(Server(videoUrl, "player@${video.sourceName}", video.priority))
+                    Server(videoUrl, "player@${video.sourceName}", video.priority)
+                        .let(serverList::add)
                 }
 
                 matchingMapping != null -> {
-                    serverList.add(Server(videoUrl, matchingMapping.first, video.priority))
+                    Server(videoUrl, matchingMapping.first, video.priority)
+                        .let(serverList::add)
                 }
             }
         }
@@ -349,63 +350,60 @@ class AllAnime :
                 .episodeIframeHead
         }.getOrDefault(FALLBACK_PLAYER_DOMAIN)
 
-        videoList.addAll(
-            serverList.parallelCatchingFlatMap { server ->
-                val sName = server.sourceName
-                when {
-                    sName.startsWith("internal ") -> {
-                        allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
-                    }
+        return serverList.parallelCatchingFlatMap { server ->
+            val sName = server.sourceName
+            when {
+                sName.startsWith("internal ") -> {
+                    allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
+                }
 
-                    sName.startsWith("player@") -> {
-                        val videoHeaders = headers.newBuilder().apply {
-                            add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                            add("Host", server.sourceUrl.toHttpUrl().host)
-                            add("Referer", "$iframeEndpoint/")
-                        }.build()
+                sName.startsWith("player@") -> {
+                    val videoHeaders = headers.newBuilder().apply {
+                        add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+                        add("Host", server.sourceUrl.toHttpUrl().host)
+                        add("Referer", "$iframeEndpoint/")
+                    }.build()
 
-                        Video(
-                            server.sourceUrl,
-                            "Original (player ${server.sourceName.substringAfter("player@")})",
-                            server.sourceUrl,
-                            headers = videoHeaders,
-                        ).let(::listOf)
-                    }
+                    Video(
+                        server.sourceUrl,
+                        "Original (player ${server.sourceName.substringAfter("player@")})",
+                        server.sourceUrl,
+                        headers = videoHeaders,
+                    ).let(::listOf)
+                }
 
-                    sName == "vidstreaming" -> {
-                        gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
-                    }
+                sName == "vidstreaming" -> {
+                    gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
+                }
 
-                    sName == "dood" -> {
-                        doodExtractor.videosFromUrl(server.sourceUrl)
-                    }
+                sName == "dood" -> {
+                    doodExtractor.videosFromUrl(server.sourceUrl)
+                }
 
-                    sName == "okru" -> {
-                        okruExtractor.videosFromUrl(server.sourceUrl)
-                    }
+                sName == "okru" -> {
+                    okruExtractor.videosFromUrl(server.sourceUrl)
+                }
 
-                    sName == "mp4upload" -> {
-                        mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
-                    }
+                sName == "mp4upload" -> {
+                    mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
+                }
 
-                    sName == "streamlare" -> {
-                        streamlareExtractor.videosFromUrl(server.sourceUrl)
-                    }
+                sName == "streamlare" -> {
+                    streamlareExtractor.videosFromUrl(server.sourceUrl)
+                }
 
-                    sName == "filemoon" -> {
-                        filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
-                    }
+                sName == "filemoon" -> {
+                    filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
+                }
 
-                    sName == "streamwish" -> {
-                        streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
-                    }
+                sName == "streamwish" -> {
+                    streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
+                }
 
-                    else -> emptyList()
-                }.map { v -> Pair(v, server.priority) }
-            },
-        )
-
-        return prioritySort(videoList)
+                else -> emptyList()
+            }.map { v -> Pair(v, server.priority) }
+        }
+            .let(::prioritySort)
     }
 
     // ============================= Utilities ==============================
