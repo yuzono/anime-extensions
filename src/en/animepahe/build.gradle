@@ -1,11 +1,11 @@
 ext {
     extName = 'AnimePahe'
     extClass = '.AnimePahe'
-    extVersionCode = 38
+    extVersionCode = 39
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(":lib:unpacker"))
+    implementation("dev.datlag.jsunpacker:jsunpacker:1.0.2")
 }
