@@ -125,7 +125,7 @@ class AllAnime :
         val data = buildJsonObject {
             putJsonObject("variables") {
                 putJsonObject("search") {
-                    if (query.isNotEmpty()) put("query", query)
+                    if (query.isNotBlank()) put("query", query)
                     put("allowAdult", true)
                     put("allowUnknown", true)
                     if (filters.sortBy != "Recent") put("sortBy", filters.sortBy)
@@ -139,6 +139,7 @@ class AllAnime :
                 }
                 put("limit", PAGE_SIZE)
                 put("page", page)
+                put("translationType", preferences.subPref)
                 put("countryOrigin", filters.origin)
             }
             put("query", SEARCH_QUERY)
