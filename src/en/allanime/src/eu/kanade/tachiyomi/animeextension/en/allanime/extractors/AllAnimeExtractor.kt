@@ -89,38 +89,24 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
                             ),
                         )
                     } else if (it.format == "adaptive_hls") {
-                        val resp = runCatching {
-                            client.newCall(
-                                GET(it.url, headers = Headers.headersOf("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0")),
-                            ).execute()
-                        }.getOrNull()
-
-                        if (resp != null && resp.code == 200) {
-                            val masterPlaylist = resp.body.string()
-                            masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:")
-                                .forEach { t ->
-                                    val quality = t.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})"
-                                    val videoUrl = t.substringAfter("\n").substringBefore("\n")
-
-                                    videoList.add(Video(videoUrl, quality, videoUrl, subtitleTracks = subtitles))
-                                }
-                        }
+                        videoList.addAll(
+                            playlistUtils.extractFromHls(
+                                it.url,
+                                masterHeaders = headers,
+                                videoHeaders = headers,
+                                videoNameGen = { quality -> "$quality (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})" },
+                                subtitleList = subtitles,
+                            ),
+                        )
                     }
                 }
             } else if (link.dash == true) {
                 val audioList = link.rawUrls?.audios?.map {
                     Track(it.url, bytesIntoHumanReadable(it.bandwidth))
-                }
-                val videos = link.rawUrls?.vids?.map {
-                    if (audioList == null) {
-                        Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, subtitleTracks = subtitles)
-                    } else {
-                        Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, audioTracks = audioList, subtitleTracks = subtitles)
-                    }
-                }
-                if (videos != null) {
-                    videoList.addAll(videos)
-                }
+                } ?: emptyList()
+                link.rawUrls?.vids?.map {
+                    Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, audioTracks = audioList, subtitleTracks = subtitles)
+                }?.let(videoList::addAll)
             }
         }
 
