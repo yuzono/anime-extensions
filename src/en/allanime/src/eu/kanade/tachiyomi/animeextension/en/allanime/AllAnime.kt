@@ -80,13 +80,14 @@ class AllAnime :
     override fun popularAnimeParse(response: Response): AnimesPage {
         val parsed = response.parseAs<PopularResult>()
 
-        val animeList = parsed.data.queryPopular.recommendations.filter { it.anyCard != null }.map {
+        val animeList = parsed.data.queryPopular.recommendations.mapNotNull {
+            if (it.anyCard == null) return@mapNotNull null
             SAnime.create().apply {
                 title = when (preferences.titleStyle) {
-                    "romaji" -> it.anyCard!!.name
-                    "eng" -> it.anyCard!!.englishName ?: it.anyCard.name
-                    else -> it.anyCard!!.nativeName ?: it.anyCard.name
-                }
+                    "romaji" -> it.anyCard.name
+                    "eng" -> it.anyCard.englishName
+                    else -> it.anyCard.nativeName
+                } ?: it.anyCard.name
                 thumbnail_url = it.anyCard.thumbnail?.let(::thumbnailUrl)
                 url = "${it.anyCard.id}<&sep>${it.anyCard.slugTime ?: ""}<&sep>${it.anyCard.name.slugify()}"
             }
@@ -149,7 +150,8 @@ class AllAnime :
     override fun searchAnimeParse(response: Response): AnimesPage = parseAnime(response)
 
     override fun relatedAnimeListRequest(anime: SAnime): Request {
-        val genres = anime.genre?.split(",").orEmpty()
+        val genres = anime.genre!!
+            .split(",")
             .map { it.trim() }
             .toJsonString()
         val data = buildJsonObject {
@@ -198,7 +200,7 @@ class AllAnime :
         val show = response.parseAs<DetailsResult>().data.show
 
         return SAnime.create().apply {
-            genre = show.genres?.joinToString(separator = ", ") ?: ""
+            genre = show.genres?.joinToString()
             status = parseStatus(show.status)
             author = show.studios?.firstOrNull()
             description = buildString {
@@ -359,14 +361,12 @@ class AllAnime :
                             add("Referer", "$endPoint/")
                         }.build()
 
-                        listOf(
-                            Video(
-                                server.sourceUrl,
-                                "Original (player ${server.sourceName.substringAfter("player@")})",
-                                server.sourceUrl,
-                                headers = videoHeaders,
-                            ),
-                        )
+                        Video(
+                            server.sourceUrl,
+                            "Original (player ${server.sourceName.substringAfter("player@")})",
+                            server.sourceUrl,
+                            headers = videoHeaders,
+                        ).let(::listOf)
                     }
 
                     sName == "vidstreaming" -> {
@@ -398,7 +398,7 @@ class AllAnime :
                     }
 
                     else -> emptyList()
-                }.let { it.map { v -> Pair(v, server.priority) } }
+                }.map { v -> Pair(v, server.priority) }
             },
         )
 
@@ -434,7 +434,8 @@ class AllAnime :
                 { it.first.quality.contains(quality, true) },
                 { it.first.quality.contains(subPref, true) },
             ),
-        ).reversed().map { t -> t.first }
+        ).reversed()
+            .map { t -> t.first }
     }
 
     private fun buildPost(dataObject: JsonObject): Request {
@@ -476,9 +477,9 @@ class AllAnime :
             SAnime.create().apply {
                 title = when (preferences.titleStyle) {
                     "romaji" -> ani.name
-                    "eng" -> ani.englishName ?: ani.name
-                    else -> ani.nativeName ?: ani.name
-                }
+                    "eng" -> ani.englishName
+                    else -> ani.nativeName
+                } ?: ani.name
                 thumbnail_url = ani.thumbnail?.let(::thumbnailUrl)
                 url = "${ani.id}<&sep>${ani.slugTime ?: ""}<&sep>${ani.name.slugify()}"
             }
