@@ -10,7 +10,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 object HstreamUtils {
 
     /** Matches a trailing `-{digits}` at the end of a string, capturing the prefix and the number. */
-    val REGEX_TRAILING_EP_NUM = Regex("^(.+)-(\\d+)$")
+    val REGEX_TRAILING_EP_NUM = Regex("^(.+)-(\\d+)/?$")
 
     /** Matches a trailing ` - {digits}` suffix in display text (e.g., alt text). */
     val REGEX_EPISODE_SUFFIX = Regex("\\s*-\\s*\\d+$")
