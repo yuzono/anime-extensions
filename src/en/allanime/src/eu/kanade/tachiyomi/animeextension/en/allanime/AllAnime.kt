@@ -326,20 +326,17 @@ class AllAnime :
                 videoUrl.startsWith("/apivtwo/") && INTERAL_HOSTER_NAMES.any {
                     Regex("""\b${it.lowercase()}\b""").find(video.sourceName.lowercase()) != null &&
                         hosterSelection.contains(it.lowercase())
-                } -> {
+                } ->
                     Server(videoUrl, "internal ${video.sourceName}", video.priority)
                         .let(serverList::add)
-                }
 
-                altHosterSelection.contains("player") && video.type == "player" -> {
+                altHosterSelection.contains("player") && video.type == "player" ->
                     Server(videoUrl, "player@${video.sourceName}", video.priority)
                         .let(serverList::add)
-                }
 
-                matchingMapping != null -> {
+                matchingMapping != null ->
                     Server(videoUrl, matchingMapping.first, video.priority)
                         .let(serverList::add)
-                }
             }
         }
 

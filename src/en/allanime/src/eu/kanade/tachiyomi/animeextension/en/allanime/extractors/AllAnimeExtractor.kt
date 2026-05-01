@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
@@ -37,80 +38,88 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
     }
 
     suspend fun videoFromUrl(url: String, name: String, endPoint: String): List<Video> {
-        val videoList = mutableListOf<Video>()
-
-        val resp = client.newCall(
+        val linkJson = client.newCall(
             GET(endPoint + url.replace("/clock?", "/clock.json?")),
         ).awaitSuccess()
+            .parseAs<VideoLink>()
 
-        val linkJson = resp.parseAs<VideoLink>()
-
-        for (link in linkJson.links) {
+        return linkJson.links.parallelCatchingFlatMap { link ->
             val subtitles = link.subtitles?.map { sub ->
                 val label = sub.label?.let { " - $it" } ?: ""
                 Track(sub.src, Locale(sub.lang).displayLanguage + label)
-            } ?: emptyList()
+            }.orEmpty()
 
-            if (link.mp4 == true) {
-                videoList.add(
+            when {
+                link.mp4 == true -> {
                     Video(
                         link.link,
                         "Original ($name - ${link.resolutionStr})",
                         link.link,
                         subtitleTracks = subtitles,
-                    ),
-                )
-            } else if (link.hls == true) {
-                val masterHeaders = headers.newBuilder()
-                    .add("Accept", "*/*")
-                    .add("Host", link.link.toHttpUrl().host)
-                    .add("Origin", endPoint)
-                    .add("Referer", "$endPoint/")
-                    .build()
+                    ).let(::listOf)
+                }
 
-                videoList.addAll(
+                link.hls == true -> {
+                    val masterHeaders = headers.newBuilder()
+                        .add("Accept", "*/*")
+                        .add("Host", link.link.toHttpUrl().host)
+                        .add("Origin", endPoint)
+                        .add("Referer", "$endPoint/")
+                        .build()
+
                     playlistUtils.extractFromHls(
                         link.link,
                         masterHeaders = masterHeaders,
                         videoHeaders = masterHeaders,
                         videoNameGen = { quality -> "$quality ($name - ${link.resolutionStr})" },
                         subtitleList = subtitles,
-                    ),
-                )
-            } else if (link.crIframe == true) {
-                link.portData!!.streams.forEach {
-                    if (it.format == "adaptive_dash") {
-                        videoList.add(
-                            Video(
-                                it.url,
-                                "Original (AC - Dash${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})",
-                                it.url,
-                                subtitleTracks = subtitles,
-                            ),
-                        )
-                    } else if (it.format == "adaptive_hls") {
-                        videoList.addAll(
-                            playlistUtils.extractFromHls(
-                                it.url,
-                                masterHeaders = headers,
-                                videoHeaders = headers,
-                                videoNameGen = { quality -> "$quality (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})" },
-                                subtitleList = subtitles,
-                            ),
-                        )
-                    }
+                    )
                 }
-            } else if (link.dash == true) {
-                val audioList = link.rawUrls?.audios?.map {
-                    Track(it.url, bytesIntoHumanReadable(it.bandwidth))
-                } ?: emptyList()
-                link.rawUrls?.vids?.map {
-                    Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, audioTracks = audioList, subtitleTracks = subtitles)
-                }?.let(videoList::addAll)
+
+                link.crIframe == true -> {
+                    link.portData?.streams?.parallelCatchingFlatMap {
+                        when (it.format) {
+                            "adaptive_dash" ->
+                                Video(
+                                    it.url,
+                                    "Original (AC - Dash${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})",
+                                    it.url,
+                                    subtitleTracks = subtitles,
+                                ).let(::listOf)
+
+                            "adaptive_hls" ->
+                                playlistUtils.extractFromHls(
+                                    it.url,
+                                    masterHeaders = headers,
+                                    videoHeaders = headers,
+                                    videoNameGen = { quality -> "$quality (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})" },
+                                    subtitleList = subtitles,
+                                )
+
+                            else -> emptyList()
+                        }
+                    }.orEmpty()
+                }
+
+                link.dash == true -> {
+                    val audioList = link.rawUrls?.audios?.map {
+                        Track(it.url, bytesIntoHumanReadable(it.bandwidth))
+                    }.orEmpty()
+
+                    link.rawUrls?.vids?.map {
+                        Video(
+                            it.url,
+                            "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}",
+                            it.url,
+                            audioTracks = audioList,
+                            subtitleTracks = subtitles,
+                        )
+                    }.orEmpty()
+                }
+
+                else -> emptyList()
             }
         }
-
-        return videoList
     }
 
     @Serializable
