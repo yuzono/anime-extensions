@@ -172,23 +172,178 @@ class Hstream :
         HstreamLogger.debug("animeDetailsParse", "Parsed: title='$title', artist='$artist', genres=$genres, description length=${description?.length ?: 0}")
     }
 
-    // ============================== Episodes ==============================
+// ============================== Episodes ==============================
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        HstreamLogger.debug("getEpisodeList", "=== BEGIN getEpisodeList === anime.url='${anime.url}'")
+        HstreamLogger.debug("getEpisodeList", "anime.title='${anime.title}', groupBySeries=${preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)}")
+
+        if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            HstreamLogger.debug("getEpisodeList", "Path: GROUPED (PREF_GROUP_BY_SERIES=true)")
+
+            // Fetch the series page to extract the series title
+            val doc = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use { it.asJsoup() }
+            val requestUrl = "$baseUrl${anime.url}"
+            HstreamLogger.debug("getEpisodeList", "requestUrl: '$requestUrl'")
+
+            // Series page is JS-rendered, so episode grid isn't available in JSoup HTML.
+            // Instead, use the search endpoint to find all episodes of this series.
+            val seriesUrl = requestUrl.normalizeHref()
+            HstreamLogger.debug("getEpisodeList", "requestUrl before normalizeHref: '$requestUrl'")
+            HstreamLogger.debug("getEpisodeList", "seriesUrl after normalizeHref: '$seriesUrl'")
+
+            // Get series title from the page, strip Japanese name for matching
+            val h1Episode = doc.selectFirst("div.relative > div.justify-between > div > div > h1")?.text()
+            val h1Series = doc.selectFirst("div.relative > h1")?.text()
+            val h1Fallback = doc.selectFirst("h1")?.text()
+            HstreamLogger.debug("getEpisodeList", "h1 candidates: episode='$h1Episode', series='$h1Series', fallback='$h1Fallback'")
+
+            val seriesTitle = h1Episode ?: h1Series ?: h1Fallback ?: ""
+            HstreamLogger.debug("getEpisodeList", "seriesTitle selected: '$seriesTitle'")
+
+            val matchTitle = seriesTitle.substringBefore("(").trim()
+            HstreamLogger.debug("getEpisodeList", "matchTitle (stripped parenthetical): '$matchTitle'")
+
+            val encodedQuery = URLEncoder.encode(matchTitle, "UTF-8")
+            val searchUrl = "$baseUrl/search?search=$encodedQuery"
+            HstreamLogger.debug("getEpisodeList", "encodedQuery: '$encodedQuery'")
+            HstreamLogger.debug("getEpisodeList", "searchUrl: $searchUrl")
+
+            val searchDoc = client.newCall(GET(searchUrl)).awaitSuccess().use { it.asJsoup() }
+            val searchResults = searchDoc.select(popularAnimeSelector())
+            HstreamLogger.debug("getEpisodeList", "searchResults total count: ${searchResults.size}")
+
+            val urlPrefix = "$seriesUrl-"
+            HstreamLogger.debug("getEpisodeList", "URL prefix filter: '$urlPrefix'")
+
+            val episodes = searchResults.mapNotNull { element ->
+                val rawHref = element.attr("href")
+                HstreamLogger.debug("getEpisodeList", " --- processing search result ---")
+                HstreamLogger.debug("getEpisodeList", " raw href: '$rawHref'")
+
+                val href = rawHref.normalizeHref()
+                HstreamLogger.debug("getEpisodeList", " normalized href: '$href'")
+
+                val prefixCheck = href.startsWith(urlPrefix)
+                HstreamLogger.debug("getEpisodeList", " startsWith('$urlPrefix'): $prefixCheck")
+                if (!prefixCheck) {
+                    HstreamLogger.debug("getEpisodeList", " SKIPPED: URL prefix mismatch")
+                    return@mapNotNull null
+                }
+
+                val alt = element.selectFirst("img")?.attr("alt")
+                HstreamLogger.debug("getEpisodeList", " img alt text: '$alt'")
+                if (alt == null) {
+                    HstreamLogger.debug("getEpisodeList", " SKIPPED: img alt is null")
+                    return@mapNotNull null
+                }
+
+                val titleCheck = alt.contains(matchTitle, ignoreCase = true)
+                HstreamLogger.debug("getEpisodeList", " alt.contains('$matchTitle', ignoreCase=true): $titleCheck")
+                if (!titleCheck) {
+                    HstreamLogger.debug("getEpisodeList", " SKIPPED: title mismatch (alt='$alt', matchTitle='$matchTitle')")
+                    return@mapNotNull null
+                }
+
+                val epNum = href.extractEpisodeNumber()
+                HstreamLogger.debug("getEpisodeList", " extractEpisodeNumber from '$href': '$epNum'")
+                if (epNum == null) {
+                    HstreamLogger.debug("getEpisodeList", " SKIPPED: episode number is null")
+                    return@mapNotNull null
+                }
+
+                val episodeName = "Episode $epNum"
+                HstreamLogger.debug("getEpisodeList", " FINAL episode name: '$episodeName'")
+
+                SEpisode.create().apply {
+                    setUrlWithoutDomain(href)
+                    episode_number = epNum.toFloatOrNull() ?: 1F
+                    name = episodeName
+                    date_upload = 0L
+                    HstreamLogger.debug("getEpisodeList", " CREATED episode: name='$name', url='$url', episode_number=$episode_number")
+                }
+            }
+
+            HstreamLogger.debug("getEpisodeList", "episodes found via search: ${episodes.size}")
+
+            // Fallback for single-series entries where search found no matching episodes.
+            // Without this, the framework creates a default episode named "Episode (url)".
+            if (episodes.isEmpty()) {
+                HstreamLogger.warn("getEpisodeList", "No episodes found via search! Falling back to single-episode from page URL.")
+                HstreamLogger.debug("getEpisodeList", "Fallback: seriesUrl='$seriesUrl'")
+
+                val episodeUrl = "$seriesUrl-1"
+                val fallbackEpNum = episodeUrl.extractEpisodeNumber()
+                HstreamLogger.debug("getEpisodeList", "Fallback: constructed episodeUrl='$episodeUrl', extractEpisodeNumber='$fallbackEpNum'")
+
+                val fallbackEp = SEpisode.create().apply {
+                    setUrlWithoutDomain(episodeUrl)
+                    if (fallbackEpNum != null) {
+                        episode_number = fallbackEpNum.toFloatOrNull() ?: 1F
+                        name = "Episode $fallbackEpNum"
+                    } else {
+                        episode_number = 1F
+                        name = "Episode 1"
+                    }
+                    date_upload = 0L
+                    HstreamLogger.debug("getEpisodeList", "FALLBACK episode: name='$name', url='$url', episode_number=$episode_number")
+                }
+
+                HstreamLogger.debug("getEpisodeList", "Returning fallback list with 1 episode")
+                HstreamLogger.debug("getEpisodeList", "=== END getEpisodeList === returning 1 episodes")
+                return listOf(fallbackEp)
+            }
+
+            val sortedEpisodes = episodes.sortedByDescending { it.episode_number }
+            HstreamLogger.debug("getEpisodeList", "Sorted episode list (${sortedEpisodes.size} episodes):")
+            sortedEpisodes.forEachIndexed { index, ep ->
+                HstreamLogger.debug("getEpisodeList", " [$index] name='${ep.name}', url='${ep.url}', episode_number=${ep.episode_number}")
+            }
+            HstreamLogger.debug("getEpisodeList", "=== END getEpisodeList === returning ${sortedEpisodes.size} episodes")
+            return sortedEpisodes
+        }
+
+        // Original behavior: single episode from the page (grouping disabled)
+        HstreamLogger.debug("getEpisodeList", "Path: UNGROUPED (PREF_GROUP_BY_SERIES=false)")
+
+        val doc = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use { it.asJsoup() }
+        HstreamLogger.debug("getEpisodeList", "page location: '${doc.location()}'")
+
+        val uploadDateText = doc.selectFirst("a:has(i.fa-upload)")?.ownText()
+        HstreamLogger.debug("getEpisodeList", "upload date text: '$uploadDateText'")
+
+        val episode = SEpisode.create().apply {
+            date_upload = uploadDateText.toDate()
+            setUrlWithoutDomain(doc.location())
+            HstreamLogger.debug("getEpisodeList", "episode url (from doc.location): '$url'")
+
+            val num = url.substringAfterLast("-").substringBefore("/")
+            HstreamLogger.debug("getEpisodeList", "extracted num from url: '$num'")
+            episode_number = num.toFloatOrNull() ?: 1F
+            HstreamLogger.debug("getEpisodeList", "episode_number: $episode_number")
+
+            name = "Episode $num"
+            HstreamLogger.debug("getEpisodeList", "episode name: '$name'")
+            HstreamLogger.debug("getEpisodeList", "FINAL ungrouped episode: name='$name', url='$url', episode_number=$episode_number, date_upload=$date_upload")
+        }
+
+        HstreamLogger.debug("getEpisodeList", "=== END getEpisodeList === returning 1 episodes")
+        return listOf(episode)
+    }
+
     override fun episodeListParse(response: Response): List<SEpisode> {
+        HstreamLogger.warn("episodeListParse", "WARNING: episodeListParse called directly — should use getEpisodeList instead!")
         val doc = response.asJsoup()
         val requestUrl = response.request.url.toString()
-        HstreamLogger.debug("episodeListParse", "=== BEGIN episodeListParse ===")
+        HstreamLogger.debug("episodeListParse", "=== BEGIN episodeListParse (fallback) ===")
         HstreamLogger.debug("episodeListParse", "requestUrl: '$requestUrl'")
 
         if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
             HstreamLogger.debug("episodeListParse", "Path: GROUPED (PREF_GROUP_BY_SERIES=true)")
 
-            // Series page is JS-rendered, so episode grid isn't available in JSoup HTML.
-            // Instead, use the search endpoint to find all episodes of this series.
             val seriesUrl = requestUrl.normalizeHref()
             HstreamLogger.debug("episodeListParse", "requestUrl before normalizeHref: '$requestUrl'")
             HstreamLogger.debug("episodeListParse", "seriesUrl after normalizeHref: '$seriesUrl'")
 
-            // Get series title from the page, strip Japanese name for matching
             val h1Episode = doc.selectFirst("div.relative > div.justify-between > div > div > h1")?.text()
             val h1Series = doc.selectFirst("div.relative > h1")?.text()
             val h1Fallback = doc.selectFirst("h1")?.text()
@@ -214,56 +369,54 @@ class Hstream :
 
             val episodes = searchResults.mapNotNull { element ->
                 val rawHref = element.attr("href")
-                HstreamLogger.debug("episodeListParse", "  --- processing search result ---")
-                HstreamLogger.debug("episodeListParse", "  raw href: '$rawHref'")
+                HstreamLogger.debug("episodeListParse", " --- processing search result ---")
+                HstreamLogger.debug("episodeListParse", " raw href: '$rawHref'")
 
                 val href = rawHref.normalizeHref()
-                HstreamLogger.debug("episodeListParse", "  normalized href: '$href'")
+                HstreamLogger.debug("episodeListParse", " normalized href: '$href'")
 
                 val prefixCheck = href.startsWith(urlPrefix)
-                HstreamLogger.debug("episodeListParse", "  startsWith('$urlPrefix'): $prefixCheck")
+                HstreamLogger.debug("episodeListParse", " startsWith('$urlPrefix'): $prefixCheck")
                 if (!prefixCheck) {
-                    HstreamLogger.debug("episodeListParse", "  SKIPPED: URL prefix mismatch")
+                    HstreamLogger.debug("episodeListParse", " SKIPPED: URL prefix mismatch")
                     return@mapNotNull null
                 }
 
                 val alt = element.selectFirst("img")?.attr("alt")
-                HstreamLogger.debug("episodeListParse", "  img alt text: '$alt'")
+                HstreamLogger.debug("episodeListParse", " img alt text: '$alt'")
                 if (alt == null) {
-                    HstreamLogger.debug("episodeListParse", "  SKIPPED: img alt is null")
+                    HstreamLogger.debug("episodeListParse", " SKIPPED: img alt is null")
                     return@mapNotNull null
                 }
 
                 val titleCheck = alt.contains(matchTitle, ignoreCase = true)
-                HstreamLogger.debug("episodeListParse", "  alt.contains('$matchTitle', ignoreCase=true): $titleCheck")
+                HstreamLogger.debug("episodeListParse", " alt.contains('$matchTitle', ignoreCase=true): $titleCheck")
                 if (!titleCheck) {
-                    HstreamLogger.debug("episodeListParse", "  SKIPPED: title mismatch (alt='$alt', matchTitle='$matchTitle')")
+                    HstreamLogger.debug("episodeListParse", " SKIPPED: title mismatch (alt='$alt', matchTitle='$matchTitle')")
                     return@mapNotNull null
                 }
 
                 val epNum = href.extractEpisodeNumber()
-                HstreamLogger.debug("episodeListParse", "  extractEpisodeNumber from '$href': '$epNum'")
+                HstreamLogger.debug("episodeListParse", " extractEpisodeNumber from '$href': '$epNum'")
                 if (epNum == null) {
-                    HstreamLogger.debug("episodeListParse", "  SKIPPED: episode number is null")
+                    HstreamLogger.debug("episodeListParse", " SKIPPED: episode number is null")
                     return@mapNotNull null
                 }
 
                 val episodeName = "Episode $epNum"
-                HstreamLogger.debug("episodeListParse", "  FINAL episode name: '$episodeName'")
+                HstreamLogger.debug("episodeListParse", " FINAL episode name: '$episodeName'")
 
                 SEpisode.create().apply {
                     setUrlWithoutDomain(href)
                     episode_number = epNum.toFloatOrNull() ?: 1F
                     name = episodeName
                     date_upload = 0L
-                    HstreamLogger.debug("episodeListParse", "  CREATED episode: name='$name', url='$url', episode_number=$episode_number")
+                    HstreamLogger.debug("episodeListParse", " CREATED episode: name='$name', url='$url', episode_number=$episode_number")
                 }
             }
 
             HstreamLogger.debug("episodeListParse", "episodes found via search: ${episodes.size}")
 
-            // Fallback for single-series entries where search found no matching episodes.
-            // Without this, the framework creates a default episode named "Episode (url)".
             if (episodes.isEmpty()) {
                 HstreamLogger.warn("episodeListParse", "No episodes found via search! Falling back to single-episode from page URL.")
                 HstreamLogger.debug("episodeListParse", "Fallback: seriesUrl='$seriesUrl'")
@@ -292,13 +445,12 @@ class Hstream :
             val sortedEpisodes = episodes.sortedByDescending { it.episode_number }
             HstreamLogger.debug("episodeListParse", "Sorted episode list (${sortedEpisodes.size} episodes):")
             sortedEpisodes.forEachIndexed { index, ep ->
-                HstreamLogger.debug("episodeListParse", "  [$index] name='${ep.name}', url='${ep.url}', episode_number=${ep.episode_number}")
+                HstreamLogger.debug("episodeListParse", " [$index] name='${ep.name}', url='${ep.url}', episode_number=${ep.episode_number}")
             }
-            HstreamLogger.debug("episodeListParse", "=== END episodeListParse (grouped) ===")
+            HstreamLogger.debug("episodeListParse", "=== END episodeListParse (grouped, fallback) ===")
             return sortedEpisodes
         }
 
-        // Original behavior: single episode from the page (grouping disabled)
         HstreamLogger.debug("episodeListParse", "Path: UNGROUPED (PREF_GROUP_BY_SERIES=false)")
         HstreamLogger.debug("episodeListParse", "page location: '${doc.location()}'")
 
@@ -320,7 +472,7 @@ class Hstream :
             HstreamLogger.debug("episodeListParse", "FINAL ungrouped episode: name='$name', url='$url', episode_number=$episode_number, date_upload=$date_upload")
         }
 
-        HstreamLogger.debug("episodeListParse", "=== END episodeListParse (ungrouped) ===")
+        HstreamLogger.debug("episodeListParse", "=== END episodeListParse (ungrouped, fallback) ===")
         return listOf(episode)
     }
 
