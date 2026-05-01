@@ -33,7 +33,7 @@ object AllAnimeFilters {
             } else {
                 null
             }
-        }.joinToString("\",\"", "[\'", "\']")
+        }.joinToString("\",\"", "[\"", "\"]")
         .ifBlank { "all" }
 
     class OriginFilter : QueryPartFilter("Origin", AllAnimeFiltersData.ORIGIN)
