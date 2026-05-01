@@ -69,12 +69,16 @@ object HstreamFilters {
 
         val (added, blacklisted) = filters.parseTriFilter<GenresFilter>(HstreamFiltersData.GENRES)
 
-        return FilterSearchParams(
+        val params = FilterSearchParams(
             added,
             blacklisted,
             filters.parseCheckbox<StudiosFilter>(HstreamFiltersData.STUDIOS),
             filters.asQueryPart<OrderFilter>(),
         )
+
+        HstreamLogger.debug("getSearchParameters", "Parsed filters: genres=${params.genres.size}, blacklisted=${params.blacklisted.size}, studios=${params.studios.size}, order=${params.order}")
+
+        return params
     }
 
     private object HstreamFiltersData {
