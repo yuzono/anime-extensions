@@ -1,0 +1,12 @@
+ext {
+    extName = 'AniWave (Unofficial)'
+    extClass = '.AniWave'
+    extVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(':lib:playlistutils'))
+    implementation("dev.datlag.jsunpacker:jsunpacker:1.0.2")
+}

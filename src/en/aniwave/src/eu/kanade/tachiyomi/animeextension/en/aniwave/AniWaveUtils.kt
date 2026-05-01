@@ -1,11 +1,10 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwavese
+package eu.kanade.tachiyomi.animeextension.en.aniwave
 
 import android.util.Base64
-import java.net.URLDecoder
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
-class AniwaveSeUtils {
+class AniWaveUtils {
 
     fun vrfEncrypt(input: String): String {
         var vrf = input
@@ -24,23 +23,6 @@ class AniwaveSeUtils {
         return java.net.URLEncoder.encode(vrf, "utf-8")
     }
 
-    fun vrfDecrypt(input: String): String {
-        var vrf = input
-        ORDER.sortedByDescending {
-            it.first
-        }.forEach { item ->
-            when (item.second) {
-                "exchange" -> vrf = exchange(vrf, item.third.reversed())
-                "rc4" -> vrf = rc4Decrypt(item.third[0], vrf)
-                "reverse" -> vrf = vrf.reversed()
-                "base64" -> vrf = Base64.decode(vrf, Base64.URL_SAFE).toString(Charsets.UTF_8)
-                else -> {}
-            }
-        }
-
-        return URLDecoder.decode(vrf, "utf-8")
-    }
-
     private fun rc4Encrypt(key: String, input: String): String {
         val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
         val cipher = Cipher.getInstance("RC4")
@@ -50,17 +32,6 @@ class AniwaveSeUtils {
         var output = cipher.doFinal(input.toByteArray())
         output = Base64.encode(output, Base64.URL_SAFE or Base64.NO_WRAP)
         return output.toString(Charsets.UTF_8)
-    }
-
-    private fun rc4Decrypt(key: String, input: String): String {
-        var vrf = input.toByteArray()
-        vrf = Base64.decode(vrf, Base64.URL_SAFE)
-
-        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
-        val cipher = Cipher.getInstance("RC4")
-        cipher.init(Cipher.DECRYPT_MODE, rc4Key, cipher.parameters)
-        vrf = cipher.doFinal(vrf)
-        return vrf.toString(Charsets.UTF_8)
     }
 
     private fun exchange(input: String, keys: List<String>): String {
@@ -74,26 +45,6 @@ class AniwaveSeUtils {
                 i
             }
         }.joinToString("")
-    }
-
-    private fun rot13(vrf: ByteArray): ByteArray {
-        for (i in vrf.indices) {
-            val byte = vrf[i]
-            if (byte in 'A'.code..'Z'.code) {
-                vrf[i] = ((byte - 'A'.code + 13) % 26 + 'A'.code).toByte()
-            } else if (byte in 'a'.code..'z'.code) {
-                vrf[i] = ((byte - 'a'.code + 13) % 26 + 'a'.code).toByte()
-            }
-        }
-        return vrf
-    }
-
-    private fun vrfShift(vrf: ByteArray): ByteArray {
-        for (i in vrf.indices) {
-            val shift = arrayOf(-2, -4, -5, 6, 2, -3, 3, 6)[i % 8]
-            vrf[i] = vrf[i].plus(shift).toByte()
-        }
-        return vrf
     }
 
     companion object {
