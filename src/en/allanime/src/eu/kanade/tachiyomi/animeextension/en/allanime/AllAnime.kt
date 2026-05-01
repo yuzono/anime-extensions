@@ -128,14 +128,14 @@ class AllAnime :
                     if (query.isNotBlank()) put("query", query)
                     put("allowAdult", true)
                     put("allowUnknown", true)
-                    if (filters.sortBy != "Recent") put("sortBy", filters.sortBy)
-                    if (filters.season != "all") put("season", filters.season)
-                    if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
-                    if (filters.genres != "all") {
+                    filters.sortBy.takeIf { it != "Recent" && it.isNotBlank() }?.let { put("sortBy", it) }
+                    filters.season.takeIf { it != "all" && it.isNotBlank() }?.let { put("season", it) }
+                    filters.releaseYear.toIntOrNull()?.let { put("year", it) }
+                    if (filters.genres != "all" && filters.genres.isNotBlank()) {
                         put("genres", filters.genres.parseAs<JsonElement>())
                         put("excludeGenres", buildJsonArray { })
                     }
-                    if (filters.types != "all") put("types", filters.types.parseAs<JsonElement>())
+                    if (filters.types != "all" && filters.types.isNotBlank()) put("types", filters.types.parseAs<JsonElement>())
                 }
                 put("limit", PAGE_SIZE)
                 put("page", page)
