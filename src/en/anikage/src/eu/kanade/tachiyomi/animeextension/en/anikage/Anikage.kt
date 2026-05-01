@@ -213,8 +213,7 @@ class Anikage :
     // Video Links
 
     override fun videoListRequest(episode: SEpisode): Request {
-        var animeId = episode.url.split("/").last()
-        animeId = animeId.split("?").first()
+        val animeId = episode.url.substringAfterLast("/").substringBefore("?")
 
         val provider = if (preferences.subOrDub == "dub")
             preferences.dubSource else preferences.subSource
