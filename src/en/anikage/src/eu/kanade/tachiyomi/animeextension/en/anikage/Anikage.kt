@@ -198,7 +198,7 @@ class Anikage :
                 } else {
                     "Episode ${it.number}"
                 }
-                date_upload = System.currentTimeMillis()
+                date_upload = 0L
                 url = animeEpisodeUrlFormat(
                     animeId.toInt(),
                     provider ?: "mochi",
