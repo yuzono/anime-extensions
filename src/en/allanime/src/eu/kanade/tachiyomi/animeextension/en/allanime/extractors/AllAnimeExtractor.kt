@@ -3,17 +3,15 @@ package eu.kanade.tachiyomi.animeextension.en.allanime.extractors
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers, private val siteUrl: String) {
-
-    private val json: Json by injectLazy()
+class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private fun bytesIntoHumanReadable(bytes: Long): String {
         val kilobyte: Long = 1000
@@ -35,19 +33,14 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
         }
     }
 
-    fun videoFromUrl(url: String, name: String, endPoint: String): List<Video> {
+    suspend fun videoFromUrl(url: String, name: String, endPoint: String): List<Video> {
         val videoList = mutableListOf<Video>()
 
         val resp = client.newCall(
             GET(endPoint + url.replace("/clock?", "/clock.json?")),
-        ).execute()
+        ).awaitSuccess()
 
-        if (resp.code != 200) {
-            return emptyList()
-        }
-
-        val body = resp.body.string()
-        val linkJson = json.decodeFromString<VideoLink>(body)
+        val linkJson = resp.parseAs<VideoLink>()
 
         for (link in linkJson.links) {
             val subtitles = mutableListOf<Track>()
@@ -163,7 +156,7 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
                             masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:")
                                 .forEach { t ->
                                     val quality = t.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})"
-                                    var videoUrl = t.substringAfter("\n").substringBefore("\n")
+                                    val videoUrl = t.substringAfter("\n").substringBefore("\n")
 
                                     videoList.add(Video(videoUrl, quality, videoUrl, subtitleTracks = subtitles))
                                 }

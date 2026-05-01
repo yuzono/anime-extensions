@@ -46,8 +46,6 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-internal const val FALLBACK_PLAYER_DOMAIN = "https://blog.allanime.day"
-
 class AllAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
@@ -277,7 +275,7 @@ class AllAnime :
         return POST("$apiUrl/api", headers = postHeaders, body = payload)
     }
 
-    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers, preferences.siteUrl) }
+    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
     private val gogoStreamExtractor by lazy { GogoStreamExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -424,7 +422,7 @@ class AllAnime :
 
         val parsedChunks = try {
             hexPayload.chunked(2).map { it.toInt(16) }
-        } catch (e: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             return this // Fail fast and return the original string instead of a corrupted decryption
         }
 
@@ -563,6 +561,8 @@ class AllAnime :
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://api.allanime.day"
+
+        private const val FALLBACK_PLAYER_DOMAIN = "https://blog.allanime.day"
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private val PREF_SERVER_ENTRIES = arrayOf("Site Default") +
