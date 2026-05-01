@@ -22,7 +22,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -350,7 +349,7 @@ class AllAnime :
                     }
 
                     sName.startsWith("player@") -> {
-                        val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).await()
+                        val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
                             .parseAs<AllAnimeExtractor.VersionResponse>()
                             .episodeIframeHead
 

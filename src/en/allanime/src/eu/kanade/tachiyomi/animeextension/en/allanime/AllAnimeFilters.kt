@@ -33,13 +33,8 @@ object AllAnimeFilters {
             } else {
                 null
             }
-        }.joinToString("\",\"").let {
-            if (it.isBlank()) {
-                "all"
-            } else {
-                "[\"$it\"]"
-            }
-        }
+        }.joinToString("\",\"", "[\'", "\']")
+        .ifBlank { "all" }
 
     class OriginFilter : QueryPartFilter("Origin", AllAnimeFiltersData.ORIGIN)
     class SeasonFilter : QueryPartFilter("Season", AllAnimeFiltersData.SEASONS)
