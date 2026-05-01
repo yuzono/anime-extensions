@@ -186,14 +186,17 @@ class Anikage :
         val referer = response.request.header("Referer").orEmpty()
         val animeId = referer.substringAfterLast("/")
 
-        val provider = if (preferences.subOrDub == "dub")
-            preferences.dubSource else preferences.subSource
+        val provider = if (preferences.subOrDub == "dub") {
+            preferences.dubSource
+        } else {
+            preferences.subSource
+        }
 
         val jsonResponse = response.parseAs<List<EpisodeResult>>()
         val episode = jsonResponse.reversed().map {
             SEpisode.create().apply {
                 episode_number = it.number.toFloat()
-                name = if(!it.title.isNullOrBlank()) {
+                name = if (!it.title.isNullOrBlank()) {
                     "Episode ${it.number} - ${it.title}"
                 } else {
                     "Episode ${it.number}"
@@ -215,8 +218,11 @@ class Anikage :
     override fun videoListRequest(episode: SEpisode): Request {
         val animeId = episode.url.substringAfterLast("/").substringBefore("?")
 
-        val provider = if (preferences.subOrDub == "dub")
-            preferences.dubSource else preferences.subSource
+        val provider = if (preferences.subOrDub == "dub") {
+            preferences.dubSource
+        } else {
+            preferences.subSource
+        }
 
         val token = makeSourcesToken(
             animeId.toInt(),
@@ -271,8 +277,7 @@ class Anikage :
     fun String.animeEpisodeBuilder(): String = "${preferences.siteUrl}/api/anime/episodes/$this"
     fun String.episodeUrlBuilder(): String = "${preferences.siteUrl}/api/anime/sources/$this"
 
-    fun animeEpisodeUrlFormat(id: Int, host: String, episodeId: Int, type: String): String =
-            "${preferences.siteUrl}/anime/watch/$id?host=$host&ep=$episodeId&type=$type"
+    fun animeEpisodeUrlFormat(id: Int, host: String, episodeId: Int, type: String): String = "${preferences.siteUrl}/anime/watch/$id?host=$host&ep=$episodeId&type=$type"
 
     fun parseAnime(response: Response): AnimesPage {
         val jsonData = response.parseAs<GraphQLResult>()
