@@ -186,11 +186,8 @@ class Anikage :
         val referer = response.request.header("Referer").orEmpty()
         val animeId = referer.substringAfterLast("/")
 
-        val provider = when (preferences.subOrDub) {
-            "sub" -> preferences.subSource
-            "dub" -> preferences.dubSource
-            else -> ""
-        }
+        val provider = if (preferences.subOrDub == "dub")
+            preferences.dubSource else preferences.subSource
 
         val jsonResponse = response.parseAs<List<EpisodeResult>>()
         val episode = jsonResponse.reversed().map {
@@ -219,11 +216,8 @@ class Anikage :
         var animeId = episode.url.split("/").last()
         animeId = animeId.split("?").first()
 
-        val provider = when (preferences.subOrDub) {
-            "sub" -> preferences.subSource
-            "dub" -> preferences.dubSource
-            else -> ""
-        }
+        val provider = if (preferences.subOrDub == "dub")
+            preferences.dubSource else preferences.subSource
 
         val token = makeSourcesToken(
             animeId.toInt(),
