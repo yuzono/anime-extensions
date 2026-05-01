@@ -196,7 +196,11 @@ class Anikage :
         val episode = jsonResponse.reversed().map {
             SEpisode.create().apply {
                 episode_number = it.number.toFloat()
-                name = "Episode ${it.number} - ${it.title}"
+                name = if(!it.title.isNullOrBlank()) {
+                    "Episode ${it.number} - ${it.title}"
+                } else {
+                    "Episode ${it.number}"
+                }
                 date_upload = System.currentTimeMillis()
                 url = animeEpisodeUrlFormat(
                     animeId.toInt(),
@@ -274,7 +278,8 @@ class Anikage :
     fun String.animeEpisodeBuilder(): String = "${preferences.siteUrl}/api/anime/episodes/$this"
     fun String.episodeUrlBuilder(): String = "${preferences.siteUrl}/api/anime/sources/$this"
 
-    fun animeEpisodeUrlFormat(id: Int, host: String, episodeId: Int, type: String): String = "https://anikage.cc/anime/watch/$id?host=$host&ep=$episodeId&type=$type"
+    fun animeEpisodeUrlFormat(id: Int, host: String, episodeId: Int, type: String): String =
+            "${preferences.siteUrl}/anime/watch/$id?host=$host&ep=$episodeId&type=$type"
 
     fun parseAnime(response: Response): AnimesPage {
         val jsonData = response.parseAs<GraphQLResult>()
