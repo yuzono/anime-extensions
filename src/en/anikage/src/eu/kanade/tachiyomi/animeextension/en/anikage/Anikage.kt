@@ -71,6 +71,8 @@ class Anikage :
 
         private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
         private const val PREF_ISSUBORDUB_DEFAULT = "sub"
+        private const val PREF_SITE_TITLE_FORMAT = "title_format"
+        private const val PREF_SITE_TITLE_DEFAULT = "english"
     }
 
     private val json: Json by injectLazy()
@@ -146,6 +148,15 @@ class Anikage :
         val studioTag = soup.selectFirst("div.flex.uppercase")
         val studioNameDiv = studioTag?.nextElementSibling()
 
+        val englishName = soup.selectFirst("h1.text-center.tracking-tighter")?.text()
+        val romajiName = soup.selectFirst("h2.text-center.line-clamp-2")?.text()
+
+        val titleName = if (preferences.titleStyle == "english") {
+            englishName
+        } else {
+            romajiName
+        }
+
         val authorName = studioNameDiv
             ?.select("span.cursor-default")
             ?.eachText()?.joinToString(", ").orEmpty()
@@ -153,6 +164,7 @@ class Anikage :
         val statusName = soup.selectFirst("span.uppercase.font-semibold")?.text()
 
         return SAnime.create().apply {
+            title = titleName ?: ""
             author = authorName
             update_strategy = if (statusName == "Finished") {
                 AnimeUpdateStrategy.ONLY_FETCH_ONCE
@@ -289,17 +301,24 @@ class Anikage :
 
         val animes = media.map {
             val id = it.id
+            val titleFormat = preferences.titleStyle ?: "romaji"
+            val titleName = if (titleFormat == "english") {
+                it.title.english ?: it.title.romaji
+            } else {
+                it.title.romaji
+            }
 
             SAnime.create().apply {
                 url = id.animeUrlBuilder()
                 thumbnail_url = it.coverImage.extraLarge
-                title = it.title.english ?: it.title.romaji
+                title = titleName
                 description = it.description
                 status = when (it.status) {
                     "FINISHED" -> SAnime.COMPLETED
                     "RELEASING" -> SAnime.ONGOING
                     else -> SAnime.UNKNOWN
                 }
+                update_strategy = AnimeUpdateStrategy.ALWAYS_UPDATE
                 genre = it.genres.joinToString(", ")
             }
         }
@@ -308,6 +327,15 @@ class Anikage :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = PREF_SITE_TITLE_FORMAT
+            title = "Preferred Title Style"
+            entries = arrayOf("english", "romaji")
+            entryValues = arrayOf("english", "romaji")
+            setDefaultValue(PREF_SITE_TITLE_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+
         ListPreference(screen.context).apply {
             key = PREF_SITE_DOMAIN_KEY
             title = "Preferred domain for site (requires app restart)"
@@ -434,6 +462,9 @@ class Anikage :
 
         return POST(apiUrl, headers = postHeaders, body = payload)
     }
+
+    private val SharedPreferences.titleStyle
+        get() = getString(PREF_SITE_TITLE_FORMAT, PREF_SITE_TITLE_DEFAULT)
 
     private val SharedPreferences.siteUrl
         get() = getString(PREF_SITE_DOMAIN_KEY, PREF_SITE_DOMAIN_DEFAULT)!!
