@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.app.Application
 import dev.datlag.jsunpacker.JsUnpacker
+import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
@@ -28,6 +29,17 @@ class KwikExtractor(
             .build()
     }
 
+    fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
+        val videoUrl = getHlsStreamUrl(kwikUrl, referer)
+
+        return Video(
+            videoUrl,
+            quality,
+            videoUrl,
+            headers = Headers.headersOf("referer", "https://kwik.cx/"),
+        )
+    }
+
     fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val eContent = client.newCall(GET(kwikUrl, Headers.headersOf("referer", referer)))
             .execute().asJsoup()
@@ -35,6 +47,17 @@ class KwikExtractor(
         val unpacked = JsUnpacker.unpackAndCombine("eval(function($script)")
             ?: throw KwikException.ExtractionException("JsUnpacker failed to unpack Kwik script.")
         return unpacked.substringAfter("const source=\\'").substringBefore("\\';")
+    }
+
+    fun getStreamVideo(context: Application, paheUrl: String, quality: String = ""): Video {
+        val videoUrl = getStreamUrlFromKwik(context, paheUrl)
+
+        return Video(
+            videoUrl,
+            quality,
+            videoUrl,
+            headers = Headers.headersOf("referer", "https://kwik.cx/"),
+        )
     }
 
     fun getStreamUrlFromKwik(context: Application, paheUrl: String): String {

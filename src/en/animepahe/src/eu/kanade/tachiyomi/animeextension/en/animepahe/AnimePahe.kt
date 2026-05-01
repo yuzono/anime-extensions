@@ -19,11 +19,8 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
-import kotlinx.coroutines.runBlocking
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -320,30 +317,19 @@ class AnimePahe :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        return runBlocking {
-            document.select("div#resolutionMenu > button").withIndex().parallelCatchingMapNotNull { (index, btn) ->
-                val kwikLink = btn.attr("data-src")
-                val quality = btn.text()
-                val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
-                    ?: return@parallelCatchingMapNotNull null
-                getVideo(paheWinLink, kwikLink, quality)
-            }
+        return document.select("div#resolutionMenu > button").withIndex().mapNotNull { (index, btn) ->
+            val kwikLink = btn.attr("data-src")
+            val quality = btn.text()
+            val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
+                ?: return@mapNotNull null
+            runCatching {
+                if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
+                    KwikExtractor(client).getHlsVideo(kwikLink, referer = "$baseUrl/", quality)
+                } else {
+                    KwikExtractor(client).getStreamVideo(context, paheWinLink, quality)
+                }
+            }.getOrNull()
         }
-    }
-
-    private fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
-        } else {
-            KwikExtractor(client).getStreamUrlFromKwik(context, paheUrl)
-        }
-
-        return Video(
-            videoUrl,
-            quality,
-            videoUrl,
-            headers = Headers.headersOf("referer", "https://kwik.cx/"),
-        )
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -469,9 +455,9 @@ class AnimePahe :
         private val PREF_SUB_ENTRIES = listOf("sub", "dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type_"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
-        private const val PREF_LINK_TYPE_DEFAULT = true
+        private const val PREF_LINK_TYPE_DEFAULT = true // Still prefer HLS links by default since they are more stable and compatible, but users can switch to direct links if they have issues with Cloudflare blocking
         private val PREF_LINK_TYPE_SUMMARY by lazy {
             """Enable this if you are having Cloudflare issues.""".trimMargin()
         }
