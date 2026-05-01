@@ -43,19 +43,10 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
         val linkJson = resp.parseAs<VideoLink>()
 
         for (link in linkJson.links) {
-            val subtitles = mutableListOf<Track>()
-            if (!link.subtitles.isNullOrEmpty()) {
-                subtitles.addAll(
-                    link.subtitles.map { sub ->
-                        val label = if (sub.label != null) {
-                            " - ${sub.label}"
-                        } else {
-                            ""
-                        }
-                        Track(sub.src, Locale(sub.lang).displayLanguage + label)
-                    },
-                )
-            }
+            val subtitles = link.subtitles?.map { sub ->
+                val label = sub.label?.let { " - $it" } ?: ""
+                Track(sub.src, Locale(sub.lang).displayLanguage + label)
+            } ?: emptyList()
 
             if (link.mp4 == true) {
                 videoList.add(
