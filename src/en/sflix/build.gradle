@@ -1,5 +1,5 @@
 ext {
-    extName = 'SFlix (Dead)'
+    extName = 'SFlix'
     extClass = '.SFlix'
     themePkg = 'dopeflix'
     baseUrl = 'https://sflix.to'
