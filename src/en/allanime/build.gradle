@@ -7,6 +7,7 @@ ext {
 apply from: "$rootDir/common.gradle"
 
 dependencies {
+    implementation(project(':lib:playlistutils'))
     implementation(project(':lib:streamlareextractor'))
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:doodextractor'))
