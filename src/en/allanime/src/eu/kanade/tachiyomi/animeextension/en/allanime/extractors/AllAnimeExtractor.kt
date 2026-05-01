@@ -38,9 +38,11 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
     fun videoFromUrl(url: String, name: String): List<Video> {
         val videoList = mutableListOf<Video>()
 
-        val endPoint = json.decodeFromString<VersionResponse>(
-            client.newCall(GET("$siteUrl/getVersion")).execute().body.string(),
-        ).episodeIframeHead
+        val endPoint = runCatching {
+            json.decodeFromString<VersionResponse>(
+                client.newCall(GET("$siteUrl/getVersion")).execute().body.string(),
+            ).episodeIframeHead
+        }.getOrNull() ?: "https://blog.allanime.day"
 
         val resp = client.newCall(
             GET(endPoint + url.replace("/clock?", "/clock.json?")),

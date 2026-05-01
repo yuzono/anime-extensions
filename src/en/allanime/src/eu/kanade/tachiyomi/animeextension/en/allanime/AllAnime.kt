@@ -351,9 +351,11 @@ class AllAnime :
                     }
 
                     sName.startsWith("player@") -> {
-                        val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
-                            .parseAs<AllAnimeExtractor.VersionResponse>()
-                            .episodeIframeHead
+                        val endPoint = runCatching {
+                            client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
+                                .parseAs<AllAnimeExtractor.VersionResponse>()
+                                .episodeIframeHead
+                        }.getOrDefault("https://blog.allanime.day")
 
                         val videoHeaders = headers.newBuilder().apply {
                             add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
@@ -414,12 +416,22 @@ class AllAnime :
             startsWith("##") -> substring(2) to 1
             startsWith("-#") -> substring(2) to 4
             startsWith("#") -> substring(1) to 0
-            else -> return this
+            else -> this to null
         }
+
+        val parsedChunks = hexPayload.chunked(2).mapNotNull { it.toIntOrNull(16) }
+
+        if (keyType == null) {
+            XOR_MASKS.forEach { mask ->
+                val decrypted = parsedChunks.map { ((it xor mask) and 0xFF).toChar() }.joinToString("")
+                if (decrypted.contains("/clock") || decrypted.contains("http")) return decrypted
+            }
+            return this
+        }
+
         val mask = XOR_MASKS[keyType]
-        return hexPayload.chunked(2)
-            .map { ((it.toInt(16)) xor mask) and 0xFF }
-            .map { it.toChar() }
+        return parsedChunks
+            .map { ((it xor mask) and 0xFF).toChar() }
             .joinToString("")
     }
 
