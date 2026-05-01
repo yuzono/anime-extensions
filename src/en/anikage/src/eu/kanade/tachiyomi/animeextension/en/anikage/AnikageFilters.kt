@@ -95,10 +95,14 @@ object AnikageFilters {
 
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
 
-        val YEARS: Array<Pair<String, String>> =
-            (currentYear + 1 downTo 1940)
-                .map { year -> year.toString() to year.toString() }
-                .toTypedArray()
+        val YEARS: Array<Pair<String, String>> = buildList {
+            add("ALL" to "ALL")
+            addAll(
+                (currentYear + 1 downTo 1940).map {
+                    it.toString() to it.toString()
+                },
+            )
+        }.toTypedArray()
 
         val SORT_BY = arrayOf(
             Pair("Title", "TITLE_ENGLISH"),
