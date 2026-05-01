@@ -51,12 +51,25 @@ class SFlixExtractor(
         ).execute()
         step1Resp.body.close()
 
-        val contentId = step1Resp.request.url.pathSegments
+        // Extract the raw path segment (e.g. "tt1234567" for movies,
+        // "tt1234567-1-2" for TV URLs like moviesapi.club/tv/<imdb>-<s>-<e>).
+        val rawSegment = step1Resp.request.url.pathSegments
             .lastOrNull { it.isNotBlank() }
             ?: run {
                 Log.e(tag, "No content ID in ${step1Resp.request.url}")
                 return emptyList()
             }
+
+        // Strip season/episode suffix if present so the streamdata API
+        // receives only the bare IMDB ID (e.g. "tt1234567", not "tt1234567-1-2").
+        // Season and episode are passed explicitly as parameters when known.
+        val contentId = if (season != null && episode != null) {
+            rawSegment.substringBefore("-$season-$episode")
+                .substringBefore("-$season-")
+                .takeIf { it.startsWith("tt") } ?: rawSegment
+        } else {
+            rawSegment
+        }
 
         // ── Step 2: Call streamdata.vaplayer.ru directly ──────────────────────
         // Referer and Origin must be brightpathsignals.com or the API may reject.
@@ -72,25 +85,24 @@ class SFlixExtractor(
             .set("Accept", "*/*")
             .build()
 
-        val apiResp = client.newCall(GET(apiUrl, apiHeaders)).execute()
-        if (!apiResp.isSuccessful) {
-            Log.e(tag, "streamdata API returned ${apiResp.code} for $apiUrl")
-            return emptyList()
-        }
+        // ── Step 3: Call the API and extract stream URLs ──────────────────────
+        // Use .use {} so the response body is always closed, including the error path.
+        val streamUrls = client.newCall(GET(apiUrl, apiHeaders)).execute().use { apiResp ->
+            if (!apiResp.isSuccessful) {
+                Log.e(tag, "streamdata API returned ${apiResp.code} for $apiUrl")
+                return emptyList()
+            }
+            val apiBody = apiResp.body.string()
+            val apiData = json.decodeFromString<StreamDataResponse>(apiBody)
 
-        val apiBody = apiResp.body.string()
-
-        val apiData = json.decodeFromString<StreamDataResponse>(apiBody)
-
-        // ── Step 3: Extract all m3u8 source URLs ─────────────────────────────
-        // Confirmed: data.stream_urls is a list of master.m3u8 URLs (multiple CDN mirrors).
-        val streamUrls = apiData.data?.streamUrls
-            ?.filter { it.isNotBlank() && it.contains(".m3u8") }
-            ?: emptyList()
-
-        if (streamUrls.isEmpty()) {
-            Log.e(tag, "No stream_urls in streamdata response: $apiBody")
-            return emptyList()
+            // Confirmed: data.stream_urls is a list of master.m3u8 URLs (multiple CDN mirrors).
+            apiData.data?.streamUrls
+                ?.filter { it.isNotBlank() && it.contains(".m3u8") }
+                ?.takeIf { it.isNotEmpty() }
+                ?: run {
+                    Log.e(tag, "No stream_urls in streamdata response for $apiUrl")
+                    return emptyList()
+                }
         }
 
         val hlsHeaders = headers.newBuilder()
@@ -98,8 +110,6 @@ class SFlixExtractor(
             .set("Origin", BRIGHTPATH_ORIGIN)
             .build()
 
-        // Try each stream URL until we get quality variants.
-        // The first URL is typically the primary CDN; others are mirrors.
         streamUrls.flatMap { masterUrl ->
             playlistUtils.extractFromHls(
                 playlistUrl = masterUrl,

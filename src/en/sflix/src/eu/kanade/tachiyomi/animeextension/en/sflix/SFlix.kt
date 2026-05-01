@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -27,6 +28,10 @@ class SFlix :
     override val baseUrl = "https://sflix.ch"
     override val lang = "en"
     override val supportsLatest = true
+
+    // Keeps the same stable ID as the previous DopeFlix-based implementation
+    // so existing users do not lose their library entries on update.
+    override val id: Long = 8615824918772726940
 
     private val preferences by getPreferencesLazy()
 
@@ -45,13 +50,14 @@ class SFlix :
     override fun popularAnimeSelector() = "div.item.post"
 
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        // Poster wraps the detail-page link: <div class="poster"><a href="…">
-        val link = element.selectFirst("div.poster > a")
-        setUrlWithoutDomain(link?.attr("href") ?: "")
-        // Title: <div class="meta"><a href="…">Title</a>
+        // The detail-page link is in div.poster > a; fall back to div.meta > a.
+        val href = element.selectFirst("div.poster > a")?.attr("href")
+            ?: element.selectFirst("div.meta > a")?.attr("href")
+            ?: ""
+        setUrlWithoutDomain(href)
         title = element.selectFirst("div.meta > a")?.text()
             ?: element.selectFirst("img")?.attr("alt")
-                ?: ""
+            ?: ""
         // Lazy-loaded poster: src is a base64 placeholder, real URL is in data-src
         thumbnail_url = element.selectFirst("img[data-src]")?.attr("data-src")
             ?: element.selectFirst("img")?.attr("src")
@@ -79,11 +85,10 @@ class SFlix :
         return when {
             query.isNotBlank() -> {
                 // Search: /?s=query  then /page/N/?s=query for subsequent pages
-                val url = if (page <= 1) {
-                    "$baseUrl/?s=${query.trim()}"
-                } else {
-                    "$baseUrl/page/$page/?s=${query.trim()}"
-                }
+                val base = if (page <= 1) "$baseUrl/" else "$baseUrl/page/$page/"
+                val url = base.toHttpUrl().newBuilder()
+                    .addQueryParameter("s", query.trim())
+                    .build().toString()
                 GET(url, headers)
             }
             !country.isNullOrBlank() ->
@@ -174,11 +179,20 @@ class SFlix :
         }
 
         if (episodes.isEmpty()) {
+            // Fallback when the episode sidebar is JS-rendered (not server-side).
+            // Mark as TV so videoListParse can pass type=tv to the streamdata API.
+            // At this point isMovie==false (we returned early above), so if the
+            // episodes section exists it must be a TV show with JS-rendered episodes.
+            val isTvFallback = doc.selectFirst("section#episodes") != null
             episodes.add(
                 SEpisode.create().apply {
                     name = "Episode 1"
                     episode_number = 1f
-                    setUrlWithoutDomain(pageUrl)
+                    url = if (isTvFallback) {
+                        "${pageUrl.substringBefore("?")}?__type=tv"
+                    } else {
+                        pageUrl.substringBefore("?")
+                    }
                 },
             )
         }
@@ -216,14 +230,18 @@ class SFlix :
         val imdbId = tvParam("imdb").find(episodeUrl)?.groupValues?.get(1) ?: key("imdb_id")
         val season = tvParam("s").find(episodeUrl)?.groupValues?.get(1)
         val ep = tvParam("e").find(episodeUrl)?.groupValues?.get(1)
+        // __type=tv is set by the fallback when the episode sidebar is JS-rendered
+        val isTvType = "__type=tv" in episodeUrl
         val isTv = season != null && ep != null
 
         val vidsrcUrl: String? = when {
             isTv && imdbId != null -> "https://vidsrc.xyz/embed/tv/$imdbId/$season-$ep"
+            isTvType && imdbId != null -> "https://vidsrc.xyz/embed/tv/$imdbId/1-1"
             else -> key("embedru")
         }
         val moviesApiUrl: String? = when {
             isTv && imdbId != null -> "https://moviesapi.club/tv/$imdbId-$season-$ep"
+            isTvType && imdbId != null -> "https://moviesapi.club/tv/$imdbId-1-1"
             else -> key("vidsrc")
         }
 
@@ -232,7 +250,12 @@ class SFlix :
             .parallelCatchingFlatMapBlocking { url ->
                 when {
                     "vidsrc.xyz" in url -> extractor.fromVidSrc(url, "VidSrc")
-                    "moviesapi" in url -> extractor.fromMoviesApi(url, "MoviesAPI", season, ep)
+                    "moviesapi" in url -> extractor.fromMoviesApi(
+                        url,
+                        "MoviesAPI",
+                        season ?: if (isTvType) "1" else null,
+                        ep ?: if (isTvType) "1" else null,
+                    )
                     else -> emptyList()
                 }
             }
