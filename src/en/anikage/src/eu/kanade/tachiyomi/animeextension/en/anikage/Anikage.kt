@@ -101,22 +101,22 @@ class Anikage :
         query: String,
         filters: AnimeFilterList,
     ): Request {
-        val filters = AnikageFilters.getSearchParameters(filters)
+        val searchParams = AnikageFilters.getSearchParameters(filters)
         val data = buildJsonObject {
             putJsonObject("variables") {
                 if (query != "") put("search", query)
-                if (filters.origin != "ALL") put("countryOfOrigin", filters.origin)
-                if (filters.types != "ALL") put("format_in", filters.types)
-                if (filters.releaseYear != "ALL") put("seasonYear", filters.releaseYear.toInt())
-                if (filters.genres.count() != 0) {
+                if (searchParams.origin != "ALL") put("countryOfOrigin", searchParams.origin)
+                if (searchParams.types != "ALL") put("format_in", searchParams.types)
+                if (searchParams.releaseYear != "ALL") put("seasonYear", searchParams.releaseYear.toInt())
+                if (searchParams.genres.count() != 0) {
                     putJsonArray("genre_in") {
-                        filters.genres.forEach {
+                        searchParams.genres.forEach {
                             add(it)
                         }
                     }
                 }
                 put("page", page)
-                put("sort", filters.sortBy)
+                put("sort", searchParams.sortBy)
                 put("isAdult", preferences.isAdult)
             }
             put("query", QUERY)
