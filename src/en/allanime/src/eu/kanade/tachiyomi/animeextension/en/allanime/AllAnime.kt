@@ -430,9 +430,7 @@ class AllAnime :
         }
 
         val mask = XOR_MASKS[keyType]
-        return parsedChunks
-            .map { ((it xor mask) and 0xFF).toChar() }
-            .joinToString("")
+        return String(CharArray(parsedChunks.size) { i -> ((parsedChunks[i] xor mask) and 0xFF).toChar() })
     }
 
     private fun prioritySort(pList: List<Pair<Video, Float>>): List<Video> {
