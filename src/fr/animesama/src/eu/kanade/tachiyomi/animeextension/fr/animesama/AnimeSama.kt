@@ -84,6 +84,11 @@ class AnimeSama :
 
     private val json: Json by injectLazy()
 
+    private val planning: String by lazy {
+        client.newCall(GET("$baseUrl/planning/", headers)).execute()
+            .use { it.body?.string().orEmpty() }
+    }
+
     // ============================== Popular ===============================
     override fun popularAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
@@ -91,7 +96,7 @@ class AnimeSama :
         val chunks = doc.select("#containerPepites > div a").chunked(5)
         val seasons = chunks.getOrNull(page - 1)?.flatMap {
             val animeUrl = "$baseUrl${it.attr("href")}"
-            fetchAnimeSeasons(animeUrl)
+            fetchAnimeSeasons(animeUrl, "")
         }?.toList().orEmpty()
         return AnimesPage(seasons, page < chunks.size)
     }
@@ -107,7 +112,7 @@ class AnimeSama :
                 .removePathSegment(animeUrl.pathSize - 2)
                 .removePathSegment(animeUrl.pathSize - 3)
                 .build()
-            fetchAnimeSeasons(url.toString())
+            fetchAnimeSeasons(url.toString(), "")
         }.distinctBy { it.url }
         return AnimesPage(seasons, false)
     }
@@ -130,7 +135,7 @@ class AnimeSama :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
         val anime = document.select("#list_catalog > div a").parallelFlatMapBlocking {
-            fetchAnimeSeasons(it.attr("href"))
+            fetchAnimeSeasons(it.attr("href"), "")
         }
         val page = response.request.url.queryParameterValues("page").firstOrNull()
         val hasNextPage = document.select("#list_pagination a:last-child").text() != page
@@ -138,7 +143,14 @@ class AnimeSama :
     }
 
     // =========================== Anime Details ============================
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime = anime
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val animeSeasonUrl = "$baseUrl${anime.url.substringBeforeLast("/")}"
+        val animeUrl = animeSeasonUrl.substringBeforeLast("/")
+        val season = animeSeasonUrl.substringAfterLast("/")
+
+        val animes = fetchAnimeSeasons(animeUrl, season)
+        return animes.firstOrNull() ?: anime
+    }
 
     override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
@@ -178,7 +190,7 @@ class AnimeSama :
                     }
                 }
             }
-        }
+        }.sort()
         return videos
     }
 
@@ -197,15 +209,15 @@ class AnimeSama :
         ).reversed()
     }
 
-    private fun fetchAnimeSeasons(animeUrl: String): List<SAnime> {
+    private fun fetchAnimeSeasons(animeUrl: String, Season: String): List<SAnime> {
         val res = client.newCall(GET(animeUrl)).execute()
-        return fetchAnimeSeasons(res)
+        return fetchAnimeSeasons(res, Season)
     }
 
     private val commentRegex by lazy { Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL) }
     private val seasonRegex by lazy { Regex("^\\s*panneauAnime\\(\"(.*)\", \"(.*)\"\\)", RegexOption.MULTILINE) }
 
-    private fun fetchAnimeSeasons(response: Response): List<SAnime> {
+    private fun fetchAnimeSeasons(response: Response, Season: String): List<SAnime> {
         val animeDoc = response.asJsoup()
         val animeUrl = response.request.url
         val animeName = animeDoc.getElementById("titreOeuvre")?.text() ?: ""
@@ -214,6 +226,11 @@ class AnimeSama :
         val uncommented = commentRegex.replace(scripts, "")
         val animes = seasonRegex.findAll(uncommented).flatMapIndexed { animeIndex, seasonMatch ->
             val (seasonName, seasonStem) = seasonMatch.destructured
+
+            if (Season.isNotEmpty() && seasonStem.replace("/vostfr", "") != Season) {
+                return@flatMapIndexed emptyList()
+            }
+
             if (seasonStem.contains("film", true)) {
                 val moviesUrl = "$animeUrl/$seasonStem"
                 val movies = fetchPlayers(moviesUrl).ifEmpty { return@flatMapIndexed emptyList() }
@@ -227,10 +244,10 @@ class AnimeSama :
                         movies.size == 1 -> "$animeName Film"
                         else -> "$animeName Film ${i + 1}"
                     }
-                    Triple(title, "$moviesUrl#$i", SAnime.COMPLETED)
+                    Pair(title, "$moviesUrl#$i")
                 }
             } else {
-                listOf(Triple("$animeName $seasonName", "$animeUrl/$seasonStem", SAnime.UNKNOWN))
+                listOf(Pair("$animeName $seasonName", "$animeUrl/$seasonStem"))
             }
         }
 
@@ -241,10 +258,23 @@ class AnimeSama :
                 description = animeDoc.select("h2:contains(synopsis) + p").text()
                 genre = animeDoc.select("h2:contains(genres) + a").text().replace(" - ", ", ")
                 setUrlWithoutDomain(it.second)
-                status = it.third
+                status = parseStatus(it.second)
                 initialized = true
             }
         }.toList()
+    }
+
+    private fun parseStatus(animeUrl: String): Int {
+        val cleanedUrl = animeUrl.replace("(?<!:)/{2,}".toRegex(), "/")
+        val pattern = ".*/(catalogue/[^/]+/[^/]+)".toRegex()
+        val match = pattern.find(cleanedUrl)
+        val searchTarget = match?.groupValues?.get(1) ?: cleanedUrl
+
+        return if (planning.contains(searchTarget)) {
+            SAnime.ONGOING
+        } else {
+            SAnime.COMPLETED
+        }
     }
 
     private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> = List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
