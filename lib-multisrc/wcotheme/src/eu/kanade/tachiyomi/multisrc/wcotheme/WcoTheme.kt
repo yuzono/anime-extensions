@@ -50,15 +50,9 @@ abstract class WcoTheme :
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET(baseUrl, headers)
 
-    override fun popularAnimeSelector() = "div.sidebar-titles > ul > li > a"
+    override fun popularAnimeSelector() = "div#sidebar_right2 ul.items > li"
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.attr("title").ifBlank {
-            element.selectFirst("span.film-name")?.text() ?: element.text()
-        }
-        thumbnail_url = "$baseUrl/favicon.ico"
-    }
+    override fun popularAnimeFromElement(element: Element) = gridItemToAnime(element)
 
     override fun popularAnimeNextPageSelector() = null
 
@@ -67,10 +61,27 @@ abstract class WcoTheme :
 
     override fun latestUpdatesSelector(): String = "div.recent-release:contains(Recent Releases) + div > ul > li"
 
-    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        title = element.text()
-        thumbnail_url = element.select("img[src]").attr("abs:src")
+    override fun latestUpdatesFromElement(element: Element): SAnime = gridItemToAnime(element)
+
+    /**
+     * Builds an [SAnime] from one of the homepage `ul.items > li` grid cards.
+     * Cards always have a thumbnail in `.img a img` and a clickable title in
+     * `.recent-release-episodes a` (or just the wrapping anchor for the
+     * Recently Added Series grid).
+     */
+    private fun gridItemToAnime(element: Element): SAnime = SAnime.create().apply {
+        val titleAnchor = element.selectFirst(".recent-release-episodes a, .img a")
+            ?: element.selectFirst("a")!!
+        setUrlWithoutDomain(titleAnchor.attr("href"))
+        // Prefer the bookmark anchor's own text so trailing badge spans
+        // (Dub/Sub/quality) are not included; fall back to the image alt
+        // attribute, then to the raw element text.
+        title = titleAnchor.ownText().ifBlank {
+            element.selectFirst("img[alt]")?.attr("alt").orEmpty().ifBlank {
+                element.text()
+            }
+        }
+        thumbnail_url = element.selectFirst("img[src]")?.attr("abs:src")
     }
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -141,10 +152,22 @@ abstract class WcoTheme :
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        document.selectFirst("div.video-title a")?.text()?.let { title = it }
+        // The "anime" URL stored in the user's library may actually point at an
+        // episode page (e.g. when the entry was added from the Latest list).
+        // On anime pages the title sits in `div.video-title a`; on episode
+        // pages we fall back to the linked series name in `div.header-tag h2 a`
+        // (both layouts) and finally to the on-page heading so favourites
+        // never end up with an empty title after a refresh.
+        title = (
+            document.selectFirst("div.video-title a")?.text()
+                ?: document.selectFirst("div.header-tag h2 a")?.text()
+                ?: document.selectFirst("div.video-title h1")?.text()
+                ?: document.selectFirst("div.baslikCell h1")?.text()
+            ).orEmpty()
         description = document.selectFirst("div#sidebar_cat p")?.text()
         thumbnail_url = document.selectFirst("div#sidebar_cat img")?.attr("abs:src")
         genre = document.select("div#sidebar_cat > a").joinToString { it.text() }
+            .ifBlank { null }
     }
 
     // ============================== Episodes ==============================
