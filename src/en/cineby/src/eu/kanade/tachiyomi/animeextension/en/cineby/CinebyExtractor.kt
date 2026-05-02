@@ -164,7 +164,7 @@ class CinebyExtractor(
         return videoList.sortedWith(
             compareByDescending<Video> {
                 it.quality.contains(qualityPref, ignoreCase = true)
-            }.thenBy {
+            }.thenByDescending {
                 qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             },
         )
