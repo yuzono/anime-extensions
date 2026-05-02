@@ -148,7 +148,7 @@ abstract class WcoTheme :
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.cat-eps, div#episodeList > a.dark-episode-item"
+    override fun episodeListSelector() = "div.cat-eps, div#episodeList a.dark-episode-item"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
