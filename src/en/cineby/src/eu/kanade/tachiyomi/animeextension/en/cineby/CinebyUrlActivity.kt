@@ -37,6 +37,5 @@ class CinebyUrlActivity : Activity() {
         }
 
         finish()
-        exitProcess(0)
     }
 }
