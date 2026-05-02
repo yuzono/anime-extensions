@@ -3,7 +3,7 @@ ext {
     extClass = '.WcoAnimeDub'
     themePkg = 'wcotheme'
     baseUrl = 'https://www.wcoanimedub.tv'
-    overrideVersionCode = 2
+    overrideVersionCode = 3
 }
 
 apply from: "$rootDir/common.gradle"

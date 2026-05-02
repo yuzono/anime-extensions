@@ -54,7 +54,9 @@ abstract class WcoTheme :
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.attr("href"))
-        title = element.ownText()
+        title = element.attr("title").ifBlank {
+            element.selectFirst("span.film-name")?.text() ?: element.text()
+        }
         thumbnail_url = "$baseUrl/favicon.ico"
     }
 
