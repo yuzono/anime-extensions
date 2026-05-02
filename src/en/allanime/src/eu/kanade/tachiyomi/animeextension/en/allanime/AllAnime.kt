@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animeextension.en.allanime.extractors.AllAnimeExtract
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -285,6 +286,11 @@ class AllAnime :
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val hosters = getHosterList(episode)
+        return hosters.parallelCatchingFlatMap(::getVideoList)
+    }
+
+    suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val responseBody = client.newCall(videoListRequest(episode))
             .awaitSuccess().bodyString()
 
@@ -347,60 +353,72 @@ class AllAnime :
                 .episodeIframeHead
         }.getOrDefault(FALLBACK_PLAYER_DOMAIN)
 
-        return serverList.parallelCatchingFlatMap { server ->
-            val sName = server.sourceName
-            when {
-                sName.startsWith("internal ") -> {
-                    allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
-                }
+        return serverList
+            .prioritySort()
+            .map {
+                Hoster(
+                    hosterUrl = it.sourceUrl,
+                    hosterName = it.sourceName,
+                    internalData = iframeEndpoint,
+                )
+            }
+    }
 
-                sName.startsWith("player@") -> {
-                    val videoHeaders = headers.newBuilder().apply {
-                        add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                        add("Host", server.sourceUrl.toHttpUrl().host)
-                        add("Referer", "$iframeEndpoint/")
-                    }.build()
+    suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val server = Server(hoster.hosterUrl, hoster.hosterName, 0F)
+        val iframeEndpoint = hoster.internalData.ifBlank { FALLBACK_PLAYER_DOMAIN }
 
-                    Video(
-                        server.sourceUrl,
-                        "Original (player ${server.sourceName.substringAfter("player@")})",
-                        server.sourceUrl,
-                        headers = videoHeaders,
-                    ).let(::listOf)
-                }
+        val sName = server.sourceName
+        return when {
+            sName.startsWith("internal ") -> {
+                allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
+            }
 
-                sName == "vidstreaming" -> {
-                    gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
-                }
+            sName.startsWith("player@") -> {
+                val videoHeaders = headers.newBuilder().apply {
+                    add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+                    add("Host", server.sourceUrl.toHttpUrl().host)
+                    add("Referer", "$iframeEndpoint/")
+                }.build()
 
-                sName == "dood" -> {
-                    doodExtractor.videosFromUrl(server.sourceUrl)
-                }
+                Video(
+                    server.sourceUrl,
+                    "Original (player ${server.sourceName.substringAfter("player@")})",
+                    server.sourceUrl,
+                    headers = videoHeaders,
+                ).let(::listOf)
+            }
 
-                sName == "okru" -> {
-                    okruExtractor.videosFromUrl(server.sourceUrl)
-                }
+            sName == "vidstreaming" -> {
+                gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
+            }
 
-                sName == "mp4upload" -> {
-                    mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
-                }
+            sName == "dood" -> {
+                doodExtractor.videosFromUrl(server.sourceUrl)
+            }
 
-                sName == "streamlare" -> {
-                    streamlareExtractor.videosFromUrl(server.sourceUrl)
-                }
+            sName == "okru" -> {
+                okruExtractor.videosFromUrl(server.sourceUrl)
+            }
 
-                sName == "filemoon" -> {
-                    filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
-                }
+            sName == "mp4upload" -> {
+                mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
+            }
 
-                sName == "streamwish" -> {
-                    streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
-                }
+            sName == "streamlare" -> {
+                streamlareExtractor.videosFromUrl(server.sourceUrl)
+            }
 
-                else -> emptyList()
-            }.map { v -> Pair(v, server.priority) }
+            sName == "filemoon" -> {
+                filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
+            }
+
+            sName == "streamwish" -> {
+                streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
+            }
+
+            else -> emptyList()
         }
-            .let(::prioritySort)
     }
 
     // ============================= Utilities ==============================
@@ -433,19 +451,25 @@ class AllAnime :
         return String(CharArray(parsedChunks.size) { i -> ((parsedChunks[i] xor mask) and 0xFF).toChar() })
     }
 
-    private fun prioritySort(pList: List<Pair<Video, Float>>): List<Video> {
+    private fun List<Server>.prioritySort(): List<Server> {
         val prefServer = preferences.prefServer
+        return sortedWith(
+            compareByDescending {
+                if (prefServer == "site_default") it.priority else it.sourceName.contains(prefServer, true)
+            },
+        )
+    }
+
+    override fun List<Video>.sort(): List<Video> {
         val quality = preferences.quality
         val subPref = preferences.subPref
 
-        return pList.sortedWith(
+        return sortedWith(
             compareBy(
-                { if (prefServer == "site_default") it.second else it.first.quality.contains(prefServer, true) },
-                { it.first.quality.contains(quality, true) },
-                { it.first.quality.contains(subPref, true) },
+                { it.quality.contains(quality, true) },
+                { it.quality.contains(subPref, true) },
             ),
         ).reversed()
-            .map { t -> t.first }
     }
 
     private fun buildPost(dataObject: JsonObject): Request {
