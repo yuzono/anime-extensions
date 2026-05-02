@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.cineby
 
+import android.os.Build
 import android.util.LruCache
+import androidx.annotation.RequiresApi
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -71,6 +73,7 @@ class CinebyExtractor(
      * @param qualityPref User's preferred quality token (e.g. "1080");
      *                    matching videos float to the top of the result
      */
+    @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
         path: String,
         title: String,

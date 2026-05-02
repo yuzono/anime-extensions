@@ -5,9 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import kotlin.system.exitProcess
 
-/** Forwards `cineby.sc/(movie|tv)/<id>` deep links into Aniyomi/Anikku as `id:<type>/<id>`. */
 class CinebyUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -15,7 +13,7 @@ class CinebyUrlActivity : Activity() {
         if (pathSegments != null && pathSegments.size >= 2) {
             val type = pathSegments[0]
             val rawId = pathSegments[1]
-            val isValidType = "movie".equals(type) || "tv".equals(type)
+            val isValidType = "movie" == type || "tv" == type
 
             if (isValidType) {
                 val mainIntent = Intent().apply {
