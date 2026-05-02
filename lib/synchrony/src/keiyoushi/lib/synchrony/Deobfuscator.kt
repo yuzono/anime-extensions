@@ -1,4 +1,4 @@
-package aniyomi.lib.synchrony
+package keiyoushi.lib.synchrony
 
 import app.cash.quickjs.QuickJs
 

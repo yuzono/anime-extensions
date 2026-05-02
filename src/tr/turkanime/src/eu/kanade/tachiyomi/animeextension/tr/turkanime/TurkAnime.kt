@@ -13,7 +13,6 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.sendvidextractor.SendvidExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
-import aniyomi.lib.synchrony.Deobfuscator
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vkextractor.VkExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -36,6 +35,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.lib.synchrony.Deobfuscator
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
