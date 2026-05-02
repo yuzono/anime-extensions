@@ -1,4 +1,4 @@
-package aniyomi.lib.cryptoaes
+package keiyoushi.lib.cryptoaes
 /**
  * Helper class to deobfuscate JavaScript strings encoded in JSFuck style.
  *
@@ -60,9 +60,9 @@ object Deobfuscator {
            therefore '!+[]' count equals the digit
            if count equals 0, check for '+[]' just to be sure
          */
-        val digit = "\\!\\+\\[\\]".toRegex().findAll(inputSubString).count() // matches '!+[]'
+        val digit = "!\\+\\[]".toRegex().findAll(inputSubString).count() // matches '!+[]'
         if (digit == 0) {
-            if ("\\+\\[\\]".toRegex().findAll(inputSubString).count() == 1) { // matches '+[]'
+            if ("\\+\\[]".toRegex().findAll(inputSubString).count() == 1) { // matches '+[]'
                 return '0'
             }
         } else if (digit in 1..9) {

@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.animeextension.es.katanime
 
 import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor

@@ -3,11 +3,11 @@ package aniyomi.lib.rapidcloudextractor
 import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.lib.cryptoaes.CryptoAES
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex

@@ -1,4 +1,4 @@
-package aniyomi.lib.cryptoaes
+package eu.kanade.tachiyomi.animeextension.es.katanime
 
 /*
  * Copyright (C) The Tachiyomi Open Source Project

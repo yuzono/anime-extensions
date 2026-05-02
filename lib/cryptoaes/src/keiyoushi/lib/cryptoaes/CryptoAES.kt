@@ -1,4 +1,4 @@
-package aniyomi.lib.cryptoaes
+package keiyoushi.lib.cryptoaes
 
 /*
  * Copyright (C) The Tachiyomi Open Source Project
@@ -22,7 +22,6 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Conforming with CryptoJS AES method
  */
-@Suppress("unused")
 object CryptoAES {
 
     private const val KEY_SIZE = 32 // 256 bits
