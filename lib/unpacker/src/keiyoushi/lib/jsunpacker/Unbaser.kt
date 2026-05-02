@@ -1,4 +1,4 @@
-package aniyomi.lib.jsunpacker
+package keiyoushi.lib.jsunpacker
 
 import kotlin.math.pow
 

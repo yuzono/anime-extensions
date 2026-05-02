@@ -1,4 +1,4 @@
-package aniyomi.lib.jsunpacker
+package keiyoushi.lib.jsunpacker
 
 /**
  * This singleton class provides functionality to detect and unpack packed javascript based on Dean Edwards JavaScript's Packer.

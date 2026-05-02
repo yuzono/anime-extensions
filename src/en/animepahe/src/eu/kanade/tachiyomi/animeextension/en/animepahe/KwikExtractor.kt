@@ -27,10 +27,10 @@ SOFTWARE.
 
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers

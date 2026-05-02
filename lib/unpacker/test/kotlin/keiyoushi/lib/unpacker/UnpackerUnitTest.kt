@@ -1,4 +1,4 @@
-package aniyomi.lib.unpacker
+package keiyoushi.lib.unpacker
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

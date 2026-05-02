@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors
 
-import aniyomi.lib.autoUnpacker
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.base64Rot13ReverseUnmix
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.Deobfuscator.partsRegex
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -9,6 +8,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody

@@ -5,7 +5,6 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher.fetchHDCovers
 import aniyomi.lib.playlistutils.PlaylistUtils
-import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -16,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.unpacker.Unpacker
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate

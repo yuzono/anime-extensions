@@ -1,6 +1,6 @@
-package aniyomi.lib.unpacker
+package keiyoushi.lib.unpacker
 
-import aniyomi.lib.autoUnpacker
+import keiyoushi.lib.autoUnpacker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

@@ -1,11 +1,11 @@
 package aniyomi.lib.streamwishextractor
 
-import aniyomi.lib.jsunpacker.JsUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.lib.synchrony.Deobfuscator
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException

@@ -1,7 +1,7 @@
-package aniyomi.lib
+package keiyoushi.lib
 
-import aniyomi.lib.jsunpacker.JsUnpacker
-import aniyomi.lib.unpacker.Unpacker
+import keiyoushi.lib.jsunpacker.JsUnpacker
+import keiyoushi.lib.unpacker.Unpacker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

@@ -1,4 +1,4 @@
-package aniyomi.lib.unpacker
+package keiyoushi.lib.unpacker
 
 /**
  * A helper class to extract substrings efficiently.

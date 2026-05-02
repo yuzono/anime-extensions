@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.es.mundodonghua
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.autoUnpacker
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.playlistutils.PlaylistUtils
@@ -16,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl

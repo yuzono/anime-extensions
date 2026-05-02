@@ -1,8 +1,8 @@
-package aniyomi.lib
+package keiyoushi.lib
 
 import android.util.Log
-import aniyomi.lib.jsunpacker.JsUnpacker
-import aniyomi.lib.unpacker.Unpacker
+import keiyoushi.lib.jsunpacker.JsUnpacker
+import keiyoushi.lib.unpacker.Unpacker
 
 fun autoUnpacker(packedScript: String): String? = runCatching {
     val jsUnpacker = try {

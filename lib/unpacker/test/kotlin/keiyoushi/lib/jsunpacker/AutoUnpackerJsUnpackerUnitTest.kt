@@ -1,6 +1,6 @@
-package aniyomi.lib.jsunpacker
+package keiyoushi.lib.jsunpacker
 
-import aniyomi.lib.autoUnpacker
+import keiyoushi.lib.autoUnpacker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
