@@ -146,7 +146,7 @@ abstract class WcoTheme :
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.cat-eps"
+    override fun episodeListSelector() = "div.cat-eps, div#episodeList > a.dark-episode-item"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -173,8 +173,9 @@ abstract class WcoTheme :
     open val episodeTitleRegex by lazy { Regex("(Season (\\d+) )?Episode (\\d+) (.*)") }
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        val title = element.text()
+        val anchor = if (element.tagName() == "a") element else element.selectFirst("a")!!
+        setUrlWithoutDomain(anchor.attr("href"))
+        val title = anchor.selectFirst("span")?.text() ?: element.text()
         val (name, _) = episodeTitleFromElement(title)
         this.name = name
     }
