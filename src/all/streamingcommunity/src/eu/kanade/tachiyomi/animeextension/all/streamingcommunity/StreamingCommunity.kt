@@ -5,7 +5,6 @@ import android.util.Log
 import android.webkit.URLUtil
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.i18n.Intl
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.AgeFilter
@@ -27,6 +26,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.i18n.Intl
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference

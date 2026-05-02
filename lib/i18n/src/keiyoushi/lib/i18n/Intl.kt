@@ -1,4 +1,4 @@
-package aniyomi.lib.i18n
+package keiyoushi.lib.i18n
 
 import org.jetbrains.annotations.PropertyKey
 import java.io.InputStreamReader
