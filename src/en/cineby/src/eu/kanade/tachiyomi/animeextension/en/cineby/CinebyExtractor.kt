@@ -302,7 +302,7 @@ class CinebyExtractor(
         private const val MAX_SERVER_FAILURES = 2
         private const val CIRCUIT_COOLDOWN_MS = 180_000L
 
-        private val qualityRegex = Regex("""(\d{3,4})p""")
+        private val qualityRegex = Regex("""(\d{3,4})(?:p|P)?""")
 
         //   Tier 1
         //   Neon  = myflixerzupcloud
