@@ -1,4 +1,4 @@
-package aniyomi.lib.dataimage
+package keiyoushi.lib.dataimage
 
 import android.util.Base64
 import okhttp3.Interceptor
