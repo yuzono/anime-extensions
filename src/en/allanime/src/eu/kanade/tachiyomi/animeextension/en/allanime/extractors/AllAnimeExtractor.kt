@@ -1,19 +1,21 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime.extractors
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers, private val siteUrl: String) {
+class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
-    private val json: Json by injectLazy()
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private fun bytesIntoHumanReadable(bytes: Long): String {
         val kilobyte: Long = 1000
@@ -35,163 +37,89 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
         }
     }
 
-    fun videoFromUrl(url: String, name: String): List<Video> {
-        val videoList = mutableListOf<Video>()
-
-        val endPoint = json.decodeFromString<VersionResponse>(
-            client.newCall(GET("$siteUrl/getVersion")).execute().body.string(),
-        ).episodeIframeHead
-
-        val resp = client.newCall(
+    suspend fun videoFromUrl(url: String, name: String, endPoint: String): List<Video> {
+        val linkJson = client.newCall(
             GET(endPoint + url.replace("/clock?", "/clock.json?")),
-        ).execute()
+        ).awaitSuccess()
+            .parseAs<VideoLink>()
 
-        if (resp.code != 200) {
-            return emptyList()
-        }
+        return linkJson.links.parallelCatchingFlatMap { link ->
+            val subtitles = link.subtitles?.map { sub ->
+                val label = sub.label?.let { " - $it" } ?: ""
+                Track(sub.src, Locale(sub.lang).displayLanguage + label)
+            }.orEmpty()
 
-        val body = resp.body.string()
-        val linkJson = json.decodeFromString<VideoLink>(body)
-
-        for (link in linkJson.links) {
-            val subtitles = mutableListOf<Track>()
-            if (!link.subtitles.isNullOrEmpty()) {
-                subtitles.addAll(
-                    link.subtitles.map { sub ->
-                        val label = if (sub.label != null) {
-                            " - ${sub.label}"
-                        } else {
-                            ""
-                        }
-                        Track(sub.src, Locale(sub.lang).displayLanguage + label)
-                    },
-                )
-            }
-
-            if (link.mp4 == true) {
-                videoList.add(
+            when {
+                link.mp4 == true -> {
                     Video(
                         link.link,
                         "Original ($name - ${link.resolutionStr})",
                         link.link,
                         subtitleTracks = subtitles,
-                    ),
-                )
-            } else if (link.hls == true) {
-                val newClient = OkHttpClient()
+                    ).let(::listOf)
+                }
 
-                val masterHeaders = headers.newBuilder()
-                    .add("Accept", "*/*")
-                    .add("Host", link.link.toHttpUrl().host)
-                    .add("Origin", endPoint)
-                    .add("Referer", "$endPoint/")
-                    .build()
+                link.hls == true -> {
+                    val masterHeaders = headers.newBuilder()
+                        .add("Accept", "*/*")
+                        .add("Host", link.link.toHttpUrl().host)
+                        .add("Origin", endPoint)
+                        .add("Referer", "$endPoint/")
+                        .build()
 
-                val resp = runCatching {
-                    newClient.newCall(
-                        GET(link.link, headers = masterHeaders),
-                    ).execute()
-                }.getOrNull()
+                    playlistUtils.extractFromHls(
+                        link.link,
+                        masterHeaders = masterHeaders,
+                        videoHeaders = masterHeaders,
+                        videoNameGen = { quality -> "$quality ($name - ${link.resolutionStr})" },
+                        subtitleList = subtitles,
+                    )
+                }
 
-                if (resp != null && resp.code == 200) {
-                    val masterPlaylist = resp.body.string()
+                link.crIframe == true -> {
+                    link.portData?.streams?.parallelCatchingFlatMap {
+                        when (it.format) {
+                            "adaptive_dash" ->
+                                Video(
+                                    it.url,
+                                    "Original (AC - Dash${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})",
+                                    it.url,
+                                    subtitleTracks = subtitles,
+                                ).let(::listOf)
 
-                    val audioList = mutableListOf<Track>()
-                    if (masterPlaylist.contains("#EXT-X-MEDIA:TYPE=AUDIO")) {
-                        val audioInfo = masterPlaylist.substringAfter("#EXT-X-MEDIA:TYPE=AUDIO")
-                            .substringBefore("\n")
-                        val language = audioInfo.substringAfter("NAME=\"").substringBefore("\"")
-                        val url = audioInfo.substringAfter("URI=\"").substringBefore("\"")
-                        audioList.add(
-                            Track(url, language),
+                            "adaptive_hls" ->
+                                playlistUtils.extractFromHls(
+                                    it.url,
+                                    masterHeaders = headers,
+                                    videoHeaders = headers,
+                                    videoNameGen = { quality -> "$quality (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})" },
+                                    subtitleList = subtitles,
+                                )
+
+                            else -> emptyList()
+                        }
+                    }.orEmpty()
+                }
+
+                link.dash == true -> {
+                    val audioList = link.rawUrls?.audios?.map {
+                        Track(it.url, bytesIntoHumanReadable(it.bandwidth))
+                    }.orEmpty()
+
+                    link.rawUrls?.vids?.map {
+                        Video(
+                            it.url,
+                            "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}",
+                            it.url,
+                            audioTracks = audioList,
+                            subtitleTracks = subtitles,
                         )
-                    }
-
-                    if (!masterPlaylist.contains("#EXT-X-STREAM-INF:")) {
-                        return if (audioList.isEmpty()) {
-                            listOf(Video(link.link, "$name - ${link.resolutionStr}", link.link, subtitleTracks = subtitles, headers = masterHeaders))
-                        } else {
-                            listOf(Video(link.link, "$name - ${link.resolutionStr}", link.link, subtitleTracks = subtitles, audioTracks = audioList, headers = masterHeaders))
-                        }
-                    }
-
-                    masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:")
-                        .forEach {
-                            val bandwidth = if (it.contains("AVERAGE-BANDWIDTH")) {
-                                " " + bytesIntoHumanReadable(it.substringAfter("AVERAGE-BANDWIDTH=").substringBefore(",").toLong())
-                            } else {
-                                ""
-                            }
-
-                            val quality = it.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p$bandwidth ($name - ${link.resolutionStr})"
-                            var videoUrl = it.substringAfter("\n").substringBefore("\n")
-
-                            if (!videoUrl.startsWith("http")) {
-                                videoUrl = resp.request.url.toString().substringBeforeLast("/") + "/$videoUrl"
-                            }
-
-                            val plHeaders = headers.newBuilder()
-                                .add("Accept", "*/*")
-                                .add("Host", videoUrl.toHttpUrl().host)
-                                .add("Origin", endPoint)
-                                .add("Referer", "$endPoint/")
-                                .build()
-
-                            if (audioList.isEmpty()) {
-                                videoList.add(Video(videoUrl, quality, videoUrl, subtitleTracks = subtitles, headers = plHeaders))
-                            } else {
-                                videoList.add(Video(videoUrl, quality, videoUrl, subtitleTracks = subtitles, audioTracks = audioList, headers = plHeaders))
-                            }
-                        }
+                    }.orEmpty()
                 }
-            } else if (link.crIframe == true) {
-                link.portData!!.streams.forEach {
-                    if (it.format == "adaptive_dash") {
-                        videoList.add(
-                            Video(
-                                it.url,
-                                "Original (AC - Dash${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})",
-                                it.url,
-                                subtitleTracks = subtitles,
-                            ),
-                        )
-                    } else if (it.format == "adaptive_hls") {
-                        val resp = runCatching {
-                            client.newCall(
-                                GET(it.url, headers = Headers.headersOf("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0")),
-                            ).execute()
-                        }.getOrNull()
 
-                        if (resp != null && resp.code == 200) {
-                            val masterPlaylist = resp.body.string()
-                            masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:")
-                                .forEach { t ->
-                                    val quality = t.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p (AC - HLS${if (it.hardsub_lang.isEmpty()) "" else " - Hardsub: ${it.hardsub_lang}"})"
-                                    var videoUrl = t.substringAfter("\n").substringBefore("\n")
-
-                                    videoList.add(Video(videoUrl, quality, videoUrl, subtitleTracks = subtitles))
-                                }
-                        }
-                    }
-                }
-            } else if (link.dash == true) {
-                val audioList = link.rawUrls?.audios?.map {
-                    Track(it.url, bytesIntoHumanReadable(it.bandwidth))
-                }
-                val videos = link.rawUrls?.vids?.map {
-                    if (audioList == null) {
-                        Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, subtitleTracks = subtitles)
-                    } else {
-                        Video(it.url, "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}", it.url, audioTracks = audioList, subtitleTracks = subtitles)
-                    }
-                }
-                if (videos != null) {
-                    videoList.addAll(videos)
-                }
+                else -> emptyList()
             }
         }
-
-        return videoList
     }
 
     @Serializable
