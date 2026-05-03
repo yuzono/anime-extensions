@@ -160,7 +160,23 @@ class AnimeIndo :
                 ?.getImageUrl()
                 ?: doc.selectFirst("meta[itemprop=image]")?.attr("content")
 
-            genre = doc.select("div.my-6 a[href*=/genre/]").eachText().joinToString()
+            // Extract and capitalize genres (e.g., "science fiction" -> "Science Fiction")
+            val genres = doc.select("div.my-6 a[href*=/genre/]").eachText().map {
+                it.trim().split(" ").joinToString(" ") { word ->
+                    word.replaceFirstChar { char -> char.uppercase() }
+                }
+            }
+
+            // Extract tags and format them as "Tag: Name"
+            val tags = doc.select("a[href*=/tag/]").map { element ->
+                val tagName = element.text().trim().split(" ").joinToString(" ") { word ->
+                    word.replaceFirstChar { char -> char.uppercase() }
+                }
+                "Tag: $tagName"
+            }
+
+            genre = (genres + tags).joinToString(", ")
+
             status = SAnime.UNKNOWN
 
             description = buildString {
