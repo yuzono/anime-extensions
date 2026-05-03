@@ -21,12 +21,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.concurrent.Executors
 
 class AnimeIndo :
     AnimeStream(
@@ -258,29 +258,22 @@ class AnimeIndo :
             }
         }
 
-        val executor = Executors.newFixedThreadPool(10)
-        val probeFutures = (1..10).map { i ->
-            executor.submit<Pair<Int, Document?>> {
-                try {
-                    client.newCall(GET("$baseUrl/episode/$slug/$i-1", headers)).execute().use { res ->
-                        if (res.isSuccessful) Pair(i, res.asJsoup()) else Pair(i, null)
-                    }
-                } catch (_: Exception) {
-                    Pair(i, null)
+        // Probe for a valid season page to extract the full season list
+        val probeResult = (1..10).firstNotNullOfOrNull { i ->
+            try {
+                client.newCall(GET("$baseUrl/episode/$slug/$i-1", headers)).execute().use { res ->
+                    if (res.isSuccessful) Pair(i, res.asJsoup()) else null
                 }
+            } catch (_: Exception) {
+                null
             }
         }
 
-        for (future in probeFutures) {
-            val (season, doc) = future.get()
-            if (doc != null) {
-                document = doc
-                currentSeasonNum = season
-                parseEpisodes(document, slug, seenUrls, episodes)
-                break
-            }
+        if (probeResult != null) {
+            currentSeasonNum = probeResult.first
+            document = probeResult.second
+            parseEpisodes(document, slug, seenUrls, episodes)
         }
-        executor.shutdown()
 
         if (currentSeasonNum == 0) return emptyList()
 
@@ -290,22 +283,20 @@ class AnimeIndo :
 
         val otherSeasons = seasonNumbers.filter { it != currentSeasonNum }
         if (otherSeasons.isNotEmpty()) {
-            val executor = Executors.newFixedThreadPool(otherSeasons.size)
-            val futures = otherSeasons.map { seasonNum ->
-                executor.submit {
-                    try {
-                        client.newCall(GET("$baseUrl/episode/$slug/$seasonNum-1", headers)).execute().use { res ->
-                            if (res.isSuccessful) {
-                                synchronized(seenUrls) {
-                                    parseEpisodes(res.asJsoup(), slug, seenUrls, episodes)
-                                }
+            // Use the utility from multisrc for parallel fetching
+            otherSeasons.parallelCatchingFlatMapBlocking { seasonNum ->
+                try {
+                    client.newCall(GET("$baseUrl/episode/$slug/$seasonNum-1", headers)).execute().use { res ->
+                        if (res.isSuccessful) {
+                            val doc = res.asJsoup()
+                            synchronized(seenUrls) {
+                                parseEpisodes(doc, slug, seenUrls, episodes)
                             }
                         }
-                    } catch (_: Exception) {}
-                }
+                    }
+                } catch (_: Exception) {}
+                emptyList<Unit>()
             }
-            futures.forEach { it.get() }
-            executor.shutdown()
         }
 
         fixEpisodeNumbers(episodes)
