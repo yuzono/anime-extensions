@@ -611,7 +611,7 @@ class Cineby :
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://www.cineby.sc"
-        private val DOMAIN_ENTRIES = arrayOf("www.cineby.sc")
+        private val DOMAIN_ENTRIES = arrayOf("www.cineby.sc", "www.fmovies.gd", "www.bitcine.net")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
 
         private const val PREF_LATEST_KEY = "pref_latest"
