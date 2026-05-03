@@ -39,18 +39,18 @@ data class RecentsResponseDto(
 data class AnimeInfoDto(
     val genres: List<String>,
     val poster: PosterDto,
-    val season: String? = null, // Fix of non-existant field i.e. Black Cat (Filters: Year 1972)
+    val season: String? = null,
     val slug: String,
     val status: String,
     val synopsis: String?,
     val title: String,
     val title_en: String = "",
-    val year: Int? = null, // To avoid possible issues as well, just like season string above
+    val year: Int? = null,
 )
 
 @Serializable
 data class EpisodeResponseDto(
-    val pages: List<JsonObject>, // We dont care about its contents, only the size
+    val pages: List<JsonObject>,
     val result: List<EpisodeDto> = emptyList(),
 ) {
     @Serializable
@@ -76,10 +76,15 @@ data class VideoDto(
     val dash: String = "",
     val subtitles: List<SubtitlesDto> = emptyList(),
 ) {
+    // NOTE: playlistUrl is kept for backward compatibility but the extractor
+    // now uses its own fixUrl() which properly handles BirdStream https:////
+    // and other malformed URL patterns. This property should not be relied upon
+    // for URL construction in new code.
     val playlistUrl by lazy {
         hls.ifEmpty { dash }.let { uri ->
             when {
-                uri.startsWith("//") -> "https:$uri"
+                uri.startsWith("http") -> uri
+                uri.startsWith("//") -> "https://${uri.trimStart('/')}"
                 else -> uri
             }
         }
