@@ -417,7 +417,7 @@ class CinebyExtractor(
                 "https://api.videasy.net",
                 "visioncine",
                 audioLabel = "Portuguese",
-            )
+            ),
         )
 
         val SERVER_DISPLAY_NAMES: List<String> = VIDEASY_SERVERS.map { it.displayName }
