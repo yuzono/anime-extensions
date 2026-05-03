@@ -184,4 +184,5 @@ data class VideasyServer(
     // Display-only audio-language hint shown in the video picker AND
     // alongside each entry in the server preference list.
     val audioLabel: String? = null,
+    val qualityFilter: String? = null,
 )

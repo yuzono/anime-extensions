@@ -48,6 +48,9 @@ class Cineby :
     // Cineby/Videasy proxy
     private val apiUrl = "https://db.videasy.net/3"
 
+    private fun apiOrigin(url: String): String = url.removePrefix("https://www.").removePrefix("http://www.")
+        .let { if (it.startsWith("http")) it else "https://$it" }
+
     override val lang = "en"
     override val supportsLatest = true
 
@@ -442,7 +445,7 @@ class Cineby :
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         // episode.url: "{type}/{tmdbId}[/season/episode]#{title|year|imdbId}"
         // — packed in relatedAnimeListParse to skip a second TMDB call here.
-        val (path, extraDataEncoded) = episode.url.split("#")
+        val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
         val (title, year, imdbId) =
             json.decodeFromString<Triple<String, String, String>>(extraDataEncoded)
 
@@ -451,7 +454,7 @@ class Cineby :
             title = title,
             year = year,
             imdbId = imdbId,
-            baseUrl = baseUrl,
+            baseUrl = apiOrigin(baseUrl),
             enabledServers = preferences.enabledServerNames,
             subLimit = preferences.subLimitPref.toIntOrNull()
                 ?: PREF_SUB_LIMIT_DEFAULT.toInt(),
@@ -625,6 +628,6 @@ class Cineby :
 
         private const val PREF_SERVERS_KEY = "pref_servers_v2"
         private val PREF_SERVERS_DEFAULT =
-            setOf("Neon", "Yoru", "Sage", "Sova")
+            setOf("Neon", "Yoru", "Cypher", "Sage")
     }
 }

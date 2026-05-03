@@ -75,11 +75,13 @@ class CinebyExtractor(
 
         // Title is double-URL-encoded to match the enc-dec.app reference
         // (Python `quote(quote(t, safe=""), safe="")`). For movies, mirror
-        // the site's seasonId=1&episodeId=1 quirk.
+        // the site's seasonId=1&episodeId=1 convention.
         val videoList = eligibleServers.parallelCatchingFlatMap { server ->
             val now = System.currentTimeMillis()
 
-            val state = serverFailureState[server.displayName]
+            // Circuit breaker: per-server-per-path scoping
+            val stateKey = "${server.displayName}:$path"
+            val state = serverFailureState[stateKey]
             val circuitOpen = state != null &&
                 state.count >= MAX_SERVER_FAILURES &&
                 now - state.lastFailureAtMillis < CIRCUIT_COOLDOWN_MS
@@ -116,6 +118,7 @@ class CinebyExtractor(
 
                 val backendHeaders = headers.newBuilder()
                     .add("Referer", "$baseUrl/")
+                    .add("Origin", baseUrl)
                     .build()
 
                 val encryptedText = client.newCall(
@@ -134,11 +137,11 @@ class CinebyExtractor(
                     .result
 
                 resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
-                serverFailureState.remove(server.displayName)
+                serverFailureState.remove(stateKey) // Clear failures on success
                 buildVideos(server, decrypted, baseUrl, subLimit)
             } catch (e: Throwable) {
                 serverFailureState.merge(
-                    server.displayName,
+                    stateKey, // Same key as check
                     FailureState(1, now),
                 ) { old, _ -> FailureState(old.count + 1, now) }
                 throw e
@@ -196,9 +199,15 @@ class CinebyExtractor(
             .add("Origin", baseUrl)
             .build()
 
+        val filteredSources = decrypted.sources?.let { sources ->
+            server.qualityFilter?.let { filter ->
+                sources.filter { it.quality.equals(filter, ignoreCase = true) }
+            } ?: sources
+        }
+
         return when {
-            !decrypted.sources.isNullOrEmpty() -> {
-                decrypted.sources.map { source ->
+            !filteredSources.isNullOrEmpty() -> {
+                filteredSources.map { source ->
                     val q = source.quality?.takeIf { it.isNotBlank() } ?: "Auto"
                     Video(
                         url = source.url,
@@ -279,46 +288,44 @@ class CinebyExtractor(
 
         private val qualityRegex = Regex("""(\d{3,4})(?:p|P)?""")
 
-        //   Tier 1
-        //   Neon  = myflixerzupcloud
-        //   Yoru  = cdn                (huge sub catalog)
-        //   Sage  = 1movies
-        //   Sova  = mb-flix           (bonus)
-        //
-        //
-        //   Tier 2 — official catalog
-        //   Cypher = moviebox
-        //   Reyna  = primewire (api2)
-        //   Breach = m4uhd
-        //   Vyse   = hdmovie
-        //   Jett   = primesrcme
-        //   Phoenix= overflix (api2)
-        //   Astra  = visioncine
-        //
-        //   Tier 3 — foreign-language servers
-        //   Killjoy = meine ?lang=german  - German
-        //   Harbor  = meine ?lang=italian - Italian (movies only in practice)
-        //   Chamber = meine ?lang=french  - French (officially MOVIE ONLY)
-        //   Fade    = hdmovie             - Hindi (currently dead)
-        //   Omen    = lamovie             - Spanish
-        //   Gekko   = cuevana (api2)      - Spanish
-        //   Raze    = superflix           - Portuguese
-        //
-        //   Tier 4 — bonus direct-download backend
-        //   Brimstone = downloader2         MP4/MKV direct files
+        //   Official servers (verified against website JS + reference table)
+        //   Neon    = mb-flix                                (api.videasy.net)
+        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.net)
+        //   Cypher  = moviebox                              (api.videasy.net)
+        //   Sage    = 1movies                               (api.videasy.net)
+        //   Jett    = primesrcme                             (api.videasy.net)
+        //   Reyna   = primewire    [FILTERED HOST SOURCES]   (api2.videasy.net)
+        //   Breach  = m4uhd                                 (api2.videasy.net)
+        //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.net)
+        //   Killjoy = meine ?lang=german  - German          (api.videasy.net)
+        //   Harbor  = meine ?lang=italian - Italian         (api.videasy.net)
+        //   Chamber = meine ?lang=french  - French [MOVIE ONLY] (api.videasy.net)
+        //   Fade    = hdmovie      [FILTERS quality=Hindi]   (api.videasy.net)
+        //   Omen    = lamovie             - Spanish          (api.videasy.net)
+        //   Gekko   = cuevana             - Spanish          (api2.videasy.net)
+        //   Raze    = superflix           - Portuguese       (api.videasy.net)
+        //   Phoenix = overflix            - Portuguese       (api2.videasy.net)
+        //   Astra   = visioncine          - Portuguese       (api.videasy.net)
         val VIDEASY_SERVERS = listOf(
-            // Tier 1: default-enabled English/multi
+            // Official catalog
             VideasyServer(
                 "Neon",
                 "https://api.videasy.net",
-                "myflixerzupcloud",
+                "mb-flix",
                 audioLabel = "English",
             ),
             VideasyServer(
                 "Yoru",
                 "https://api.videasy.net",
                 "cdn",
+                movieOnly = true,
                 mayHave4K = true,
+                audioLabel = "English",
+            ),
+            VideasyServer(
+                "Cypher",
+                "https://api.videasy.net",
+                "moviebox",
                 audioLabel = "English",
             ),
             VideasyServer(
@@ -328,16 +335,9 @@ class CinebyExtractor(
                 audioLabel = "English",
             ),
             VideasyServer(
-                "Sova",
+                "Jett",
                 "https://api.videasy.net",
-                "mb-flix",
-                audioLabel = "English",
-            ),
-            // Tier 2: official catalog
-            VideasyServer(
-                "Cypher",
-                "https://api.videasy.net",
-                "moviebox",
+                "primesrcme",
                 audioLabel = "English",
             ),
             VideasyServer(
@@ -348,7 +348,7 @@ class CinebyExtractor(
             ),
             VideasyServer(
                 "Breach",
-                "https://api.videasy.net",
+                "https://api2.videasy.net",
                 "m4uhd",
                 audioLabel = "English",
             ),
@@ -356,27 +356,9 @@ class CinebyExtractor(
                 "Vyse",
                 "https://api.videasy.net",
                 "hdmovie",
+                qualityFilter = "English",
                 audioLabel = "English",
             ),
-            VideasyServer(
-                "Jett",
-                "https://api.videasy.net",
-                "primesrcme",
-                audioLabel = "English",
-            ),
-            VideasyServer(
-                "Phoenix",
-                "https://api2.videasy.net",
-                "overflix",
-                audioLabel = "Portuguese",
-            ),
-            VideasyServer(
-                "Astra",
-                "https://api.videasy.net",
-                "visioncine",
-                audioLabel = "Portuguese",
-            ),
-            // Tier 3: foreign-language servers
             VideasyServer(
                 "Killjoy",
                 "https://api.videasy.net",
@@ -403,6 +385,7 @@ class CinebyExtractor(
                 "Fade",
                 "https://api.videasy.net",
                 "hdmovie",
+                qualityFilter = "Hindi",
                 audioLabel = "Hindi",
             ),
             VideasyServer(
@@ -423,13 +406,18 @@ class CinebyExtractor(
                 "superflix",
                 audioLabel = "Portuguese",
             ),
-            // Tier 4: bonus direct-download backend
             VideasyServer(
-                "Brimstone",
-                "https://api.videasy.net",
-                "downloader2",
-                audioLabel = "English",
+                "Phoenix",
+                "https://api2.videasy.net",
+                "overflix",
+                audioLabel = "Portuguese",
             ),
+            VideasyServer(
+                "Astra",
+                "https://api.videasy.net",
+                "visioncine",
+                audioLabel = "Portuguese",
+            )
         )
 
         val SERVER_DISPLAY_NAMES: List<String> = VIDEASY_SERVERS.map { it.displayName }
