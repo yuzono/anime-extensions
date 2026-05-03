@@ -190,6 +190,7 @@ class KickAssAnimeExtractor(
                     .find(cleanHtml)?.groupValues?.get(1)
             ) ?: return emptyList()
 
+        // FIX: Allow other properties (like "filename" and "source") between language, name, and src
         val manifestUrl = fixUrl(rawManifestUrl, url)
 
         val trackRegex = """"language":\[\d+,"([^"]+)"\][^}]+?"name":\[\d+,"([^"]+)"\][^}]+?"src":\[\d+,"([^"]+)"\]""".toRegex()
@@ -232,7 +233,7 @@ class KickAssAnimeExtractor(
 
     private fun getSignature(html: String, server: String, query: String, key: ByteArray): Triple<String, String, String>? {
         val order = when (server) {
-            "VidStreaming", "DuckStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY")
+            "VidStreaming", "DuckStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "TIMESTAMP", "KEY") // Combined them as they were identical
             "BirdStream" -> listOf("IP", "USERAGENT", "ROUTE", "MID", "KEY")
             else -> return null
         }

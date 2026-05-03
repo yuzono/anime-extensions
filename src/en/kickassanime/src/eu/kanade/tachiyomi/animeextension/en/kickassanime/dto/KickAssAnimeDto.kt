@@ -39,18 +39,17 @@ data class RecentsResponseDto(
 data class AnimeInfoDto(
     val genres: List<String>,
     val poster: PosterDto,
-    val season: String? = null,
-    val slug: String,
+    val season: String? = null, // Fix of non-existant field i.e. Black Cat (Filters: Year 1972)    val slug: String,
     val status: String,
     val synopsis: String?,
     val title: String,
     val title_en: String = "",
-    val year: Int? = null,
+    val year: Int? = null, // To avoid possible issues as well, just like season string above
 )
 
 @Serializable
 data class EpisodeResponseDto(
-    val pages: List<JsonObject>,
+    val pages: List<JsonObject>, // We don't care about its contents, only the size
     val result: List<EpisodeDto> = emptyList(),
 ) {
     @Serializable
