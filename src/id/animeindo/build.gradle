@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeIndo'
     themePkg = 'animestream'
     baseUrl = 'https://animeindo.skin'
-    overrideVersionCode = 19
+    overrideVersionCode = 20
 }
 
 apply from: "$rootDir/common.gradle"
