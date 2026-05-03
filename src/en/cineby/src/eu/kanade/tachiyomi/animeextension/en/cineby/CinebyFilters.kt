@@ -63,11 +63,33 @@ object CinebyFilters {
         )
 
     private val ALL_GENRES = arrayOf(
-        "Action", "Action & Adventure", "Adventure", "Animation", "Comedy", "Crime",
-        "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Kids",
-        "Music", "Mystery", "News", "Reality", "Romance", "Sci-Fi & Fantasy",
-        "Science Fiction", "Soap", "TV Movie", "Talk", "Thriller", "War",
-        "War & Politics", "Western",
+        "Action",
+        "Action & Adventure",
+        "Adventure",
+        "Animation",
+        "Comedy",
+        "Crime",
+        "Documentary",
+        "Drama",
+        "Family",
+        "Fantasy",
+        "History",
+        "Horror",
+        "Kids",
+        "Music",
+        "Mystery",
+        "News",
+        "Reality",
+        "Romance",
+        "Sci-Fi & Fantasy",
+        "Science Fiction",
+        "Soap",
+        "TV Movie",
+        "Talk",
+        "Thriller",
+        "War",
+        "War & Politics",
+        "Western",
     ).sortedArray()
 
     val MOVIE_GENRE_MAP = mapOf(

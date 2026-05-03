@@ -33,12 +33,8 @@ class CinebyExtractor(
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    // Short-TTL cache of successful decrypts so back→reopen reuses both
-    // network round-trips. TTL stays under typical CDN signed-URL expiry.
     private val resultCache = LruCache<CacheKey, CachedResult>(CACHE_SIZE)
 
-    // Half-open per-server circuit breaker: skip after MAX_SERVER_FAILURES
-    // failures, probe again after CIRCUIT_COOLDOWN_MS. Resets on app restart.
     private val serverFailureState = ConcurrentHashMap<String, FailureState>()
 
     private data class CacheKey(
@@ -59,20 +55,6 @@ class CinebyExtractor(
         val lastFailureAtMillis: Long,
     )
 
-    /**
-     * Resolve the playable sources for a single episode/movie.
-     *
-     * @param path TMDB-shaped path "movie/{id}" or "tv/{id}/{season}/{episode}"
-     * @param title Display title used for the (double-encoded) ?title= param
-     * @param year Release year used by some servers as a disambiguation key
-     * @param imdbId Optional IMDb id; sent only when non-blank
-     * @param baseUrl The currently-selected Cineby host (Referer / Origin)
-     * @param enabledServers Set of [VideasyServer.displayName] values the
-     *                       user has enabled in preferences
-     * @param subLimit Maximum number of subtitle tracks to attach per source
-     * @param qualityPref User's preferred quality token (e.g. "1080");
-     *                    matching videos float to the top of the result
-     */
     @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
         path: String,
@@ -151,7 +133,6 @@ class CinebyExtractor(
                     .parseAs<VideasyDecryptionDto>()
                     .result
 
-                // Empty `decrypted` still counts as success — upstream answered.
                 resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
                 serverFailureState.remove(server.displayName)
                 buildVideos(server, decrypted, baseUrl, subLimit)
@@ -173,9 +154,6 @@ class CinebyExtractor(
         )
     }
 
-    // RFC 3986 percent-encode (NOT java.net.URLEncoder, which is form-encoding:
-    // space→"+", leaves "*" unreserved, encodes "~"). Unreserved set:
-    // [A-Z a-z 0-9 - . _ ~]; everything else is %HH over UTF-8 bytes.
     private fun pctEncode(s: String): String {
         val bytes = s.toByteArray(Charsets.UTF_8)
         val out = StringBuilder(bytes.size * 3)
@@ -205,8 +183,6 @@ class CinebyExtractor(
         baseUrl: String,
         subLimit: Int,
     ): List<Video> {
-        // SubtitleDto fields are nullable — server JSON shapes vary
-        // ({file,label} vs {url,lang}). Drop unusable entries.
         val subtitles = decrypted.subtitles
             .mapNotNull { sub ->
                 val u = sub.url ?: return@mapNotNull null
@@ -215,7 +191,6 @@ class CinebyExtractor(
             }
             .take(subLimit)
 
-        // Segment CDN enforces Referer hot-link check (Origin alone 403s).
         val videoHeaders = headers.newBuilder()
             .add("Referer", "$baseUrl/")
             .add("Origin", baseUrl)
@@ -268,9 +243,6 @@ class CinebyExtractor(
         imdbId: String,
     ): CacheKey = CacheKey(server, path, title, year, imdbId)
 
-    // Format must stay compatible with `qualityRegex` (matches `(\d{3,4})p`)
-    // and the user's quality preference substring filter. Audio-language
-    // hint is per-server brand, not per-stream — the API doesn't expose it.
     private fun buildVideoLabel(
         server: VideasyServer,
         quality: String,
