@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animeextension.id.animeindo.AnimeIndoFilters.SortFilt
 import eu.kanade.tachiyomi.animeextension.id.animeindo.AnimeIndoFilters.TypeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -46,13 +47,36 @@ class AnimeIndo :
     override fun popularAnimeNextPageSelector() = NEXT_PAGE_SELECTOR
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/browse?sort=created_at&page=$page", headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/home", headers)
 
-    override fun latestUpdatesSelector() = CARD_SELECTOR
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animeList = mutableListOf<SAnime>()
+        val seen = mutableSetOf<String>()
 
-    override fun latestUpdatesFromElement(element: Element) = parseAnimeCard(element)
+        // Find ALL <a> tags on the page, then use Regex to check if it's an episode link
+        document.select("a").forEach { element ->
+            val href = element.attr("href")
+            val match = Regex("""/episode/([a-z0-9-]+)/\d+-\d+""").find(href)
 
-    override fun latestUpdatesNextPageSelector() = NEXT_PAGE_SELECTOR
+            if (match != null) {
+                val slug = match.groupValues[1]
+
+                // Deduplicate by slug so the same anime doesn't appear multiple times
+                if (seen.add(slug)) {
+                    animeList.add(
+                        SAnime.create().apply {
+                            setUrlWithoutDomain("/tv-show/$slug")
+                            title = slug.split("-").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                            thumbnail_url = element.selectFirst("img")?.attr("abs:src")
+                        },
+                    )
+                }
+            }
+        }
+
+        return AnimesPage(animeList, false)
+    }
 
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -69,12 +93,14 @@ class AnimeIndo :
         params.quality.takeIf { it.isNotBlank() }?.let { urlBuilder.addQueryParameter("quality", it) }
         params.release.takeIf { it.isNotBlank() }?.let { urlBuilder.addQueryParameter("release", it) }
 
-        for (param in listOf(params.genres, params.countries)) {
-            if (param.isBlank()) continue
-            param.split("&").forEach { pair ->
-                val (key, value) = pair.split("=", limit = 2)
-                urlBuilder.addQueryParameter(key, value)
-            }
+        params.genres.takeIf { it.isNotBlank() }?.let {
+            val values = it.split("&").joinToString(",") { pair -> pair.substringAfter("=") }
+            urlBuilder.addQueryParameter("genre", values)
+        }
+
+        params.countries.takeIf { it.isNotBlank() }?.let {
+            val values = it.split("&").joinToString(",") { pair -> pair.substringAfter("=") }
+            urlBuilder.addQueryParameter("country", values)
         }
 
         return GET(urlBuilder.build(), headers)
@@ -99,46 +125,79 @@ class AnimeIndo :
     )
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(document.location())
+    override fun animeDetailsParse(document: Document): SAnime {
+        var doc = document
+        var docUrl = document.location()
 
-        title = document.selectFirst("h1.text-3xl")?.text()
-            ?: document.selectFirst("h3.text-xl")?.text()
-            ?: ""
+        // If we guessed /tv-show/ but it's actually a movie, the 404 page won't have a title.
+        // We detect the blank title and fetch the correct /movie/ URL instead.
+        if (docUrl.contains("/tv-show/")) {
+            val initialTitle = doc.selectFirst("h1.text-3xl")?.text()
+                ?: doc.selectFirst("h3.text-xl")?.text()
 
-        thumbnail_url = document.select("img[src^=https]")
-            .firstOrNull { it.attr("src").contains("/poster/") }
-            ?.getImageUrl()
-            ?: document.selectFirst("meta[itemprop=image]")?.attr("content")
-
-        genre = document.select("div.my-6 a[href*=/genre/]").eachText().joinToString()
-
-        status = SAnime.UNKNOWN
-
-        description = buildString {
-            document.selectFirst("meta[property=og:description]")?.attr("content")?.let {
-                append(it)
-                append("\n\n")
-            }
-
-            document.selectFirst("h2.text-lg")?.text()?.takeIf(String::isNotBlank)?.let {
-                append("Alternative name(s): $it\n")
-            }
-
-            document.select("div.my-6.space-y-2 > div").forEach { row ->
-                val label = row.selectFirst("div:first-child")?.text()?.trim() ?: return@forEach
-
-                if (label == "Cast") {
-                    val castMembers = row.selectFirst("div:last-child")?.select("a")?.eachText()
-                    if (!castMembers.isNullOrEmpty()) {
-                        append("$label: ${castMembers.joinToString(", ")}\n")
+            if (initialTitle.isNullOrBlank()) {
+                val slug = docUrl.removeSuffix("/").split("/").last()
+                try {
+                    client.newCall(GET("$baseUrl/movie/$slug", headers)).execute().use { res ->
+                        if (res.isSuccessful) {
+                            docUrl = "$baseUrl/movie/$slug"
+                            doc = res.asJsoup()
+                        }
                     }
-                } else if (label != "Genre") {
-                    val value = row.selectFirst("div:last-child")?.text()?.trim() ?: return@forEach
-                    append("$label: $value\n")
-                }
+                } catch (_: Exception) { /* Keep 404 state if movie endpoint also fails */ }
             }
-        }.replace(Regex("^(.+?)\\s+(.+?):\\s+\\2$", RegexOption.MULTILINE), "$1: $2")
+        }
+
+        return SAnime.create().apply {
+            setUrlWithoutDomain(docUrl)
+
+            title = doc.selectFirst("h1.text-3xl")?.text()
+                ?: doc.selectFirst("h3.text-xl")?.text()
+                ?: ""
+
+            thumbnail_url = doc.select("img[src^=https]")
+                .firstOrNull { it.attr("src").contains("/poster/") }
+                ?.getImageUrl()
+                ?: doc.selectFirst("meta[itemprop=image]")?.attr("content")
+
+            genre = doc.select("div.my-6 a[href*=/genre/]").eachText().joinToString()
+            status = SAnime.UNKNOWN
+
+            description = buildString {
+                doc.selectFirst("meta[property=og:description]")?.attr("content")?.let {
+                    append(it)
+                    append("\n\n")
+                }
+
+                doc.selectFirst("h2.text-lg")?.text()?.takeIf(String::isNotBlank)?.let {
+                    append("Alternative name(s): $it\n")
+                }
+
+                doc.select("div.my-6.space-y-2 > div").forEach { row ->
+                    val label = row.selectFirst("div:first-child")?.text()?.trim() ?: return@forEach
+
+                    when (label) {
+                        "Cast" -> {
+                            val castMembers = row.selectFirst("div:last-child")?.select("a")?.eachText()
+                            if (!castMembers.isNullOrEmpty()) {
+                                append("$label: ${castMembers.joinToString(", ")}\n")
+                            }
+                        }
+                        "Country" -> {
+                            val country = row.selectFirst("div:last-child")?.selectFirst("a")?.text()?.trim()
+                            if (!country.isNullOrBlank()) {
+                                append("Country: $country\n")
+                            }
+                        }
+                        "Genre" -> { /* Skip, handled above */ }
+                        else -> {
+                            val value = row.selectFirst("div:last-child")?.text()?.trim() ?: return@forEach
+                            append("$label: $value\n")
+                        }
+                    }
+                }
+            }.replace(Regex("^(.+?)\\s+(.+?):\\s+\\2$", RegexOption.MULTILINE), "$1: $2")
+        }
     }
 
     // ============================== Episodes ==============================
@@ -148,11 +207,23 @@ class AnimeIndo :
 
         val slug = when {
             "tv-show" in pathSegments -> pathSegments.getOrNull(pathSegments.indexOf("tv-show") + 1).orEmpty()
+            "movie" in pathSegments -> pathSegments.getOrNull(pathSegments.indexOf("movie") + 1).orEmpty()
             "episode" in pathSegments -> pathSegments.getOrNull(pathSegments.indexOf("episode") + 1).orEmpty()
             else -> pathSegments.lastOrNull().orEmpty()
         }
 
         if (slug.isBlank()) return emptyList()
+
+        // Movies host their video servers directly on the details page, not on /episode/ pages.
+        if ("movie" in pathSegments) {
+            return listOf(
+                SEpisode.create().apply {
+                    setUrlWithoutDomain("/movie/$slug")
+                    name = "Movie"
+                    episode_number = 1f
+                },
+            )
+        }
 
         val episodes = mutableListOf<SEpisode>()
         val seenUrls = mutableSetOf<String>()
