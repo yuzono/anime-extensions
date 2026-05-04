@@ -56,7 +56,7 @@ object YFlixFilters {
     internal class YearsFilter : CheckBoxFilterList("Released", "year", YFlixFiltersData.YEARS)
     internal class GenresFilter : CheckBoxFilterList("Genre", "genre", YFlixFiltersData.GENRES)
     internal class CountriesFilter : CheckBoxFilterList("Country", "country", YFlixFiltersData.COUNTRIES)
-    internal class SortByFilter : QueryPartFilter("Sort", "sort", YFlixFiltersData.SORT_BY)
+    internal class SortByFilter : QueryPartFilter("Sort By", "sort", YFlixFiltersData.SORT_BY)
 
     val FILTER_LIST
         get() = AnimeFilterList(
@@ -76,7 +76,7 @@ object YFlixFilters {
 
         val QUALITIES = listOf(
             Pair("HD", "HD"),
-            Pair("HDRip", "HDRip"),
+            Pair("HDrip", "HDrip"),
             Pair("SD", "SD"),
             Pair("TS", "TS"),
             Pair("CAM", "CAM"),
@@ -94,12 +94,11 @@ object YFlixFilters {
             Pair("2018", "2018"),
             Pair("2017", "2017"),
             Pair("2016", "2016"),
-            Pair("2015", "2015"),
             Pair("Older", "older"),
         )
 
         val SORT_BY = listOf(
-            Pair("Default", ""),
+            Pair("Most relevant", "most_relevance"),
             Pair("Updated date", "updated_date"),
             Pair("Added date", "added_date"),
             Pair("Release date", "release_date"),
@@ -107,8 +106,8 @@ object YFlixFilters {
             Pair("Name A-Z", "title_az"),
             Pair("Average score", "score"),
             Pair("IMDb", "imdb"),
-            Pair("Total views", "total_views"),
-            Pair("Total bookmarks", "total_bookmarks"),
+            Pair("Most viewed", "most_viewed"),
+            Pair("Most followed", "most_followed"),
         )
 
         val GENRES = listOf(

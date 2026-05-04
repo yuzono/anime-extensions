@@ -24,34 +24,3 @@ data class DecryptedIframeResponse(
 data class DecryptedUrl(
     val url: String,
 )
-
-// For Extractor: represents the initial encrypted response from rapidshare.cc/media/
-@Serializable
-data class EncryptedRapidResponse(
-    val result: String,
-)
-
-// For Extractor: represents the final decrypted response from enc-dec.app
-@Serializable
-data class RapidDecryptResponse(
-    val status: Int,
-    val result: RapidShareResult,
-)
-
-@Serializable
-data class RapidShareResult(
-    val sources: List<RapidShareSource> = emptyList(),
-    val tracks: List<RapidShareTrack> = emptyList(),
-)
-
-@Serializable
-data class RapidShareSource(
-    val file: String,
-)
-
-@Serializable
-data class RapidShareTrack(
-    val file: String,
-    val label: String? = null,
-    val kind: String,
-)
