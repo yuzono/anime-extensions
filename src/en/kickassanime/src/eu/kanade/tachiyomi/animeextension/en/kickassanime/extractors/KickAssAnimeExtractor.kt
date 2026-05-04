@@ -30,6 +30,7 @@ class KickAssAnimeExtractor(
             .set("Sec-Fetch-Dest", "empty")
             .set("Sec-Fetch-Mode", "cors")
             .set("Sec-Fetch-Site", "same-site")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
             .build()
     }
 
