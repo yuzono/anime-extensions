@@ -345,7 +345,7 @@ class KickAssAnime :
 
         private const val SEARCH_BASE_URL = "https://kaa.lt"
 
-        private val SERVERS = arrayOf("VidStreaming", "CatStream", "DuckStream", "BirdStream")
+        private val SERVERS = arrayOf("VidStreaming", "CatStream", "BirdStream", "DuckStream")
         private val LOCALE = listOf(
             Pair("ja-JP", "Japanese"),
             Pair("en-US", "English"),
