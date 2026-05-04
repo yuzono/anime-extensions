@@ -26,12 +26,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -87,11 +83,11 @@ class KickAssAnime :
     // ============================== Episodes ==============================
     private fun episodeListRequest(anime: SAnime, page: Int, lang: String) = GET("$apiUrl${anime.url}/episodes?page=$page&lang=$lang")
 
-    private fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
-        .execute()
+    private suspend fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
+        .awaitSuccess()
         .parseAs()
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         // Fetch what languages are available for this anime
         val languages = client.newCall(
             GET("$apiUrl${anime.url}/language"),
@@ -100,7 +96,6 @@ class KickAssAnime :
         val prefLang = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)!!
         val pref2ndLang = preferences.getString(PREF_AUDIO_LANG_KEY_2ND, PREF_AUDIO_LANG_DEFAULT_2ND)!!
 
-        // Try preferred language first, then others
         val langOrder = languages
             .sortedWith(
                 compareBy(
@@ -109,38 +104,37 @@ class KickAssAnime :
                 ),
             )
 
-        var foundEpisodes: List<SEpisode>? = null
+        val foundEpisodes = mutableListOf<SEpisode>()
 
+        // Try preferred language first, then others
         for (lang in langOrder) {
-            val firstResponse = withContext(Dispatchers.IO) {
-                runCatching {
-                    getEpisodeResponse(anime, 1, lang)
-                }.getOrNull()
-            }
-            if (firstResponse == null || firstResponse.result.isEmpty()) continue
-
-            val items = runCatching {
-                val deferredPages = List(firstResponse.pages.drop(1).size) { idx ->
-                    async(Dispatchers.IO) { getEpisodeResponse(anime, idx + 2, lang).result }
-                }
-                firstResponse.result + deferredPages.awaitAll().flatten()
+            val firstPage = runCatching {
+                getEpisodeResponse(anime, 1, lang)
             }.getOrNull()
+            if (firstPage == null || firstPage.result.isEmpty()) continue
 
-            if (!items.isNullOrEmpty()) {
-                foundEpisodes = items.map {
-                    SEpisode.create().apply {
-                        name = "Ep. ${it.episode_string}" + if (!it.title.isNullOrBlank()) " - ${it.title}" else ""
-                        url = "${anime.url}/ep-${it.episode_string}-${it.slug}"
-                        episode_number = it.episode_string.toFloatOrNull() ?: 0F
-                        scanlator = lang.getLocale()
+            val size = firstPage.pages.drop(1).size
+            val otherPagesResults = (1..size).parallelCatchingMapNotNull { idx ->
+                getEpisodeResponse(anime, idx + 1, lang).result
+            }.flatten()
+
+            (firstPage.result + otherPagesResults).map {
+                SEpisode.create().apply {
+                    name = "Ep. ${it.episode_string}" + if (!it.title.isNullOrBlank()) " - ${it.title}" else ""
+                    url = "${anime.url}/ep-${it.episode_string}-${it.slug}"
+                    it.episode_string.toFloatOrNull()?.let { eps ->
+                        episode_number = eps
                     }
-                }.reversed()
-                break
-            }
+                    scanlator = lang.getLocale()
+                }
+            }.reversed()
+                .let(foundEpisodes::addAll)
+
+            // Already have episodes, no need to try other lang
+            break
         }
 
-        // If nothing was found, return empty list
-        foundEpisodes ?: emptyList()
+        return foundEpisodes
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
