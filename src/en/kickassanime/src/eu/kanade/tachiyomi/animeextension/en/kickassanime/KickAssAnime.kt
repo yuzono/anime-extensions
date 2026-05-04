@@ -26,15 +26,15 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
@@ -72,10 +72,12 @@ class KickAssAnime :
 
     private fun popularAnimeFromObject(anime: PopularItemDto): SAnime = SAnime.create().apply {
         val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
+
         title = when {
             !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
             else -> anime.title
         }.takeIf(String::isNotBlank)!!
+
         setUrlWithoutDomain("/${anime.slug}")
         thumbnail_url = "$baseUrl/${anime.poster.url}"
     }
@@ -145,17 +147,16 @@ class KickAssAnime :
         return GET(url)
     }
 
+    private val kickAssAnimeExtractor by lazy { KickAssAnimeExtractor(client, json, headers) }
+
     override fun videoListParse(response: Response): List<Video> {
         val videos = response.parseAs<ServersDto>()
-        val extractor = KickAssAnimeExtractor(client, json, headers)
         val hosterExclusion = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
 
-        val videoList = videos.servers.mapNotNull {
-            if (hosterExclusion.contains(it.name)) return@mapNotNull null
-            runCatching { extractor.videosFromUrl(it.src, it.name) }.getOrNull()
-        }.flatten()
-
-        return videoList
+        return videos.servers.parallelCatchingFlatMapBlocking {
+            if (hosterExclusion.contains(it.name)) return@parallelCatchingFlatMapBlocking emptyList()
+            kickAssAnimeExtractor.videosFromUrl(it.src, it.name)
+        }
     }
 
     // =========================== Anime Details ============================
@@ -164,16 +165,18 @@ class KickAssAnime :
     override fun animeDetailsRequest(anime: SAnime) = GET(apiUrl + anime.url)
 
     override fun animeDetailsParse(response: Response): SAnime {
+        val anime = response.parseAs<AnimeInfoDto>()
         val languages = client.newCall(
             GET("${response.request.url}/language"),
         ).execute().parseAs<LanguagesDto>()
-        val anime = response.parseAs<AnimeInfoDto>()
         return SAnime.create().apply {
             val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
+
             title = when {
                 !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
                 else -> anime.title
-            }
+            }.takeIf(String::isNotBlank)!!
+
             setUrlWithoutDomain("/${anime.slug}")
             thumbnail_url = "$baseUrl/${anime.poster.url}"
             genre = anime.genres.joinToString()
@@ -240,7 +243,7 @@ class KickAssAnime :
                 put("page", page)
                 put("query", query)
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
-            }.toString().toRequestBody("application/json".toMediaType())
+            }.toRequestBody()
 
             POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }
@@ -255,7 +258,7 @@ class KickAssAnime :
         val params = KickAssAnimeFilters.getSearchParameters(filters)
         client.newCall(searchAnimeRequest(page, query, params))
             .awaitSuccess()
-            .let { response ->
+            .use { response ->
                 searchAnimeParse(response, page)
             }
     }
