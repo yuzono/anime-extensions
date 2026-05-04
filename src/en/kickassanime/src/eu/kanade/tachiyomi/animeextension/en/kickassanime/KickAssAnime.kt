@@ -130,7 +130,7 @@ class KickAssAnime :
             if (!items.isNullOrEmpty()) {
                 foundEpisodes = items.map {
                     SEpisode.create().apply {
-                        name = "Ep. ${it.episode_string} - ${it.title}"
+                        name = "Ep. ${it.episode_string}" + if (!it.title.isNullOrBlank()) " - ${it.title}" else ""
                         url = "${anime.url}/ep-${it.episode_string}-${it.slug}"
                         episode_number = it.episode_string.toFloatOrNull() ?: 0F
                         scanlator = lang.getLocale()
@@ -180,7 +180,7 @@ class KickAssAnime :
         return SAnime.create().apply {
             val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
             title = when {
-                anime.title_en.isNotBlank() && useEnglish -> anime.title_en
+                !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
                 else -> anime.title
             }
             setUrlWithoutDomain("/${anime.slug}")
@@ -227,7 +227,7 @@ class KickAssAnime :
         val newHeaders = headers.newBuilder()
             .add("Accept", "application/json, text/plain, */*")
             .add("Content-Type", "application/json")
-            .add("Host", SEARCH_BASE_URL.toHttpUrl().host) // Only the primary URL does the search, other domains are redirects to it.
+            .add("Host", SEARCH_BASE_URL.toHttpUrl().host)
             .add("Referer", "$SEARCH_BASE_URL/search?q=$query")
             .build()
 
@@ -237,7 +237,7 @@ class KickAssAnime :
 
         return if (query.isBlank()) {
             val url = buildString {
-                append(SEARCH_BASE_URL) // Fixes redirect search
+                append(SEARCH_BASE_URL)
                 append("/api/anime")
                 append("?page=$page")
                 if (encodedFilters.isNotEmpty()) append("&filters=$encodedFilters")
@@ -251,12 +251,10 @@ class KickAssAnime :
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
             }.toString().toRequestBody("application/json".toMediaType())
 
-            // Again, primary URL search only.
             POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }
     }
 
-    // Same thing here. Rewrote to use main URL instead of using URLs that redirect to main URL.
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
         val slug = query.removePrefix(PREFIX_SEARCH)
         client.newCall(GET("$SEARCH_BASE_URL/api/show/$slug"))
@@ -343,6 +341,9 @@ class KickAssAnime :
         // KAA has .lt domain as primary, and others are redirects.
         // This change is necessary as it forces all search traffic to go through primary domain to ensure all domains have searching abilities.
 
+        /**
+         * Only the primary URL does the search, other domains are redirects to it.
+         */
         private const val SEARCH_BASE_URL = "https://kaa.lt"
 
         private val SERVERS = arrayOf("VidStreaming", "CatStream", "BirdStream", "DuckStream")
@@ -384,14 +385,16 @@ class KickAssAnime :
 
         // Check domains here: https://kickassanime.cx/
         private val DOMAINS = listOf(
-            "kaa.lt" to "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
-            "kickass-anime.ru" to "kickass-anime.ru",
-            "kickass-anime.ro" to "kickass-anime.ro",
-            "kaa.to" to "kaa.to",
-            "kaa.rs" to "kaa.rs", // Removed https://kaa.si as its certificate expired, leading to SSL errors
+            "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
+            "kickass-anime.ru",
+            "kickass-anime.ro",
+            "kaa.to",
+            "kaa.rs",
+            // Removed https://kaa.si as its certificate expired, leading to SSL errors
         )
-        private val PREF_DOMAIN_ENTRIES = DOMAINS.map { it.second }.toTypedArray()
-        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://${it.first}" }.toTypedArray()
+
+        private val PREF_DOMAIN_ENTRIES = DOMAINS.toTypedArray()
+        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://${it}" }.toTypedArray()
 
         // Default is automatically https://kaa.lt since it's the first in the DOMAINS list above.
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]

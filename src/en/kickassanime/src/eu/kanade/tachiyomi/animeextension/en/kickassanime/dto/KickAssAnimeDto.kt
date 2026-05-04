@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.kickassanime.dto
 
+import keiyoushi.utils.UrlUtils
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -39,13 +40,13 @@ data class RecentsResponseDto(
 data class AnimeInfoDto(
     val genres: List<String>,
     val poster: PosterDto,
-    val season: String? = null, // Fix of non-existant field i.e. Black Cat (Filters: Year 1972)
+    val season: String?,
     val slug: String,
     val status: String,
     val synopsis: String?,
     val title: String,
-    val title_en: String = "",
-    val year: Int? = null, // To avoid possible issues as well, just like season string above
+    val title_en: String?,
+    val year: Int?,
 )
 
 @Serializable
@@ -56,7 +57,7 @@ data class EpisodeResponseDto(
     @Serializable
     data class EpisodeDto(
         val slug: String,
-        val title: String? = "",
+        val title: String?,
         val episode_string: String,
     )
 }
@@ -81,13 +82,7 @@ data class VideoDto(
     // and other malformed URL patterns. This property should not be relied upon
     // for URL construction in new code.
     val playlistUrl by lazy {
-        hls.ifEmpty { dash }.let { uri ->
-            when {
-                uri.startsWith("http") -> uri
-                uri.startsWith("//") -> "https://${uri.trimStart('/')}"
-                else -> uri
-            }
-        }
+        hls.ifEmpty { dash }.let(UrlUtils::fixUrl)
     }
 
     @Serializable
