@@ -3,7 +3,7 @@ ext {
     extClass = '.WcoTv'
     themePkg = 'wcotheme'
     baseUrl = 'https://www.wco.tv'
-    overrideVersionCode = 3
+    overrideVersionCode = 2
 }
 
 apply from: "$rootDir/common.gradle"
