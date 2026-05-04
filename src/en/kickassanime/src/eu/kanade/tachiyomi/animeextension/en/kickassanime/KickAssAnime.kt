@@ -398,7 +398,7 @@ class KickAssAnime :
 
         private const val PREF_HOSTER_KEY = "hoster_selection"
         private const val PREF_HOSTER_TITLE = "Enable/Disable Hosts"
-        private val PREF_HOSTER_DEFAULT = SERVERS.toSet()
+        private val PREF_HOSTER_DEFAULT = setOf("VidStreaming", "CatStream", "BirdStream")
     }
 
     // ============================== Settings ==============================
@@ -461,6 +461,7 @@ class KickAssAnime :
             entries = SERVERS
             entryValues = SERVERS
             setDefaultValue(PREF_HOSTER_DEFAULT)
+            summary = "Choose which hosts you want to use"
         }.also(screen::addPreference)
     }
 }
