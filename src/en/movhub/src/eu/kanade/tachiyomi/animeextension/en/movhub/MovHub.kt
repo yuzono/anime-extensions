@@ -425,10 +425,7 @@ class MovHub :
             "1moviesz.to",
             "myflixer.bz",
             "bflix.la",
-            "flixtor.mov",
-            "hurawatch.la",
             "myflixer.fi",
-            "sflix.fi",
         )
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
