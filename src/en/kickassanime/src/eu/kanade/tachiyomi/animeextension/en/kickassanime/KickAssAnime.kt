@@ -388,8 +388,7 @@ class KickAssAnime :
             "kickass-anime.ru" to "kickass-anime.ru",
             "kickass-anime.ro" to "kickass-anime.ro",
             "kaa.to" to "kaa.to",
-            "kaa.rs" to "kaa.rs",
-            "kaa.si" to "kaa.si (May have SSL errors)",
+            "kaa.rs" to "kaa.rs", // Removed https://kaa.si as its certificate expired, leading to SSL errors
         )
         private val PREF_DOMAIN_ENTRIES = DOMAINS.map { it.second }.toTypedArray()
         private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://${it.first}" }.toTypedArray()
