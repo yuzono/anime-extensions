@@ -99,6 +99,7 @@ class KickAssAnimeExtractor(
             "VidStreaming" -> "e13d38099bf562e8b9851a652d2043d3"
             "DuckStream" -> "4504447b74641ad972980a6b8ffd7631"
             "BirdStream" -> "4b14d0ff625163e3c9c7a47926484bf2"
+            "CatStream" -> "" // No keys to decrypt
             else -> return emptyList()
         }.toByteArray()
 
