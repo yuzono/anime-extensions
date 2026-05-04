@@ -77,9 +77,9 @@ class KickAssAnime :
     private fun popularAnimeFromObject(anime: PopularItemDto): SAnime = SAnime.create().apply {
         val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
         title = when {
-            anime.title_en.isNotBlank() && useEnglish -> anime.title_en
+            !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
             else -> anime.title
-        }
+        }.takeIf(String::isNotBlank)!!
         setUrlWithoutDomain("/${anime.slug}")
         thumbnail_url = "$baseUrl/${anime.poster.url}"
     }

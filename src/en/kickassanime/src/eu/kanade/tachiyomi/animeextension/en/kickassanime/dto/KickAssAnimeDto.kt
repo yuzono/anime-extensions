@@ -14,7 +14,7 @@ data class PopularResponseDto(
 @Serializable
 data class PopularItemDto(
     val title: String,
-    val title_en: String = "",
+    val title_en: String?,
     val slug: String,
     val poster: PosterDto,
 )

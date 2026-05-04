@@ -88,7 +88,7 @@ object KickAssAnimeFilters {
     }
 
     private object KickAssAnimeFiltersData {
-        val GENRE = arrayOf( // Updated filter array to match current website.
+        val GENRE = arrayOf(
             Pair("Action", "Action"),
             Pair("Adult Cast", "Adult Cast"),
             Pair("Adventure", "Adventure"),
@@ -170,7 +170,6 @@ object KickAssAnimeFilters {
 
         private val currentYear = Calendar.getInstance().get(Calendar.YEAR)
 
-        // Updated years to match current website; updates dynamically
         val YEAR = arrayOf(Pair("All", "")) + (currentYear downTo 1967).map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
@@ -184,7 +183,7 @@ object KickAssAnimeFilters {
         val TYPE = arrayOf(
             Pair("All", ""),
             Pair("TV", "\"tv\""),
-            Pair("Movie", "\"movie\""), // Updated type to match website.
+            Pair("Movie", "\"movie\""),
             Pair("ONA", "\"ona\""),
             Pair("OVA", "\"ova\""),
             Pair("SPECIAL", "\"special\""),
