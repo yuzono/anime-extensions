@@ -59,7 +59,6 @@ class KickAssAnime :
 
     private val preferences by getPreferencesLazy {
         clearBaseUrl()
-        fixHosterSelection()
     }
 
     private val json: Json by injectLazy()
@@ -155,14 +154,12 @@ class KickAssAnime :
     override fun videoListParse(response: Response): List<Video> {
         val videos = response.parseAs<ServersDto>()
         val extractor = KickAssAnimeExtractor(client, json, headers)
-        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!!
+        val hosterExclusion = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
 
         val videoList = videos.servers.mapNotNull {
-            if (!hosterSelection.contains(it.name)) return@mapNotNull null
+            if (hosterExclusion.contains(it.name)) return@mapNotNull null
             runCatching { extractor.videosFromUrl(it.src, it.name) }.getOrNull()
         }.flatten()
-
-        require(videoList.isNotEmpty()) { "Failed to fetch videos" }
 
         return videoList
     }
@@ -323,20 +320,6 @@ class KickAssAnime :
         return this
     }
 
-    private fun SharedPreferences.fixHosterSelection(): SharedPreferences { // CatStream is a new player/server on the KAA website.
-        val currentSelection = getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT) ?: PREF_HOSTER_DEFAULT
-        if (!currentSelection.contains("CatStream")) {
-            val updatedSelection = currentSelection.toMutableSet().apply {
-                add("CatStream")
-            }
-
-            edit()
-                .putStringSet(PREF_HOSTER_KEY, updatedSelection)
-                .apply()
-        }
-        return this
-    }
-
     companion object {
         // KAA has .lt domain as primary, and others are redirects.
         // This change is necessary as it forces all search traffic to go through primary domain to ensure all domains have searching abilities.
@@ -394,14 +377,14 @@ class KickAssAnime :
         )
 
         private val PREF_DOMAIN_ENTRIES = DOMAINS.toTypedArray()
-        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://${it}" }.toTypedArray()
+        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://$it" }.toTypedArray()
 
         // Default is automatically https://kaa.lt since it's the first in the DOMAINS list above.
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]
 
-        private const val PREF_HOSTER_KEY = "hoster_selection"
-        private const val PREF_HOSTER_TITLE = "Enable/Disable Hosts"
-        private val PREF_HOSTER_DEFAULT = setOf("VidStreaming", "CatStream", "BirdStream")
+        private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
+        private const val PREF_HOSTER_EXCLUDE_TITLE = "Excluded Hosts"
+        private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
     }
 
     // ============================== Settings ==============================
@@ -459,12 +442,12 @@ class KickAssAnime :
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
-            key = PREF_HOSTER_KEY
-            title = PREF_HOSTER_TITLE
+            key = PREF_HOSTER_EXCLUDE_KEY
+            title = PREF_HOSTER_EXCLUDE_TITLE
             entries = SERVERS
             entryValues = SERVERS
-            setDefaultValue(PREF_HOSTER_DEFAULT)
-            summary = "Choose which hosts you want to use"
+            setDefaultValue(PREF_HOSTER_EXCLUDE_DEFAULT)
+            summary = "Choose which hosts you want to exclude"
         }.also(screen::addPreference)
     }
 }
