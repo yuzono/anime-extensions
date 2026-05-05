@@ -18,7 +18,7 @@ import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
-import keiyoushi.utils.getPreferences
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
@@ -52,7 +52,7 @@ open class YFlixTheme(
         coerceInputValues = true
     }
 
-    protected open val preferences = getPreferences {
+    protected open val preferences by getPreferencesLazy {
         clearOldPrefs()
     }
 
