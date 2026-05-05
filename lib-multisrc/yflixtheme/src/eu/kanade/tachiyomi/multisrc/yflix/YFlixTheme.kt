@@ -24,6 +24,7 @@ import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -361,7 +362,8 @@ open class YFlixTheme(
     protected open fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = getString(PREF_DOMAIN_KEY, defaultDomain)
             ?: return this
-        if (domain !in domainList) {
+        val domainHost = domain.toHttpUrlOrNull()?.host ?: domain
+        if (domainHost !in domainList) {
             edit()
                 .putString(PREF_DOMAIN_KEY, defaultDomain)
                 .apply()
