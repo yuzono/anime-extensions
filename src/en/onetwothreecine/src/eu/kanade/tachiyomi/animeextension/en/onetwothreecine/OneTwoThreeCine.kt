@@ -20,7 +20,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferences
-import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -30,7 +30,6 @@ import uy.kohesive.injekt.injectLazy
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.concurrent.TimeUnit
-import kotlin.getValue
 
 class OneTwoThreeCine :
     AnimeHttpSource(),
@@ -285,20 +284,18 @@ class OneTwoThreeCine :
         val servers = serversResponse.result.links.filter { it.name in hosterSelection }
 
         // Process each server in parallel
-        return servers.parallelMapNotNull { link ->
-            runCatching {
-                val linkEnc = encrypt(link.id)
+        return servers.parallelCatchingFlatMap { link ->
+            val linkEnc = encrypt(link.id)
 
-                val linkResponse = client.newCall(
-                    GET("$baseUrl/api/v1/links/${link.id}?_=$linkEnc", apiHeaders("$baseUrl/watch")),
-                ).awaitSuccess().parseAs<LinkResponse>()
+            val linkResponse = client.newCall(
+                GET("$baseUrl/api/v1/links/${link.id}?_=$linkEnc", apiHeaders("$baseUrl/watch")),
+            ).awaitSuccess().parseAs<LinkResponse>()
 
-                if (linkResponse.status != "ok") return@runCatching null
+            if (linkResponse.status != "ok") return@parallelCatchingFlatMap emptyList()
 
-                val iframeUrl = decrypt(linkResponse.result)
-                rapidShareExtractor.videosFromUrl(iframeUrl, link.name, preferences.subLangPref)
-            }.getOrNull()
-        }.flatten()
+            val iframeUrl = decrypt(linkResponse.result)
+            rapidShareExtractor.videosFromUrl(iframeUrl, link.name, preferences.subLangPref)
+        }
     }
 
     // ========================= Encryption ============================
