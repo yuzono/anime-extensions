@@ -57,25 +57,20 @@ open class YFlixTheme(
 
     override val baseUrl by preferences.delegate(PREF_DOMAIN_KEY, defaultDomain)
 
-    protected open val apiClient by lazy {
-        client.newBuilder()
-            .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
-                    )
-                    .build()
-                chain.proceed(request)
-            }
-            .build()
+    protected open val encdecHeaders by lazy {
+        headers.newBuilder().apply {
+            set(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            )
+        }.build()
     }
 
-    protected open fun headersBuilder(baseUrl: String = this.baseUrl): Headers.Builder = headers.newBuilder()
-        .set("Referer", "$baseUrl/")
+    protected open fun headersReferrerBuilder(url: String = baseUrl): Headers.Builder = headers.newBuilder()
+        .set("Referer", "$url/")
 
     protected open var docHeaders by LazyMutable {
-        headersBuilder().build()
+        headersReferrerBuilder().build()
     }
 
     protected open var rapidShareExtractor by LazyMutable {
@@ -239,7 +234,7 @@ open class YFlixTheme(
         val encryptedId = encrypt(contentId)
         val ajaxUrl = "$baseUrl/ajax/episodes/list?id=$contentId&_=$encryptedId"
 
-        val resultDoc = client.newCall(GET(ajaxUrl, apiHeaders(animeUrl)))
+        val resultDoc = client.newCall(GET(ajaxUrl, ajaxHeaders(animeUrl)))
             .awaitSuccess().use {
                 it.parseAs<ResultResponse>(json = json).toDocument()
             }
@@ -287,7 +282,7 @@ open class YFlixTheme(
         val encryptedId = encrypt(episodeId)
         val serversUrl = "$baseUrl/ajax/links/list?eid=$episodeId&_=$encryptedId"
 
-        val serversDoc = client.newCall(GET(serversUrl, apiHeaders(referer)))
+        val serversDoc = client.newCall(GET(serversUrl, ajaxHeaders(referer)))
             .awaitSuccess().use {
                 it.parseAs<ResultResponse>(json = json).toDocument()
             }
@@ -302,7 +297,7 @@ open class YFlixTheme(
             val encryptedServerId = encrypt(serverId)
             val viewUrl = "$baseUrl/ajax/links/view?id=$serverId&_=$encryptedServerId"
 
-            val encryptedIframeResult = client.newCall(GET(viewUrl, apiHeaders(referer)))
+            val encryptedIframeResult = client.newCall(GET(viewUrl, ajaxHeaders(referer)))
                 .awaitSuccess().use {
                     it.parseAs<ResultResponse>(json = json).result
                 }
@@ -314,18 +309,22 @@ open class YFlixTheme(
 
     // ============================= Utilities ==============================
 
-    protected open fun apiHeaders(referer: String) = docHeaders.newBuilder()
+    protected open fun ajaxHeaders(referer: String) = docHeaders.newBuilder()
         .set("Referer", referer)
         .add("Accept", "application/json, text/javascript, */*; q=0.01")
         .add("X-Requested-With", "XMLHttpRequest")
         .build()
 
-    protected open suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
+    protected open suspend fun encrypt(text: String): String = client.newCall(
+        GET("https://enc-dec.app/api/enc-movies-flix?text=$text", encdecHeaders),
+    )
         .awaitSuccess().use {
             it.parseAs<ResultResponse>(json = json).result
         }
 
-    protected open suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
+    protected open suspend fun decrypt(text: String): String = client.newCall(
+        GET("https://enc-dec.app/api/dec-movies-flix?text=$text", encdecHeaders),
+    )
         .awaitSuccess().use {
             it.parseAs<DecryptedIframeResponse>(json = json).result.url
         }
@@ -388,7 +387,7 @@ open class YFlixTheme(
             default = defaultDomain,
             summary = "%s",
         ) {
-            docHeaders = headersBuilder(it).build()
+            docHeaders = headersReferrerBuilder(it).build()
             rapidShareExtractor = RapidShareExtractor(client, docHeaders, context)
         }
 
