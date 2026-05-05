@@ -363,6 +363,22 @@ class Kayoanime :
             }
         }
 
+        if (episodeList.isEmpty()) {
+            val hasPrivateDrive = document.select("a[href*=drive.google.com]").any {
+                it.text().contains("Private Drive", ignoreCase = true)
+            }
+            val hasGroupNotice = document.select("div.box-inner-block").any {
+                it.text().contains("Google Group", ignoreCase = true)
+            }
+
+            if (hasPrivateDrive || hasGroupNotice) {
+                throw Exception(
+                    "No episodes found — this anime uses a Private Drive.\n" +
+                        "Please join the Google Group via WebView and log into Google Drive first.",
+                )
+            }
+        }
+
         return episodeList.reversed()
     }
 
