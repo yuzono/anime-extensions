@@ -39,9 +39,10 @@ open class YFlixTheme(
     protected val domainList: List<String>,
     protected val defaultDomain: String = "https://${domainList.first()}",
     override val lang: String = "en",
-    override val supportsLatest: Boolean = true,
 ) : AnimeHttpSource(),
     ConfigurableAnimeSource {
+
+    override val supportsLatest: Boolean = true
 
     protected open val context: Application by injectLazy()
 
