@@ -19,7 +19,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferences
-import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
@@ -290,26 +290,24 @@ open class YFlixTheme(
                 it.parseAs<ResultResponse>(json = json).toDocument()
             }
 
-        return serversDoc.select(serversSelector).parallelMapNotNull { serverElement ->
+        return serversDoc.select(serversSelector).parallelCatchingFlatMap { serverElement ->
             val serverName = serverElement.selectFirst("span")?.text()
-                ?: return@parallelMapNotNull null
+                ?: return@parallelCatchingFlatMap emptyList()
 
-            if (serverName !in preferences.hosterPref) return@parallelMapNotNull null
+            if (serverName !in preferences.hosterPref) return@parallelCatchingFlatMap emptyList()
 
-            runCatching {
-                val serverId = serverElement.attr("data-lid")
-                val encryptedServerId = encrypt(serverId)
-                val viewUrl = "$baseUrl/ajax/links/view?id=$serverId&_=$encryptedServerId"
+            val serverId = serverElement.attr("data-lid")
+            val encryptedServerId = encrypt(serverId)
+            val viewUrl = "$baseUrl/ajax/links/view?id=$serverId&_=$encryptedServerId"
 
-                val encryptedIframeResult = client.newCall(GET(viewUrl, apiHeaders(referer)))
-                    .awaitSuccess().use {
-                        it.parseAs<ResultResponse>(json = json).result
-                    }
+            val encryptedIframeResult = client.newCall(GET(viewUrl, apiHeaders(referer)))
+                .awaitSuccess().use {
+                    it.parseAs<ResultResponse>(json = json).result
+                }
 
-                val iframeUrl = decrypt(encryptedIframeResult)
-                rapidShareExtractor.videosFromUrl(iframeUrl, serverName, preferences.subLangPref)
-            }.getOrNull()
-        }.flatten()
+            val iframeUrl = decrypt(encryptedIframeResult)
+            rapidShareExtractor.videosFromUrl(iframeUrl, serverName, preferences.subLangPref)
+        }
     }
 
     // ============================= Utilities ==============================
