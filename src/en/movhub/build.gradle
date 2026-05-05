@@ -1,12 +1,9 @@
 ext {
     extName = 'MovHub'
     extClass = '.MovHub'
-    extVersionCode = 3
+    themePkg = 'yflixtheme'
+    overrideVersionCode = 3
     isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(':lib:rapidshareextractor'))
-}

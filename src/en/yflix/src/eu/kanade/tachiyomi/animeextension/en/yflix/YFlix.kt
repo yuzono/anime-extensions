@@ -5,5 +5,7 @@ import eu.kanade.tachiyomi.multisrc.yflix.YFlixTheme
 class YFlix :
     YFlixTheme(
         "YFlix",
-        listOf("yflix.to"),
+        listOf(
+            "yflix.to",
+        ),
     )

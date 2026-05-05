@@ -26,6 +26,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.math.BigDecimal
@@ -35,27 +36,27 @@ import java.util.Locale
 
 open class YFlixTheme(
     override val name: String,
-    private val domainList: List<String>,
-    private val defaultDomain: String = "https://${domainList.first()}",
+    protected val domainList: List<String>,
+    protected val defaultDomain: String = "https://${domainList.first()}",
     override val lang: String = "en",
     override val supportsLatest: Boolean = true,
 ) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    private val context: Application by injectLazy()
+    protected open val context: Application by injectLazy()
 
-    private val json = Json {
+    protected open val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
     }
 
-    private val preferences = getPreferences {
+    protected open val preferences = getPreferences {
         clearOldPrefs()
     }
 
     override val baseUrl by preferences.delegate(PREF_DOMAIN_KEY, defaultDomain)
 
-    private val apiClient by lazy {
+    protected open val apiClient by lazy {
         client.newBuilder()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
@@ -69,14 +70,14 @@ open class YFlixTheme(
             .build()
     }
 
-    private fun headersBuilder(baseUrl: String = this.baseUrl): Headers.Builder = headers.newBuilder()
+    protected open fun headersBuilder(baseUrl: String = this.baseUrl): Headers.Builder = headers.newBuilder()
         .set("Referer", "$baseUrl/")
 
-    private var docHeaders by LazyMutable {
+    protected open var docHeaders by LazyMutable {
         headersBuilder().build()
     }
 
-    private var rapidShareExtractor by LazyMutable {
+    protected open var rapidShareExtractor by LazyMutable {
         RapidShareExtractor(client, docHeaders, context)
     }
 
@@ -108,9 +109,12 @@ open class YFlixTheme(
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseAnimesPage(response)
 
-    private fun parseAnimesPage(response: Response): AnimesPage {
+    protected open val moviesSelector = "div.film-section div.item"
+
+    protected open fun parseAnimesPage(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val animes = document.select("div.film-section div.item").mapNotNull { item ->
+
+        val animes = document.select(moviesSelector).mapNotNull { item ->
             val poster = item.selectFirst("a.poster") ?: return@mapNotNull null
             val title = item.selectFirst("a.title")?.text() ?: return@mapNotNull null
 
@@ -128,12 +132,14 @@ open class YFlixTheme(
 
     // =========================== Anime Details ============================
 
+    protected open fun Document.isMovie(): Boolean = selectFirst(".metadata > span:contains(Movie)") != null
+
     override fun animeDetailsParse(response: Response): SAnime = SAnime.create().apply {
         val document = response.asJsoup()
 
         title = document.selectFirst("h1.title")?.text().orEmpty()
         thumbnail_url = document.selectFirst("div.poster img")?.attr("src")
-        val isMovie = document.selectFirst(".metadata > span:contains(Movie)") != null
+        val isMovie = document.isMovie()
         status = if (isMovie) SAnime.COMPLETED else SAnime.ONGOING
 
         genre = document.select("ul.mics li:has(a[href*=/genre/]) a").eachText().joinToString()
@@ -142,7 +148,7 @@ open class YFlixTheme(
         // fancy score
         val scorePosition = preferences.scorePosition
         val fancyScore = when (scorePosition) {
-            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.rating")?.attr("data-score"))
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> document.getFancyScore()
             else -> ""
         }
 
@@ -169,9 +175,8 @@ open class YFlixTheme(
                 if (rating.isNotEmpty()) append("**IMDb:** $rating")
             }
 
-            document.selectFirst("div.detail-bg")?.attr("style")?.let { style ->
-                val coverUrl = style.substringAfter("url('", "").substringBefore("')", "")
-                if (coverUrl.isNotEmpty()) {
+            document.getBackdropUrl()?.let { coverUrl ->
+                if (coverUrl.isNotBlank()) {
                     // Append the cover URL in Markdown format for display in the app
                     append("\n\n![Cover]($coverUrl)")
                 }
@@ -184,7 +189,14 @@ open class YFlixTheme(
         }
     }
 
-    private fun getFancyScore(score: String?): String {
+    protected open fun Document.getBackdropUrl(): String? = selectFirst("div.detail-bg")
+        ?.attr("style")
+        ?.substringAfter("url('", "")?.substringBefore("')", "")
+
+    protected open fun Document.getScore(): String? = selectFirst("div.rating")?.attr("data-score")
+
+    protected open fun Document.getFancyScore(): String {
+        val score = getScore()
         if (score.isNullOrBlank()) return ""
 
         return try {
@@ -214,10 +226,12 @@ open class YFlixTheme(
 
     // ============================== Episodes ==============================
 
+    protected open fun Document.contentIdSelect(): String? = selectFirst("div.rating[data-id]")?.attr("data-id")
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = baseUrl + anime.url
         val document = client.newCall(GET(animeUrl, docHeaders)).awaitSuccess().use { it.asJsoup() }
-        val contentId = document.selectFirst("div.rating[data-id]")?.attr("data-id")
+        val contentId = document.contentIdSelect()
             ?: return emptyList()
 
         val encryptedId = encrypt(contentId)
@@ -246,7 +260,7 @@ open class YFlixTheme(
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used.")
 
-    private fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode = SEpisode.create().apply {
+    protected open fun tvEpisodeFromElement(element: Element, animeUrl: String, seasonNum: String): SEpisode = SEpisode.create().apply {
         val epNum = element.attr("num")
         url = "$animeUrl#${element.attr("eid")}"
         episode_number = epNum.toFloatOrNull() ?: 0F
@@ -254,13 +268,15 @@ open class YFlixTheme(
         date_upload = parseDate(element.attr("title"))
     }
 
-    private fun movieEpisodeFromElement(element: Element, animeUrl: String): SEpisode = SEpisode.create().apply {
+    protected open fun movieEpisodeFromElement(element: Element, animeUrl: String): SEpisode = SEpisode.create().apply {
         url = "$animeUrl#${element.attr("eid")}"
         episode_number = 1F
         name = element.selectFirst("span")?.text()?.trim() ?: "Movie"
     }
 
     // ============================ Video Links =============================
+
+    protected open val serversSelector = "li.server"
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val (animeUrl, episodeId) = episode.url.split('#', limit = 2)
@@ -274,7 +290,7 @@ open class YFlixTheme(
                 it.parseAs<ResultResponse>(json = json).toDocument()
             }
 
-        return serversDoc.select("li.server").parallelMapNotNull { serverElement ->
+        return serversDoc.select(serversSelector).parallelMapNotNull { serverElement ->
             val serverName = serverElement.selectFirst("span")?.text()
                 ?: return@parallelMapNotNull null
 
@@ -298,23 +314,23 @@ open class YFlixTheme(
 
     // ============================= Utilities ==============================
 
-    private fun apiHeaders(referer: String) = docHeaders.newBuilder()
+    protected open fun apiHeaders(referer: String) = docHeaders.newBuilder()
         .set("Referer", referer)
         .add("Accept", "application/json, text/javascript, */*; q=0.01")
         .add("X-Requested-With", "XMLHttpRequest")
         .build()
 
-    private suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
+    protected open suspend fun encrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/enc-movies-flix?text=$text"))
         .awaitSuccess().use {
             it.parseAs<ResultResponse>(json = json).result
         }
 
-    private suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
+    protected open suspend fun decrypt(text: String): String = apiClient.newCall(GET("https://enc-dec.app/api/dec-movies-flix?text=$text"))
         .awaitSuccess().use {
             it.parseAs<DecryptedIframeResponse>(json = json).result.url
         }
 
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
+    protected open fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.qualityPref
@@ -337,13 +353,13 @@ open class YFlixTheme(
 
     // ============================== Preferences ==============================
 
-    private val SharedPreferences.qualityPref by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
-    private val SharedPreferences.subLangPref by preferences.delegate(PREF_SUB_LANG_KEY, PREF_SUB_LANG_DEFAULT)
-    private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
-    private val SharedPreferences.hosterPref by preferences.delegate(PREF_HOSTER_KEY, SERVERS.toSet())
-    private val SharedPreferences.scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
+    protected open val SharedPreferences.qualityPref by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+    protected open val SharedPreferences.subLangPref by preferences.delegate(PREF_SUB_LANG_KEY, PREF_SUB_LANG_DEFAULT)
+    protected open val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
+    protected open val SharedPreferences.hosterPref by preferences.delegate(PREF_HOSTER_KEY, SERVERS.toSet())
+    protected open val SharedPreferences.scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
-    private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
+    protected open fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = getString(PREF_DOMAIN_KEY, defaultDomain)
             ?: return this
         if (domain !in domainList) {
@@ -421,14 +437,14 @@ open class YFlixTheme(
     }
 
     companion object {
-        private const val PREF_DOMAIN_KEY = "pref_domain_key"
+        protected const val PREF_DOMAIN_KEY = "pref_domain_key"
 
         const val PREF_QUALITY_KEY = "pref_quality_key"
-        private val QUALITIES = listOf("1080p", "720p", "480p", "360p")
-        private val PREF_QUALITY_DEFAULT = QUALITIES.first()
+        protected val QUALITIES = listOf("1080p", "720p", "480p", "360p")
+        protected val PREF_QUALITY_DEFAULT = QUALITIES.first()
 
         const val PREF_SUB_LANG_KEY = "pref_sub_lang_key"
-        private val SUB_LANGS = listOf(
+        protected val SUB_LANGS = listOf(
             "English",
             "Arabic",
             "Chinese",
@@ -449,28 +465,28 @@ open class YFlixTheme(
         internal val PREF_SUB_LANG_DEFAULT = SUB_LANGS.first()
 
         const val PREF_SERVER_KEY = "pref_server_key"
-        private val SERVERS = listOf("Server 1", "Server 2")
-        private val PREF_SERVER_DEFAULT = SERVERS.first()
+        protected val SERVERS = listOf("Server 1", "Server 2")
+        protected val PREF_SERVER_DEFAULT = SERVERS.first()
 
         const val PREF_HOSTER_KEY = "pref_hoster_key"
 
-        private const val PREF_SCORE_POSITION_KEY = "score_position"
-        private const val SCORE_POS_TOP = "top"
-        private const val SCORE_POS_BOTTOM = "bottom"
-        private const val SCORE_POS_NONE = "none"
-        private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
-        private val PREF_SCORE_POSITION_ENTRIES = listOf(
+        protected const val PREF_SCORE_POSITION_KEY = "score_position"
+        protected const val SCORE_POS_TOP = "top"
+        protected const val SCORE_POS_BOTTOM = "bottom"
+        protected const val SCORE_POS_NONE = "none"
+        protected const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
+        protected val PREF_SCORE_POSITION_ENTRIES = listOf(
             "Top of description",
             "Bottom of description",
             "Don't show",
         )
-        private val PREF_SCORE_POSITION_VALUES = listOf(
+        protected val PREF_SCORE_POSITION_VALUES = listOf(
             SCORE_POS_TOP,
             SCORE_POS_BOTTOM,
             SCORE_POS_NONE,
         )
 
-        private val DATE_FORMATTER by lazy {
+        protected val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
         }
     }
