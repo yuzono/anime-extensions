@@ -2,6 +2,7 @@ ext {
     extName = 'MovHub'
     extClass = '.MovHub'
     themePkg = 'yflixtheme'
+    baseUrl = 'https://1moviesz.to'
     overrideVersionCode = 3
     isNsfw = true
 }
