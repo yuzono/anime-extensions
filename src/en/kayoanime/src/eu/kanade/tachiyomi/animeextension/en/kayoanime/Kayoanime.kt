@@ -221,92 +221,101 @@ class Kayoanime :
         fun traverseFolder(url: String, path: String, recursionDepth: Int = 0) {
             if (recursionDepth == MAX_RECURSION_DEPTH) return
 
-            val folderId = url.substringAfter("/folders/")
-            val driveHeaders = headers.newBuilder()
-                .add("Accept", "*/*")
-                .add("Connection", "keep-alive")
-                .add("Cookie", getCookie("https://drive.google.com"))
-                .add("Host", "drive.google.com")
-                .build()
-
-            val driveDocument = client.newCall(
-                GET(url, headers = driveHeaders),
-            ).execute().asJsoup()
-            if (driveDocument.selectFirst("title:contains(Error 404 \\(Not found\\))") != null) return
-
-            val keyScript = driveDocument.select("script").first { script ->
-                KEY_REGEX.find(script.data()) != null
-            }.data()
-            val key = KEY_REGEX.find(keyScript)?.groupValues?.get(1) ?: ""
-
-            val versionScript = driveDocument.select("script").first { script ->
-                KEY_REGEX.find(script.data()) != null
-            }.data()
-            val driveVersion = VERSION_REGEX.find(versionScript)?.groupValues?.get(1) ?: ""
-            val sapisid = client.cookieJar.loadForRequest("https://drive.google.com".toHttpUrl()).firstOrNull {
-                it.name == "SAPISID" || it.name == "__Secure-3PAPISID"
-            }?.value ?: ""
-
-            var pageToken: String? = ""
-            while (pageToken != null) {
-                val requestUrl = "/drive/v2internal/files?openDrive=false&reason=102&syncType=0&errorRecovery=false&q=trashed%20%3D%20false%20and%20'$folderId'%20in%20parents&fields=kind%2CnextPageToken%2Citems(kind%2CmodifiedDate%2ChasVisitorPermissions%2CcontainsUnsubscribedChildren%2CmodifiedByMeDate%2ClastViewedByMeDate%2CalternateLink%2CfileSize%2Cowners(kind%2CpermissionId%2CemailAddressFromAccount%2Cdomain%2Cid)%2ClastModifyingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CcustomerId%2CancestorHasAugmentedPermissions%2ChasThumbnail%2CthumbnailVersion%2Ctitle%2Cid%2CresourceKey%2CabuseIsAppealable%2CabuseNoticeReason%2Cshared%2CaccessRequestsCount%2CsharedWithMeDate%2CuserPermission(role)%2CexplicitlyTrashed%2CmimeType%2CquotaBytesUsed%2Ccopyable%2Csubscribed%2CfolderColor%2ChasChildFolders%2CfileExtension%2CprimarySyncParentId%2CsharingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CflaggedForAbuse%2CfolderFeatures%2Cspaces%2CsourceAppId%2Crecency%2CrecencyReason%2Cversion%2CactionItems%2CteamDriveId%2ChasAugmentedPermissions%2CcreatedDate%2CprimaryDomainName%2CorganizationDisplayName%2CpassivelySubscribed%2CtrashingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CtrashedDate%2Cparents(id)%2Ccapabilities(canMoveItemIntoTeamDrive%2CcanUntrash%2CcanMoveItemWithinTeamDrive%2CcanMoveItemOutOfTeamDrive%2CcanDeleteChildren%2CcanTrashChildren%2CcanRequestApproval%2CcanReadCategoryMetadata%2CcanEditCategoryMetadata%2CcanAddMyDriveParent%2CcanRemoveMyDriveParent%2CcanShareChildFiles%2CcanShareChildFolders%2CcanRead%2CcanMoveItemWithinDrive%2CcanMoveChildrenWithinDrive%2CcanAddFolderFromAnotherDrive%2CcanChangeSecurityUpdateEnabled%2CcanBlockOwner%2CcanReportSpamOrAbuse%2CcanCopy%2CcanDownload%2CcanEdit%2CcanAddChildren%2CcanDelete%2CcanRemoveChildren%2CcanShare%2CcanTrash%2CcanRename%2CcanReadTeamDrive%2CcanMoveTeamDriveItem)%2CcontentRestrictions(readOnly)%2CapprovalMetadata(approvalVersion%2CapprovalSummaries%2ChasIncomingApproval)%2CshortcutDetails(targetId%2CtargetMimeType%2CtargetLookupStatus%2CtargetFile%2CcanRequestAccessToTarget)%2CspamMetadata(markedAsSpamDate%2CinSpamView)%2Clabels(starred%2Ctrashed%2Crestricted%2Cviewed))%2CincompleteSearch&appDataFilter=NO_APP_DATA&spaces=drive&pageToken=$pageToken&maxResults=100&supportsTeamDrives=true&includeItemsFromAllDrives=true&corpora=default&orderBy=folder%2Ctitle_natural%20asc&retryCount=0&key=$key HTTP/1.1"
-                val body = """--$BOUNDARY
-                    |content-type: application/http
-                    |content-transfer-encoding: binary
-                    |
-                    |GET $requestUrl
-                    |X-Goog-Drive-Client-Version: $driveVersion
-                    |authorization: ${generateSapisidhashHeader(sapisid)}
-                    |x-goog-authuser: 0
-                    |
-                    |--$BOUNDARY--""".trimMargin("|").toRequestBody("multipart/mixed; boundary=\"$BOUNDARY\"".toMediaType())
-
-                val postUrl = buildString {
-                    append("https://clients6.google.com/batch/drive/v2internal")
-                    append("?${'$'}ct=multipart/mixed; boundary=\"$BOUNDARY\"")
-                    append("&key=$key")
-                }
-
-                val postHeaders = headers.newBuilder()
-                    .add("Content-Type", "text/plain; charset=UTF-8")
-                    .add("Origin", "https://drive.google.com")
+            try {
+                val folderId = url.substringAfter("/folders/")
+                val driveHeaders = headers.newBuilder()
+                    .add("Accept", "*/*")
+                    .add("Connection", "keep-alive")
                     .add("Cookie", getCookie("https://drive.google.com"))
+                    .add("Host", "drive.google.com")
                     .build()
 
-                val postResponse = client.newCall(
-                    POST(postUrl, body = body, headers = postHeaders),
-                ).execute()
+                val driveDocument = client.newCall(
+                    GET(url, headers = driveHeaders),
+                ).execute().asJsoup()
+                if (driveDocument.selectFirst("title:contains(Error 404 \\(Not found\\))") != null) return
 
-                val parsed = postResponse.parseAs<GDrivePostResponse> {
-                    JSON_REGEX.find(it)!!.groupValues[1]
-                }
+                val key = driveDocument.select("script")
+                    .firstOrNull { script -> KEY_REGEX.find(script.data()) != null }
+                    ?.data()?.let { KEY_REGEX.find(it)?.groupValues?.get(1) }
+                    ?: return
 
-                if (parsed.items == null) throw Exception("Failed to load items, please log in to google drive through webview")
-                parsed.items.forEachIndexed { index, it ->
-                    if (it.mimeType.startsWith("video")) {
-                        val size = it.fileSize?.toLongOrNull()?.let { sz -> formatBytes(sz) }
-                        val pathName = path.trimInfo()
+                val driveVersion = driveDocument.select("script")
+                    .firstOrNull { script -> VERSION_REGEX.find(script.data()) != null }
+                    ?.data()?.let { VERSION_REGEX.find(it)?.groupValues?.get(1) }
+                    ?: return
 
-                        episodeList.add(
-                            SEpisode.create().apply {
-                                name = if (preferences.trimEpisodeName) it.title.trimInfo() else it.title
-                                this.url = "https://drive.google.com/uc?id=${it.id}"
-                                episode_number = ITEM_NUMBER_REGEX.find(it.title.trimInfo())?.groupValues?.get(1)?.toFloatOrNull() ?: index.toFloat()
-                                date_upload = -1L
-                                scanlator = "$size • /$pathName"
-                            },
-                        )
+                val sapisid = client.cookieJar.loadForRequest("https://drive.google.com".toHttpUrl()).firstOrNull {
+                    it.name == "SAPISID" || it.name == "__Secure-3PAPISID"
+                }?.value ?: return
+
+                var pageToken: String? = ""
+                while (pageToken != null) {
+                    val requestUrl = "/drive/v2internal/files?openDrive=false&reason=102&syncType=0&errorRecovery=false&q=trashed%20%3D%20false%20and%20'$folderId'%20in%20parents&fields=kind%2CnextPageToken%2Citems(kind%2CmodifiedDate%2ChasVisitorPermissions%2CcontainsUnsubscribedChildren%2CmodifiedByMeDate%2ClastViewedByMeDate%2CalternateLink%2CfileSize%2Cowners(kind%2CpermissionId%2CemailAddressFromAccount%2Cdomain%2Cid)%2ClastModifyingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CcustomerId%2CancestorHasAugmentedPermissions%2ChasThumbnail%2CthumbnailVersion%2Ctitle%2Cid%2CresourceKey%2CabuseIsAppealable%2CabuseNoticeReason%2Cshared%2CaccessRequestsCount%2CsharedWithMeDate%2CuserPermission(role)%2CexplicitlyTrashed%2CmimeType%2CquotaBytesUsed%2Ccopyable%2Csubscribed%2CfolderColor%2ChasChildFolders%2CfileExtension%2CprimarySyncParentId%2CsharingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CflaggedForAbuse%2CfolderFeatures%2Cspaces%2CsourceAppId%2Crecency%2CrecencyReason%2Cversion%2CactionItems%2CteamDriveId%2ChasAugmentedPermissions%2CcreatedDate%2CprimaryDomainName%2CorganizationDisplayName%2CpassivelySubscribed%2CtrashingUser(kind%2CpermissionId%2CemailAddressFromAccount%2Cid)%2CtrashedDate%2Cparents(id)%2Ccapabilities(canMoveItemIntoTeamDrive%2CcanUntrash%2CcanMoveItemWithinTeamDrive%2CcanMoveItemOutOfTeamDrive%2CcanDeleteChildren%2CcanTrashChildren%2CcanRequestApproval%2CcanReadCategoryMetadata%2CcanEditCategoryMetadata%2CcanAddMyDriveParent%2CcanRemoveMyDriveParent%2CcanShareChildFiles%2CcanShareChildFolders%2CcanRead%2CcanMoveItemWithinDrive%2CcanMoveChildrenWithinDrive%2CcanAddFolderFromAnotherDrive%2CcanChangeSecurityUpdateEnabled%2CcanBlockOwner%2CcanReportSpamOrAbuse%2CcanCopy%2CcanDownload%2CcanEdit%2CcanAddChildren%2CcanDelete%2CcanRemoveChildren%2CcanShare%2CcanTrash%2CcanRename%2CcanReadTeamDrive%2CcanMoveTeamDriveItem)%2CcontentRestrictions(readOnly)%2CapprovalMetadata(approvalVersion%2CapprovalSummaries%2ChasIncomingApproval)%2CshortcutDetails(targetId%2CtargetMimeType%2CtargetLookupStatus%2CtargetFile%2CcanRequestAccessToTarget)%2CspamMetadata(markedAsSpamDate%2CinSpamView)%2Clabels(starred%2Ctrashed%2Crestricted%2Cviewed))%2CincompleteSearch&appDataFilter=NO_APP_DATA&spaces=drive&pageToken=$pageToken&maxResults=100&supportsTeamDrives=true&includeItemsFromAllDrives=true&corpora=default&orderBy=folder%2Ctitle_natural%20asc&retryCount=0&key=$key HTTP/1.1"
+                    val body = """--$BOUNDARY
+                        |content-type: application/http
+                        |content-transfer-encoding: binary
+                        |
+                        |GET $requestUrl
+                        |X-Goog-Drive-Client-Version: $driveVersion
+                        |authorization: ${generateSapisidhashHeader(sapisid)}
+                        |x-goog-authuser: 0
+                        |
+                        |--$BOUNDARY--""".trimMargin("|").toRequestBody("multipart/mixed; boundary=\"$BOUNDARY\"".toMediaType())
+
+                    val postUrl = buildString {
+                        append("https://clients6.google.com/batch/drive/v2internal")
+                        append("?${'$'}ct=multipart/mixed; boundary=\"$BOUNDARY\"")
+                        append("&key=$key")
                     }
-                    if (it.mimeType.endsWith(".folder")) {
-                        traverseFolder(
-                            "https://drive.google.com/drive/folders/${it.id}",
-                            "$path/${it.title}",
-                            recursionDepth + 1,
-                        )
-                    }
-                }
 
-                pageToken = parsed.nextPageToken
+                    val postHeaders = headers.newBuilder()
+                        .add("Content-Type", "text/plain; charset=UTF-8")
+                        .add("Origin", "https://drive.google.com")
+                        .add("Cookie", getCookie("https://drive.google.com"))
+                        .build()
+
+                    val postResponse = client.newCall(
+                        POST(postUrl, body = body, headers = postHeaders),
+                    ).execute()
+
+                    val parsed = try {
+                        postResponse.parseAs<GDrivePostResponse> {
+                            JSON_REGEX.find(it)?.groupValues?.get(1) ?: return@parseAs ""
+                        }
+                    } catch (_: Exception) {
+                        return
+                    }
+
+                    if (parsed.items == null) return
+                    parsed.items.forEachIndexed { index, it ->
+                        if (it.mimeType.startsWith("video")) {
+                            val size = it.fileSize?.toLongOrNull()?.let { sz -> formatBytes(sz) }
+                            val pathName = path.trimInfo()
+
+                            episodeList.add(
+                                SEpisode.create().apply {
+                                    name = if (preferences.trimEpisodeName) it.title.trimInfo() else it.title
+                                    this.url = "https://drive.google.com/uc?id=${it.id}"
+                                    episode_number = ITEM_NUMBER_REGEX.find(it.title.trimInfo())?.groupValues?.get(1)?.toFloatOrNull() ?: index.toFloat()
+                                    date_upload = -1L
+                                    scanlator = "$size • /$pathName"
+                                },
+                            )
+                        }
+                        if (it.mimeType.endsWith(".folder")) {
+                            traverseFolder(
+                                "https://drive.google.com/drive/folders/${it.id}",
+                                "$path/${it.title}",
+                                recursionDepth + 1,
+                            )
+                        }
+                    }
+
+                    pageToken = parsed.nextPageToken
+                }
+            } catch (_: Exception) {
+                // Skip inaccessible folders gracefully
             }
         }
 
@@ -314,8 +323,10 @@ class Kayoanime :
             getVideoPathsFromElement(t)
         }.forEach { season ->
             season.select("a[href*=drive.google.com]").distinctBy { it.text() }.forEach {
-                val url = it.selectFirst("a[href*=drive.google.com]")!!.attr("href").substringBeforeLast("?usp=shar")
-                traverseFolder(url, getVideoPathsFromElement(season) + " " + it.text())
+                try {
+                    val url = it.attr("href").substringBeforeLast("?usp=shar")
+                    traverseFolder(url, getVideoPathsFromElement(season) + " " + it.text())
+                } catch (_: Exception) { }
             }
         }
 
@@ -323,28 +334,32 @@ class Kayoanime :
         val indexExtractor = DriveIndexExtractor(client, headers)
         document.select("div.toggle:has(> div.toggle-content > a[href*=tinyurl.com])").forEach { season ->
             season.select("a[href*=tinyurl.com]").forEach {
-                val url = it.selectFirst("a[href*=tinyurl.com]")!!.attr("href")
-                val redirected = noRedirectClient.newCall(GET(url)).execute()
-                redirected.headers["location"]?.let { location ->
-                    val host = location.toHttpUrl().host
-                    if (host.contains("workers.dev")) {
-                        episodeList.addAll(
-                            indexExtractor.getEpisodesFromIndex(
-                                location,
-                                getVideoPathsFromElement(season) + " " + it.text(),
-                                preferences.trimEpisodeName,
-                            ),
-                        )
-                    }
+                try {
+                    val url = it.attr("href")
+                    val redirected = noRedirectClient.newCall(GET(url)).execute()
+                    val location = redirected.headers["location"]
+                    redirected.close()
+                    location?.let { loc ->
+                        val host = loc.toHttpUrl().host
+                        if (host.contains("workers.dev")) {
+                            episodeList.addAll(
+                                indexExtractor.getEpisodesFromIndex(
+                                    loc,
+                                    getVideoPathsFromElement(season) + " " + it.text(),
+                                    preferences.trimEpisodeName,
+                                ),
+                            )
+                        }
 
-                    if (host.contains("slogoanime")) {
-                        val redirectDoc = client.newCall(GET(location)).execute().asJsoup()
-                        redirectDoc.select("a[href*=drive.google.com]").distinctBy { link -> link.text() }.forEach { link ->
-                            val gdriveUrl = link.attr("href").substringBeforeLast("?usp=shar")
-                            traverseFolder(gdriveUrl, getVideoPathsFromElement(season) + " " + link.text())
+                        if (host.contains("slogoanime")) {
+                            val redirectDoc = client.newCall(GET(loc)).execute().asJsoup()
+                            redirectDoc.select("a[href*=drive.google.com]").distinctBy { link -> link.text() }.forEach { link ->
+                                val gdriveUrl = link.attr("href").substringBeforeLast("?usp=shar")
+                                traverseFolder(gdriveUrl, getVideoPathsFromElement(season) + " " + link.text())
+                            }
                         }
                     }
-                }
+                } catch (_: Exception) { }
             }
         }
 
