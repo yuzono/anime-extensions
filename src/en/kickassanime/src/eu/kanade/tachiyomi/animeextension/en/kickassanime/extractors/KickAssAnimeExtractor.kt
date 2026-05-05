@@ -12,6 +12,7 @@ import keiyoushi.utils.bodyString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.security.MessageDigest
 
@@ -92,11 +93,12 @@ class KickAssAnimeExtractor(
             return emptyList()
         }
 
-        val host = finalUrl.toHttpUrl().host
+        val finalHttpUrl = finalUrl.toHttpUrlOrNull() ?: return emptyList()
+        val host = finalHttpUrl.host
         val mid = if (name == "DuckStream") "mid" else "id"
         val isBird = name == "BirdStream"
 
-        val query = finalUrl.toHttpUrl().queryParameter(mid) ?: return emptyList()
+        val query = finalHttpUrl.queryParameter(mid) ?: return emptyList()
 
         val key = when (name) {
             "VidStreaming" -> "e13d38099bf562e8b9851a652d2043d3"
@@ -201,10 +203,8 @@ class KickAssAnimeExtractor(
 
             val subUrl = fixUrl(rawSubUrl, url)
 
-            runCatching {
-                subUrl.toHttpUrl()
-                Track(subUrl, "$subName ($lang)")
-            }.getOrNull()
+            subUrl.toHttpUrlOrNull()
+                ?.let { Track(subUrl, "$subName ($lang)") }
         }.toList()
 
         val rawVideos = try {
