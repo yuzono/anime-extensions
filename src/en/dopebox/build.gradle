@@ -2,6 +2,7 @@ ext {
     extName = 'DopeBox'
     extClass = '.DopeBox'
     themePkg = 'dopeflix'
+    baseUrl = 'https://dopebox.to'
     overrideVersionCode = 18
 }
 
