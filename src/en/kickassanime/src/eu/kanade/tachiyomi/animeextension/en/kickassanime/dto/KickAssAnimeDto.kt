@@ -20,6 +20,22 @@ data class PopularItemDto(
 )
 
 @Serializable
+data class KaaDto(
+    val fetch: KaaFetchDto,
+)
+
+@Serializable
+data class KaaFetchDto(
+    @SerialName("ShowDetail:0")
+    val detail: KaaDetailRelatedDto,
+)
+
+@Serializable
+data class KaaDetailRelatedDto(
+    val related: List<PopularItemDto>,
+)
+
+@Serializable
 data class SearchResponseDto(
     val result: List<PopularItemDto>,
     val maxPage: Int,

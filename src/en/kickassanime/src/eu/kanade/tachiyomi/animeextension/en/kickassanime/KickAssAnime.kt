@@ -8,6 +8,7 @@ import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.AnimeInfoDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.EpisodeResponseDto
+import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.KaaDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.LanguagesDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.PopularItemDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.PopularResponseDto
@@ -25,6 +26,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelCatchingMapNotNull
@@ -197,6 +199,25 @@ class KickAssAnime :
                 // Safely append year if it exists
                 anime.year?.let { append("Year: $it") }
             }
+        }
+    }
+
+    override fun relatedAnimeListRequest(anime: SAnime) = GET(getAnimeUrl(anime))
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.selectFirst("script:containsData(window.KAA)")?.data()?.let {
+            kaaReturnRegex.find(it)?.groupValues?.get(1)
+        }?.parseAs<KaaDto>(jsonWithoutQuote)?.fetch?.detail?.related
+            ?.map { popularAnimeFromObject(it) }
+            ?: emptyList()
+    }
+
+    private val kaaReturnRegex by lazy { Regex("""return (\{.*\})\}\(""") }
+    private val jsonWithoutQuote by lazy {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
         }
     }
 
