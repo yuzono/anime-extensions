@@ -35,17 +35,6 @@ class KickAssAnimeExtractor(
             .build()
     }
 
-    private fun buildVideoClient(videoHeaders: Headers): OkHttpClient = client.newBuilder()
-        .addInterceptor { chain ->
-            val request = chain.request().newBuilder().apply {
-                videoHeaders.forEach { (name, value) ->
-                    header(name, value)
-                }
-            }.build()
-            chain.proceed(request)
-        }
-        .build()
-
     /**
      * Properly normalizes a URL. Handles:
      * - https:////host/path → https://host/path  (BirdStream)
@@ -143,8 +132,7 @@ class KickAssAnimeExtractor(
         }
 
         val videoHeaders = getVideoHeaders(finalUrl)
-        val vClient = buildVideoClient(videoHeaders)
-        val subtitleUtils = PlaylistUtils(vClient, videoHeaders)
+        val playlistUtils = PlaylistUtils(client, videoHeaders)
 
         val rawSubtitles = videoObject.subtitles.map {
             val subUrl = fixUrl(it.src, finalUrl)
@@ -152,27 +140,29 @@ class KickAssAnimeExtractor(
         }
 
         val subtitles = if (name == "CatStream") {
-            subtitleUtils.fixSubtitles(rawSubtitles)
+            playlistUtils.fixSubtitles(rawSubtitles)
         } else {
             rawSubtitles
         }
-
-        val localPlaylistUtils = PlaylistUtils(vClient, videoHeaders)
 
         val playlistUrl = fixUrl(videoObject.hls.ifEmpty { videoObject.dash }, finalUrl)
 
         val rawVideos = when {
             videoObject.hls.isBlank() ->
-                localPlaylistUtils.extractFromDash(
+                playlistUtils.extractFromDash(
                     playlistUrl,
                     videoNameGen = { res -> "$name - $res" },
                     subtitleList = subtitles,
+                    mpdHeaders = videoHeaders,
+                    videoHeaders = videoHeaders,
                 )
 
-            else -> localPlaylistUtils.extractFromHls(
+            else -> playlistUtils.extractFromHls(
                 playlistUrl,
                 videoNameGen = { "$name - $it" },
                 subtitleList = subtitles,
+                masterHeaders = videoHeaders,
+                videoHeaders = videoHeaders,
             )
         }
 
@@ -186,8 +176,7 @@ class KickAssAnimeExtractor(
 
     private fun parseNewPlayer(cleanHtml: String, url: String, name: String): List<Video> {
         val videoHeaders = getVideoHeaders(url)
-        val vClient = buildVideoClient(videoHeaders)
-        val localPlaylistUtils = PlaylistUtils(vClient, videoHeaders)
+        val playlistUtils = PlaylistUtils(client, videoHeaders)
 
         val rawManifestUrl = manifestRegex
             .find(cleanHtml)?.groupValues?.get(1)
@@ -209,16 +198,20 @@ class KickAssAnimeExtractor(
 
         val rawVideos = try {
             if (manifestUrl.contains(".m3u8")) {
-                localPlaylistUtils.extractFromHls(
+                playlistUtils.extractFromHls(
                     manifestUrl,
                     videoNameGen = { "$name - $it" },
                     subtitleList = subtitles,
+                    masterHeaders = videoHeaders,
+                    videoHeaders = videoHeaders,
                 )
             } else {
-                localPlaylistUtils.extractFromDash(
+                playlistUtils.extractFromDash(
                     manifestUrl,
                     videoNameGen = { "$name - $it" },
                     subtitleList = subtitles,
+                    mpdHeaders = videoHeaders,
+                    videoHeaders = videoHeaders,
                 )
             }
         } catch (_: Exception) {
