@@ -189,9 +189,10 @@ open class YFlixTheme(
         }
     }
 
+    protected open val backgroundUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
     protected open fun Document.getBackdropUrl(): String? = selectFirst("div.detail-bg")
         ?.attr("style")
-        ?.substringAfter("url('", "")?.substringBefore("')", "")
+        ?.let { backgroundUrlRegex.find(it)?.groupValues?.getOrNull(1) }
 
     protected open fun Document.getScore(): String? = selectFirst("div.rating")?.attr("data-score")
 
