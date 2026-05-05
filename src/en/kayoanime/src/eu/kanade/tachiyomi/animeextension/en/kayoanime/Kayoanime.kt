@@ -62,7 +62,7 @@ class Kayoanime :
             popularAnimeFromElement(element)
         }
 
-        val hasNextPage = document.selectFirst("div.pages-nav span.last-page a") != null
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
 
         return AnimesPage(animes, hasNextPage)
     }
@@ -340,8 +340,8 @@ class Kayoanime :
                     if (host.contains("slogoanime")) {
                         val redirectDoc = client.newCall(GET(location)).execute().asJsoup()
                         redirectDoc.select("a[href*=drive.google.com]").distinctBy { link -> link.text() }.forEach { link ->
-                            val gdriveUrl = link.selectFirst("a[href*=drive.google.com]")!!.attr("href").substringBeforeLast("?usp=shar")
-                            traverseFolder(gdriveUrl, getVideoPathsFromElement(season) + " " + it.text())
+                            val gdriveUrl = link.attr("href").substringBeforeLast("?usp=shar")
+                            traverseFolder(gdriveUrl, getVideoPathsFromElement(season) + " " + link.text())
                         }
                     }
                 }
