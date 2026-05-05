@@ -62,7 +62,7 @@ class KickAssAnime :
     private val json: Json by injectLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/popular?page=$page")
+    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/trending?page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<PopularResponseDto>()
