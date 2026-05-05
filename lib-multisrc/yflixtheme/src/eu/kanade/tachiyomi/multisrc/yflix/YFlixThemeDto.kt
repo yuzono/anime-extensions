@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.yflix
+package eu.kanade.tachiyomi.multisrc.yflix
 
 import kotlinx.serialization.Serializable
 import org.jsoup.Jsoup

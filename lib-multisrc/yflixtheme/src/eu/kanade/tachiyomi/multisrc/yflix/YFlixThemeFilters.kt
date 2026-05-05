@@ -1,10 +1,10 @@
-package eu.kanade.tachiyomi.animeextension.en.yflix
+package eu.kanade.tachiyomi.multisrc.yflix
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import okhttp3.HttpUrl
 
-object YFlixFilters {
+object YFlixThemeFilters {
 
     fun getFilters(filters: AnimeFilterList) = filters.filterIsInstance<Filter>()
 

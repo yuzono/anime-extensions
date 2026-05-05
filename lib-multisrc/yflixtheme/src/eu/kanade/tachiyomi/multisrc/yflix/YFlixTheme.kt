@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.movhub
+package eu.kanade.tachiyomi.multisrc.yflix
 
 import android.app.Application
 import android.content.SharedPreferences
@@ -32,19 +32,17 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.getValue
 
-class MovHub :
-    AnimeHttpSource(),
+open class YFlixTheme(
+    override val name: String,
+    private val domainList: List<String>,
+    private val defaultDomain: String = "https://${domainList.first()}",
+    override val lang: String = "en",
+    override val supportsLatest: Boolean = true,
+) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     private val context: Application by injectLazy()
-
-    override val name = "MovHub"
-
-    override val lang = "en"
-
-    override val supportsLatest = true
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -55,7 +53,7 @@ class MovHub :
         clearOldPrefs()
     }
 
-    override val baseUrl by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+    override val baseUrl by preferences.delegate(PREF_DOMAIN_KEY, defaultDomain)
 
     private val apiClient by lazy {
         client.newBuilder()
@@ -101,7 +99,7 @@ class MovHub :
             .addQueryParameter("keyword", query)
             .addQueryParameter("page", page.toString())
             .also { builder ->
-                MovHubFilters.getFilters(filters).forEach {
+                YFlixThemeFilters.getFilters(filters).forEach {
                     it.addQueryParameters(builder)
                 }
             }.build()
@@ -112,8 +110,7 @@ class MovHub :
 
     private fun parseAnimesPage(response: Response): AnimesPage {
         val document = response.asJsoup()
-
-        val animes = document.select("div.movie-cards div.item").mapNotNull { item ->
+        val animes = document.select("div.film-section div.item").mapNotNull { item ->
             val poster = item.selectFirst("a.poster") ?: return@mapNotNull null
             val title = item.selectFirst("a.title")?.text() ?: return@mapNotNull null
 
@@ -136,9 +133,7 @@ class MovHub :
 
         title = document.selectFirst("h1.title")?.text().orEmpty()
         thumbnail_url = document.selectFirst("div.poster img")?.attr("src")
-
-        val isMovie = document.selectFirst("ol.breadcrumb li a[href*='/movie']") != null
-
+        val isMovie = document.selectFirst(".metadata > span:contains(Movie)") != null
         status = if (isMovie) SAnime.COMPLETED else SAnime.ONGOING
 
         genre = document.select("ul.mics li:has(a[href*=/genre/]) a").eachText().joinToString()
@@ -147,7 +142,7 @@ class MovHub :
         // fancy score
         val scorePosition = preferences.scorePosition
         val fancyScore = when (scorePosition) {
-            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.detail-lower")?.attr("data-score"))
+            SCORE_POS_TOP, SCORE_POS_BOTTOM -> getFancyScore(document.selectFirst("div.rating")?.attr("data-score"))
             else -> ""
         }
 
@@ -174,9 +169,12 @@ class MovHub :
                 if (rating.isNotEmpty()) append("**IMDb:** $rating")
             }
 
-            document.selectFirst("div.site-movie-bg")?.attr("style")?.let {
-                val url = it.substringAfter("url('").substringBefore("')")
-                if (url.isNotEmpty()) append("\n\n![Cover]($url)")
+            document.selectFirst("div.detail-bg")?.attr("style")?.let { style ->
+                val coverUrl = style.substringAfter("url('", "").substringBefore("')", "")
+                if (coverUrl.isNotEmpty()) {
+                    // Append the cover URL in Markdown format for display in the app
+                    append("\n\n![Cover]($coverUrl)")
+                }
             }
 
             if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) {
@@ -187,11 +185,10 @@ class MovHub :
     }
 
     private fun getFancyScore(score: String?): String {
-        val trimmedScore = score?.trim() ?: return ""
-        if (trimmedScore.isEmpty()) return ""
+        if (score.isNullOrBlank()) return ""
 
         return try {
-            val scoreBig = BigDecimal(trimmedScore)
+            val scoreBig = BigDecimal(score.trim())
             if (scoreBig.compareTo(BigDecimal.ZERO) == 0) return ""
 
             val stars = scoreBig.divide(BigDecimal(2))
@@ -206,21 +203,21 @@ class MovHub :
                 if (stars < 5) append("☆".repeat(5 - stars))
                 append(" $scoreString")
             }
-        } catch (_: Exception) {
+        } catch (_: NumberFormatException) {
             ""
         }
     }
 
     // ============================== Filters ==============================
 
-    override fun getFilterList(): AnimeFilterList = MovHubFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = YFlixThemeFilters.FILTER_LIST
 
     // ============================== Episodes ==============================
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = baseUrl + anime.url
         val document = client.newCall(GET(animeUrl, docHeaders)).awaitSuccess().use { it.asJsoup() }
-
-        val contentId = document.selectFirst("#movie-rating[data-id]")?.attr("data-id")
+        val contentId = document.selectFirst("div.rating[data-id]")?.attr("data-id")
             ?: return emptyList()
 
         val encryptedId = encrypt(contentId)
@@ -276,7 +273,8 @@ class MovHub :
             .awaitSuccess().use {
                 it.parseAs<ResultResponse>(json = json).toDocument()
             }
-        return serversDoc.select("div.server").parallelMapNotNull { serverElement ->
+
+        return serversDoc.select("li.server").parallelMapNotNull { serverElement ->
             val serverName = serverElement.selectFirst("span")?.text()
                 ?: return@parallelMapNotNull null
 
@@ -324,11 +322,15 @@ class MovHub :
         val qualities = QUALITIES.reversed()
 
         return sortedWith(
+            // Prioritize videos that have the exact preferred quality and server
             compareByDescending<Video> {
                 it.quality.contains(quality, true) && it.quality.startsWith(server, true)
             }
+                // Then, prioritize videos with the preferred quality from any server
                 .thenByDescending { it.quality.contains(quality, true) }
+                // Then, prioritize videos from the preferred server with any quality
                 .thenByDescending { it.quality.startsWith(server, true) }
+                // Finally, sort by the quality list as a fallback
                 .thenByDescending { video -> qualities.indexOfFirst { video.quality.contains(it) } },
         )
     }
@@ -342,11 +344,11 @@ class MovHub :
     private val SharedPreferences.scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+        val domain = getString(PREF_DOMAIN_KEY, defaultDomain)
             ?: return this
-        if (domain !in DOMAIN_VALUES) {
+        if (domain !in domainList) {
             edit()
-                .putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+                .putString(PREF_DOMAIN_KEY, defaultDomain)
                 .apply()
         }
         val hostToggle = getStringSet(PREF_HOSTER_KEY, SERVERS.toSet()) ?: return this
@@ -363,9 +365,9 @@ class MovHub :
         screen.addListPreference(
             key = PREF_DOMAIN_KEY,
             title = "Preferred domain",
-            entries = DOMAIN_ENTRIES,
-            entryValues = DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
+            entries = domainList,
+            entryValues = domainList.map { "https://$it" },
+            default = defaultDomain,
             summary = "%s",
         ) {
             docHeaders = headersBuilder(it).build()
@@ -420,14 +422,6 @@ class MovHub :
 
     companion object {
         private const val PREF_DOMAIN_KEY = "pref_domain_key"
-        private val DOMAIN_ENTRIES = listOf(
-            "1moviesz.to",
-            "myflixer.bz",
-            "bflix.la",
-            "myflixer.fi",
-        )
-        private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
-        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
 
         const val PREF_QUALITY_KEY = "pref_quality_key"
         private val QUALITIES = listOf("1080p", "720p", "480p", "360p")
