@@ -12,10 +12,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -80,13 +84,13 @@ abstract class WcoTheme :
             element.selectFirst("img[alt]")?.attr("alt").orEmpty().ifBlank {
                 element.text()
             }
-        }
+        }.takeIf { it.isNotBlank() }!!
         thumbnail_url = element.selectFirst("img[src]")?.attr("abs:src")
     }
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         return client.newCall(latestUpdatesRequest(page))
-            .execute()
+            .awaitSuccess()
             .use { response ->
                 if (page == 1) {
                     latestUpdatesParse(response)
@@ -94,8 +98,8 @@ abstract class WcoTheme :
                     val document = response.asJsoup()
 
                     val animes = document.select(latestUpdatesNextPageSelector())
-                        .map { element ->
-                            latestUpdatesFromElement(element)
+                        .mapNotNull { element ->
+                            runCatching { latestUpdatesFromElement(element) }.getOrNull()
                         }
 
                     return AnimesPage(animes, false)
@@ -129,12 +133,16 @@ abstract class WcoTheme :
         if (searchUrl.contains("/search-by-genre/")) {
             // If the response is from a genre search, use the genre selector
             val document = response.asJsoup()
-            return document.select(genreAnimeSelector()).map { genreAnimeFromElement(it) }
+            return document.select(genreAnimeSelector()).mapNotNull {
+                runCatching { genreAnimeFromElement(it) }.getOrNull()
+            }
                 .let { AnimesPage(it, false) }
         }
         if (searchUrl.contains("/search")) {
             val document = response.asJsoup()
-            return document.select(searchAnimeSelector()).map { searchAnimeFromElement(it) }
+            return document.select(searchAnimeSelector()).mapNotNull {
+                runCatching { searchAnimeFromElement(it) }.getOrNull()
+            }
                 .let { AnimesPage(it, false) }
         }
         return popularAnimeParse(response)
@@ -158,12 +166,12 @@ abstract class WcoTheme :
         // pages we fall back to the linked series name in `div.header-tag h2 a`
         // (both layouts) and finally to the on-page heading so favourites
         // never end up with an empty title after a refresh.
-        title = (
+        (
             document.selectFirst("div.video-title a")?.text()
                 ?: document.selectFirst("div.header-tag h2 a")?.text()
                 ?: document.selectFirst("div.video-title h1")?.text()
                 ?: document.selectFirst("div.baslikCell h1")?.text()
-            ).orEmpty()
+            )?.let { title = it }
         description = document.selectFirst("div#sidebar_cat p")?.text()
         thumbnail_url = document.selectFirst("div#sidebar_cat img")?.attr("abs:src")
         genre = document.select("div#sidebar_cat > a").joinToString { it.text() }
@@ -175,7 +183,9 @@ abstract class WcoTheme :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        val episodes = document.select(episodeListSelector()).map { episodeFromElement(it) }
+        val episodes = document.select(episodeListSelector()).mapNotNull {
+            runCatching { episodeFromElement(it) }.getOrNull()
+        }
         return episodes.mapIndexed { index, episode ->
             episode.apply {
                 episode_number = (episodes.size - index).toFloat()
@@ -255,10 +265,10 @@ abstract class WcoTheme :
 
     open fun iframeExtractor(document: Document) = document.select("iframe")
         .ifEmpty { throw Exception("No iframe found in the episode page") }
-        .map {
+        .parallelCatchingFlatMapBlocking {
             val iframeLink = it.attr("abs:src")
             iframeParse(iframeLink)
-        }.flatten()
+        }
 
     open fun iframeOldExtractor(document: Document): List<Video> {
         val script = document.selectFirst("script:containsData(decodeURIComponent)")?.data()
@@ -279,18 +289,18 @@ abstract class WcoTheme :
             .selectFirst("iframe")?.attr("src")
             ?: throw Exception("No iframe found in the episode page")
 
-        return iframeParse(iframeUrl)
+        return runBlocking { runCatching { iframeParse(iframeUrl) }.getOrElse { emptyList() } }
     }
 
-    open fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
+    open suspend fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
         // Dub or Hard-sub
         val iframeSoup = client.newCall(GET(iframeLink, headers))
-            .execute().asJsoup()
+            .awaitSuccess().asJsoup()
 
         val getVideoLinkScript =
             iframeSoup.selectFirst("script:containsData(getJSON)")!!.data()
         val getVideoLink =
-            getVideoLinkScript.substringAfter("\$.getJSON(\"").substringBefore("\"")
+            getVideoLinkScript.substringAfter("$.getJSON(\"").substringBefore("\"")
 
         val iframeDomain = "https://" + iframeLink.toHttpUrl().host
         val requestUrl = iframeDomain + getVideoLink
@@ -301,14 +311,15 @@ abstract class WcoTheme :
             .set("Origin", iframeDomain)
             .build()
 
-        val videoData = client.newCall(GET(requestUrl, requestHeaders)).execute()
+        val videoData = client.newCall(GET(requestUrl, requestHeaders))
+            .awaitSuccess()
             .parseAs<VideoResponseDto>()
 
         videoData.videos
     } else if (iframeLink.contains("vhs.watchanimesub")) {
         // Premium videos with high quality, soft-sub and audio tracks
         val body = client.newCall(GET(iframeLink, headers))
-            .execute().body.string()
+            .awaitSuccess().bodyString()
 
         val matchResult = Regex("""getRedirectedUrl\("(https://[\w-/.]+/index\.m3u8)"""").find(body)
         if (matchResult != null) {
