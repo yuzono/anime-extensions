@@ -298,9 +298,9 @@ class KickAssAnime :
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedWith(
             compareBy(
+                { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
                 { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-                { it.quality.contains(server, true) },
                 { Regex("""([\d,]+) [KMGTPE]B/s""").find(it.quality)?.groupValues?.get(1)?.replace(",", ".")?.toFloatOrNull() ?: 0F },
             ),
         ).reversed()
