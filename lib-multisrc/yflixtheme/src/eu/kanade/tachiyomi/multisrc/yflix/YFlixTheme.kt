@@ -358,12 +358,10 @@ open class YFlixTheme(
     protected open val SharedPreferences.hosterPref by preferences.delegate(PREF_HOSTER_KEY, SERVERS.toSet())
     protected open val SharedPreferences.scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
-    protected open val domainValues by lazy { domainList.map { "https://$it" } }
-
     protected open fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = getString(PREF_DOMAIN_KEY, defaultDomain)
             ?: return this
-        if (domain !in domainValues) {
+        if (domain !in domainList) {
             edit()
                 .putString(PREF_DOMAIN_KEY, defaultDomain)
                 .apply()
@@ -383,7 +381,7 @@ open class YFlixTheme(
             key = PREF_DOMAIN_KEY,
             title = "Preferred domain",
             entries = domainList,
-            entryValues = domainValues,
+            entryValues = domainList.map { "https://$it" },
             default = defaultDomain,
             summary = "%s",
         ) {
