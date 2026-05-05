@@ -19,13 +19,11 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
@@ -43,14 +41,6 @@ class Kayoanime :
 
     override val lang = "en"
 
-    // Used for loading anime
-    private var infoQuery = ""
-    private var max = ""
-    private var latestPost = ""
-    private var layout = ""
-    private var settings = ""
-    private var currentReferer = ""
-
     override val supportsLatest = true
 
     private val json: Json by injectLazy()
@@ -60,69 +50,24 @@ class Kayoanime :
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
-        infoQuery = ""
-        max = ""
-        latestPost = ""
-        layout = ""
-        settings = ""
-        currentReferer = "https://kayoanime.com/ongoing-animes/"
-        GET("$baseUrl/ongoing-animes/")
+        GET("$baseUrl/category/ongoing-anime/")
     } else {
-        val formBody = FormBody.Builder()
-            .add("action", "tie_archives_load_more")
-            .add("query", infoQuery)
-            .add("max", max)
-            .add("page", page.toString())
-            .add("latest_post", latestPost)
-            .add("layout", layout)
-            .add("settings", settings)
-            .build()
-        val formHeaders = headers.newBuilder()
-            .add("Accept", "*/*")
-            .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            .add("Host", "kayoanime.com")
-            .add("Origin", "https://kayoanime.com")
-            .add("Referer", currentReferer)
-            .add("X-Requested-With", "XMLHttpRequest")
-            .build()
-        POST("$baseUrl/wp-admin/admin-ajax.php", body = formBody, headers = formHeaders)
+        GET("$baseUrl/category/ongoing-anime/page/$page/")
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage = if (response.request.url.toString().endsWith("admin-ajax.php")) {
-        val body = response.body.string()
-        val rawParsed = json.decodeFromString<String>(body)
-        val parsed = json.decodeFromString<PostResponse>(rawParsed)
-        val soup = Jsoup.parse(parsed.code)
-
-        val animes = soup.select("li.post-item").map { element ->
-            popularAnimeFromElement(element)
-        }
-
-        AnimesPage(animes, !parsed.hide_next)
-    } else {
+    override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
 
         val animes = document.select(popularAnimeSelector()).map { element ->
             popularAnimeFromElement(element)
         }
 
-        val hasNextPage = popularAnimeNextPageSelector().let { selector ->
-            document.select(selector).first()
-        } != null
-        if (hasNextPage) {
-            val container = document.selectFirst("ul#posts-container")!!
-            val pagesNav = document.selectFirst("div.pages-nav > a")!!
-            layout = container.attr("data-layout")
-            infoQuery = pagesNav.attr("data-query")
-            max = pagesNav.attr("data-max")
-            latestPost = pagesNav.attr("data-latest")
-            settings = container.attr("data-settings")
-        }
+        val hasNextPage = document.selectFirst("div.pages-nav span.last-page a") != null
 
-        AnimesPage(animes, hasNextPage)
+        return AnimesPage(animes, hasNextPage)
     }
 
-    override fun popularAnimeSelector(): String = "ul#posts-container > li.post-item"
+    override fun popularAnimeSelector(): String = "ul.posts-items > li.post-item"
 
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
@@ -130,16 +75,16 @@ class Kayoanime :
         title = element.selectFirst("h2.post-title")!!.text().substringBefore(" Episode")
     }
 
-    override fun popularAnimeNextPageSelector(): String = "div.pages-nav > a[data-text=load more]"
+    override fun popularAnimeNextPageSelector(): String = "div.pages-nav span.last-page a"
 
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
 
-    override fun latestUpdatesSelector(): String = "ul.tabs:has(a:contains(Recent)) + div.tab-content li.widget-single-post-item"
+    override fun latestUpdatesSelector(): String = "div.tab-content-recent li.widget-single-post-item"
 
     override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
+        setUrlWithoutDomain(element.selectFirst("a.post-title")!!.attr("href"))
         thumbnail_url = element.selectFirst("img[src]")?.attr("src") ?: ""
         title = element.selectFirst("a.post-title")!!.text().substringBefore(" Episode")
     }
@@ -149,57 +94,39 @@ class Kayoanime :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return if (page == 1) {
-            infoQuery = ""
-            max = ""
-            latestPost = ""
-            layout = ""
-            settings = ""
+        val filterList = if (filters.isEmpty()) getFilterList() else filters
+        val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
+        val subPageFilter = filterList.find { it is SubPageFilter } as SubPageFilter
 
-            val filterList = if (filters.isEmpty()) getFilterList() else filters
-            val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
-            val subPageFilter = filterList.find { it is SubPageFilter } as SubPageFilter
-
-            return when {
-                query.isNotBlank() -> {
-                    val cleanQuery = query.replace(" ", "+")
-                    currentReferer = "$baseUrl?s=$cleanQuery"
-                    GET("$baseUrl?s=$cleanQuery")
+        return when {
+            query.isNotBlank() -> {
+                val cleanQuery = query.replace(" ", "+")
+                if (page == 1) {
+                    GET("$baseUrl/?s=$cleanQuery")
+                } else {
+                    GET("$baseUrl/page/$page/?s=$cleanQuery")
                 }
-
-                genreFilter.state != 0 -> {
-                    val url = "$baseUrl${genreFilter.toUriPart()}"
-                    currentReferer = url
-                    GET(url)
-                }
-
-                subPageFilter.state != 0 -> {
-                    val url = "$baseUrl${subPageFilter.toUriPart()}"
-                    currentReferer = url
-                    GET(url)
-                }
-
-                else -> popularAnimeRequest(page)
             }
-        } else {
-            val formBody = FormBody.Builder()
-                .add("action", "tie_archives_load_more")
-                .add("query", infoQuery)
-                .add("max", max)
-                .add("page", page.toString())
-                .add("latest_post", latestPost)
-                .add("layout", layout)
-                .add("settings", settings)
-                .build()
-            val formHeaders = headers.newBuilder()
-                .add("Accept", "*/*")
-                .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                .add("Host", "kayoanime.com")
-                .add("Origin", "https://kayoanime.com")
-                .add("Referer", currentReferer)
-                .add("X-Requested-With", "XMLHttpRequest")
-                .build()
-            POST("$baseUrl/wp-admin/admin-ajax.php", body = formBody, headers = formHeaders)
+
+            genreFilter.state != 0 -> {
+                val path = genreFilter.toUriPart().trimEnd('/')
+                if (page == 1) {
+                    GET("$baseUrl$path/")
+                } else {
+                    GET("$baseUrl$path/page/$page/")
+                }
+            }
+
+            subPageFilter.state != 0 -> {
+                val path = subPageFilter.toUriPart().trimEnd('/')
+                if (page == 1) {
+                    GET("$baseUrl$path/")
+                } else {
+                    GET("$baseUrl$path/page/$page/")
+                }
+            }
+
+            else -> popularAnimeRequest(page)
         }
     }
 
@@ -209,7 +136,7 @@ class Kayoanime :
 
     override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun searchAnimeNextPageSelector(): String = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
 
     // ============================== Filters ===============================
 
@@ -224,8 +151,8 @@ class Kayoanime :
             "Sub-page",
             arrayOf(
                 Pair("<select>", ""),
-                Pair("Anime Series", "/anime-series/"),
-                Pair("Anime Movie", "/anime-movie/"),
+                Pair("Anime Series", "/category/anime-series/"),
+                Pair("Anime Movie", "/category/anime-movie/"),
             ),
         )
 
@@ -234,21 +161,28 @@ class Kayoanime :
             "Genres",
             arrayOf(
                 Pair("<select>", ""),
-                Pair("Adventure", "/adventure/"),
-                Pair("Comedy", "/comedy/"),
-                Pair("Demons", "/demons/"),
-                Pair("Drama", "/drama/"),
-                Pair("Fantasy", "/fantasy/"),
-                Pair("Mecha", "/mecha/"),
-                Pair("Military", "/military/"),
-                Pair("Romance", "/romance/"),
-                Pair("School", "/school/"),
-                Pair("Sci-Fi", "/sci-fi/"),
-                Pair("Shounen", "/shounen/"),
-                Pair("Slice of Life", "/slice-of-life/"),
-                Pair("Sports", "/sports/"),
-                Pair("Super Power", "/super-power/"),
-                Pair("Supernatural", "/supernatural/"),
+                Pair("Action", "/category/action/"),
+                Pair("Adventure", "/category/adventure/"),
+                Pair("Comedy", "/category/comedy/"),
+                Pair("Demons", "/category/demons/"),
+                Pair("Drama", "/category/drama/"),
+                Pair("Fantasy", "/category/fantasy/"),
+                Pair("Horror", "/category/horror/"),
+                Pair("Magic", "/category/magic/"),
+                Pair("Martial Arts", "/category/martial-arts/"),
+                Pair("Mecha", "/category/mecha/"),
+                Pair("Military", "/category/military/"),
+                Pair("Music", "/category/music/"),
+                Pair("Mystery", "/category/mystery/"),
+                Pair("Psychological", "/category/psychological/"),
+                Pair("Romance", "/category/romance/"),
+                Pair("School", "/category/school/"),
+                Pair("Sci-Fi", "/category/sci-fi/"),
+                Pair("Shounen", "/category/shounen/"),
+                Pair("Slice of Life", "/category/slice-of-life/"),
+                Pair("Space", "/category/space/"),
+                Pair("Sports", "/category/sports/"),
+                Pair("Super Power", "/category/super-power/"),
             ),
         )
 
@@ -280,7 +214,6 @@ class Kayoanime :
 
     // ============================== Episodes ==============================
 
-    // Lots of code borrowed from https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/googledrive.py under the `GoogleDriveFolderIE` class
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodeList = mutableListOf<SEpisode>()
@@ -340,18 +273,18 @@ class Kayoanime :
                     .add("Cookie", getCookie("https://drive.google.com"))
                     .build()
 
-                val response = client.newCall(
+                val postResponse = client.newCall(
                     POST(postUrl, body = body, headers = postHeaders),
                 ).execute()
 
-                val parsed = response.parseAs<GDrivePostResponse> {
+                val parsed = postResponse.parseAs<GDrivePostResponse> {
                     JSON_REGEX.find(it)!!.groupValues[1]
                 }
 
                 if (parsed.items == null) throw Exception("Failed to load items, please log in to google drive through webview")
                 parsed.items.forEachIndexed { index, it ->
                     if (it.mimeType.startsWith("video")) {
-                        val size = it.fileSize?.toLongOrNull()?.let { formatBytes(it) }
+                        val size = it.fileSize?.toLongOrNull()?.let { sz -> formatBytes(sz) }
                         val pathName = path.trimInfo()
 
                         episodeList.add(
@@ -405,10 +338,10 @@ class Kayoanime :
                     }
 
                     if (host.contains("slogoanime")) {
-                        val document = client.newCall(GET(location)).execute().asJsoup()
-                        document.select("a[href*=drive.google.com]").distinctBy { it.text() }.forEach {
-                            val url = it.selectFirst("a[href*=drive.google.com]")!!.attr("href").substringBeforeLast("?usp=shar")
-                            traverseFolder(url, getVideoPathsFromElement(season) + " " + it.text())
+                        val redirectDoc = client.newCall(GET(location)).execute().asJsoup()
+                        redirectDoc.select("a[href*=drive.google.com]").distinctBy { link -> link.text() }.forEach { link ->
+                            val gdriveUrl = link.selectFirst("a[href*=drive.google.com]")!!.attr("href").substringBeforeLast("?usp=shar")
+                            traverseFolder(gdriveUrl, getVideoPathsFromElement(season) + " " + it.text())
                         }
                     }
                 }
@@ -449,10 +382,8 @@ class Kayoanime :
 
     // ============================= Utilities ==============================
 
-    // https://github.com/yt-dlp/yt-dlp/blob/8f0be90ecb3b8d862397177bb226f17b245ef933/yt_dlp/extractor/youtube.py#L573
     private fun generateSapisidhashHeader(SAPISID: String, origin: String = "https://drive.google.com"): String {
         val timeNow = System.currentTimeMillis() / 1000
-        // SAPISIDHASH algorithm from https://stackoverflow.com/a/32065323
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
             .digest("$timeNow $SAPISID $origin".toByteArray())
@@ -518,12 +449,6 @@ class Kayoanime :
 
         return listOf(Video(videoUrl, "Video", videoUrl))
     }
-
-    @Serializable
-    data class PostResponse(
-        val hide_next: Boolean,
-        val code: String,
-    )
 
     private fun formatBytes(bytes: Long): String = when {
         bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
