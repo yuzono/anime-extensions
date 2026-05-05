@@ -57,7 +57,7 @@ class KickAssAnimeExtractor(
         val trimmed = rawUrl.trim()
         return when {
             trimmed.startsWith("https://") || trimmed.startsWith("http://") ->
-                trimmed.replace(Regex("^(https?:)//+"), "$1//")
+                trimmed.replace(httpRegex, "$1//")
             trimmed.startsWith("//") ->
                 "https://${trimmed.substring(2)}"
             trimmed.startsWith("/") -> {
@@ -67,6 +67,8 @@ class KickAssAnimeExtractor(
             else -> trimmed
         }
     }
+
+    private val httpRegex by lazy { Regex("""^(https?:)//+""") }
 
     internal suspend fun videosFromUrl(url: String, name: String): List<Video> {
         val finalUrl = if (url.contains("/vast")) {
@@ -82,7 +84,7 @@ class KickAssAnimeExtractor(
 
         val cleanHtml = html.replace("&quot;", "\"")
 
-        if ("""manifest":\[0,"""".toRegex().containsMatchIn(cleanHtml)) {
+        if (cleanHtml.contains("""manifest":[0,"""")) {
             return parseNewPlayer(cleanHtml, finalUrl, name)
         }
 
@@ -177,22 +179,20 @@ class KickAssAnimeExtractor(
         }
     }
 
+    private val manifestRegex by lazy { Regex("""manifest":\[0,"(?:https?:)?(//[^"]+)"]""") }
+    private val trackRegex by lazy { Regex(""""language":\[\d+,"([^"]+)"][^}]+?"name":\[\d+,"([^"]+)"][^}]+?"src":\[\d+,"([^"]+)"]""") }
+
     private fun parseNewPlayer(cleanHtml: String, url: String, name: String): List<Video> {
         val videoHeaders = getVideoHeaders(url)
         val vClient = buildVideoClient(videoHeaders)
         val localPlaylistUtils = PlaylistUtils(vClient, videoHeaders)
 
-        val rawManifestUrl = (
-            """manifest":\[0,"(//[^"]+)"]""".toRegex()
-                .find(cleanHtml)?.groupValues?.get(1)
-                ?: """manifest":\[0,"(https?://[^"]+)"]""".toRegex()
-                    .find(cleanHtml)?.groupValues?.get(1)
-            ) ?: return emptyList()
+        val rawManifestUrl = manifestRegex
+            .find(cleanHtml)?.groupValues?.get(1)
+            ?: return emptyList()
 
         // FIX: Allow other properties (like "filename" and "source") between language, name, and src
         val manifestUrl = fixUrl(rawManifestUrl, url)
-
-        val trackRegex = """"language":\[\d+,"([^"]+)"][^}]+?"name":\[\d+,"([^"]+)"][^}]+?"src":\[\d+,"([^"]+)"]""".toRegex()
 
         val subtitles = trackRegex.findAll(cleanHtml).mapNotNull { match ->
             val lang = match.groupValues[1]
