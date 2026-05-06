@@ -327,7 +327,7 @@ class AnimePahe :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        val links = document.select("div#resolutionMenu > button").withIndex().mapNotNull { (index, btn) ->
+        val links = document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
             val kwikLink = btn.attr("data-src")
             val quality = btn.text()
             val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
@@ -336,7 +336,7 @@ class AnimePahe :
 
         return if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
             links.parallelMapBlocking { (kwikLink, _, quality) ->
-                kwikExtractor.getHlsVideo(kwikLink, referer = "$baseUrl/", quality)
+                kwikExtractor.getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
             }
         } else {
             links.mapNotNull { (_, paheWinLink, quality) ->
