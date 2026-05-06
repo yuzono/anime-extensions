@@ -334,16 +334,22 @@ class AnimePahe :
             Triple(kwikLink, paheWinLink, quality)
         }
 
-        return if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            links.parallelMapBlocking { (kwikLink, _, quality) ->
-                kwikExtractor.getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
-            }
-        } else {
+        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
+
+        val videos = if (!useHLS) {
             links.mapNotNull { (_, paheWinLink, quality) ->
                 if (paheWinLink.isNullOrBlank()) return@mapNotNull null
                 runCatching {
                     kwikExtractor.getStreamVideo(context, paheWinLink, quality)
                 }.getOrNull()
+            }
+        } else {
+            emptyList()
+        }
+
+        return videos.ifEmpty {
+            links.parallelMapBlocking { (kwikLink, _, quality) ->
+                kwikExtractor.getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
             }
         }
     }
