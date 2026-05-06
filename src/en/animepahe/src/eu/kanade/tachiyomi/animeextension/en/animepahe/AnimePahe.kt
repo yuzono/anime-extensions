@@ -21,6 +21,7 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -151,6 +152,7 @@ class AnimePahe :
             val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("api")
                 addQueryParameter("m", "search")
+                // addQueryParameter("l", "8")
                 addQueryParameter("q", query)
             }
             GET(urlBuilder.build())
@@ -288,7 +290,7 @@ class AnimePahe :
 
     private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
         SEpisode.create().apply {
-            date_upload = episode.createdAt.toDate()
+            date_upload = episode.createdAt.let { DATE_FORMATTER.tryParse(it) }
             val session = episode.session
             setUrlWithoutDomain("/play/$animeSession/$session")
             val epNum = episode.episodeNumber
@@ -437,10 +439,6 @@ class AnimePahe :
     private fun SAnime.getId() = newAnimeIdRegex.find(url)?.let { it.groupValues[1] }
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
 
-    private fun String.toDate(): Long = runCatching {
-        DATE_FORMATTER.parse(this)?.time ?: 0L
-    }.getOrNull() ?: 0L
-
     companion object {
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
@@ -467,11 +465,13 @@ class AnimePahe :
         private val PREF_SUB_ENTRIES = listOf("sub", "dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type_"
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
-        private const val PREF_LINK_TYPE_DEFAULT = true // Still prefer HLS links by default since they are more stable and compatible, but users can switch to direct links if they have issues with Cloudflare blocking
+        private const val PREF_LINK_TYPE_DEFAULT = false
         private val PREF_LINK_TYPE_SUMMARY by lazy {
-            """Enable this if you are having Cloudflare issues.""".trimMargin()
+            """Enable this if you are having Cloudflare issues.
+            |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
+            """.trimMargin()
         }
 
         // Big slap to whoever misspelled `preferred`

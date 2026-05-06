@@ -34,7 +34,8 @@ class CloudflareBypass(private val context: Context) {
             webView = WebView(context)
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
-            val defaultUserAgent = webView.settings.userAgentString ?: ""
+            val defaultUserAgent = webView.settings.userAgentString
+                ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, loadedUrl: String) {
