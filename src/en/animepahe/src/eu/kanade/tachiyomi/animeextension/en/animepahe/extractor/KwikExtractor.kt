@@ -46,9 +46,9 @@ class KwikExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
 ) {
-    private val kwikParamsRegex = Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""")
-    private val kwikDUrl = Regex("action=\"([^\"]+)\"")
-    private val kwikDToken = Regex("value=\"([^\"]+)\"")
+    private val kwikParamsRegex by lazy { Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""") }
+    private val kwikDUrl by lazy { Regex("action=\"([^\"]+)\"") }
+    private val kwikDToken by lazy { Regex("value=\"([^\"]+)\"") }
 
     // Clone the base client so interceptors, cookie jars, logging, etc. are preserved,
     // and only override redirect behavior.

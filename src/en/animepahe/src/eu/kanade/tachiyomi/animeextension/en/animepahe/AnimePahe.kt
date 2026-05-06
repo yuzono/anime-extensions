@@ -322,7 +322,6 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
-    private val kwikExtractor by lazy { KwikExtractor(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
@@ -340,7 +339,7 @@ class AnimePahe :
             links.mapNotNull { (_, paheWinLink, quality) ->
                 if (paheWinLink.isNullOrBlank()) return@mapNotNull null
                 runCatching {
-                    kwikExtractor.getStreamVideo(context, paheWinLink, quality)
+                    KwikExtractor(client, headers).getStreamVideo(context, paheWinLink, quality)
                 }.getOrNull()
             }
         } else {
@@ -349,7 +348,7 @@ class AnimePahe :
 
         return videos.ifEmpty {
             links.parallelMapBlocking { (kwikLink, _, quality) ->
-                kwikExtractor.getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
+                KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
             }
         }
     }
