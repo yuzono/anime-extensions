@@ -28,7 +28,6 @@ SOFTWARE.
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.app.Application
-import android.util.Log
 import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -78,7 +77,7 @@ class KwikExtractor(
     }
 
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
-        val eContent = client.newCall(GET(kwikUrl, kwikHeaders.newBuilder().set("Referer", referer).build()))
+        val eContent = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
             .awaitSuccess().asJsoup()
         val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
             ?.substringAfterLast("eval(function(")
@@ -100,7 +99,7 @@ class KwikExtractor(
     }
 
     fun getStreamUrlFromKwik(context: Application, paheUrl: String): String {
-        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i", kwikHeaders)).execute().use { response ->
+        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i", headers)).execute().use { response ->
             val location = response.header("location")
                 ?: throw KwikException.ExtractionException("Pahe redirect failed: No location header found.")
             "https://" + location.substringAfterLast("https://")
@@ -130,9 +129,9 @@ class KwikExtractor(
         while (code != 302 && tries < tryLimit) {
             val headersBuilder = kwikHeaders.newBuilder()
                 .set("Referer", fContentUrl)
-                .add("Cookie", fContentCookies)
+                .set("Cookie", fContentCookies)
 
-            cloudFlareBypassResult?.let { headersBuilder.add("User-Agent", it.userAgent) }
+            cloudFlareBypassResult?.let { headersBuilder.set("User-Agent", it.userAgent) }
 
             noRedirectClient.newCall(
                 POST(uri, headersBuilder.build(), FormBody.Builder().add("_token", tok).build()),
@@ -162,13 +161,15 @@ class KwikExtractor(
 
     private fun fetchKwikHtml(context: Application, kwikUrl: String): KwikContent {
         fun attemptKwikFetch(cfResult: CloudFlareBypassResult?): KwikContent? {
+            // Use `Headers.Builder()` because we want to use the default User-Agent from the app,
+            // since that would be the one used when open webview manually
             val headers = Headers.Builder()
-                .add("Origin", "https://kwik.cx")
-                .add("Referer", "https://kwik.cx/")
+                .set("Origin", "https://kwik.cx")
+                .set("Referer", "https://kwik.cx/")
                 .apply {
                     if (cfResult != null) {
-                        add("Cookie", cfResult.cookies)
-                        add("User-Agent", cfResult.userAgent)
+                        set("Cookie", cfResult.cookies)
+                        set("User-Agent", cfResult.userAgent)
                     }
                 }
                 .build()
@@ -187,8 +188,7 @@ class KwikExtractor(
                         null
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("Kwik", "Error fetching Kwik HTML: ${e.message}")
+            } catch (_: Exception) {
                 null
             }
         }

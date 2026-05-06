@@ -8,6 +8,7 @@ import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import eu.kanade.tachiyomi.animeextension.en.animepahe.AnimePahe.Companion.UA_MOBILE
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,8 +35,9 @@ class CloudflareBypass(private val context: Context) {
             webView = WebView(context)
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
+            webView.settings.userAgentString = UA_MOBILE
             val defaultUserAgent = webView.settings.userAgentString
-                ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+                ?: UA_MOBILE
 
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, loadedUrl: String) {
