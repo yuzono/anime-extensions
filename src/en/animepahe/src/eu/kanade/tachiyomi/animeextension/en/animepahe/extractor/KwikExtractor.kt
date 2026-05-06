@@ -71,8 +71,10 @@ class KwikExtractor(
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val eContent = client.newCall(GET(kwikUrl, Headers.headersOf("referer", referer)))
             .awaitSuccess().asJsoup()
-        val script = eContent.selectFirst("script:containsData(eval\\(function)")!!.data().substringAfterLast("eval(function(")
-        val unpacked = JsUnpacker.unpackAndCombine("eval(function($script)")
+        val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
+            ?.substringAfterLast("eval(function(")
+            ?: throw KwikException.ExtractionException("JsUnpacker not found.")
+        val unpacked = JsUnpacker.unpackAndCombine("eval(function($script")
             ?: throw KwikException.ExtractionException("JsUnpacker failed to unpack Kwik script.")
         return unpacked.substringAfter("const source=\\'").substringBefore("\\';")
     }
