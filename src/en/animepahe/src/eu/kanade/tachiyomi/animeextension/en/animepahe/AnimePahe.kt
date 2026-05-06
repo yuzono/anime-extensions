@@ -347,7 +347,7 @@ class AnimePahe :
 
         return videos.ifEmpty {
             links.parallelMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", "$quality (HLS)")
+                KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
             }
         }
     }
