@@ -28,6 +28,7 @@ SOFTWARE.
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.app.Application
+import android.util.Log
 import dev.datlag.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -43,6 +44,7 @@ data class KwikContent(val cookies: String, val html: String, val finalUrl: Stri
 
 class KwikExtractor(
     private val client: OkHttpClient,
+    private val headers: Headers,
 ) {
     private val kwikParamsRegex = Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""")
     private val kwikDUrl = Regex("action=\"([^\"]+)\"")
@@ -57,6 +59,13 @@ class KwikExtractor(
             .build()
     }
 
+    private val kwikHeaders by lazy {
+        headers.newBuilder()
+            .set("Origin", "https://kwik.cx")
+            .set("Referer", "https://kwik.cx/")
+            .build()
+    }
+
     suspend fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
         val videoUrl = getHlsStreamUrl(kwikUrl, referer)
 
@@ -64,12 +73,12 @@ class KwikExtractor(
             videoUrl,
             quality,
             videoUrl,
-            headers = Headers.headersOf("referer", "https://kwik.cx/"),
+            headers = kwikHeaders,
         )
     }
 
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
-        val eContent = client.newCall(GET(kwikUrl, Headers.headersOf("referer", referer)))
+        val eContent = client.newCall(GET(kwikUrl, kwikHeaders.newBuilder().set("Referer", referer).build()))
             .awaitSuccess().asJsoup()
         val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
             ?.substringAfterLast("eval(function(")
@@ -86,19 +95,18 @@ class KwikExtractor(
             videoUrl,
             quality,
             videoUrl,
-            headers = Headers.headersOf("referer", "https://kwik.cx/"),
+            headers = kwikHeaders,
         )
     }
 
     fun getStreamUrlFromKwik(context: Application, paheUrl: String): String {
-        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i")).execute().use { response ->
+        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i", kwikHeaders)).execute().use { response ->
             val location = response.header("location")
                 ?: throw KwikException.ExtractionException("Pahe redirect failed: No location header found.")
             "https://" + location.substringAfterLast("https://")
         }
 
         var (fContentCookies, fContentString, fContentUrl) = fetchKwikHtml(context, kwikUrl)
-        var cloudFlareBypassResult: CloudFlareBypassResult? = null
 
         // Extract JS Parameters
         val match = kwikParamsRegex.find(fContentString)
@@ -113,15 +121,16 @@ class KwikExtractor(
             ?: throw KwikException.ExtractionException("Failed to decrypt stream Token.")
 
         // Extraction Loop
+        var cloudFlareBypassResult: CloudFlareBypassResult? = null
         var kwikLocation: String? = null
         var code = 419
         var tries = 0
         val tryLimit = 5
 
         while (code != 302 && tries < tryLimit) {
-            val headersBuilder = Headers.Builder()
-                .add("referer", fContentUrl)
-                .add("cookie", fContentCookies)
+            val headersBuilder = kwikHeaders.newBuilder()
+                .set("Referer", fContentUrl)
+                .add("Cookie", fContentCookies)
 
             cloudFlareBypassResult?.let { headersBuilder.add("User-Agent", it.userAgent) }
 
@@ -132,6 +141,7 @@ class KwikExtractor(
                 kwikLocation = response.header("location")
             }
 
+            // Cloudflare/Session Timeout Handling
             if (code == 403 || code == 419) {
                 cloudFlareBypassResult = CloudflareBypass(context).getCookies(kwikUrl)
                     ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
@@ -153,25 +163,33 @@ class KwikExtractor(
     private fun fetchKwikHtml(context: Application, kwikUrl: String): KwikContent {
         fun attemptKwikFetch(cfResult: CloudFlareBypassResult?): KwikContent? {
             val headers = Headers.Builder()
-                .add("referer", "https://kwik.cx/")
+                .add("Origin", "https://kwik.cx")
+                .add("Referer", "https://kwik.cx/")
                 .apply {
                     if (cfResult != null) {
-                        add("cookie", cfResult.cookies)
+                        add("Cookie", cfResult.cookies)
                         add("User-Agent", cfResult.userAgent)
                     }
                 }
                 .build()
 
             // Use the base client directly so all interceptors are preserved.
-            return client.newCall(GET(kwikUrl, headers)).execute().use { resp ->
-                val html = resp.body.string()
-                if (html.contains("eval(function(")) {
-                    val respCookies = resp.extractCookies()
-                    val finalCookies = listOfNotNull(respCookies.ifBlank { null }, cfResult?.cookies?.ifBlank { null }).joinToString("; ")
-                    KwikContent(finalCookies, html, resp.request.url.toString())
-                } else {
-                    null
+            return try {
+                // try-catch the `Failed to bypass Cloudflare` exception
+                client.newCall(GET(kwikUrl, headers)).execute().use { resp ->
+                    val html = resp.body.string()
+                    if (html.contains("eval(function(")) {
+                        val respCookies = resp.extractCookies()
+                        val finalCookies =
+                            listOfNotNull(respCookies.ifBlank { null }, cfResult?.cookies?.ifBlank { null }).joinToString("; ")
+                        KwikContent(finalCookies, html, resp.request.url.toString())
+                    } else {
+                        null
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e("Kwik", "Error fetching Kwik HTML: ${e.message}")
+                null
             }
         }
 
@@ -198,6 +216,7 @@ class KwikExtractor(
         while (i < fullString.length) {
             val nextIndex = fullString.indexOf(toFind, i)
 
+            // No more found, early return
             if (nextIndex == -1) break
 
             val decodedCharStr = buildString {

@@ -82,7 +82,7 @@ class AnimePahe :
      */
     override fun animeDetailsRequest(anime: SAnime): Request = anime.getId()
         ?.let { GET("$baseUrl/a/$it") }
-        ?: GET("$baseUrl${anime.url}")
+        ?: GET("$baseUrl${anime.url}") // fallback to session URL (when searching by filters): /anime/{sessionId}
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
@@ -322,7 +322,7 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
-    private val kwikExtractor by lazy { KwikExtractor(client) }
+    private val kwikExtractor by lazy { KwikExtractor(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
