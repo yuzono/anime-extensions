@@ -17,23 +17,17 @@ class AnitubeUrlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pathSegments = intent?.data?.pathSegments
-        if (pathSegments != null && pathSegments.size > 1) {
-            val searchQuery = "${pathSegments[0]}/${pathSegments[1]}"
 
-            val mainIntent = Intent().apply {
-                action = "eu.kanade.tachiyomi.ANIMESEARCH"
-                putExtra("query", "${Anitube.PREFIX_SEARCH}$searchQuery")
-                putExtra("filter", packageName)
-            }
+        val mainIntent = Intent().apply {
+            action = "eu.kanade.tachiyomi.ANIMESEARCH"
+            putExtra("query", intent.data.toString())
+            putExtra("filter", packageName)
+        }
 
-            try {
-                startActivity(mainIntent)
-            } catch (e: ActivityNotFoundException) {
-                Log.e(tag, e.toString())
-            }
-        } else {
-            Log.e(tag, "could not parse uri from intent $intent")
+        try {
+            startActivity(mainIntent)
+        } catch (e: ActivityNotFoundException) {
+            Log.e(tag, "Unable to launch activity", e)
         }
 
         finish()

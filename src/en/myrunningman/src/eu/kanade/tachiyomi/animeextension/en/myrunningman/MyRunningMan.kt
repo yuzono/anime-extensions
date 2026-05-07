@@ -15,11 +15,10 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -32,8 +31,6 @@ class MyRunningMan : ParsedAnimeHttpSource() {
     override val lang = "en"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/episodes/mostwatched/$page")
@@ -61,13 +58,25 @@ class MyRunningMan : ParsedAnimeHttpSource() {
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/ep/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/ep/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -91,7 +100,7 @@ class MyRunningMan : ParsedAnimeHttpSource() {
                 title = it.label
                 thumbnail_url = buildString {
                     append("$baseUrl/assets/epimg/${it.value.padStart(3, '0')}")
-                    if (it.value.toIntOrNull() ?: 1 > 396) append("_temp")
+                    if ((it.value.toIntOrNull() ?: 1) > 396) append("_temp")
                     append(".jpg")
                 }
             }
