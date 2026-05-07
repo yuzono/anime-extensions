@@ -126,8 +126,6 @@ object AnikageFilters {
         )
 
         val GENRES = arrayOf(
-            Pair("Anime", "ANIME"),
-            Pair("Manga", "MANGA"),
             Pair("Action", "Action"),
             Pair("Adventure", "Adventure"),
             Pair("Comedy", "Comedy"),
