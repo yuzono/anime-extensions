@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelMapBlocking
+import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -346,8 +346,10 @@ class AnimePahe :
         }
 
         return videos.ifEmpty {
-            links.parallelMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+            links.parallelMapNotNullBlocking { (kwikLink, _, quality) ->
+                runCatching {
+                    KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                }.getOrNull()
             }
         }
     }
