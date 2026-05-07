@@ -127,6 +127,7 @@ class KwikExtractor(
         val tryLimit = 5
 
         while (code != 302 && tries < tryLimit) {
+            tries++
             val headersBuilder = kwikHeaders.newBuilder()
                 .set("Referer", fContentUrl)
                 .set("Cookie", fContentCookies)
@@ -151,9 +152,7 @@ class KwikExtractor(
                     .joinToString("; ")
 
                 fContentCookies = "$cleanedCookies; ${cloudFlareBypassResult.cookies}"
-                tries = 0
             }
-            tries++
         }
 
         return kwikLocation ?: throw KwikException.ExtractionException("Failed to extract stream URI after $tries attempts.")
