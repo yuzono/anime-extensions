@@ -18,7 +18,6 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -26,7 +25,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.security.MessageDigest
 
 class Kayoanime :
@@ -43,26 +41,37 @@ class Kayoanime :
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
-        GET("$baseUrl/category/ongoing-anime/")
-    } else {
-        GET("$baseUrl/category/ongoing-anime/page/$page/")
+    override fun popularAnimeRequest(page: Int): Request {
+        val path = "/category/ongoing-anime/"
+        return if (page == 1) {
+            GET("$baseUrl$path")
+        } else {
+            GET("$baseUrl$path/page/$page/")
+        }
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).map { popularAnimeFromElement(it) }
 
-        val animes = document.select(popularAnimeSelector()).map { element ->
-            popularAnimeFromElement(element)
+        if (animes.isEmpty()) {
+            return AnimesPage(emptyList(), false)
         }
 
-        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        val url = response.request.url.toString()
+        val page = if (url.contains("/page/")) {
+            url.substringAfter("/page/").substringBefore("/").toIntOrNull() ?: 1
+        } else {
+            1
+        }
+
+        val loadMoreButton = document.selectFirst("#load-more-archives")
+        val maxPages = loadMoreButton?.attr("data-max")?.toIntOrNull() ?: 1
+        val hasNextPage = maxPages > page
 
         return AnimesPage(animes, hasNextPage)
     }
@@ -75,7 +84,7 @@ class Kayoanime :
         title = element.selectFirst("h2.post-title")!!.text().substringBefore(" Episode")
     }
 
-    override fun popularAnimeNextPageSelector(): String = "div.pages-nav span.last-page a"
+    override fun popularAnimeNextPageSelector(): String = throw UnsupportedOperationException()
 
     // =============================== Latest ===============================
 
@@ -203,12 +212,8 @@ class Kayoanime :
                 parseStatus(it.text())
             } ?: SAnime.UNKNOWN
             description = realDesc + "\n\n$moreInfo"
-            genre = document.selectFirst("div.toggle-content > ul > li:contains(Genres)")?.let {
-                it.text().substringAfter("Genres: ")
-            }
-            author = document.selectFirst("div.toggle-content > ul > li:contains(Studios)")?.let {
-                it.text().substringAfter("Studios: ")
-            }
+            genre = document.selectFirst("div.toggle-content > ul > li:contains(Genre)")?.text()?.substringAfter(": ")
+            author = document.selectFirst("div.toggle-content > ul > li:contains(Studio)")?.text()?.substringAfter(": ")
         }
     }
 
@@ -395,14 +400,17 @@ class Kayoanime :
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val httpUrl = episode.url.toHttpUrl()
         val host = httpUrl.host
-        return if (host == "drive.google.com") {
+
+        if (host == "drive.google.com") {
             val id = httpUrl.queryParameter("id")!!
-            GoogleDriveExtractor(client, headers).videosFromUrl(id)
-        } else if (host.contains("workers.dev")) {
-            getIndexVideoUrl(episode.url)
-        } else {
-            throw Exception("Unsupported url: ${episode.url}")
+            return GoogleDriveExtractor(client, headers).videosFromUrl(id)
         }
+
+        if (host.contains("workers.dev")) {
+            return getIndexVideoUrl(episode.url)
+        }
+
+        throw Exception("Unsupported url: ${episode.url}")
     }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
@@ -413,11 +421,11 @@ class Kayoanime :
 
     // ============================= Utilities ==============================
 
-    private fun generateSapisidhashHeader(SAPISID: String, origin: String = "https://drive.google.com"): String {
+    private fun generateSapisidhashHeader(sapisid: String, origin: String = "https://drive.google.com"): String {
         val timeNow = System.currentTimeMillis() / 1000
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
-            .digest("$timeNow $SAPISID $origin".toByteArray())
+            .digest("$timeNow $sapisid $origin".toByteArray())
             .joinToString("") { "%02x".format(it) }
         return "SAPISIDHASH ${timeNow}_$sapisidhash"
     }
@@ -437,8 +445,8 @@ class Kayoanime :
     }
 
     private fun String.trimInfo(): String {
-        var newString = this.replaceFirst("""^\[\w+\] ?""".toRegex(), "")
-        val regex = """( ?\[[\s\w-]+\]| ?\([\s\w-]+\))(\.mkv|\.mp4|\.avi)?${'$'}""".toRegex()
+        var newString = this.replaceFirst("""^\[\w+] ?""".toRegex(), "")
+        val regex = """( ?\[[\s\w-]+]| ?\([\s\w-]+\))(\.mkv|\.mp4|\.avi)?$""".toRegex()
 
         while (regex.containsMatchIn(newString)) {
             newString = regex.replace(newString) { matchResult ->
@@ -499,17 +507,17 @@ class Kayoanime :
         }
     }
 
-    private fun parseStatus(statusString: String): Int = when (statusString) {
-        "Status: Currently Airing" -> SAnime.ONGOING
-        "Status: Finished Airing" -> SAnime.COMPLETED
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Currently Airing", ignoreCase = true) -> SAnime.ONGOING
+        statusString.contains("Finished Airing", ignoreCase = true) -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
     }
 
     companion object {
         private val ITEM_NUMBER_REGEX = """ - (?:S\d+E)?(\d+)""".toRegex()
         private val KEY_REGEX = """"(\w{39})"""".toRegex()
-        private val VERSION_REGEX = """"([^"]+web-frontend[^"]+)"""".toRegex()
-        private val JSON_REGEX = """(?:)\s*(\{(.+)\})\s*(?:)""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        private val VERSION_REGEX = """"([^"]+web-frontend[^"]+)""".toRegex()
+        private val JSON_REGEX = """\s*(\{(.+)\})\s*""".toRegex(RegexOption.DOT_MATCHES_ALL)
         private const val BOUNDARY = "=====vc17a3rwnndj====="
 
         private const val MAX_RECURSION_DEPTH = 2
