@@ -12,7 +12,7 @@ import org.jsoup.Jsoup
 
 class KwikExtractor(
     private val client: OkHttpClient,
-    private val appContext: Application? = null,
+    private val appContext: Application,
 ) {
     companion object {
         private const val TAG = "AniWave-Kwik"
@@ -22,7 +22,16 @@ class KwikExtractor(
         private val KWIK_FORM_TOKEN = Regex("""value="([^"]+)"""")
     }
 
-    private val cfBypass by lazy { appContext?.let { CloudflareBypass(it) } }
+    // Clone the base client so interceptors, cookie jars, logging, etc. are preserved,
+    // and only override redirect behavior.
+    private val noRedirectClient by lazy {
+        client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    private val cfBypass by lazy { CloudflareBypass(appContext) }
 
     @Volatile
     private var cachedBypass: CloudFlareBypassResult? = null
@@ -66,17 +75,15 @@ class KwikExtractor(
         // Try CF bypass if decryption params missing
         if (!KWIK_PARAMS_REGEX.containsMatchIn(html) && !html.contains("eval(function(")) {
             Log.w(TAG, "/f/ missing decryption params, trying CF bypass...")
-            cfBypass?.let {
-                getOrRefreshBypass(fileUrl)?.let { bypass ->
-                    val bypassCookies = buildString {
-                        if (allCookies.isNotBlank()) append(allCookies).append("; ")
-                        append(bypass.cookies)
-                    }
-                    client.newCall(GET(fileUrl, buildFPageHeaders(referer, bypassCookies))).execute().use { resp ->
-                        html = resp.body.string()
-                        val extraCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
-                        allCookies = "$bypassCookies; $extraCookies"
-                    }
+            getOrRefreshBypass(fileUrl)?.let { bypass ->
+                val bypassCookies = buildString {
+                    if (allCookies.isNotBlank()) append(allCookies).append("; ")
+                    append(bypass.cookies)
+                }
+                client.newCall(GET(fileUrl, buildFPageHeaders(referer, bypassCookies))).execute().use { resp ->
+                    html = resp.body.string()
+                    val extraCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
+                    allCookies = "$bypassCookies; $extraCookies"
                 }
             }
         }
@@ -93,10 +100,6 @@ class KwikExtractor(
             ?: throw KwikException.ExtractionException("No form token found")
 
         // POST form with retry on 403/419
-        val noRedirectClient = client.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
 
         var kwikLocation: String? = null
         var code = 419
@@ -126,13 +129,14 @@ class KwikExtractor(
                 if (respCookies.isNotBlank()) currentCookies = "$currentCookies; $respCookies"
             }
 
-            if ((code == 403 || code == 419) && cfBypass != null) {
+            if (code == 403 || code == 419) {
                 Log.w(TAG, "POST HTTP $code, refreshing CF bypass...")
                 synchronized(bypassLock) { cachedBypass = null }
                 getOrRefreshBypass(fileUrl)?.let { bypass ->
                     currentCookies = "$currentCookies; ${bypass.cookies}"
                     tries = 0
                 }
+                    ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
             }
         }
 
@@ -172,7 +176,7 @@ class KwikExtractor(
             }
         }
         Log.d(TAG, "Requesting CF bypass for $url")
-        return cfBypass?.getCookies(url)?.also {
+        return cfBypass.getCookies(url)?.also {
             synchronized(bypassLock) {
                 cachedBypass = it
                 bypassTimestamp = System.currentTimeMillis()

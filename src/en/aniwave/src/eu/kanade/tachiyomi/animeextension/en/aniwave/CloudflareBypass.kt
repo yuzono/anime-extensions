@@ -36,7 +36,7 @@ class CloudflareBypass(private val context: Context) {
                 webView = WebView(context).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    // settings.userAgentString = UA_MOBILE
+                    settings.userAgentString = UA_MOBILE
                 }
                 val defaultUserAgent = webView.settings.userAgentString
                     ?: UA_MOBILE
