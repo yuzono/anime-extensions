@@ -2,7 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.aniwave
 
 import android.app.Application
 import android.util.Log
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.network.GET
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -265,5 +265,10 @@ class KwikExtractor(
             }
         }
         return sb.toString()
+    }
+
+    sealed class KwikException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+        class ExtractionException(message: String, cause: Throwable? = null) : KwikException(message, cause)
+        class CloudflareBlockedException(message: String) : KwikException(message)
     }
 }

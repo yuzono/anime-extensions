@@ -39,7 +39,7 @@ class AniWave :
     ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AniWave (Unofficial)"
+    override val name = "AniWave (Unoriginal)"
 
     override val baseUrl: String
         get() = preferences.getString(PREF_CUSTOM_DOMAIN_KEY, null)?.takeIf { it.isNotBlank() }
