@@ -12,10 +12,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -50,13 +54,9 @@ abstract class WcoTheme :
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET(baseUrl, headers)
 
-    override fun popularAnimeSelector() = "div.sidebar-titles > ul > li > a"
+    override fun popularAnimeSelector() = "div#sidebar_right2 ul.items > li"
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.ownText()
-        thumbnail_url = "$baseUrl/favicon.ico"
-    }
+    override fun popularAnimeFromElement(element: Element) = gridItemToAnime(element)
 
     override fun popularAnimeNextPageSelector() = null
 
@@ -65,15 +65,32 @@ abstract class WcoTheme :
 
     override fun latestUpdatesSelector(): String = "div.recent-release:contains(Recent Releases) + div > ul > li"
 
-    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        title = element.text()
-        thumbnail_url = element.select("img[src]").attr("abs:src")
+    override fun latestUpdatesFromElement(element: Element): SAnime = gridItemToAnime(element)
+
+    /**
+     * Builds an [SAnime] from one of the homepage `ul.items > li` grid cards.
+     * Cards always have a thumbnail in `.img a img` and a clickable title in
+     * `.recent-release-episodes a` (or just the wrapping anchor for the
+     * Recently Added Series grid).
+     */
+    private fun gridItemToAnime(element: Element): SAnime = SAnime.create().apply {
+        val titleAnchor = element.selectFirst(".recent-release-episodes a, .img a")
+            ?: element.selectFirst("a")!!
+        setUrlWithoutDomain(titleAnchor.attr("href"))
+        // Prefer the bookmark anchor's own text so trailing badge spans
+        // (Dub/Sub/quality) are not included; fall back to the image alt
+        // attribute, then to the raw element text.
+        title = titleAnchor.ownText().ifBlank {
+            element.selectFirst("img[alt]")?.attr("alt").orEmpty().ifBlank {
+                element.text()
+            }
+        }.takeIf { it.isNotBlank() }!!
+        thumbnail_url = element.selectFirst("img[src]")?.attr("abs:src")
     }
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         return client.newCall(latestUpdatesRequest(page))
-            .execute()
+            .awaitSuccess()
             .use { response ->
                 if (page == 1) {
                     latestUpdatesParse(response)
@@ -81,8 +98,8 @@ abstract class WcoTheme :
                     val document = response.asJsoup()
 
                     val animes = document.select(latestUpdatesNextPageSelector())
-                        .map { element ->
-                            latestUpdatesFromElement(element)
+                        .mapNotNull { element ->
+                            runCatching { latestUpdatesFromElement(element) }.getOrNull()
                         }
 
                     return AnimesPage(animes, false)
@@ -116,12 +133,16 @@ abstract class WcoTheme :
         if (searchUrl.contains("/search-by-genre/")) {
             // If the response is from a genre search, use the genre selector
             val document = response.asJsoup()
-            return document.select(genreAnimeSelector()).map { genreAnimeFromElement(it) }
+            return document.select(genreAnimeSelector()).mapNotNull {
+                runCatching { genreAnimeFromElement(it) }.getOrNull()
+            }
                 .let { AnimesPage(it, false) }
         }
         if (searchUrl.contains("/search")) {
             val document = response.asJsoup()
-            return document.select(searchAnimeSelector()).map { searchAnimeFromElement(it) }
+            return document.select(searchAnimeSelector()).mapNotNull {
+                runCatching { searchAnimeFromElement(it) }.getOrNull()
+            }
                 .let { AnimesPage(it, false) }
         }
         return popularAnimeParse(response)
@@ -139,18 +160,32 @@ abstract class WcoTheme :
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        document.selectFirst("div.video-title a")?.text()?.let { title = it }
+        // The "anime" URL stored in the user's library may actually point at an
+        // episode page (e.g. when the entry was added from the Latest list).
+        // On anime pages the title sits in `div.video-title a`; on episode
+        // pages we fall back to the linked series name in `div.header-tag h2 a`
+        // (both layouts) and finally to the on-page heading so favourites
+        // never end up with an empty title after a refresh.
+        (
+            document.selectFirst("div.video-title a")?.text()
+                ?: document.selectFirst("div.header-tag h2 a")?.text()
+                ?: document.selectFirst("div.video-title h1")?.text()
+                ?: document.selectFirst("div.baslikCell h1")?.text()
+            )?.let { title = it }
         description = document.selectFirst("div#sidebar_cat p")?.text()
         thumbnail_url = document.selectFirst("div#sidebar_cat img")?.attr("abs:src")
         genre = document.select("div#sidebar_cat > a").joinToString { it.text() }
+            .ifBlank { null }
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.cat-eps"
+    override fun episodeListSelector() = "div.cat-eps, div#episodeList a.dark-episode-item"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        val episodes = document.select(episodeListSelector()).map { episodeFromElement(it) }
+        val episodes = document.select(episodeListSelector()).mapNotNull {
+            runCatching { episodeFromElement(it) }.getOrNull()
+        }
         return episodes.mapIndexed { index, episode ->
             episode.apply {
                 episode_number = (episodes.size - index).toFloat()
@@ -173,8 +208,9 @@ abstract class WcoTheme :
     open val episodeTitleRegex by lazy { Regex("(Season (\\d+) )?Episode (\\d+) (.*)") }
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        val title = element.text()
+        val anchor = if (element.tagName() == "a") element else element.selectFirst("a")!!
+        setUrlWithoutDomain(anchor.attr("href"))
+        val title = anchor.selectFirst("span")?.text() ?: element.text()
         val (name, _) = episodeTitleFromElement(title)
         this.name = name
     }
@@ -229,10 +265,10 @@ abstract class WcoTheme :
 
     open fun iframeExtractor(document: Document) = document.select("iframe")
         .ifEmpty { throw Exception("No iframe found in the episode page") }
-        .map {
+        .parallelCatchingFlatMapBlocking {
             val iframeLink = it.attr("abs:src")
             iframeParse(iframeLink)
-        }.flatten()
+        }
 
     open fun iframeOldExtractor(document: Document): List<Video> {
         val script = document.selectFirst("script:containsData(decodeURIComponent)")?.data()
@@ -253,18 +289,18 @@ abstract class WcoTheme :
             .selectFirst("iframe")?.attr("src")
             ?: throw Exception("No iframe found in the episode page")
 
-        return iframeParse(iframeUrl)
+        return runBlocking { runCatching { iframeParse(iframeUrl) }.getOrElse { emptyList() } }
     }
 
-    open fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
+    open suspend fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
         // Dub or Hard-sub
         val iframeSoup = client.newCall(GET(iframeLink, headers))
-            .execute().asJsoup()
+            .awaitSuccess().asJsoup()
 
         val getVideoLinkScript =
             iframeSoup.selectFirst("script:containsData(getJSON)")!!.data()
         val getVideoLink =
-            getVideoLinkScript.substringAfter("\$.getJSON(\"").substringBefore("\"")
+            getVideoLinkScript.substringAfter("$.getJSON(\"").substringBefore("\"")
 
         val iframeDomain = "https://" + iframeLink.toHttpUrl().host
         val requestUrl = iframeDomain + getVideoLink
@@ -275,14 +311,15 @@ abstract class WcoTheme :
             .set("Origin", iframeDomain)
             .build()
 
-        val videoData = client.newCall(GET(requestUrl, requestHeaders)).execute()
+        val videoData = client.newCall(GET(requestUrl, requestHeaders))
+            .awaitSuccess()
             .parseAs<VideoResponseDto>()
 
         videoData.videos
     } else if (iframeLink.contains("vhs.watchanimesub")) {
         // Premium videos with high quality, soft-sub and audio tracks
         val body = client.newCall(GET(iframeLink, headers))
-            .execute().body.string()
+            .awaitSuccess().bodyString()
 
         val matchResult = Regex("""getRedirectedUrl\("(https://[\w-/.]+/index\.m3u8)"""").find(body)
         if (matchResult != null) {
