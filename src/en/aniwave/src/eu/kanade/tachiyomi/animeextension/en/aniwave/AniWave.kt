@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -76,11 +77,11 @@ class AniWave :
     override fun popularAnimeSelector(): String = "div.ani.items > div.item"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        element.selectFirst("a.name")?.let { a ->
+        element.selectFirst("a.name")?.let { a: Element ->
             setUrlWithoutDomain(EP_URL_SUFFIX_REGEX.replace(a.attr("href").substringBefore("?"), ""))
             title = getTitle(a)
         }
-        thumbnail_url = element.selectFirst("div.poster img")?.let {
+        thumbnail_url = element.selectFirst("div.poster img")?.let { it: Element ->
             it.attr("data-src").ifBlank { it.attr("src") }
         }
     }
@@ -144,7 +145,8 @@ class AniWave :
         return SAnime.create().apply {
             setUrlWithoutDomain(newDocument.location())
             if (!animeId.isNullOrBlank()) url += "#$animeId"
-            title = titleElement?.let { getTitle(it) }.orEmpty()
+            titleElement?.let { it: Element -> getTitle(it) }
+                ?.takeIf(String::isNotBlank)?.let { title = it }
             genre = newDocument.select("div:contains(Genres) > span > a").joinToString(", ") { it.text().trim() }
             author = newDocument.select("div:contains(Studios) > span > a").joinToString(", ") { it.text().trim() }
             status = parseStatus(newDocument.select("div:contains(Status) > span").text())
@@ -334,8 +336,8 @@ class AniWave :
         }
 
         return try {
-            val responseBody = response.body.string() ?: return emptyList()
-            val result = json.decodeFromString<ResultResponse>(responseBody)
+            val responseBody = response.body.string()
+            val result = responseBody.parseAs<ResultResponse>()
             result.toDocument().select(episodeListSelector())
                 .map { episodeFromElement(it, animeUrl) }
                 .reversed()
@@ -419,10 +421,10 @@ class AniWave :
             response.body.string()
         } catch (_: Exception) {
             return emptyList()
-        } ?: return emptyList()
+        }
 
         val document = try {
-            json.decodeFromString<ResultResponse>(responseBody).toDocument()
+            responseBody.parseAs<ResultResponse>().toDocument()
         } catch (e: Exception) {
             Log.e("AniWave", "Failed to parse video list: ${e.message}")
             return emptyList()
@@ -470,7 +472,7 @@ class AniWave :
 
                 val mapperJson = client.newCall(
                     GET("https://mapper.mewcdn.online/api/mal/$mapperMal/$mapperSlug/$mapperTs", mapperHeaders),
-                ).execute().use { json.parseToJsonElement(it.body.string() ?: "").jsonObject }
+                ).execute().use { json.parseToJsonElement(it.body.string()).jsonObject }
 
                 for ((key, value) in mapperJson) {
                     if (key.equals("status", true)) continue
@@ -609,7 +611,7 @@ class AniWave :
 
         return client.newCall(GET("$baseUrl/ajax/server?get=$serverId", listHeaders)).execute().use { response ->
             if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
-            json.decodeFromString<ServerResponseDto>(response.body.string() ?: "").result.url
+            response.parseAs<ServerResponseDto>().result.url
         }
     }
 
@@ -627,7 +629,7 @@ class AniWave :
 
         val pageBody = client.newCall(GET(embedUrl, pageHeaders)).execute().use {
             if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
-            it.body.string() ?: throw Exception("Empty player page body")
+            it.body.string()
         }
 
         val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
@@ -642,10 +644,10 @@ class AniWave :
 
         val sourcesBody = client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders)).execute().use {
             if (!it.isSuccessful) throw Exception("getSources failed: HTTP ${it.code}")
-            it.body.string() ?: throw Exception("Empty getSources body")
+            it.body.string()
         }
 
-        val data = json.decodeFromString<SourceResponseDto>(sourcesBody)
+        val data = sourcesBody.parseAs<SourceResponseDto>()
         val m3u8 = extractM3u8FromSources(data.sources)
             ?.takeIf { it.startsWith("http") }
             ?: throw Exception("No valid m3u8 found")
@@ -779,7 +781,8 @@ class AniWave :
         if (document.location().startsWith("$baseUrl/filter?keyword=")) {
             val foundAnimePath = document.selectFirst(searchAnimeSelector())?.selectFirst("a[href]")?.attr("href")
                 ?: throw IllegalStateException("Search element not found")
-            return client.newCall(GET(baseUrl + EP_URL_SUFFIX_REGEX.replace(foundAnimePath, ""))).execute().use { it.asJsoup() }
+            val resolveAnimePath = EP_URL_SUFFIX_REGEX.replace(foundAnimePath, "")
+            return client.newCall(GET(baseUrl + resolveAnimePath)).execute().useAsJsoup()
         }
         return document
     }

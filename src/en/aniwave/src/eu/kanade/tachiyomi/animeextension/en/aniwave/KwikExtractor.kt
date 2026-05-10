@@ -33,7 +33,7 @@ class KwikExtractor(
     fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val html = client.newCall(GET(kwikUrl, buildEPageHeaders(referer))).execute().use { response ->
             if (!response.isSuccessful) throw KwikException.ExtractionException("kwik.cx /e/ returned HTTP ${response.code}")
-            response.body.string() ?: throw KwikException.ExtractionException("Empty response body from /e/")
+            response.body.string().takeIf(String::isNotBlank) ?: throw KwikException.ExtractionException("Empty response body from /e/")
         }
         return parseHlsFromHtml(html, kwikUrl)
     }
@@ -60,7 +60,7 @@ class KwikExtractor(
                 if (sessionCookies.isNotBlank()) append(sessionCookies).append("; ")
                 append(fCookies)
             }
-            (resp.body.string() ?: "") to combined
+            resp.body.string() to combined
         }
 
         // Try CF bypass if decryption params missing
@@ -73,7 +73,7 @@ class KwikExtractor(
                         append(bypass.cookies)
                     }
                     client.newCall(GET(fileUrl, buildFPageHeaders(referer, bypassCookies))).execute().use { resp ->
-                        html = resp.body.string() ?: ""
+                        html = resp.body.string()
                         val extraCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
                         allCookies = "$bypassCookies; $extraCookies"
                     }
