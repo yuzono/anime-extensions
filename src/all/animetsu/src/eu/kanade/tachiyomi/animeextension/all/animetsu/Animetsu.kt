@@ -43,7 +43,7 @@ class Animetsu :
     private val apiUrl: String
         get() = "$baseUrl/v2/api"
 
-    private val proxyUrl = "https://mega-cloud.top/proxy"
+    private val proxyUrl = "https://swiftstream.top/proxy"
 
     override val lang = "all"
 
