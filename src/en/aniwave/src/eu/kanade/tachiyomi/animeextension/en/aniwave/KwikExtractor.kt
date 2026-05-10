@@ -101,9 +101,11 @@ class KwikExtractor(
         var kwikLocation: String? = null
         var code = 419
         var tries = 0
+        val tryLimit = 5
         var currentCookies = allCookies
 
-        while (code != 302 && tries < 5) {
+        while (code != 302 && tries < tryLimit) {
+            tries++
             val postHeaders = Headers.Builder()
                 .add("Referer", fileUrl)
                 .add("Cookie", currentCookies)
@@ -132,7 +134,6 @@ class KwikExtractor(
                     tries = 0
                 }
             }
-            tries++
         }
 
         return kwikLocation ?: throw KwikException.ExtractionException("MP4 extraction failed after $tries tries (HTTP $code)")
@@ -246,6 +247,8 @@ class KwikExtractor(
 
         while (i < fullString.length) {
             val nextIndex = fullString.indexOf(toFind, i)
+
+            // No more found, early return
             if (nextIndex == -1) break
 
             val decodedCharStr = buildString {
@@ -253,6 +256,7 @@ class KwikExtractor(
                     append(keyIndexMap[fullString[j]] ?: -1)
                 }
             }
+
             i = nextIndex + 1
 
             try {
@@ -264,6 +268,7 @@ class KwikExtractor(
                 // Ignore invalid number formats securely
             }
         }
+
         return sb.toString()
     }
 
