@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
@@ -537,7 +538,7 @@ class AniWave :
 
         var currentUrl = url
         repeat(maxHops) {
-            noRedirectClient.newCall(GET(currentUrl, dlHeaders)).awaitSuccess().use { response ->
+            noRedirectClient.newCall(GET(currentUrl, dlHeaders)).await().use { response ->
                 if (response.code in 301..308) {
                     currentUrl = response.header("location") ?: return currentUrl
                 } else {

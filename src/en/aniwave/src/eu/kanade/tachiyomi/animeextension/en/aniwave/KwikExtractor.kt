@@ -166,7 +166,6 @@ class KwikExtractor(
                 synchronized(bypassLock) { cachedBypass = null }
                 getOrRefreshBypass(fileUrl)?.let { bypass ->
                     currentCookies = "$currentCookies; ${bypass.cookies}"
-                    tries = 0
                 }
                     ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
             }
