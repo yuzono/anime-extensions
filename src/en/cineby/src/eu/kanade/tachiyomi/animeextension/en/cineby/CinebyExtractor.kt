@@ -291,21 +291,16 @@ class CinebyExtractor(
         //   Official servers (verified against website JS + reference table)
         //   Neon    = mb-flix                                (api.videasy.net)
         //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.net)
-        //   Cypher  = moviebox                              (api.videasy.net)
-        //   Sage    = 1movies                               (api.videasy.net)
-        //   Jett    = primesrcme                             (api.videasy.net)
-        //   Reyna   = primewire    [FILTERED HOST SOURCES]   (api2.videasy.net)
-        //   Breach  = m4uhd                                 (api2.videasy.net)
+        //   Cypher  = downloader2                               (api.videasy.net)
+        //   Sage    = 1movies                                (api.videasy.net)
+        //   Breach  = m4uhd                                  (api.videasy.net)
         //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.net)
         //   Killjoy = meine ?lang=german  - German          (api.videasy.net)
         //   Harbor  = meine ?lang=italian - Italian         (api.videasy.net)
         //   Chamber = meine ?lang=french  - French [MOVIE ONLY] (api.videasy.net)
-        //   Fade    = hdmovie      [FILTERS quality=Hindi]   (api.videasy.net)
+        //   Fade    = hdmovie      [FILTERS quality=Hindi]  (api.videasy.net)
         //   Omen    = lamovie             - Spanish          (api.videasy.net)
-        //   Gekko   = cuevana             - Spanish          (api2.videasy.net)
         //   Raze    = superflix           - Portuguese       (api.videasy.net)
-        //   Phoenix = overflix            - Portuguese       (api2.videasy.net)
-        //   Astra   = visioncine          - Portuguese       (api.videasy.net)
         val VIDEASY_SERVERS = listOf(
             // Official catalog
             VideasyServer(
@@ -325,7 +320,7 @@ class CinebyExtractor(
             VideasyServer(
                 "Cypher",
                 "https://api.videasy.net",
-                "moviebox",
+                "downloader2",
                 audioLabel = "English",
             ),
             VideasyServer(
@@ -335,20 +330,8 @@ class CinebyExtractor(
                 audioLabel = "English",
             ),
             VideasyServer(
-                "Jett",
-                "https://api.videasy.net",
-                "primesrcme",
-                audioLabel = "English",
-            ),
-            VideasyServer(
-                "Reyna",
-                "https://api2.videasy.net",
-                "primewire",
-                audioLabel = "English",
-            ),
-            VideasyServer(
                 "Breach",
-                "https://api2.videasy.net",
+                "https://api.videasy.net",
                 "m4uhd",
                 audioLabel = "English",
             ),
@@ -395,27 +378,9 @@ class CinebyExtractor(
                 audioLabel = "Spanish",
             ),
             VideasyServer(
-                "Gekko",
-                "https://api2.videasy.net",
-                "cuevana",
-                audioLabel = "Spanish",
-            ),
-            VideasyServer(
                 "Raze",
                 "https://api.videasy.net",
                 "superflix",
-                audioLabel = "Portuguese",
-            ),
-            VideasyServer(
-                "Phoenix",
-                "https://api2.videasy.net",
-                "overflix",
-                audioLabel = "Portuguese",
-            ),
-            VideasyServer(
-                "Astra",
-                "https://api.videasy.net",
-                "visioncine",
                 audioLabel = "Portuguese",
             ),
         )
