@@ -150,9 +150,10 @@ class CinebyExtractor(
 
         return videoList.sortedWith(
             compareByDescending<Video> {
-                it.quality.contains(qualityPref, ignoreCase = true)
+                it.quality.contains(qualityPref, ignoreCase = true) ||
+                    (qualityPref == "2160" && it.quality.contains("4k", ignoreCase = true))
             }.thenByDescending {
-                qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                extractQualityValue(it.quality)
             },
         )
     }
@@ -179,6 +180,37 @@ class CinebyExtractor(
     }
 
     private fun doubleEncode(s: String): String = pctEncode(pctEncode(s))
+
+    /**
+     * Returns true if the given quality string is a language name masquerading
+     * as a resolution label. Checks both audioLabel (e.g. "German" from meine)
+     * and qualityFilter (e.g. "English"/"Hindi" from hdmovie) since the
+     * audioLabel for English servers is now "Original" instead of "English".
+     */
+    private fun isLanguageAsQuality(server: VideasyServer, quality: String): Boolean = quality.equals(server.audioLabel, ignoreCase = true) ||
+        (server.qualityFilter != null && quality.equals(server.qualityFilter, ignoreCase = true))
+
+    /**
+     * Returns true if the quality string already represents a real resolution
+     * (e.g. "1080p", "720p", "480p", "4K", "2160p", or bare digits like "1080").
+     * These don't need HLS expansion — the server already provided the correct label.
+     */
+    private fun isRealResolution(quality: String): Boolean = qualityRegex.containsMatchIn(quality) ||
+        quality.contains("4k", ignoreCase = true) ||
+        quality.all { it.isDigit() }
+
+    /**
+     * Extracts a numeric quality value for sorting. Maps "4K" to 2160
+     * so it sorts above 1080p instead of being treated as 0.
+     */
+    private fun extractQualityValue(quality: String): Int {
+        val match = qualityRegex.find(quality)
+        if (match != null) {
+            return match.groupValues[1].toIntOrNull() ?: 0
+        }
+        if (quality.contains("4k", ignoreCase = true)) return 2160
+        return 0
+    }
 
     private fun buildVideos(
         server: VideasyServer,
@@ -207,15 +239,55 @@ class CinebyExtractor(
 
         return when {
             !filteredSources.isNullOrEmpty() -> {
-                filteredSources.map { source ->
-                    val q = source.quality?.takeIf { it.isNotBlank() } ?: "Auto"
-                    Video(
-                        url = source.url,
-                        quality = buildVideoLabel(server, q, source.url, subtitles.size),
-                        videoUrl = source.url,
-                        headers = videoHeaders,
-                        subtitleTracks = subtitles,
-                    )
+                filteredSources.flatMap { source ->
+                    val rawQuality = source.quality?.takeIf { it.isNotBlank() } ?: "Auto"
+                    val isHls = source.url.lowercase().contains(".m3u8")
+                    val isLang = isLanguageAsQuality(server, rawQuality)
+
+                    // Expand when quality is NOT a real resolution AND either:
+                    // - URL is .m3u8 (standard HLS), or
+                    // - Quality is a language name (these are almost always HLS
+                    //   even if the URL doesn't contain .m3u8 explicitly)
+                    // Don't expand when quality is already "1080p" etc —
+                    // those servers provide correct labels per source.
+                    val needsExpansion = !isRealResolution(rawQuality) &&
+                        (isHls || isLang)
+
+                    if (needsExpansion) {
+                        val expanded = runCatching {
+                            playlistUtils.extractFromHls(
+                                playlistUrl = source.url,
+                                videoNameGen = { quality ->
+                                    buildVideoLabel(server, quality, source.url, subtitles.size)
+                                },
+                                subtitleList = subtitles,
+                                masterHeaders = videoHeaders,
+                                videoHeaders = videoHeaders,
+                            )
+                        }.getOrDefault(emptyList())
+
+                        expanded.ifEmpty {
+                            listOf(
+                                Video(
+                                    url = source.url,
+                                    quality = buildVideoLabel(server, rawQuality, source.url, subtitles.size),
+                                    videoUrl = source.url,
+                                    headers = videoHeaders,
+                                    subtitleTracks = subtitles,
+                                ),
+                            )
+                        }
+                    } else {
+                        listOf(
+                            Video(
+                                url = source.url,
+                                quality = buildVideoLabel(server, rawQuality, source.url, subtitles.size),
+                                videoUrl = source.url,
+                                headers = videoHeaders,
+                                subtitleTracks = subtitles,
+                            ),
+                        )
+                    }
                 }
             }
             decrypted.streams != null -> {
@@ -258,7 +330,15 @@ class CinebyExtractor(
         url: String,
         subCount: Int,
     ): String {
-        val parts = mutableListOf("Server: ${server.displayName}", quality)
+        val parts = mutableListOf("Server: ${server.displayName}")
+
+        // If the "quality" is actually a language name (e.g. "German" from
+        // meine, "English"/"Hindi" from hdmovie), don't show it as video
+        // quality — the audioLabel already conveys the language.
+        if (!isLanguageAsQuality(server, quality)) {
+            parts += quality
+        }
+
         val isUhd = quality.contains("2160") || quality.contains("4k", ignoreCase = true)
         if (isUhd && !quality.contains("4k", ignoreCase = true)) parts += "4K"
         val lower = url.lowercase()
@@ -291,7 +371,7 @@ class CinebyExtractor(
         //   Official servers (verified against website JS + reference table)
         //   Neon    = mb-flix                                (api.videasy.net)
         //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.net)
-        //   Cypher  = downloader2                               (api.videasy.net)
+        //   Cypher  = downloader2                            (api.videasy.net)
         //   Sage    = 1movies                                (api.videasy.net)
         //   Breach  = m4uhd                                  (api.videasy.net)
         //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.net)
@@ -302,12 +382,11 @@ class CinebyExtractor(
         //   Omen    = lamovie             - Spanish          (api.videasy.net)
         //   Raze    = superflix           - Portuguese       (api.videasy.net)
         val VIDEASY_SERVERS = listOf(
-            // Official catalog
             VideasyServer(
                 "Neon",
                 "https://api.videasy.net",
                 "mb-flix",
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Yoru",
@@ -315,32 +394,32 @@ class CinebyExtractor(
                 "cdn",
                 movieOnly = true,
                 mayHave4K = true,
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Cypher",
                 "https://api.videasy.net",
                 "downloader2",
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Sage",
                 "https://api.videasy.net",
                 "1movies",
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Breach",
                 "https://api.videasy.net",
                 "m4uhd",
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Vyse",
                 "https://api.videasy.net",
                 "hdmovie",
                 qualityFilter = "English",
-                audioLabel = "English",
+                audioLabel = "Original",
             ),
             VideasyServer(
                 "Killjoy",

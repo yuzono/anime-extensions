@@ -521,8 +521,8 @@ class Cineby :
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred Quality",
-            entries = listOf("1080p", "720p", "480p", "360p"),
-            entryValues = listOf("1080", "720", "480", "360"),
+            entries = listOf("2160p", "1080p", "720p", "480p", "360p"),
+            entryValues = listOf("2160", "1080", "720", "480", "360"),
             default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
