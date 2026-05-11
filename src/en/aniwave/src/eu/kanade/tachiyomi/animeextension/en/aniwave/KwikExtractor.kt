@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -39,8 +40,8 @@ class KwikExtractor(
     private val bypassLock = Any()
     private val bypassCacheTtl = 5 * 60 * 1000L
 
-    fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
-        val html = client.newCall(GET(kwikUrl, buildEPageHeaders(referer))).execute().use { response ->
+    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
+        val html = client.newCall(GET(kwikUrl, buildEPageHeaders(referer))).awaitSuccess().use { response ->
             if (!response.isSuccessful) throw KwikException.ExtractionException("kwik.cx /e/ returned HTTP ${response.code}")
             response.body.string().takeIf(String::isNotBlank) ?: throw KwikException.ExtractionException("Empty response body from /e/")
         }

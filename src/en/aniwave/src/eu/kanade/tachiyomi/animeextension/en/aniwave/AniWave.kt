@@ -15,8 +15,10 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
@@ -498,28 +500,10 @@ class AniWave :
             }
         }
 
-        val executor = java.util.concurrent.Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors().coerceAtMost(4))
-        val results = serverData.map { server ->
-            executor.submit(
-                java.util.concurrent.Callable {
-                    try {
-                        extractVideo(server, epurl)
-                    } catch (t: Throwable) {
-                        Log.e("AniWave", "Critical extraction error", t)
-                        emptyList()
-                    }
-                },
-            )
-        }.mapNotNull {
-            try {
-                it.get()
-            } catch (e: Exception) {
-                Log.e("AniWave", "Thread execution error", e)
-                null
+        return serverData
+            .parallelFlatMapBlocking { server ->
+                extractVideo(server, epurl)
             }
-        }.flatten()
-        executor.shutdown()
-        return results
     }
 
     private fun mapMapperName(key: String): String = when {
@@ -540,7 +524,7 @@ class AniWave :
         return downloadObj.entries.firstOrNull()?.let { (it.value as? JsonPrimitive)?.content }
     }
 
-    private fun resolveDownloadUrl(url: String, maxHops: Int = 5): String {
+    private suspend fun resolveDownloadUrl(url: String, maxHops: Int = 5): String {
         val noRedirectClient = client.newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
@@ -553,7 +537,7 @@ class AniWave :
 
         var currentUrl = url
         repeat(maxHops) {
-            noRedirectClient.newCall(GET(currentUrl, dlHeaders)).execute().use { response ->
+            noRedirectClient.newCall(GET(currentUrl, dlHeaders)).awaitSuccess().use { response ->
                 if (response.code in 301..308) {
                     currentUrl = response.header("location") ?: return currentUrl
                 } else {
@@ -590,7 +574,7 @@ class AniWave :
 
     // ============================= Utilities ==============================
 
-    private fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
+    private suspend fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
         val embedLink = getEmbedLink(server.serverId, epUrl)
         if (server.serverName.contains("kiwi", true)) {
             extractFromKiwistream(embedLink, server, epUrl)
@@ -602,14 +586,14 @@ class AniWave :
         emptyList()
     }
 
-    private fun getEmbedLink(serverId: String, epUrl: String): String {
+    private suspend fun getEmbedLink(serverId: String, epUrl: String): String {
         val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", baseUrl + epUrl)
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
 
-        return client.newCall(GET("$baseUrl/ajax/server?get=$serverId", listHeaders)).execute().use { response ->
+        return client.newCall(GET("$baseUrl/ajax/server?get=$serverId", listHeaders)).awaitSuccess().use { response ->
             if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
             response.parseAs<ServerResponseDto>().result.url
         }
@@ -617,7 +601,7 @@ class AniWave :
 
     // ========================= VidWish Extractor ==========================
 
-    private fun extractFromPlayer(embedUrl: String, parentUrl: String, server: VideoData): List<Video> {
+    private suspend fun extractFromPlayer(embedUrl: String, parentUrl: String, server: VideoData): List<Video> {
         val host = try {
             embedUrl.toHttpUrl().host
         } catch (_: Exception) {
@@ -627,7 +611,7 @@ class AniWave :
 
         val pageHeaders = headers.newBuilder().add("Referer", parentUrl).build()
 
-        val pageBody = client.newCall(GET(embedUrl, pageHeaders)).execute().use {
+        val pageBody = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
             it.body.string()
         }
@@ -642,7 +626,7 @@ class AniWave :
             add("Origin", "https://$host")
         }.build()
 
-        val sourcesBody = client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders)).execute().use {
+        val sourcesBody = client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("getSources failed: HTTP ${it.code}")
             it.body.string()
         }
@@ -670,7 +654,7 @@ class AniWave :
 
     // ========================= Kiwi-Stream Extractor ======================
 
-    private fun extractFromKiwistream(embedUrl: String, server: VideoData, epUrl: String): List<Video> {
+    private suspend fun extractFromKiwistream(embedUrl: String, server: VideoData, epUrl: String): List<Video> {
         val (serverBaseName, serverNum, qualityFromName) = getServerInfo(server.serverName)
         val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
         val qualityLabel = qualityFromName ?: "default"
@@ -723,11 +707,11 @@ class AniWave :
         is JsonPrimitive -> sources.content
     }
 
-    private fun resolveEmbedChain(url: String): String {
+    private suspend fun resolveEmbedChain(url: String): String {
         var currentUrl = url
         repeat(3) {
             try {
-                val iframeUrl = client.newCall(GET(currentUrl, refererHeaders)).execute().use {
+                val iframeUrl = client.newCall(GET(currentUrl, refererHeaders)).awaitSuccess().use {
                     it.asJsoup().selectFirst("iframe[src]")?.attr("abs:src")
                 }
                 if (iframeUrl.isNullOrBlank()) return currentUrl
