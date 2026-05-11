@@ -443,8 +443,6 @@ class Cineby :
     // ============================ Video Links ============================
     @RequiresApi(Build.VERSION_CODES.N)
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        // episode.url: "{type}/{tmdbId}[/season/episode]#{title|year|imdbId}"
-        // — packed in relatedAnimeListParse to skip a second TMDB call here.
         val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
         val (title, year, imdbId) =
             json.decodeFromString<Triple<String, String, String>>(extraDataEncoded)

@@ -34,6 +34,7 @@ class CinebyExtractor(
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val resultCache = LruCache<CacheKey, CachedResult>(CACHE_SIZE)
+    private val resultCacheLock = Any()
 
     private val serverFailureState = ConcurrentHashMap<String, FailureState>()
 
@@ -55,6 +56,10 @@ class CinebyExtractor(
         val lastFailureAtMillis: Long,
     )
 
+    private fun apiOrigin(url: String): String = url
+        .removePrefix("https://www.").removePrefix("http://www.")
+        .let { if (it.startsWith("http")) it else "https://$it" }
+
     @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
         path: String,
@@ -73,13 +78,9 @@ class CinebyExtractor(
             (!server.movieOnly || isMovie) && server.displayName in enabledServers
         }
 
-        // Title is double-URL-encoded to match the enc-dec.app reference
-        // (Python `quote(quote(t, safe=""), safe="")`). For movies, mirror
-        // the site's seasonId=1&episodeId=1 convention.
         val videoList = eligibleServers.parallelCatchingFlatMap { server ->
             val now = System.currentTimeMillis()
 
-            // Circuit breaker: per-server-per-path scoping
             val stateKey = "${server.displayName}:$path"
             val state = serverFailureState[stateKey]
             val circuitOpen = state != null &&
@@ -91,12 +92,12 @@ class CinebyExtractor(
 
             val cacheKey = cacheKey(server, path, title, year, imdbId)
 
-            // Headers rebuilt per call since baseUrl can change between hits.
-            resultCache.get(cacheKey)
-                ?.takeIf { it.expiresAtMillis > now }
-                ?.let { cached ->
-                    return@parallelCatchingFlatMap buildVideos(server, cached.result, baseUrl, subLimit)
-                }
+            val cached = synchronized(resultCacheLock) {
+                resultCache.get(cacheKey)?.takeIf { it.expiresAtMillis > now }
+            }
+            if (cached != null) {
+                return@parallelCatchingFlatMap buildVideos(server, cached.result, baseUrl, subLimit)
+            }
 
             try {
                 val seasonId = if (isMovie) "1" else pathParts[2]
@@ -116,9 +117,11 @@ class CinebyExtractor(
                     }
                 }.build()
 
+                // API headers use stripped domain (Videasy expects no www.)
+                val apiOrigin = apiOrigin(baseUrl)
                 val backendHeaders = headers.newBuilder()
-                    .add("Referer", "$baseUrl/")
-                    .add("Origin", baseUrl)
+                    .set("Referer", "$apiOrigin/")
+                    .set("Origin", apiOrigin)
                     .build()
 
                 val encryptedText = client.newCall(
@@ -136,12 +139,14 @@ class CinebyExtractor(
                     .parseAs<VideasyDecryptionDto>()
                     .result
 
-                resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
-                serverFailureState.remove(stateKey) // Clear failures on success
+                synchronized(resultCacheLock) {
+                    resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
+                }
+                serverFailureState.remove(stateKey)
                 buildVideos(server, decrypted, baseUrl, subLimit)
             } catch (e: Throwable) {
                 serverFailureState.merge(
-                    stateKey, // Same key as check
+                    stateKey,
                     FailureState(1, now),
                 ) { old, _ -> FailureState(old.count + 1, now) }
                 throw e
@@ -226,9 +231,13 @@ class CinebyExtractor(
             }
             .take(subLimit)
 
+        // Use stripped domain (no www.) for video headers — matches what the
+        // original working code sent. Some CDNs/Cloudflare configs are sensitive
+        // to the exact Referer value.
+        val streamOrigin = apiOrigin(baseUrl)
         val videoHeaders = headers.newBuilder()
-            .add("Referer", "$baseUrl/")
-            .add("Origin", baseUrl)
+            .set("Referer", "$streamOrigin/")
+            .set("Origin", streamOrigin)
             .build()
 
         val filteredSources = decrypted.sources?.let { sources ->
