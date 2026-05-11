@@ -68,6 +68,17 @@ class KwikExtractor(
         return parseHlsFromHtml(html, kwikUrl)
     }
 
+    fun getMp4Video(paheUrl: String, referer: String, quality: String = ""): Video {
+        val videoUrl = getMp4StreamUrl(paheUrl, referer)
+
+        return Video(
+            videoUrl,
+            quality,
+            videoUrl,
+            headers = kwikHeaders,
+        )
+    }
+
     fun getMp4StreamUrl(kwikEmbedUrl: String, referer: String): String {
         val fileUrl = kwikEmbedUrl.replace("/e/", "/f/")
         Log.d(TAG, "MP4 extraction: $fileUrl")

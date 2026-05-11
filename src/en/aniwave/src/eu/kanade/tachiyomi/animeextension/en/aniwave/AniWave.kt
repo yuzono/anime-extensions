@@ -684,8 +684,8 @@ class AniWave :
             }
 
             // Fallback: MP4 via kwik
-            val mp4Url = kwikExtractor.getMp4StreamUrl(embedUrl, referer)
-            listOf(Video(mp4Url, videoLabel, mp4Url, headers = videoHeaders))
+            kwikExtractor.getMp4Video(embedUrl, referer, videoLabel)
+                .let(::listOf)
         }
     }
 
