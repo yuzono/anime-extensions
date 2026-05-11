@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.aniwave
 import android.app.Application
 import android.util.Log
 import aniyomi.lib.jsunpacker.JsUnpacker
+import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import okhttp3.FormBody
@@ -13,6 +14,7 @@ import org.jsoup.Jsoup
 
 class KwikExtractor(
     private val client: OkHttpClient,
+    private val headers: Headers,
     private val appContext: Application,
 ) {
     companion object {
@@ -32,6 +34,13 @@ class KwikExtractor(
             .build()
     }
 
+    private val kwikHeaders by lazy {
+        headers.newBuilder()
+            .set("Origin", "https://kwik.cx")
+            .set("Referer", "https://kwik.cx/")
+            .build()
+    }
+
     private val cfBypass by lazy { CloudflareBypass(appContext) }
 
     @Volatile
@@ -39,6 +48,17 @@ class KwikExtractor(
     private var bypassTimestamp = 0L
     private val bypassLock = Any()
     private val bypassCacheTtl = 5 * 60 * 1000L
+
+    suspend fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
+        val videoUrl = getHlsStreamUrl(kwikUrl, referer)
+
+        return Video(
+            videoUrl,
+            quality,
+            videoUrl,
+            headers = kwikHeaders,
+        )
+    }
 
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val html = client.newCall(GET(kwikUrl, buildEPageHeaders(referer))).awaitSuccess().use { response ->

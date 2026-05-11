@@ -56,7 +56,7 @@ class AniWave :
     private val json: Json by injectLazy()
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val appCtx: Application by injectLazy()
-    private val kwikExtractor by lazy { KwikExtractor(client, appCtx) }
+    private val kwikExtractor by lazy { KwikExtractor(client, headers, appCtx) }
 
     private val refererHeaders = headers.newBuilder()
         .add("Referer", "$baseUrl/")
@@ -663,12 +663,8 @@ class AniWave :
         val referer = "$baseUrl$epUrl"
 
         return if (useHLS) {
-            val m3u8 = kwikExtractor.getHlsStreamUrl(embedUrl, referer)
-            playlistUtils.extractFromHls(
-                m3u8,
-                videoNameGen = { "$videoLabel - $it" },
-                referer = "https://kwik.cx/",
-            )
+            kwikExtractor.getHlsVideo(embedUrl, referer = referer, quality = ":$videoLabel (HLS)")
+                .let(::listOf)
         } else {
             val videoHeaders = headers.newBuilder()
                 .add("Referer", "https://kwik.cx/")
