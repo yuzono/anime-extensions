@@ -663,7 +663,7 @@ class AniWave :
         val referer = "$baseUrl$epUrl"
 
         return if (useHLS) {
-            kwikExtractor.getHlsVideo(embedUrl, referer = referer, quality = ":$videoLabel (HLS)")
+            kwikExtractor.getHlsVideo(embedUrl, referer = referer, quality = "$videoLabel (HLS)")
                 .let(::listOf)
         } else {
             val videoHeaders = headers.newBuilder()
