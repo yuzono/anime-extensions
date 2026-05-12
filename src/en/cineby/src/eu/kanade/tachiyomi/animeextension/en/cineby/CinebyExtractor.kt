@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.cineby
 
-import android.os.Build
 import android.util.LruCache
-import androidx.annotation.RequiresApi
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -57,7 +55,6 @@ class CinebyExtractor(
         .removePrefix("https://www.").removePrefix("http://www.")
         .let { if (it.startsWith("http")) it else "https://$it" }
 
-    @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
         path: String,
         title: String,
@@ -222,7 +219,7 @@ class CinebyExtractor(
                 val l = sub.language ?: return@mapNotNull null
                 Track(u, l)
             }
-            .take(subLimit)
+            .take(subLimit.coerceAtLeast(0))
 
         // Use stripped domain (no www.) for video headers — matches what the
         // original working code sent. Some CDNs/Cloudflare configs are sensitive

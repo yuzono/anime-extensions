@@ -1,9 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.cineby
 
 import android.content.SharedPreferences
-import android.os.Build
 import android.text.InputType
-import androidx.annotation.RequiresApi
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -436,7 +434,6 @@ class Cineby :
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used")
 
     // ============================ Video Links ============================
-    @RequiresApi(Build.VERSION_CODES.N)
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
         val (title, year, imdbId) =

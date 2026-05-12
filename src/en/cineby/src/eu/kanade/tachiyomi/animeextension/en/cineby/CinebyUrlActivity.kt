@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import kotlin.system.exitProcess
 
 class CinebyUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,5 +36,6 @@ class CinebyUrlActivity : Activity() {
         }
 
         finish()
+        exitProcess(0)
     }
 }
