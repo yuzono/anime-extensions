@@ -9,15 +9,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.toRequestBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -28,7 +26,6 @@ import java.util.concurrent.ConcurrentHashMap
 class CinebyExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
-    private val json: Json,
 ) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -126,14 +123,10 @@ class CinebyExtractor(
 
                 val encryptedText = client.newCall(
                     GET(serverUrl.toString(), backendHeaders),
-                ).awaitSuccess().body.string()
+                ).awaitSuccess().bodyString()
 
-                val decryptionPayload = json.encodeToString(
-                    mapOf("text" to encryptedText, "id" to pathParts[1]),
-                )
-                val requestBody = decryptionPayload.toRequestBody(
-                    "application/json".toMediaType(),
-                )
+                val requestBody = mapOf("text" to encryptedText, "id" to pathParts[1])
+                    .toRequestBody()
                 val decrypted = client.newCall(POST(DECRYPTION_API_URL, body = requestBody))
                     .awaitSuccess()
                     .parseAs<VideasyDecryptionDto>()
@@ -375,7 +368,7 @@ class CinebyExtractor(
         private const val MAX_SERVER_FAILURES = 2
         private const val CIRCUIT_COOLDOWN_MS = 180_000L
 
-        private val qualityRegex = Regex("""(\d{3,4})(?:p|P)?""")
+        private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
 
         //   Official servers (verified against website JS + reference table)
         //   Neon    = mb-flix                                (api.videasy.net)

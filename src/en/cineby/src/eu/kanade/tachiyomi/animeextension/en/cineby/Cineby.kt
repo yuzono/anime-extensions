@@ -20,14 +20,13 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.toJsonString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,15 +47,12 @@ class Cineby :
     // Cineby/Videasy proxy
     private val apiUrl = "https://db.videasy.net/3"
 
-    private fun apiOrigin(url: String): String = url.removePrefix("https://www.").removePrefix("http://www.")
-        .let { if (it.startsWith("http")) it else "https://$it" }
+    private fun apiOrigin(url: String): String = url.replace(Regex("""https?://www\."""), "https://")
 
     override val lang = "en"
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
-    private val extractor by lazy { CinebyExtractor(client, headers, json) }
+    private val extractor by lazy { CinebyExtractor(client, headers) }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {
@@ -76,12 +72,10 @@ class Cineby :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val types = if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
 
-        return types.parallelMapNotNull { mediaType ->
-            runCatching {
-                client.newCall(latestUpdatesRequest(page, mediaType))
-                    .awaitSuccess()
-                    .use { latestUpdatesParse(it) }
-            }.getOrNull()
+        return types.parallelCatchingMapNotNull { mediaType ->
+            client.newCall(latestUpdatesRequest(page, mediaType))
+                .awaitSuccess()
+                .use { latestUpdatesParse(it) }
         }.let { animePages ->
             val animes = animePages.flatMap { it.animes }
             val hasNextPage = animePages.any { it.hasNextPage }
@@ -121,9 +115,10 @@ class Cineby :
             val url = "/$rawPath"
             val tempAnime = SAnime.create().apply { this.url = url }
             return runCatching {
-                val anime = getAnimeDetails(tempAnime).apply { this.url = url }
-                AnimesPage(listOf(anime), false)
-            }.getOrDefault(AnimesPage(emptyList(), false))
+                getAnimeDetails(tempAnime).apply { this.url = url }
+                    .let(::listOf)
+            }.getOrElse { emptyList() }
+                .let { AnimesPage(it, false) }
         }
 
         val typeIndex = filters.filterIsInstance<CinebyFilters.TypeFilter>()
@@ -161,7 +156,7 @@ class Cineby :
 
     private suspend fun fetchMediaPage(request: Request): PageDto<MediaItemDto>? = runCatching {
         client.newCall(request).awaitSuccess()
-            .use { it.parseAs<PageDto<MediaItemDto>>() }
+            .parseAs<PageDto<MediaItemDto>>()
     }.getOrNull()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException("Not used; getSearchAnime is overridden")
@@ -396,7 +391,7 @@ class Cineby :
                 tv.firstAirDate?.take(4) ?: "",
                 tv.externalIds?.imdbId ?: "",
             )
-            val extraDataEncoded = json.encodeToString(extraData)
+            val extraDataEncoded = extraData.toJsonString()
             tv.seasons
                 .filter { it.seasonNumber > 0 }
                 .parallelCatchingFlatMap { season ->
@@ -426,7 +421,7 @@ class Cineby :
                 movie.releaseDate?.take(4) ?: "",
                 movie.externalIds?.imdbId ?: "",
             )
-            val extraDataEncoded = json.encodeToString(extraData)
+            val extraDataEncoded = extraData.toJsonString()
             listOf(
                 SEpisode.create().apply {
                     name = "Movie"
@@ -445,7 +440,7 @@ class Cineby :
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
         val (title, year, imdbId) =
-            json.decodeFromString<Triple<String, String, String>>(extraDataEncoded)
+            extraDataEncoded.parseAs<Triple<String, String, String>>()
 
         return extractor.videosFromUrl(
             path = path,
@@ -611,9 +606,9 @@ class Cineby :
         private const val MIN_VOTES_FOR_RECENT_SORT = "50"
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://www.cineby.sc"
         private val DOMAIN_ENTRIES = arrayOf("www.cineby.sc", "www.fmovies.gd", "www.bitcine.net")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
+        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
 
         private const val PREF_LATEST_KEY = "pref_latest"
         private const val PREF_LATEST_DEFAULT = "movie"
