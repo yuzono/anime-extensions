@@ -14,12 +14,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -379,7 +380,7 @@ class Hanime :
     // ── Anime Details ──────────────────────────────────────────────────
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
             thumbnail_url = document.selectFirst("img.hvpi-cover")?.attr("src")
@@ -429,9 +430,8 @@ class Hanime :
         // Fallback: resolve hvId via /api/v8/video (backward compatibility for single-episode URLs)
         val slug = extractSlugFromUrl(episode.url)
 
-        val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await().use {
-            it.body.string()
-        }
+        val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await()
+            .bodyString()
         if (videoString.isEmpty()) return emptyList()
 
         val videoModel = videoString.parseAs<VideoModel>()
@@ -591,7 +591,7 @@ class Hanime :
      * m3u8 playlists and set correct headers for segment/AES key requests.
      */
     private suspend fun parseManifestStreams(response: Response): List<Video> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
+        val responseString = response.bodyString().ifEmpty { return emptyList() }
         val manifestData = responseString.parseAs<ManifestWrapper>()
         val playerHeaders = videoHeaders()
         val servers = manifestData.videosManifest.servers
@@ -636,7 +636,7 @@ class Hanime :
         // Fallback: resolve hvId from the HTML page (backward compatibility)
         val slug = extractSlugFromUrl(episode.url)
         val headers = headers.newBuilder().add("cookie", cookie)
-        val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().asJsoup()
+        val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().useAsJsoup()
 
         val nuxtScript = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
         val nuxtData = nuxtScript.data()
@@ -693,7 +693,7 @@ class Hanime :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
+        val responseString = response.bodyString().ifEmpty { return emptyList() }
         val videoModel = responseString.parseAs<VideoModel>()
 
         val currentSeriesName = getTitle(videoModel.hentaiVideo?.name ?: "")
