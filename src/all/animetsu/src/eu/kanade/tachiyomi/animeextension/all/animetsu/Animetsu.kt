@@ -88,7 +88,7 @@ class Animetsu :
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/anime/search/?sort=popularity&page=$page&per_page=35", apiHeaders())
+    override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/anime/search/?sort=trending&page=$page&per_page=35", apiHeaders())
 
     override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
 
