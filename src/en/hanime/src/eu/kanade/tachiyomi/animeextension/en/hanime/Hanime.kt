@@ -19,6 +19,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
@@ -462,9 +463,9 @@ class Hanime :
         val servers = videoModel.videosManifest?.servers ?: return emptyList()
         val playerHeaders = videoHeaders()
 
-        return servers.flatMap { server ->
+        return servers.parallelFlatMap { server ->
             val filtered = server.streams.filter { it.kind != "premium_alert" && it.url.contains(".m3u8") }
-            filtered.flatMap { stream ->
+            filtered.parallelFlatMap { stream ->
                 try {
                     playlistUtils.extractFromHls(
                         playlistUrl = stream.url,
@@ -596,11 +597,11 @@ class Hanime :
         val playerHeaders = videoHeaders()
         val servers = manifestData.videosManifest.servers
 
-        return servers.flatMap { server ->
+        return servers.parallelFlatMap { server ->
             val includePremium = preferences.getBoolean(PREF_PREMIUM_STREAMS_KEY, PREF_PREMIUM_STREAMS_DEFAULT)
             val guestStreams = server.streams.filter { (it.isGuestAllowed == true || (includePremium && it.isMemberAllowed == true)) && it.url.contains(".m3u8") }
-            guestStreams.flatMap { stream ->
-                try {
+            guestStreams.parallelFlatMap { stream ->
+                runCatching {
                     playlistUtils.extractFromHls(
                         playlistUrl = stream.url,
                         masterHeaders = playerHeaders,
@@ -610,7 +611,7 @@ class Hanime :
                             "${server.name} - $label"
                         },
                     )
-                } catch (_: Exception) {
+                }.getOrElse {
                     // Fallback: create a single Video from the stream URL
                     listOf(Video(stream.url, "${server.name} - ${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
                 }
