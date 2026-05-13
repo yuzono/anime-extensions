@@ -1,7 +1,7 @@
 ext {
     extName = 'AllAnime'
     extClass = '.AllAnime'
-    extVersionCode = 50
+    extVersionCode = 52
 }
 
 apply from: "$rootDir/common.gradle"
@@ -15,4 +15,5 @@ dependencies {
     implementation(project(':lib:gogostreamextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:cloudflareinterceptor'))
 }

@@ -5,6 +5,7 @@ import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.cloudflareinterceptor.CloudflareInterceptor
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.gogostreamextractor.GogoStreamExtractor
@@ -29,18 +30,25 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
+import uy.kohesive.injekt.api.get
+import uy.kohesive.injekt.injectLazy
 import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -61,6 +69,15 @@ class AllAnime :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
+    private val json: Json by injectLazy()
+
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+        .addInterceptor(CloudflareInterceptor(network.cloudflareClient))
+        .build()
+
+    override fun headersBuilder() = Headers.Builder()
+        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0")
+        .add("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
@@ -260,19 +277,22 @@ class AllAnime :
     // ============================ Video Links =============================
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val payload = episode.url
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
-        val postHeaders = headers.newBuilder().apply {
-            add("Accept", "*/*")
-            add("Content-Length", payload.contentLength().toString())
-            add("Content-Type", payload.contentType().toString())
-            add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", GRAPHQL_ORIGIN)
-            add("Referer", "$GRAPHQL_ORIGIN/")
-        }.build()
+        val extensions = buildJsonObject {
+            putJsonObject("persistedQuery") {
+                put("version", 1)
+                put("sha256Hash", STREAM_HASH)
+            }
+        }
 
-        return POST("$apiUrl/api", headers = postHeaders, body = payload)
+        val url = apiUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("variables", variables.toJsonString())
+            addQueryParameter("extensions", extensions.toJsonString())
+        }.build().toString()
+
+        return GET(url, headers)
     }
 
     private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
@@ -295,10 +315,10 @@ class AllAnime :
 
         // 2. If encrypted, decrypt directly (errors surface to user); otherwise parse as plain text
         val sourceUrls = if (!tobeparsed.isNullOrBlank()) {
-            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode.sourceUrls
+            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode?.sourceUrls
         } else {
-            responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
-        }
+            responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls
+        } ?: emptyList()
 
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
@@ -528,6 +548,14 @@ class AllAnime :
         // 5. Decrypt and return JSON string
         return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
+
+    private inline fun <reified T> Response.parseAs(): T = json.decodeFromString(bodyString())
+
+    private inline fun <reified T> String.parseAs(): T = json.decodeFromString(this)
+
+    private fun JsonObject.toJsonString(): String = json.encodeToString(this)
+
+    private fun String.toJsonBody() = toRequestBody("application/json; charset=utf-8".toMediaType())
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
