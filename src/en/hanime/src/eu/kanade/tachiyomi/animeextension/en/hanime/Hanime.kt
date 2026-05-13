@@ -200,9 +200,9 @@ class Hanime :
 
     // ── Popular Anime ──────────────────────────────────────────────────
 
-    override fun popularAnimeRequest(page: Int): Request = GET(baseUrl, headers)
+    override fun popularAnimeRequest(page: Int) = throw UnsupportedOperationException()
 
-    override fun popularAnimeParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+    override fun popularAnimeParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val allHits = fetchSearchHits()
@@ -220,9 +220,9 @@ class Hanime :
         val ordering: String,
     )
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET(baseUrl, headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = throw UnsupportedOperationException()
 
-    override fun searchAnimeParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+    override fun searchAnimeParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
@@ -242,9 +242,9 @@ class Hanime :
 
     // ── Latest Updates ─────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
+    override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val allHits = fetchSearchHits()
@@ -395,8 +395,6 @@ class Hanime :
     }
 
     // ── Video List ─────────────────────────────────────────────────────
-
-    override fun videoListRequest(episode: SEpisode) = GET(episode.url)
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         setAuthCookie()
@@ -712,7 +710,7 @@ class Hanime :
                     name = currentVideo.name ?: "Episode 1"
                     date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
                     val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
-                    url = "$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam"
+                    setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
                 },
             )
         }
