@@ -54,7 +54,7 @@ import kotlin.coroutines.resumeWithException
  * 1. Create a [WebView] on the main thread via [Handler].
  * 2. Navigate to `https://hanime.tv`.
  * 3. On [WebViewClient.onPageFinished], wait for WASM initialisation.
- * 4. Poll `window.ssignature` / `window.stime` via [evaluateJavascript].
+ * 4. Poll `window.ssignature` / `window.stime` via [WebView.evaluateJavascript].
  * 5. If not yet available, dispatch the `'e'` event to trigger WASM
  *   signature generation.
  * 6. Deliver the [Signature] through the [JavascriptInterface] callback.
@@ -322,7 +322,7 @@ class WebViewSignatureProvider : SignatureProvider {
      * `window.ssignature` and `window.stime` are available, and
      * [onSignatureNotReady] when they are not yet set.
      */
-    inner class SignatureJsInterface {
+    class SignatureJsInterface {
 
         @Volatile
         private var signatureResult: Signature? = null

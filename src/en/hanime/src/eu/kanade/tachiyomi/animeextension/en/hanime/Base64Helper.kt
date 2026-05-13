@@ -19,7 +19,7 @@ import android.annotation.SuppressLint
  * Decodes a Base64-encoded string into raw bytes.
  *
  * Uses `android.util.Base64` on Android and `java.util.Base64` on the
- * JVM (unit tests). The behaviour matches `Base64.DEFAULT` on Android,
+ * JVM (unit tests). The behavior matches `Base64.DEFAULT` on Android,
  * which is standard Base64 with line-break tolerance.
  *
  * @param input The Base64-encoded string.
@@ -32,7 +32,7 @@ fun decodeBase64(input: String): ByteArray = Base64Provider.decode(input)
  * Encodes a byte array into a Base64 string.
  *
  * Uses `android.util.Base64` on Android and `java.util.Base64` on the
- * JVM (unit tests). The behaviour matches `Base64.DEFAULT` on Android,
+ * JVM (unit tests). The behavior matches `Base64.DEFAULT` on Android,
  * which includes line breaks every 76 characters.
  *
  * @param input The bytes to encode.

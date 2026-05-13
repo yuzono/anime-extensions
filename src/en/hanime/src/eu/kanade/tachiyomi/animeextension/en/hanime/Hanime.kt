@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
-import android.app.Application
 import android.text.InputType
 import android.util.Log
 import androidx.preference.PreferenceScreen
@@ -25,14 +24,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
 class Hanime :
@@ -67,13 +64,8 @@ class Hanime :
         .add("sec-ch-ua-mobile", "?0")
         .add("sec-ch-ua-platform", "\"Android\"")
 
-    private fun videoHeaders(): Headers = headers.newBuilder()
-        .set("Referer", "https://player.hanime.tv/")
-        .set("Origin", "https://player.hanime.tv")
-        .build()
-
     /** Headers for video stream requests (m3u8, segments, AES key). */
-    private fun playerVideoHeaders(): Headers = headers.newBuilder()
+    private fun videoHeaders(): Headers = headers.newBuilder()
         .set("Referer", "https://player.hanime.tv/")
         .set("Origin", "https://player.hanime.tv")
         .build()
@@ -81,13 +73,9 @@ class Hanime :
     @Volatile
     private var authCookie: String? = null
 
-    private val json: Json by injectLazy()
-
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val preferences by getPreferencesLazy()
-
-    private val context: Application by injectLazy()
 
     @Volatile
     private var signatureProvider: SignatureProvider? = null
@@ -344,13 +332,13 @@ class Hanime :
         }
 
         // Apply sorting
-        val comparator = when (orderBy) {
-            "views" -> compareByDescending<HitsModel> { it.views ?: 0L }
-            "likes" -> compareByDescending<HitsModel> { it.likes ?: 0L }
-            "created_at_unix", "published_at_unix" -> compareByDescending<HitsModel> { it.createdAtUnix ?: 0L }
-            "released_at_unix" -> compareByDescending<HitsModel> { it.releasedAtUnix ?: 0L }
-            "title_sortable" -> compareBy<HitsModel> { it.name.lowercase(Locale.US) }
-            else -> compareByDescending<HitsModel> { it.likes ?: 0L }
+        val comparator: Comparator<HitsModel> = when (orderBy) {
+            "views" -> compareByDescending { it.views ?: 0L }
+            "likes" -> compareByDescending { it.likes ?: 0L }
+            "created_at_unix", "published_at_unix" -> compareByDescending { it.createdAtUnix ?: 0L }
+            "released_at_unix" -> compareByDescending { it.releasedAtUnix ?: 0L }
+            "title_sortable" -> compareBy { it.name.lowercase(Locale.US) }
+            else -> compareByDescending { it.likes ?: 0L }
         }
         val sorted = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
 
@@ -472,7 +460,7 @@ class Hanime :
     private suspend fun parseVideoModelStreamsUnfiltered(videoModel: VideoModel): List<Video> {
         // Note: Premium filter not applied here — fallback path intentionally includes all available streams for reliability
         val servers = videoModel.videosManifest?.servers ?: return emptyList()
-        val playerHeaders = playerVideoHeaders()
+        val playerHeaders = videoHeaders()
 
         return servers.flatMap { server ->
             val filtered = server.streams.filter { it.kind != "premium_alert" && it.url.contains(".m3u8") }
@@ -605,7 +593,7 @@ class Hanime :
     private suspend fun parseManifestStreams(response: Response): List<Video> {
         val responseString = response.body.string().ifEmpty { return emptyList() }
         val manifestData = responseString.parseAs<ManifestWrapper>()
-        val playerHeaders = playerVideoHeaders()
+        val playerHeaders = videoHeaders()
         val servers = manifestData.videosManifest.servers
 
         return servers.flatMap { server ->
@@ -657,7 +645,7 @@ class Hanime :
         val parsed = nuxtData.parseAs<WindowNuxt>()
 
         // Try CDN guest manifest first — it has real Golem server streams (not Shiva decoys)
-        val hvId = parsed.state.data.video.hentai_video?.id
+        val hvId = parsed.state.data.video.hentaiVideo?.id
         if (hvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
@@ -670,12 +658,12 @@ class Hanime :
 
         // Final fallback: parse manifest streams without guest filter
         val nuxtVideoModel = VideoModel(
-            videosManifest = eu.kanade.tachiyomi.animeextension.en.hanime.VideosManifest(
-                servers = parsed.state.data.video.videos_manifest.servers.map { nuxtServer ->
-                    eu.kanade.tachiyomi.animeextension.en.hanime.Server(
+            videosManifest = VideosManifest(
+                servers = parsed.state.data.video.videosManifest.servers.map { nuxtServer ->
+                    Server(
                         name = nuxtServer.name,
                         streams = nuxtServer.streams.map { nuxtStream ->
-                            eu.kanade.tachiyomi.animeextension.en.hanime.Stream(
+                            Stream(
                                 height = nuxtStream.height,
                                 url = nuxtStream.url,
                             )
