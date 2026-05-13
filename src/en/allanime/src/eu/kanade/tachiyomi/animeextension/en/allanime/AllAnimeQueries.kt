@@ -98,20 +98,5 @@ val EPISODES_QUERY = buildQuery {
     """
 }
 
-val STREAMS_QUERY = buildQuery {
-    """
-        query(
-            %showId: String!,
-            %translationType: VaildTranslationTypeEnumType!,
-            %episodeString: String!
-        ) {
-            episode(
-                showId: %showId
-                translationType: %translationType
-                episodeString: %episodeString
-            ) {
-                sourceUrls
-            }
-        }
-    """
-}
+// Persisted Query ID other one returns 403
+const val STREAMS_QUERY = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"

@@ -252,7 +252,6 @@ class AllAnime :
                         put("translationType", subPref)
                         put("episodeString", ep)
                     }
-                    put("query", STREAMS_QUERY)
                 }.toJsonString()
             }
         }
@@ -279,7 +278,7 @@ class AllAnime :
                 put("version", 1)
                 put(
                     "sha256Hash",
-                    "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec",
+                    STREAMS_QUERY,
                 )
             }
         }.toString()
@@ -295,10 +294,6 @@ class AllAnime :
             add("Accept", "*/*")
             add("Origin", PREF_SITE_DOMAIN_DEFAULT)
             add("Referer", "${PREF_SITE_DOMAIN_DEFAULT}/")
-            set(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0",
-            )
         }.build()
 
         return GET(url.toString(), headers = getHeaders)
@@ -392,10 +387,10 @@ class AllAnime :
                         add(
                             "Referer",
                             if (playerName.contains("yt-mp4", ignoreCase = true)) {
-                                "https://allanime.day/"   /// only for yt-mp4 source
+                                "https://allanime.day/" // only for yt-mp4 playback
                             } else {
                                 "$iframeEndpoint/"
-                            }
+                            },
                         )
                     }.build()
 
