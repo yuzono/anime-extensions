@@ -247,12 +247,9 @@ class Animetsu :
                 }.orEmpty()
 
                 // Following order: AnimePahe proxy server, Anikoto proxy server, Unknown proxy server, AnimeGG proxy server and KickAssAnime proxy server
-                val subLabel = when {
-                    server.id.equals("pahe", ignoreCase = true) -> " [Hard Subs]"
-                    server.id.equals("kite", ignoreCase = true) -> " [Soft Subs]"
-                    server.id.equals("dio", ignoreCase = true) -> " [Hard Subs]"
-                    server.id.equals("meg", ignoreCase = true) -> " [Hard Subs]"
-                    server.id.equals("kiss", ignoreCase = true) -> " [Soft Subs]"
+                val subLabel = when (server.id.lowercase()) {
+                    "pahe", "dio", "meg" -> " [Hard Subs]"
+                    "kite", "kiss" -> " [Soft Subs]"
                     else -> ""
                 }
 
