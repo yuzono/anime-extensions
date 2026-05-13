@@ -55,8 +55,8 @@ class Animetsu :
     private val hideAdult: Boolean
         get() = preferences.getBoolean(PREF_HIDE_ADULT_KEY, PREF_HIDE_ADULT_DEFAULT)
 
-    private val enabledServers: Set<String>
-        get() = preferences.getStringSet(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+    private val excludedHosts: Set<String>
+        get() = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT) ?: PREF_HOSTER_EXCLUDE_DEFAULT
 
     private val preferredServer: String
         get() = preferences.getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) ?: PREF_PREFERRED_SERVER_DEFAULT
@@ -226,7 +226,7 @@ class Animetsu :
         val allServers = serverResponse.parseAs<List<AnimetsuServerDto>>()
 
         val servers = allServers
-            .filter { server -> server.id in enabledServers }
+            .filter { server -> server.id !in excludedHosts }
             .sortedByDescending { server -> server.id == preferredServer }
 
         val sortedAudioTypes = enabledAudioTypes
@@ -367,12 +367,12 @@ class Animetsu :
         )
 
         screen.addSetPreference(
-            key = PREF_SERVER_KEY,
+            key = PREF_HOSTER_EXCLUDE_KEY,
             title = "Enable/Disable Hosts",
-            summary = "Select which video hosts to show in the episode list",
+            summary = "Choose which hosts you want to exclude",
             entries = SERVER_ENTRIES,
             entryValues = SERVER_VALUES,
-            default = PREF_SERVER_DEFAULT,
+            default = PREF_HOSTER_EXCLUDE_DEFAULT,
         )
 
         screen.addSetPreference(
@@ -409,10 +409,11 @@ class Animetsu :
         private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
         private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "pahe", "kite", "dio", "meg", "kiss")
 
-        private const val PREF_SERVER_KEY = "enabled_servers"
-        private val PREF_SERVER_DEFAULT = setOf("pahe", "kite", "dio", "meg", "kiss")
+        private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
+        private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
         private val SERVER_ENTRIES = listOf("Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
         private val SERVER_VALUES = listOf("pahe", "kite", "dio", "meg", "kiss")
+
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
         private val PREF_PREFERRED_AUDIO_TYPE_ENTRIES = listOf("None", "Sub", "Dub")
