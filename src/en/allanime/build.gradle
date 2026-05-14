@@ -15,5 +15,4 @@ dependencies {
     implementation(project(':lib:gogostreamextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:streamwishextractor'))
-    implementation(project(':lib:cloudflareinterceptor'))
 }

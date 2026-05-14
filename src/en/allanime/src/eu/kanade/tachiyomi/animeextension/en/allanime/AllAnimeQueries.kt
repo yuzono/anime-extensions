@@ -99,21 +99,3 @@ val EPISODES_QUERY = buildQuery {
         }
     """
 }
-
-val STREAMS_QUERY = buildQuery {
-    """
-        query(
-            %showId: String!,
-            %translationType: VaildTranslationTypeEnumType!,
-            %episodeString: String!
-        ) {
-            episode(
-                showId: %showId
-                translationType: %translationType
-                episodeString: %episodeString
-            ) {
-                sourceUrls
-            }
-        }
-    """
-}

@@ -5,7 +5,6 @@ import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.cloudflareinterceptor.CloudflareInterceptor
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.gogostreamextractor.GogoStreamExtractor
@@ -30,7 +29,6 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonString
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -39,12 +37,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
-import uy.kohesive.injekt.api.get
-import uy.kohesive.injekt.injectLazy
 import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -65,14 +60,8 @@ class AllAnime :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
-    private val json: Json by injectLazy()
-
-    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .addInterceptor(CloudflareInterceptor(network.cloudflareClient))
-        .build()
 
     override fun headersBuilder() = super.headersBuilder()
-        .set("User-Agent", USER_AGENT)
         .set("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
@@ -264,7 +253,6 @@ class AllAnime :
                         put("translationType", subPref)
                         put("episodeString", ep)
                     }
-                    put("query", STREAMS_QUERY)
                 }.toJsonString()
             }
         }
@@ -544,7 +532,7 @@ class AllAnime :
         // 5. Decrypt and return JSON string
         return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
-    
+
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
         private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
@@ -635,8 +623,6 @@ class AllAnime :
         private val XOR_MASKS = XOR_KEYS.map { key ->
             key.fold(0) { mask, ch -> mask xor ch.code }
         }.toIntArray()
-
-        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
     }
 
     // ============================== Settings ==============================
