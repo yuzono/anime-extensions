@@ -30,7 +30,6 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonString
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -40,10 +39,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import uy.kohesive.injekt.api.get
@@ -547,15 +544,7 @@ class AllAnime :
         // 5. Decrypt and return JSON string
         return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
-
-    private inline fun <reified T> Response.parseAs(): T = json.decodeFromString(bodyString())
-
-    private inline fun <reified T> String.parseAs(): T = json.decodeFromString(this)
-
-    private fun JsonObject.toJsonString(): String = json.encodeToString(this)
-
-    private fun String.toJsonBody() = toRequestBody("application/json; charset=utf-8".toMediaType())
-
+    
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
         private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
