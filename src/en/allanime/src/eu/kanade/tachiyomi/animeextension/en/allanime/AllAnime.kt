@@ -39,7 +39,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -75,9 +74,9 @@ class AllAnime :
         .addInterceptor(CloudflareInterceptor(network.cloudflareClient))
         .build()
 
-    override fun headersBuilder() = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0")
-        .add("Referer", "$baseUrl/")
+    override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", USER_AGENT)
+        .set("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
@@ -647,6 +646,8 @@ class AllAnime :
         private val XOR_MASKS = XOR_KEYS.map { key ->
             key.fold(0) { mask, ch -> mask xor ch.code }
         }.toIntArray()
+
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
     }
 
     // ============================== Settings ==============================
