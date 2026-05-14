@@ -32,7 +32,6 @@ import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -65,7 +64,7 @@ class KwikExtractor(
             .build()
     }
 
-    suspend fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
+    fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
         val videoUrl = getHlsStreamUrl(kwikUrl, referer)
 
         return Video(
@@ -76,9 +75,9 @@ class KwikExtractor(
         )
     }
 
-    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
+    fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val eContent = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
-            .awaitSuccess().asJsoup()
+            .execute().asJsoup()
         val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
             ?.substringAfterLast("eval(function(")
             ?: throw KwikException.ExtractionException("JsUnpacker not found.")

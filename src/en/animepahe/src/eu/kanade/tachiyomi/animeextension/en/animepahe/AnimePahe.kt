@@ -19,7 +19,6 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -279,9 +278,11 @@ class AnimePahe :
         recursivePages(episodeList, response, session)
 
         return episodeList
+            .sortedBy { it.date_upload }
             .mapIndexed { index, episode ->
                 episode.apply {
                     episode_number = (index + 1).toFloat()
+                    name = "Episode ${index + 1}"
                 }
             }
             .reversed()
@@ -346,7 +347,7 @@ class AnimePahe :
         }
 
         return videos.ifEmpty {
-            links.parallelMapNotNullBlocking { (kwikLink, _, quality) ->
+            links.mapNotNull { (kwikLink, _, quality) ->
                 runCatching {
                     KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                 }.getOrNull()
