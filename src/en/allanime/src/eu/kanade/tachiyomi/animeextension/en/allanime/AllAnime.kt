@@ -63,6 +63,11 @@ class AllAnime :
 
     private val preferences by getPreferencesLazy()
 
+    // ============================== Headers ===============================
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Origin", GRAPHQL_ORIGIN)
+        .add("Referer", "$GRAPHQL_ORIGIN/")
+
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
@@ -292,8 +297,6 @@ class AllAnime :
 
         val getHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
-            add("Origin", PREF_SITE_DOMAIN_DEFAULT)
-            add("Referer", "${PREF_SITE_DOMAIN_DEFAULT}/")
         }.build()
 
         return GET(url.toString(), headers = getHeaders)
@@ -564,7 +567,7 @@ class AllAnime :
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
-        private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
+        private const val GRAPHQL_ORIGIN = "https://allmanga.to"
         private val INTERAL_HOSTER_NAMES = arrayOf(
             "Default", "Ac", "Ak", "Kir", "Rab", "Luf-mp4",
             "Si-Hls", "S-mp4", "Ac-Hls", "Uv-mp4", "Pn-Hls",
