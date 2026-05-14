@@ -279,9 +279,11 @@ class AnimePahe :
         recursivePages(episodeList, response, session)
 
         return episodeList
+            .sortedBy { it.date_upload }
             .mapIndexed { index, episode ->
                 episode.apply {
                     episode_number = (index + 1).toFloat()
+                    name = "Episode ${index + 1}"
                 }
             }
             .reversed()
@@ -475,7 +477,7 @@ class AnimePahe :
 
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
-        private const val PREF_LINK_TYPE_DEFAULT = false
+        private const val PREF_LINK_TYPE_DEFAULT = true
         private val PREF_LINK_TYPE_SUMMARY by lazy {
             """Enable this if you are having Cloudflare issues.
             |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
