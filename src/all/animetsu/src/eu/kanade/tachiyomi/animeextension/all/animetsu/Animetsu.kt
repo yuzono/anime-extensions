@@ -35,7 +35,7 @@ class Animetsu :
 
     override val name = "Animetsu"
 
-    private val preferences: SharedPreferences by getPreferencesLazy()
+    private val preferences: SharedPreferences by getPreferencesLazy { clearOldPrefs() }
 
     override val baseUrl: String
         get() = preferences.getString(PREF_DOMAIN_KEY, DOMAIN_VALUES.first()) ?: DOMAIN_VALUES.first()
@@ -390,6 +390,19 @@ class Animetsu :
     }
 
     // ============================= Utilities ==============================
+
+    private fun SharedPreferences.clearOldPrefs() {
+        val hostExclusion = getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
+        val invalidHosters = hostExclusion.any { it !in SERVER_VALUES }
+        val invalidServer = getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) !in PREF_PREFERRED_SERVER_VALUES
+
+        if (invalidHosters || invalidServer) {
+            edit().also { editor ->
+                if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, hostExclusion.filter { it in SERVER_VALUES }.toSet())
+                if (invalidServer) editor.putString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT)
+            }.apply()
+        }
+    }
 
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
