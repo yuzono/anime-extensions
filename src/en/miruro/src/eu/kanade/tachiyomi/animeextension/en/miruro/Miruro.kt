@@ -389,7 +389,7 @@ class Miruro :
             if (url.isEmpty()) continue
 
             val qualityStr = stream.optString("quality", "")
-        val quality = qualityStr.toIntOrNull() ?: 0
+            val quality = qualityStr.toIntOrNull() ?: 0
             val resolution = stream.optJSONObject("resolution")
             val width = resolution?.optInt("width", 0) ?: 0
             val height = resolution?.optInt("height", 0) ?: 0
