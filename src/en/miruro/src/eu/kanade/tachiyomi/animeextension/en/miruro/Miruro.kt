@@ -1,12 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
-import android.app.Application
 import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -20,7 +17,9 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -35,8 +34,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 class Miruro :
@@ -45,19 +43,20 @@ class Miruro :
 
     override val name = "Miruro.tv"
 
-    override var baseUrl by LazyMutable { preferences.preferredMirror }
-
     override val lang = "en"
 
     override val supportsLatest = true
 
-    override val client: OkHttpClient = network.client
+    private val preferences: SharedPreferences by getPreferencesLazy()
 
-    private val preferences: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0)
-    }
+    override var baseUrl by LazyMutable { preferences.preferredMirror }
 
     private val SharedPreferences.preferredMirror by preferences.delegate(PREF_MIRROR_KEY, PREF_MIRROR_DEFAULT)
+    private val SharedPreferences.markFillers by preferences.delegate(PREF_MARK_FILLERS_KEY, PREF_MARK_FILLERS_DEFAULT)
+    private val SharedPreferences.preferredTitleStyle by preferences.delegate(PREF_TITLE_STYLE_KEY, PREF_TITLE_STYLE_DEFAULT)
+    private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
+    private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
+    private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
 
     companion object {
         const val PREFIX_SEARCH = "miruro:"
@@ -67,26 +66,26 @@ class Miruro :
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
-        private val PREF_PROVIDER_ENTRIES = arrayOf("Kiwi", "Bee")
-        private val PREF_PROVIDER_VALUES = arrayOf("kiwi", "bee")
+        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Bee")
+        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
         private const val PREF_SUB_TYPE_TITLE = "Preferred Sub/Dub"
-        private val PREF_SUB_TYPE_ENTRIES = arrayOf("Sub", "Dub")
-        private val PREF_SUB_TYPE_VALUES = arrayOf("sub", "dub")
+        private val PREF_SUB_TYPE_ENTRIES = listOf("Sub", "Dub")
+        private val PREF_SUB_TYPE_VALUES = listOf("sub", "dub")
         private const val PREF_SUB_TYPE_DEFAULT = "sub"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
-        private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
-        private val PREF_QUALITY_VALUES = arrayOf("1080", "720", "480", "360")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private const val PREF_QUALITY_DEFAULT = "1080"
 
         private const val PREF_TITLE_STYLE_KEY = "preferred_title_style"
         private const val PREF_TITLE_STYLE_TITLE = "Title Display Style"
-        private val PREF_TITLE_STYLE_ENTRIES = arrayOf("User Preferred", "Romaji", "English", "Native")
-        private val PREF_TITLE_STYLE_VALUES = arrayOf("userPreferred", "romaji", "english", "native")
+        private val PREF_TITLE_STYLE_ENTRIES = listOf("User Preferred", "Romaji", "English", "Native")
+        private val PREF_TITLE_STYLE_VALUES = listOf("userPreferred", "romaji", "english", "native")
         private const val PREF_TITLE_STYLE_DEFAULT = "userPreferred"
 
         private const val PREF_MARK_FILLERS_KEY = "mark_filler_episodes"
@@ -100,14 +99,11 @@ class Miruro :
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
         private val MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
         private val MIRROR_VALUES = MIRROR_ENTRIES.map { "https://www.$it" }
-        private const val PREF_MIRROR_DEFAULT = "https://www.miruro.tv"
+        private val PREF_MIRROR_DEFAULT = MIRROR_VALUES.first()
     }
 
-    private val SharedPreferences.markFillers
-        get() = getBoolean(PREF_MARK_FILLERS_KEY, PREF_MARK_FILLERS_DEFAULT)
-
     private val jikanClient: OkHttpClient = network.client.newBuilder()
-        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), 1)
+        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1, unit = TimeUnit.SECONDS)
         .build()
 
     // ============================== Popular ===============================
@@ -123,7 +119,7 @@ class Miruro :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val json = decryptResponse(response)
+        val json = response.use(::decryptResponse)
 
         val mediaArray = try {
             JSONArray(json)
@@ -150,7 +146,7 @@ class Miruro :
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val json = decryptResponse(response)
+        val json = response.use(::decryptResponse)
 
         val scheduleArray = try {
             JSONArray(json)
@@ -174,9 +170,9 @@ class Miruro :
         if (query.startsWith(PREFIX_SEARCH)) {
             val anilistId = query.removePrefix(PREFIX_SEARCH)
             val request = buildPipeRequest("info/$anilistId", "GET")
-            val response = client.newCall(request).awaitSuccess()
-            val jsonObj = JSONObject(decryptResponse(response))
-            response.close()
+            val jsonObj = client.newCall(request).awaitSuccess().use { response ->
+                JSONObject(decryptResponse(response))
+            }
 
             val media = jsonObj.optJSONObject("media") ?: jsonObj
             val anime = parseAnimeFromMedia(media)
@@ -184,8 +180,8 @@ class Miruro :
         }
 
         val request = searchAnimeRequest(page, query, filters)
-        val response = client.newCall(request).awaitSuccess()
-        return searchAnimeParse(response)
+        return client.newCall(request).awaitSuccess()
+            .use(::searchAnimeParse)
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -228,7 +224,7 @@ class Miruro :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val json = decryptResponse(response)
+        val json = response.use(::decryptResponse)
 
         val mediaArray = try {
             JSONArray(json)
@@ -252,12 +248,11 @@ class Miruro :
     override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val jsonObj = JSONObject(decryptResponse(response))
+        val jsonObj = JSONObject(response.use(::decryptResponse))
         val media = jsonObj.optJSONObject("media") ?: jsonObj
         val titleObj = media.optJSONObject("title") ?: JSONObject()
 
-        val titleStyle = preferences.getString(PREF_TITLE_STYLE_KEY, PREF_TITLE_STYLE_DEFAULT)
-            ?: PREF_TITLE_STYLE_DEFAULT
+        val titleStyle = preferences.preferredTitleStyle
         val title = when (titleStyle) {
             "romaji" -> titleObj.optString("romaji", "")
             "english" -> titleObj.optString("english", "")
@@ -290,7 +285,7 @@ class Miruro :
         val studio = extractMainStudio(media.opt("studios"))
 
         return SAnime.create().apply {
-            this.title = title
+            title.takeIf(String::isNotBlank)?.let { this.title = it }
             thumbnail_url = coverUrl
             this.description = description
             genre = genres
@@ -309,13 +304,11 @@ class Miruro :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsonObj = JSONObject(decryptResponse(response))
+        val jsonObj = JSONObject(response.use(::decryptResponse))
 
         val providers = jsonObj.optJSONObject("providers") ?: return emptyList()
-        val preferredProvider = preferences.getString(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
-            ?: PREF_PROVIDER_DEFAULT
-        val preferredSubType = preferences.getString(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
-            ?: PREF_SUB_TYPE_DEFAULT
+        val preferredProvider = preferences.preferredProvider
+        val preferredSubType = preferences.preferredSubType
 
         val fillerEpisodes = if (preferences.markFillers) {
             extractAnilistIdFromPipeRequest(response.request.url.toString())
@@ -422,7 +415,7 @@ class Miruro :
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val jsonObj = JSONObject(decryptResponse(response))
+        val jsonObj = JSONObject(response.use(::decryptResponse))
 
         val streamsArray = jsonObj.optJSONArray("streams") ?: return emptyList()
         val videos = mutableListOf<Video>()
@@ -455,7 +448,7 @@ class Miruro :
                 if (fansub.isNotEmpty()) append(" $fansub")
             }
 
-            val videoHeaders = Headers.headersOf("Referer", referer)
+            val videoHeaders = headers.newBuilder().set("Referer", referer).build()
             videos.add(Video(url, qualityLabel, url, videoHeaders))
         }
 
@@ -463,12 +456,9 @@ class Miruro :
     }
 
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
-            ?: PREF_QUALITY_DEFAULT
-        val subType = preferences.getString(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
-            ?: PREF_SUB_TYPE_DEFAULT
-        val provider = preferences.getString(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
-            ?: PREF_PROVIDER_DEFAULT
+        val quality = preferences.preferredQuality
+        val subType = preferences.preferredSubType
+        val provider = preferences.preferredProvider
 
         return sortedWith(
             compareBy(
@@ -501,62 +491,48 @@ class Miruro :
             baseUrl = it
         }
 
-        ListPreference(screen.context).apply {
-            key = PREF_PROVIDER_KEY
-            title = PREF_PROVIDER_TITLE
-            entries = PREF_PROVIDER_ENTRIES
-            entryValues = PREF_PROVIDER_VALUES
-            setDefaultValue(PREF_PROVIDER_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_PROVIDER_KEY,
+            title = PREF_PROVIDER_TITLE,
+            entries = PREF_PROVIDER_ENTRIES,
+            entryValues = PREF_PROVIDER_VALUES,
+            default = PREF_PROVIDER_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_SUB_TYPE_KEY
-            title = PREF_SUB_TYPE_TITLE
-            entries = PREF_SUB_TYPE_ENTRIES
-            entryValues = PREF_SUB_TYPE_VALUES
-            setDefaultValue(PREF_SUB_TYPE_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SUB_TYPE_KEY,
+            title = PREF_SUB_TYPE_TITLE,
+            entries = PREF_SUB_TYPE_ENTRIES,
+            entryValues = PREF_SUB_TYPE_VALUES,
+            default = PREF_SUB_TYPE_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_VALUES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_VALUES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_TITLE_STYLE_KEY
-            title = PREF_TITLE_STYLE_TITLE
-            entries = PREF_TITLE_STYLE_ENTRIES
-            entryValues = PREF_TITLE_STYLE_VALUES
-            setDefaultValue(PREF_TITLE_STYLE_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putString(key, newValue as String).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_TITLE_STYLE_KEY,
+            title = PREF_TITLE_STYLE_TITLE,
+            entries = PREF_TITLE_STYLE_ENTRIES,
+            entryValues = PREF_TITLE_STYLE_VALUES,
+            default = PREF_TITLE_STYLE_DEFAULT,
+            summary = "%s",
+        )
 
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_MARK_FILLERS_KEY
-            title = PREF_MARK_FILLERS_TITLE
-            setDefaultValue(PREF_MARK_FILLERS_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addSwitchPreference(
+            key = PREF_MARK_FILLERS_KEY,
+            title = PREF_MARK_FILLERS_TITLE,
+            default = PREF_MARK_FILLERS_DEFAULT,
+            summary = "Requires fetching episode data from Anilist, which may take some time.",
+        )
     }
 
     // ============================== Helpers ==============================
@@ -564,9 +540,9 @@ class Miruro :
     // ============================== Filler ===============================
 
     private fun anilistMalIdRequest(anilistId: Int): Request {
-        val query = """
-        query media(${'$'}id: Int, ${'$'}type: MediaType) {
-            Media(id: ${'$'}id, type: ${'$'}type) {
+        val query = $$"""
+        query media($id: Int, $type: MediaType) {
+            Media(id: $id, type: $type) {
                 idMal
             }
         }
@@ -685,7 +661,7 @@ class Miruro :
 
     private fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
-        val bodyBytes = response.body?.bytes() ?: throw Exception("Empty response body")
+        val bodyBytes = response.body.bytes()
 
         // Base64url decode
         val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
@@ -700,8 +676,8 @@ class Miruro :
         }.toByteArray()
 
         // Gzip decompress
-        GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
-            return gzipStream.bufferedReader(Charsets.UTF_8).readText()
+        return GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
+            gzipStream.bufferedReader(Charsets.UTF_8).readText()
         }
     }
 
@@ -736,8 +712,7 @@ class Miruro :
 
     private fun parseAnimeFromMedia(media: JSONObject): SAnime {
         val titleObj = media.optJSONObject("title") ?: JSONObject()
-        val titleStyle = preferences.getString(PREF_TITLE_STYLE_KEY, PREF_TITLE_STYLE_DEFAULT)
-            ?: PREF_TITLE_STYLE_DEFAULT
+        val titleStyle = preferences.preferredTitleStyle
         val title = when (titleStyle) {
             "romaji" -> titleObj.optString("romaji", "")
             "english" -> titleObj.optString("english", "")
