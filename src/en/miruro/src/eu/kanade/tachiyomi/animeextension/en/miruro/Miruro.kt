@@ -95,6 +95,7 @@ class Miruro :
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
 
+        // Mirror domains are fetched from https://miruro.com/
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
         private val MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
@@ -106,14 +107,15 @@ class Miruro :
         .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1, unit = TimeUnit.SECONDS)
         .build()
 
-    // ============================== Popular ===============================
+    // ============================== Trending ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
         val query = buildJsonObject(
             "type" to "ANIME",
+            "status" to "RELEASING",
             "page" to page,
             "perPage" to 20,
-            "sort" to "POPULARITY_DESC",
+            "sort" to "TRENDING_DESC",
         )
         return buildPipeRequest("search/browse", "GET", query = query)
     }
@@ -139,26 +141,27 @@ class Miruro :
 
     override fun latestUpdatesRequest(page: Int): Request {
         val query = buildJsonObject(
+            "type" to "ANIME",
+            "status" to "RELEASING",
             "page" to page,
             "perPage" to 20,
+            "sort" to "UPDATED_AT_DESC",
         )
-        return buildPipeRequest("schedule", "GET", query = query)
+        return buildPipeRequest("search/browse", "GET", query = query)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val json = response.use(::decryptResponse)
 
-        val scheduleArray = try {
+        val mediaArray = try {
             JSONArray(json)
         } catch (_: Exception) {
             val jsonObj = JSONObject(json)
-            jsonObj.optJSONArray("data") ?: return AnimesPage(emptyList(), false)
+            jsonObj.optJSONArray("media") ?: return AnimesPage(emptyList(), false)
         }
 
-        val animeList = (0 until scheduleArray.length()).mapNotNull { i ->
-            val entry = scheduleArray.getJSONObject(i)
-            val media = entry.optJSONObject("media") ?: entry
-            parseAnimeFromMedia(media)
+        val animeList = (0 until mediaArray.length()).map { i ->
+            parseAnimeFromMedia(mediaArray.getJSONObject(i))
         }
 
         return AnimesPage(animeList, animeList.size >= 20)
@@ -218,6 +221,11 @@ class Miruro :
             val formatsArray = JSONArray()
             params.formats.forEach { formatsArray.put(it) }
             queryParams.put("format", formatsArray)
+        }
+        if (params.tags.isNotEmpty()) {
+            val tagsArray = JSONArray()
+            params.tags.forEach { tagsArray.put(it) }
+            queryParams.put("tag", tagsArray)
         }
 
         return buildPipeRequest("search/browse", "GET", query = queryParams)
