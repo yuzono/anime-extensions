@@ -508,8 +508,7 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
         }
 
         val jsonBytes = payload.toString().toByteArray(Charsets.UTF_8)
-        val encoded = Base64.encodeToString(jsonBytes, Base64.NO_WRAP)
-            .replace("+", "-").replace("/", "_").replace("=", "")
+        val encoded = Base64.encodeToString(jsonBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
         return GET(
             "$baseUrl/api/secure/pipe?e=$encoded",
