@@ -18,7 +18,7 @@ class MiruroUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val pathSegments = intent?.data?.pathSegments
-        if (pathSegments != null && pathSegments.size >= 2) {
+        if (pathSegments != null && pathSegments.size >= 2 && pathSegments[0] == "watch") {
             // URL format: https://miruro.tv/watch/{anilistId}/{slug}
             // pathSegments[0] = "watch", pathSegments[1] = anilistId
             val anilistId = pathSegments[1]

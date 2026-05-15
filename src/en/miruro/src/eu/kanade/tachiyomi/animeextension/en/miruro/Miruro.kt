@@ -24,7 +24,9 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.zip.GZIPInputStream
 
-class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
+class Miruro :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Miruro.tv"
 
@@ -209,9 +211,7 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Details ===============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        return buildPipeRequest("info/${anime.url}", "GET")
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
         val jsonObj = JSONObject(decryptResponse(response))
@@ -388,7 +388,8 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
             val url = stream.optString("url", "")
             if (url.isEmpty()) continue
 
-            val quality = stream.optInt("quality", 0)
+            val qualityStr = stream.optString("quality", "")
+        val quality = qualityStr.toIntOrNull() ?: 0
             val resolution = stream.optJSONObject("resolution")
             val width = resolution?.optInt("width", 0) ?: 0
             val height = resolution?.optInt("height", 0) ?: 0
@@ -431,9 +432,7 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== URL ==============================
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return "$baseUrl/watch/${anime.url}"
-    }
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/watch/${anime.url}"
 
     // ============================== Filters ==============================
 
@@ -521,18 +520,16 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
         )
     }
 
-    private fun buildJsonObject(vararg pairs: Pair<String, Any?>): JSONObject {
-        return JSONObject().apply {
-            for ((key, value) in pairs) {
-                if (value == null) continue
-                when (value) {
-                    is Int -> put(key, value)
-                    is Long -> put(key, value)
-                    is Double -> put(key, value)
-                    is String -> put(key, value)
-                    is Boolean -> put(key, value)
-                    else -> put(key, value.toString())
-                }
+    private fun buildJsonObject(vararg pairs: Pair<String, Any?>): JSONObject = JSONObject().apply {
+        for ((key, value) in pairs) {
+            if (value == null) continue
+            when (value) {
+                is Int -> put(key, value)
+                is Long -> put(key, value)
+                is Double -> put(key, value)
+                is String -> put(key, value)
+                is Boolean -> put(key, value)
+                else -> put(key, value.toString())
             }
         }
     }
@@ -559,21 +556,17 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun extractCoverImage(coverImage: Any?): String {
-        return when (coverImage) {
-            is JSONObject -> coverImage.optString("extraLarge", "")
-                .ifEmpty { coverImage.optString("large", "") }
-                .ifEmpty { coverImage.optString("medium", "") }
-            is String -> coverImage
-            else -> ""
-        }
+    private fun extractCoverImage(coverImage: Any?): String = when (coverImage) {
+        is JSONObject -> coverImage.optString("extraLarge", "")
+            .ifEmpty { coverImage.optString("large", "") }
+            .ifEmpty { coverImage.optString("medium", "") }
+        is String -> coverImage
+        else -> ""
     }
 
-    private fun extractBannerImage(bannerImage: Any?): String {
-        return when (bannerImage) {
-            is String -> bannerImage
-            else -> ""
-        }
+    private fun extractBannerImage(bannerImage: Any?): String = when (bannerImage) {
+        is String -> bannerImage
+        else -> ""
     }
 
     private fun extractMainStudio(studios: Any?): String {

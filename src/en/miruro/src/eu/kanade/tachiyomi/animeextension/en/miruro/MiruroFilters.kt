@@ -15,39 +15,32 @@ object MiruroFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): List<String> {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
+    ): List<String> = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }
 
     class SortFilter : QueryPartFilter("Sort", MiruroFiltersData.SORT)
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genres",
-        MiruroFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genres",
+            MiruroFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
 
     class YearFilter : QueryPartFilter("Year", MiruroFiltersData.YEARS)
 
@@ -55,10 +48,11 @@ object MiruroFilters {
 
     class StatusFilter : QueryPartFilter("Status", MiruroFiltersData.STATUS)
 
-    class FormatFilter : CheckBoxFilterList(
-        "Format",
-        MiruroFiltersData.FORMATS.map { CheckBoxVal(it.first, false) },
-    )
+    class FormatFilter :
+        CheckBoxFilterList(
+            "Format",
+            MiruroFiltersData.FORMATS.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         SortFilter(),
