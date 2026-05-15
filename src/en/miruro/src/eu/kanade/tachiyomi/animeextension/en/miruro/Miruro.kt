@@ -544,14 +544,11 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
         // Base64url decode
         val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
         val padded = bodyStr.replace("-", "+").replace("_", "/")
-            .let { if (it.length % 4 != 0) it + "=".repeat(4 - it.length % 4) else it }
-
         if (obfuscated != "2") {
             return bodyStr
         }
 
-        val decoded = Base64.decode(padded, Base64.NO_WRAP)
-
+        val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
         val data = decoded.mapIndexed { i, b ->
             (b.toInt() xor PIPE_KEY[i % PIPE_KEY.size].toInt()).toByte()
         }.toByteArray()
