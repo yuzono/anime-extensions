@@ -17,6 +17,18 @@
                     android:host="miruro.tv"
                     android:pathPattern="/watch/.*"
                     android:scheme="https" />
+                <data
+                    android:host="miruro.to"
+                    android:pathPattern="/watch/.*"
+                    android:scheme="https" />
+                <data
+                    android:host="miruro.bz"
+                    android:pathPattern="/watch/.*"
+                    android:scheme="https" />
+                <data
+                    android:host="miruro.ru"
+                    android:pathPattern="/watch/.*"
+                    android:scheme="https" />
             </intent-filter>
         </activity>
     </application>

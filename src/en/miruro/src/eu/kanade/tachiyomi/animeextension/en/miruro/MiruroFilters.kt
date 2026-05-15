@@ -103,7 +103,7 @@ object MiruroFilters {
             ALL,
             Pair("Trending", "TRENDING_DESC"),
             Pair("Popularity", "POPULARITY_DESC"),
-            Pair("Average Score", "AVERAGE_SCORE_DESC"),
+            Pair("Average Score", "SCORE_DESC"),
             Pair("Favorites", "FAVOURITES_DESC"),
             Pair("Latest", "START_DATE_DESC"),
             Pair("Title A-Z", "TITLE_ROMAJI"),
