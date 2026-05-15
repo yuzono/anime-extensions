@@ -38,6 +38,5 @@ class MiruroUrlActivity : Activity() {
         }
 
         finish()
-        exitProcess(0)
     }
 }
