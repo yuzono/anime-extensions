@@ -37,7 +37,7 @@ class Miruro : ConfigurableAnimeSource, AnimeHttpSource() {
     override val client: OkHttpClient = network.client
 
     private val preferences: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0)
     }
 
     companion object {
