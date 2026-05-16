@@ -157,15 +157,14 @@ class AnimeGG :
             val videoHeaders = headers.newBuilder().add("referer", "https://$host").build()
             val jsonString = fixJsonString(scriptData.substringAfter("var videoSources = ").substringBefore(";"))
             json.decodeFromString<Array<GgVideo>>(jsonString).map { video ->
-                val videoUrl = "https://$host${video.file}"
+                val videoUrl = if (video.file.startsWith("http")) video.file else "https://$host${video.file}"
                 Video(videoUrl, "$mode AnimeGG:${video.label}", videoUrl, headers = videoHeaders)
             }
         }
     }
 
-    private fun fixJsonString(jsonString: String): String = jsonString.replace(Regex("""(\w+):"""), """"$1":""")
-        .replace(Regex("""(:\s)([^{\[}\]":\s,]+)"""), """$1"$2"""")
-        .replace(Regex("""(:\s)("[^"]*")"""), """$1$2""")
+    private fun fixJsonString(jsonString: String): String = jsonString
+        .replace(Regex("""(?<=[{,])\s*(\w+)\s*:""")) { mr -> """ "${mr.groupValues[1]}":""" }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
