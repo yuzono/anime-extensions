@@ -117,7 +117,7 @@ data class EpisodeResult(
 ) {
     @Serializable
     data class DataEpisode(
-        val episode: Episode,
+        val episode: Episode? = null,
     ) {
         @Serializable
         data class Episode(
@@ -146,5 +146,5 @@ data class EncryptedEpisodeResult(
 
 @Serializable
 data class DecryptedEpisodeResult(
-    val episode: EpisodeResult.DataEpisode.Episode,
+    val episode: EpisodeResult.DataEpisode.Episode? = null,
 )

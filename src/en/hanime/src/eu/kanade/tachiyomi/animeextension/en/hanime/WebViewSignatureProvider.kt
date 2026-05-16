@@ -54,7 +54,7 @@ import kotlin.coroutines.resumeWithException
  * 1. Create a [WebView] on the main thread via [Handler].
  * 2. Navigate to `https://hanime.tv`.
  * 3. On [WebViewClient.onPageFinished], wait for WASM initialisation.
- * 4. Poll `window.ssignature` / `window.stime` via [evaluateJavascript].
+ * 4. Poll `window.ssignature` / `window.stime` via [WebView.evaluateJavascript].
  * 5. If not yet available, dispatch the `'e'` event to trigger WASM
  *   signature generation.
  * 6. Deliver the [Signature] through the [JavascriptInterface] callback.
@@ -170,14 +170,17 @@ class WebViewSignatureProvider : SignatureProvider {
         webView.addJavascriptInterface(jsInterface, JS_INTERFACE_NAME)
         Log.d(TAG, "configureWebView: JS interface '$JS_INTERFACE_NAME' added")
 
-        // AtomicBoolean guard: only the FIRST code path to call
-        // compareAndSet(false, true) wins — all others are skipped.
-        // This prevents the "Already resumed" IllegalStateException
-        // even when multiple paths race (e.g. poll finds a signature
-        // AND onPageFinished fires again due to a redirect).
+        // AtomicBoolean guard used by the actual resume path so only the
+        // FIRST code path that resumes the continuation wins — all others
+        // are skipped. This prevents the "Already resumed"
+        // IllegalStateException even when multiple paths race (e.g. poll
+        // finds a signature AND onPageFinished fires again due to a
+        // redirect).
         val resumed = AtomicBoolean(false)
 
-        fun isResumable() = !continuation.isCancelled && resumed.compareAndSet(false, true)
+        // Pure check only: do not consume the resume guard here because
+        // resumeOrDestroy(...) performs the atomic claim itself.
+        fun isResumable() = !continuation.isCancelled && !resumed.get()
 
         webView.webViewClient = object : WebViewClient() {
 
@@ -322,7 +325,7 @@ class WebViewSignatureProvider : SignatureProvider {
      * `window.ssignature` and `window.stime` are available, and
      * [onSignatureNotReady] when they are not yet set.
      */
-    inner class SignatureJsInterface {
+    class SignatureJsInterface {
 
         @Volatile
         private var signatureResult: Signature? = null

@@ -197,10 +197,6 @@ object HanimeWasmBinary {
         }
     }
 
-    private fun decodeBase64(base64Str: String): ByteArray {
-        return android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
-    }
-
     /**
      * Fetch a page's text content via HTTP GET.
      *

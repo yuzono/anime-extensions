@@ -3,7 +3,8 @@ package eu.kanade.tachiyomi.animeextension.en.hanime
 import android.util.Log
 import com.dylibso.chicory.runtime.HostFunction
 import com.dylibso.chicory.runtime.Instance
-import com.dylibso.chicory.wasm.types.ValueType
+import com.dylibso.chicory.wasm.types.FunctionType
+import com.dylibso.chicory.wasm.types.ValType
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -37,7 +38,7 @@ class ChicoryGlue {
     @Volatile var capturedTimestamp: Long? = null
         private set
 
-    private val registeredEventTypes: MutableSet<String> = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val registeredEventTypes: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** Immutable snapshot of event types registered via import "y" (window_on). */
     val eventTypes: Set<String> get() = registeredEventTypes.toSet()
@@ -115,7 +116,7 @@ class ChicoryGlue {
         private val nextHandle = AtomicInteger(10) // Reserve 0–9 for special values
 
         /** Handles allocated for short-lived lookups (e.g. `.length` JsNumber) that must be released on reset. */
-        private val transientHandles: MutableSet<Int> = java.util.Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
+        private val transientHandles: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
         /** Mark a handle as transient — it will be released by [releaseTransients] without clearing the entire environment. */
         fun markTransient(handle: Int) {
@@ -356,7 +357,7 @@ class ChicoryGlue {
     /**
      * Build all 25 [HostFunction] imports for module "a".
      *
-     * IMPORTANT: The function signature for each binding MUST exactly match what the
+     * IMPORTANT: The [FunctionType] for each binding MUST exactly match what the
      * WASM binary declares in its import section. If there's a mismatch, Chicory
      * will throw at instantiation time with a clear error message — adjust the
      * FunctionType accordingly.
@@ -369,24 +370,24 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "a",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ b = embind type registration (i32, i32, i32, i32, i32) -> () ═══
         functions += HostFunction(
             module,
             "b",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(
+                listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32, ValType.I32),
+                emptyList(),
+            ),
         ) { _, _ -> null }
 
         // ═══ c = __emval_decref (i32) -> () ═══
         functions += HostFunction(
             module,
             "c",
-            listOf(ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32), emptyList()),
         ) { _, args ->
             val handle = args[0].toInt()
             if (handle > 0) {
@@ -399,24 +400,24 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "d",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ e = embind type registration (i32, i32, i32) -> () ═══
         functions += HostFunction(
             module,
             "e",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ f = embind type registration (i32, i32, i32, i64, i64) -> () ═══
         functions += HostFunction(
             module,
             "f",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I64, ValueType.I64),
-            emptyList(),
+            FunctionType.of(
+                listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I64, ValType.I64),
+                emptyList(),
+            ),
         ) { _, _ -> null }
 
         // ═══ g = _emscripten_asm_const_int — CRITICAL ASM_CONSTS BRIDGE ═══
@@ -433,8 +434,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "g",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             val code = args[0].toInt()
             val sigPtr = args[1].toInt()
@@ -455,16 +455,17 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "h",
-            listOf(ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ i = __emval_invoke (i32, i32, i32, i32, i32) -> (f64) ═══
         functions += HostFunction(
             module,
             "i",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32),
-            listOf(ValueType.F64),
+            FunctionType.of(
+                listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32, ValType.I32),
+                listOf(ValType.F64),
+            ),
         ) { _, args ->
             val functionHandle = args[0].toInt()
             val emval = emvalManager.get(functionHandle)
@@ -478,16 +479,14 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "j",
-            listOf(ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ k = __emval_create_invoker (i32, i32, i32) -> (i32) ═══
         functions += HostFunction(
             module,
             "k",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { _, _ ->
             val handle = emvalManager.allocate(EmvalHandleManager.EmvalValue.JsFunction("invoker"))
             longArrayOf(handle.toLong())
@@ -497,8 +496,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "l",
-            listOf(ValueType.I32, ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             val objectHandle = args[0].toInt()
             val propNamePtr = args[1].toInt()
@@ -531,8 +529,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "m",
-            listOf(ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             val strPtr = args[0].toInt()
             val str = instance.memory().readCString(strPtr)
@@ -544,24 +541,21 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "n",
-            listOf(ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ o = embind type registration (i32, i32) -> () ═══
         functions += HostFunction(
             module,
             "o",
-            listOf(ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ p = __emval_get_global (i32) -> (i32) ═══
         functions += HostFunction(
             module,
             "p",
-            listOf(ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             val globalNamePtr = args[0].toInt()
             val globalName = instance.memory().readCString(globalNamePtr)
@@ -583,16 +577,14 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "q",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ r = embind type registration (i32, i32) -> () ═══
         functions += HostFunction(
             module,
             "r",
-            listOf(ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32), emptyList()),
         ) { _, _ -> null }
 
         // ═══ ENVIRONMENT / TIMEZONE ═══
@@ -605,8 +597,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "s",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { instance, args ->
             val timezonePtr = args[0].toInt()
             val dstPtr = args[1].toInt()
@@ -631,16 +622,14 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "t",
-            listOf(ValueType.I32, ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { _, _ -> longArrayOf(0L) }
 
         // u = _environ_sizes_get (i32, i32) -> (i32) — writes 0 to both pointers
         functions += HostFunction(
             module,
             "u",
-            listOf(ValueType.I32, ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32, ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             instance.memory().writeI32(args[0].toInt(), 0) // 0 env vars
             instance.memory().writeI32(args[1].toInt(), 0) // 0 buffer size
@@ -653,8 +642,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "v",
-            emptyList(),
-            emptyList(),
+            FunctionType.of(emptyList(), emptyList()),
         ) { _, _ ->
             Log.e(TAG, "Error stub 'v' (__abort_js) called — WASM execution error")
             throw RuntimeException(
@@ -668,8 +656,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "w",
-            listOf(ValueType.I32),
-            listOf(ValueType.I32),
+            FunctionType.of(listOf(ValType.I32), listOf(ValType.I32)),
         ) { instance, args ->
             val requestedSize = args[0].toInt()
             val currentPages = instance.memory().pages()
@@ -687,8 +674,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "x",
-            listOf(ValueType.I32, ValueType.I32, ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32, ValType.I32, ValType.I32), emptyList()),
         ) { _, args ->
             Log.e(TAG, "Error stub 'x' (___cxa_throw) called — WASM execution error. Args: ${args.toList()}")
             throw RuntimeException(
@@ -702,8 +688,7 @@ class ChicoryGlue {
         functions += HostFunction(
             module,
             "y",
-            listOf(ValueType.I32),
-            emptyList(),
+            FunctionType.of(listOf(ValType.I32), emptyList()),
         ) { instance, args ->
             val eventTypePtr = args[0].toInt()
             val eventType = instance.memory().readCString(eventTypePtr)

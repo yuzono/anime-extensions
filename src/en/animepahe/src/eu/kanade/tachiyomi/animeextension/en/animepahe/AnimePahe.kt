@@ -1,10 +1,12 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
+import android.app.Application
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.ResponseDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.SearchResultDto
+import eu.kanade.tachiyomi.animeextension.en.animepahe.extractor.KwikExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -17,15 +19,15 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingMapNotNull
+import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
-import kotlinx.coroutines.runBlocking
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
@@ -38,11 +40,17 @@ class AnimePahe :
 
     private val preferences by getPreferencesLazy()
 
+    override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", UA_DESKTOP)
+        .set("Referer", "$baseUrl/")
+
     private val interceptor = DdosGuardInterceptor(network.client)
 
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
+
+    private val context: Application by injectLazy()
 
     override val name = "AnimePahe"
 
@@ -73,15 +81,15 @@ class AnimePahe :
      */
     override fun animeDetailsRequest(anime: SAnime): Request = anime.getId()
         ?.let { GET("$baseUrl/a/$it") }
-        ?: GET("$baseUrl${anime.url}")
+        ?: GET("$baseUrl${anime.url}") // fallback to session URL (when searching by filters): /anime/{sessionId}
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("div.title-wrapper > h1 > span")!!.text()
-            author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studio:)")
+            author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studios:)")
                 ?.text()
-                ?.replace("Studio: ", "")
+                ?.replace("Studios: ", "")
             document.selectFirst("div.col-sm-4.anime-info p:contains(Status:) a")?.text()
                 ?.let { status = parseStatus(it) }
             thumbnail_url = document.selectFirst("div.anime-poster a")?.attr("href")
@@ -143,6 +151,7 @@ class AnimePahe :
             val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("api")
                 addQueryParameter("m", "search")
+                // addQueryParameter("l", "8")
                 addQueryParameter("q", query)
             }
             GET(urlBuilder.build())
@@ -270,9 +279,11 @@ class AnimePahe :
         recursivePages(episodeList, response, session)
 
         return episodeList
+            .sortedBy { it.date_upload }
             .mapIndexed { index, episode ->
                 episode.apply {
                     episode_number = (index + 1).toFloat()
+                    name = "Episode ${index + 1}"
                 }
             }
             .reversed()
@@ -280,7 +291,7 @@ class AnimePahe :
 
     private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
         SEpisode.create().apply {
-            date_upload = episode.createdAt.toDate()
+            date_upload = episode.createdAt.let { DATE_FORMATTER.tryParse(it) }
             val session = episode.session
             setUrlWithoutDomain("/play/$animeSession/$session")
             val epNum = episode.episodeNumber
@@ -312,33 +323,37 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
+
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        return runBlocking {
-            document.select("div#resolutionMenu > button").withIndex().parallelCatchingMapNotNull { (index, btn) ->
-                val kwikLink = btn.attr("data-src")
-                val quality = btn.text()
-                val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
-                    ?: return@parallelCatchingMapNotNull null
-                getVideo(paheWinLink, kwikLink, quality)
+        val links = document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
+            val kwikLink = btn.attr("data-src")
+            val quality = btn.text()
+            val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
+            Triple(kwikLink, paheWinLink, quality)
+        }
+
+        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
+
+        val videos = if (!useHLS) {
+            links.mapNotNull { (_, paheWinLink, quality) ->
+                if (paheWinLink.isNullOrBlank()) return@mapNotNull null
+                runCatching {
+                    KwikExtractor(client, headers).getStreamVideo(context, paheWinLink, quality)
+                }.getOrNull()
+            }
+        } else {
+            emptyList()
+        }
+
+        return videos.ifEmpty {
+            links.parallelMapNotNullBlocking { (kwikLink, _, quality) ->
+                runCatching {
+                    KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                }.getOrNull()
             }
         }
-    }
-
-    private suspend fun getVideo(paheUrl: String, kwikUrl: String, quality: String): Video {
-        val videoUrl = if (preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)) {
-            KwikExtractor(client).getHlsStreamUrl(kwikUrl, referer = "$baseUrl/")
-        } else {
-            KwikExtractor(client).getStreamUrlFromKwik(paheUrl)
-        }
-
-        return Video(
-            videoUrl,
-            quality,
-            videoUrl,
-            headers = Headers.headersOf("referer", "https://kwik.cx/"),
-        )
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -422,7 +437,7 @@ class AnimePahe :
         return sessionId
     }
 
-    private fun parseStatus(statusString: String): Int = when (statusString) {
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING
         "Finished Airing" -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
@@ -433,10 +448,6 @@ class AnimePahe :
 
     private fun SAnime.getId() = newAnimeIdRegex.find(url)?.let { it.groupValues[1] }
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
-
-    private fun String.toDate(): Long = runCatching {
-        DATE_FORMATTER.parse(this)?.time ?: 0L
-    }.getOrNull() ?: 0L
 
     companion object {
         private val DATE_FORMATTER by lazy {
@@ -464,11 +475,13 @@ class AnimePahe :
         private val PREF_SUB_ENTRIES = listOf("sub", "dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type_" // Temporary renamed to use HLS
+        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
-        private const val PREF_LINK_TYPE_DEFAULT = true // Temporary set to `true` to use HLS
+        private const val PREF_LINK_TYPE_DEFAULT = true
         private val PREF_LINK_TYPE_SUMMARY by lazy {
-            """Enable this if you are having Cloudflare issues.""".trimMargin()
+            """Enable this if you are having Cloudflare issues.
+            |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
+            """.trimMargin()
         }
 
         // Big slap to whoever misspelled `preferred`
@@ -480,5 +493,8 @@ class AnimePahe :
             |Turn off to never select av1 as preferred codec
             """.trimMargin()
         }
+
+        const val UA_DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+        const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
 }

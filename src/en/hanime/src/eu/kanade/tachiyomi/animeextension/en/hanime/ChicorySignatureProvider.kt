@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
  * Signature provider that uses the Chicory WASM runtime to execute
  * the hanime.tv emscripten-compiled WASM binary for signature generation.
  *
- * Replaces [WasmSignatureProvider] with the production-grade Chicory runtime,
+ * Replaces `WasmSignatureProvider` with the production-grade Chicory runtime,
  * eliminating the custom ~5600-line WASM interpreter.
  */
 class ChicorySignatureProvider(
@@ -71,7 +71,8 @@ class ChicorySignatureProvider(
                 .withImportValues(imports)
                 .withInitialize(true)
                 .withStart(false)
-                .withMemoryFactory { _ -> ByteBufferMemory(MemoryLimits(258, 65536)) }
+                .withMemoryLimits(MemoryLimits(258, 65536))
+                .withMemoryFactory { ByteBufferMemory(it) }
                 .build()
             Log.d(TAG, "initialize() — WASM instance created successfully")
 
@@ -200,7 +201,6 @@ class ChicorySignatureProvider(
             // Allocate strings in WASM memory using the binary's own malloc (export "E")
             var eventTypePtr: Int
             var eventJsonPtr: Int
-            var useMalloc = false
 
             try {
                 val malloc = currentInstance.export("E")
@@ -214,7 +214,6 @@ class ChicorySignatureProvider(
                 if (eventJsonPtr == 0) {
                     throw SignatureException("WASM malloc returned null pointer for event JSON string")
                 }
-                useMalloc = true
             } catch (e: SignatureException) {
                 throw e
             } catch (e: Exception) {
@@ -236,15 +235,13 @@ class ChicorySignatureProvider(
                 Log.d(TAG, "generateSignature() — _on_window_event (export \"B\") returned successfully")
             } finally {
                 // Free allocated memory if we used malloc
-                if (useMalloc) {
-                    try {
-                        val free = currentInstance.export("F")
-                        free.apply(eventTypePtr.toLong())
-                        free.apply(eventJsonPtr.toLong())
-                        Log.d(TAG, "generateSignature() — freed malloc memory: eventTypePtr=$eventTypePtr, eventJsonPtr=$eventJsonPtr")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "generateSignature() — free failed (non-fatal): ${e.javaClass.simpleName}: ${e.message}")
-                    }
+                try {
+                    val free = currentInstance.export("F")
+                    free.apply(eventTypePtr.toLong())
+                    free.apply(eventJsonPtr.toLong())
+                    Log.d(TAG, "generateSignature() — freed malloc memory: eventTypePtr=$eventTypePtr, eventJsonPtr=$eventJsonPtr")
+                } catch (e: Exception) {
+                    Log.w(TAG, "generateSignature() — free failed (non-fatal): ${e.javaClass.simpleName}: ${e.message}")
                 }
             }
 

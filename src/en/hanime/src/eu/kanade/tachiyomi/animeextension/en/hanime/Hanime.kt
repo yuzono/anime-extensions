@@ -1,13 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
-import android.app.Application
-import android.content.Context
-import android.content.SharedPreferences
+import android.text.InputType
 import android.util.Log
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -19,20 +15,24 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
 class Hanime :
@@ -67,13 +67,8 @@ class Hanime :
         .add("sec-ch-ua-mobile", "?0")
         .add("sec-ch-ua-platform", "\"Android\"")
 
-    private fun videoHeaders(): Headers = headers.newBuilder()
-        .set("Referer", "https://player.hanime.tv/")
-        .set("Origin", "https://player.hanime.tv")
-        .build()
-
     /** Headers for video stream requests (m3u8, segments, AES key). */
-    private fun playerVideoHeaders(): Headers = headers.newBuilder()
+    private fun videoHeaders(): Headers = headers.newBuilder()
         .set("Referer", "https://player.hanime.tv/")
         .set("Origin", "https://player.hanime.tv")
         .build()
@@ -81,7 +76,7 @@ class Hanime :
     @Volatile
     private var authCookie: String? = null
 
-    private val json: Json by injectLazy()
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -223,6 +218,138 @@ class Hanime :
 
     // ── Search Anime ───────────────────────────────────────────────────
 
+    @Volatile
+    private var signatureProvider: SignatureProvider? = null
+
+    @Volatile
+    private var signatureProviderMode: String? = null
+    private val signatureProviderMutex = Mutex()
+
+    private suspend fun ensureSignatureProvider(): SignatureProvider {
+        // Fast path: check if provider exists and mode hasn't changed
+        val currentProvider = signatureProvider
+        val currentMode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
+        if (currentProvider != null && currentMode == signatureProviderMode) {
+            return currentProvider
+        }
+
+        // Slow path: acquire lock and re-read preference inside the lock
+        return signatureProviderMutex.withLock {
+            val mode = preferences.getString(PREF_SIG_PROVIDER_KEY, PREF_SIG_PROVIDER_DEFAULT)!!
+            val lockedProvider = signatureProvider
+            if (lockedProvider != null && signatureProviderMode == mode) {
+                lockedProvider
+            } else {
+                val existing = signatureProvider
+                val newProvider = createSignatureProvider(mode)
+                Log.d(TAG, "Signature provider created: ${newProvider.javaClass.simpleName}")
+                signatureProvider = newProvider
+                signatureProviderMode = mode
+                existing?.close()
+                newProvider
+            }
+        }
+    }
+
+    private suspend fun createSignatureProvider(mode: String?): SignatureProvider = when (mode) {
+        "native" -> NativeSignatureProvider()
+        "webview" -> WebViewSignatureProvider()
+        "wasm" -> {
+            val binary = runCatching {
+                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
+            }.getOrNull()
+            if (binary != null) {
+                ChicorySignatureProvider(binary)
+            } else {
+                Log.w(TAG, "WASM binary fetch failed — falling back to WebView provider")
+                WebViewSignatureProvider()
+            }
+        }
+        else -> {
+            Log.w(TAG, "Unknown signature provider mode '$mode', falling back to WebViewSignatureProvider")
+            WebViewSignatureProvider()
+        }
+    }
+
+    // ── Search API (v10 GET endpoint) ──────────────────────────────────
+
+    /** Cached full search response for pagination and client-side filtering. */
+    @Volatile
+    private var cachedSearchHits: List<HitsModel>? = null
+
+    /** Timestamp of when [cachedSearchHits] was last fetched. */
+    @Volatile
+    private var cachedSearchHitsTimestamp: Long = 0L
+
+    /** Maximum age of cached search hits before refetching (based on preference, default 10 minutes). */
+    private val searchHitsTtlMs: Long
+        get() = preferences.getString(PREF_CACHE_TTL_KEY, PREF_CACHE_TTL_DEFAULT)
+            ?.toLongOrNull()?.times(60 * 1000L)
+            ?: (10L * 60 * 1000L)
+
+    /** Mutex to prevent concurrent search cache refreshes. */
+    private val searchCacheMutex = Mutex()
+
+    /**
+     * Fetch or return cached search results from the v10 search API.
+     * The API returns all content in a single response — pagination and
+     * filtering are handled client-side.
+     */
+    private suspend fun fetchSearchHits(): List<HitsModel> {
+        val ttlMs = searchHitsTtlMs
+
+        // Fast path: check cache without lock
+        val now = System.currentTimeMillis()
+        val cached = cachedSearchHits
+        if (cached != null && now - cachedSearchHitsTimestamp < ttlMs) {
+            return cached
+        }
+
+        // Slow path: acquire lock to prevent redundant fetches
+        return searchCacheMutex.withLock {
+            // Re-check cache after acquiring lock (another thread may have fetched)
+            val nowLocked = System.currentTimeMillis()
+            val cachedLocked = cachedSearchHits
+            if (cachedLocked != null && nowLocked - cachedSearchHitsTimestamp < ttlMs) {
+                cachedLocked
+            } else {
+                val signature = ensureSignatureProvider().getSignature()
+                val searchHeaders = headers.newBuilder().apply {
+                    SignatureHeaders.build(signature).forEach { (key, value) ->
+                        add(key, value)
+                    }
+                }.build()
+
+                val response = client.newCall(GET("$cdnBaseUrl/api/v10/search_hvs", searchHeaders)).await()
+                val result = response.use { resp ->
+                    val jsonLine = resp.body.string()
+                    if (jsonLine.isEmpty()) {
+                        Log.w(TAG, "fetchSearchHits() — search API returned empty body")
+                        emptyList()
+                    } else {
+                        jsonLine.parseAs<List<HitsModel>>()
+                    }
+                }
+                cachedSearchHits = result
+                cachedSearchHitsTimestamp = System.currentTimeMillis()
+                result
+            }
+        }
+    }
+
+    // ── Popular Anime ──────────────────────────────────────────────────
+
+    override fun popularAnimeRequest(page: Int) = throw UnsupportedOperationException()
+
+    override fun popularAnimeParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val allHits = fetchSearchHits()
+        return paginateHits(allHits, page, orderBy = "likes", ordering = "desc")
+    }
+
+    // ── Search Anime ───────────────────────────────────────────────────
+
     private data class SearchParameters(
         val includedTags: List<String>,
         val blackListedTags: List<String>,
@@ -232,9 +359,9 @@ class Hanime :
         val ordering: String,
     )
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET(baseUrl, headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = throw UnsupportedOperationException()
 
-    override fun searchAnimeParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+    override fun searchAnimeParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val (includedTags, blackListedTags, brands, tagsMode, orderBy, ordering) = getSearchParameters(filters)
@@ -254,9 +381,9 @@ class Hanime :
 
     // ── Latest Updates ─────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
+    override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = AnimesPage(emptyList(), false)
+    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val allHits = fetchSearchHits()
@@ -346,15 +473,15 @@ class Hanime :
         }
 
         // Apply sorting
-        val comparator = when (orderBy) {
-            "views" -> compareByDescending<HitsModel> { it.views ?: 0L }
-            "likes" -> compareByDescending<HitsModel> { it.likes ?: 0L }
-            "created_at_unix", "published_at_unix" -> compareByDescending<HitsModel> { it.createdAtUnix ?: 0L }
-            "released_at_unix" -> compareByDescending<HitsModel> { it.releasedAtUnix ?: 0L }
-            "title_sortable" -> compareBy<HitsModel> { it.name.lowercase(Locale.US) }
-            else -> compareByDescending<HitsModel> { it.likes ?: 0L }
+        val comparator: Comparator<HitsModel> = when (orderBy) {
+            "views" -> compareByDescending { it.views ?: 0L }
+            "likes" -> compareByDescending { it.likes ?: 0L }
+            "created_at_unix", "published_at_unix" -> compareByDescending { it.createdAtUnix ?: 0L }
+            "released_at_unix" -> compareByDescending { it.releasedAtUnix ?: 0L }
+            "title_sortable" -> compareBy { it.name.lowercase(Locale.US) }
+            else -> compareByDescending { it.likes ?: 0L }
         }
-        val sorted = if (ordering == "asc") filtered.sortedWith { a, b -> comparator.compare(b, a) } else filtered.sortedWith(comparator)
+        val sorted = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
 
         // Paginate
         val fromIndex = (page - 1) * pageSize
@@ -393,7 +520,7 @@ class Hanime :
     // ── Anime Details ──────────────────────────────────────────────────
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = getTitle(document.select("h1.tv-title").text())
             thumbnail_url = document.selectFirst("img.hvpi-cover")?.attr("src")
@@ -407,8 +534,6 @@ class Hanime :
     }
 
     // ── Video List ─────────────────────────────────────────────────────
-
-    override fun videoListRequest(episode: SEpisode) = GET(episode.url)
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         setAuthCookie()
@@ -443,12 +568,11 @@ class Hanime :
         // Fallback: resolve hvId via /api/v8/video (backward compatibility for single-episode URLs)
         val slug = extractSlugFromUrl(episode.url)
 
-        val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await().use {
-            it.body.string()
-        }
+        val videoString = client.newCall(GET("$baseUrl/api/v8/video?id=$slug", headers)).await()
+            .bodyString()
         if (videoString.isEmpty()) return emptyList()
 
-        val videoModel = json.decodeFromString<VideoModel>(videoString)
+        val videoModel = videoString.parseAs<VideoModel>()
         val hvId = videoModel.hentaiVideo?.id
             ?: videoModel.videosManifest?.servers?.firstOrNull()?.streams?.firstOrNull()?.hvId
 
@@ -474,11 +598,11 @@ class Hanime :
     private suspend fun parseVideoModelStreamsUnfiltered(videoModel: VideoModel): List<Video> {
         // Note: Premium filter not applied here — fallback path intentionally includes all available streams for reliability
         val servers = videoModel.videosManifest?.servers ?: return emptyList()
-        val playerHeaders = playerVideoHeaders()
+        val playerHeaders = videoHeaders()
 
-        return servers.flatMap { server ->
+        return servers.parallelFlatMap { server ->
             val filtered = server.streams.filter { it.kind != "premium_alert" && it.url.contains(".m3u8") }
-            filtered.flatMap { stream ->
+            filtered.parallelFlatMap { stream ->
                 try {
                     playlistUtils.extractFromHls(
                         playlistUrl = stream.url,
@@ -605,16 +729,16 @@ class Hanime :
      * m3u8 playlists and set correct headers for segment/AES key requests.
      */
     private suspend fun parseManifestStreams(response: Response): List<Video> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
-        val manifestData = json.decodeFromString<ManifestWrapper>(responseString)
-        val playerHeaders = playerVideoHeaders()
+        val responseString = response.bodyString().ifEmpty { return emptyList() }
+        val manifestData = responseString.parseAs<ManifestWrapper>()
+        val playerHeaders = videoHeaders()
         val servers = manifestData.videosManifest.servers
 
-        return servers.flatMap { server ->
+        return servers.parallelFlatMap { server ->
             val includePremium = preferences.getBoolean(PREF_PREMIUM_STREAMS_KEY, PREF_PREMIUM_STREAMS_DEFAULT)
             val guestStreams = server.streams.filter { (it.isGuestAllowed == true || (includePremium && it.isMemberAllowed == true)) && it.url.contains(".m3u8") }
-            guestStreams.flatMap { stream ->
-                try {
+            guestStreams.parallelFlatMap { stream ->
+                runCatching {
                     playlistUtils.extractFromHls(
                         playlistUrl = stream.url,
                         masterHeaders = playerHeaders,
@@ -624,7 +748,7 @@ class Hanime :
                             "${server.name} - $label"
                         },
                     )
-                } catch (_: Exception) {
+                }.getOrElse {
                     // Fallback: create a single Video from the stream URL
                     listOf(Video(stream.url, "${server.name} - ${stream.height ?: "unknown"}p", stream.url, headers = playerHeaders))
                 }
@@ -650,16 +774,16 @@ class Hanime :
         // Fallback: resolve hvId from the HTML page (backward compatibility)
         val slug = extractSlugFromUrl(episode.url)
         val headers = headers.newBuilder().add("cookie", cookie)
-        val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().asJsoup()
+        val document = client.newCall(GET("$baseUrl/videos/hentai/$slug", headers = headers.build())).await().useAsJsoup()
 
         val nuxtScript = document.selectFirst("script:containsData(__NUXT__)") ?: return emptyList()
         val nuxtData = nuxtScript.data()
             .substringAfter("__NUXT__=")
             .substringBeforeLast(";")
-        val parsed = json.decodeFromString<WindowNuxt>(nuxtData)
+        val parsed = nuxtData.parseAs<WindowNuxt>()
 
         // Try CDN guest manifest first — it has real Golem server streams (not Shiva decoys)
-        val hvId = parsed.state.data.video.hentai_video?.id
+        val hvId = parsed.state.data.video.hentaiVideo?.id
         if (hvId != null) {
             try {
                 val manifestStreams = fetchManifestVideos(hvId, retryOnAuthFailure = true)
@@ -672,12 +796,12 @@ class Hanime :
 
         // Final fallback: parse manifest streams without guest filter
         val nuxtVideoModel = VideoModel(
-            videosManifest = eu.kanade.tachiyomi.animeextension.en.hanime.VideosManifest(
-                servers = parsed.state.data.video.videos_manifest.servers.map { nuxtServer ->
-                    eu.kanade.tachiyomi.animeextension.en.hanime.Server(
+            videosManifest = VideosManifest(
+                servers = parsed.state.data.video.videosManifest.servers.map { nuxtServer ->
+                    Server(
                         name = nuxtServer.name,
                         streams = nuxtServer.streams.map { nuxtStream ->
-                            eu.kanade.tachiyomi.animeextension.en.hanime.Stream(
+                            Stream(
                                 height = nuxtStream.height,
                                 url = nuxtStream.url,
                             )
@@ -707,8 +831,8 @@ class Hanime :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val responseString = response.body.string().ifEmpty { return emptyList() }
-        val videoModel = json.decodeFromString<VideoModel>(responseString)
+        val responseString = response.bodyString().ifEmpty { return emptyList() }
+        val videoModel = responseString.parseAs<VideoModel>()
 
         val currentSeriesName = getTitle(videoModel.hentaiVideo?.name ?: "")
         val allFranchiseVideos = videoModel.hentaiFranchiseHentaiVideos ?: return emptyList()
@@ -725,7 +849,7 @@ class Hanime :
                     name = currentVideo.name ?: "Episode 1"
                     date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
                     val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
-                    url = "$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam"
+                    setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
                 },
             )
         }
@@ -1103,96 +1227,67 @@ class Hanime :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         // Preferred Quality
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entries[index]
-                summary = entry
-                true
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST.toList(),
+            entryValues = QUALITY_LIST.toList(),
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
 
         // Signature Provider
-        ListPreference(screen.context).apply {
-            key = PREF_SIG_PROVIDER_KEY
-            title = "Signature provider"
-            entries = arrayOf("Direct SHA-256 computation (Recommended)", "WebView", "Chicory WASM Runtime (Experimental)")
-            entryValues = SIG_PROVIDER_LIST
-            setDefaultValue(PREF_SIG_PROVIDER_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, _ ->
-                signatureProvider?.close()
-                signatureProvider = null
-                signatureProviderMode = null
-                true
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SIG_PROVIDER_KEY,
+            title = "Signature provider",
+            entries = listOf("Direct SHA-256 computation (Recommended)", "WebView", "Chicory WASM Runtime (Experimental)"),
+            entryValues = SIG_PROVIDER_LIST.toList(),
+            default = PREF_SIG_PROVIDER_DEFAULT,
+            summary = "%s",
+        ) { _ ->
+            signatureProvider?.close()
+            signatureProvider = null
+            signatureProviderMode = null
+        }
 
         // Censored Content Filter
-        ListPreference(screen.context).apply {
-            key = PREF_CENSORED_KEY
-            title = "Censored content filter"
-            entries = arrayOf("Show All", "Uncensored Only", "Censored Only")
-            entryValues = CENSORED_LIST
-            setDefaultValue(PREF_CENSORED_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entries[index]
-                summary = entry
-                true
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_CENSORED_KEY,
+            title = "Censored content filter",
+            entries = listOf("Show All", "Uncensored Only", "Censored Only"),
+            entryValues = CENSORED_LIST.toList(),
+            default = PREF_CENSORED_DEFAULT,
+            summary = "%s",
+        )
 
         // Premium Streams Toggle
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_PREMIUM_STREAMS_KEY
-            title = "Include premium streams"
-            summary = "Show streams that require a premium account. These will fail to play without a premium login cookie."
-            setDefaultValue(PREF_PREMIUM_STREAMS_DEFAULT)
-        }.also(screen::addPreference)
+        screen.addSwitchPreference(
+            key = PREF_PREMIUM_STREAMS_KEY,
+            title = "Include premium streams",
+            summary = "Show streams that require a premium account. These will fail to play without a premium login cookie.",
+            default = PREF_PREMIUM_STREAMS_DEFAULT,
+        )
 
         // Search Cache Duration
-        ListPreference(screen.context).apply {
-            key = PREF_CACHE_TTL_KEY
-            title = "Search cache duration"
-            entries = arrayOf("1 minute", "5 minutes", "10 minutes", "30 minutes")
-            entryValues = CACHE_TTL_LIST
-            setDefaultValue(PREF_CACHE_TTL_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entries[index]
-                summary = entry
-                true
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_CACHE_TTL_KEY,
+            title = "Search cache duration",
+            entries = listOf("1 minute", "5 minutes", "10 minutes", "30 minutes"),
+            entryValues = CACHE_TTL_LIST.toList(),
+            default = PREF_CACHE_TTL_DEFAULT,
+            summary = "%s",
+        )
 
         // Custom CDN Domain
-        EditTextPreference(screen.context).apply {
-            key = PREF_CUSTOM_CDN_KEY
-            title = "Custom CDN domain"
-            summary = "Leave empty for default: $DEFAULT_CDN_BASE_URL"
-            dialogMessage = "Enter custom CDN domain URL (leave empty for default: $DEFAULT_CDN_BASE_URL)"
-            setDefaultValue(PREF_CUSTOM_CDN_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val value = newValue as String
-                value.isBlank() || value.toHttpUrlOrNull() != null
-            }
-        }.also(screen::addPreference)
+        screen.addEditTextPreference(
+            key = PREF_CUSTOM_CDN_KEY,
+            default = PREF_CUSTOM_CDN_DEFAULT,
+            title = "Custom CDN domain",
+            summary = "Leave empty for default: $DEFAULT_CDN_BASE_URL",
+            dialogMessage = "Enter custom CDN domain URL (leave empty for default: $DEFAULT_CDN_BASE_URL)",
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
+            validate = { it.isBlank() || it.toHttpUrlOrNull() != null },
+            validationMessage = { "Must be a valid HTTP/HTTPS URL or empty" },
+        )
     }
 }
