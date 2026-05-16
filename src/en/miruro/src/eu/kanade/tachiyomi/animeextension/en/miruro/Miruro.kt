@@ -561,13 +561,11 @@ class Miruro :
             "ssub" -> "Soft Sub"
             else -> preferences.preferredSubType.replaceFirstChar { it.uppercase() }
         }
-        val provider = preferences.preferredProvider
 
         return sortedWith(
             compareBy(
                 { it.quality.contains(subTypeLabel) },
                 { it.quality.contains(quality) },
-                { it.quality.contains(provider, ignoreCase = true) },
             ),
         ).reversed()
     }
