@@ -164,7 +164,7 @@ class AnimeGG :
     }
 
     private fun fixJsonString(jsonString: String): String = jsonString
-        .replace(Regex("""(?<=[{,])\s*(\w+)\s*:""")) { mr -> """ "${mr.groupValues[1]}":""" }
+        .replace(Regex("""(?<=[{,])\s*['"]?(\w+)['"]?\s*:""")) { mr -> " \"${mr.groupValues[1]}\":" }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
