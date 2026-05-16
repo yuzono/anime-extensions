@@ -361,21 +361,54 @@ class Hanime :
             return trimmed.split(" Ep ")[0].trim()
         }
         // Only strip trailing number if it's a standalone episode number
-        // (1-3 digits at the end, preceded by a space, NOT preceded by 'x' connector)
+        // (1-3 digits at the end, preceded by a space)
         val episodeSuffixRegex = Regex("""\s(\d{1,3})$""")
         val match = episodeSuffixRegex.find(trimmed)
         return if (match != null) {
             val beforeNumber = trimmed.substring(0, match.range.first)
-            // Don't strip if the number is part of a compound like "x 3" or "- 3"
-            val prefixRegex = Regex("""[xX\-–]$""")
-            if (!prefixRegex.containsMatchIn(beforeNumber)) {
-                beforeNumber.trim()
-            } else {
+            // Don't strip if the number is part of "Season N" (the N is a season label, not an episode number)
+            if (beforeNumber.trimEnd().endsWith("Season", ignoreCase = true)) {
                 trimmed
+            }
+            // Don't strip if the number is part of a compound like "x 3" or "- 3"
+            else if (Regex("""[xX\-–]$""").containsMatchIn(beforeNumber)) {
+                trimmed
+            } else {
+                beforeNumber.trim()
             }
         } else {
             trimmed
         }
+    }
+
+    private fun formatEpisodeTitle(rawName: String?, seriesName: String, index: Int, format: String): String {
+        val fallback = "Episode ${index + 1}"
+        if (rawName == null) return fallback
+        if (format == "full") return rawName
+
+        val trimmed = rawName.trim()
+        // Try "Title Season N" pattern first (e.g. "Modaete yo, Adam-kun Season 1")
+        val seasonMatch = Regex("""\s+Season\s+(\d{1,3})$""", RegexOption.IGNORE_CASE).find(trimmed)
+        if (seasonMatch != null) {
+            val seasonNum = seasonMatch.groupValues[1]
+            return "Season $seasonNum - $fallback"
+        }
+        // Try "Title Ep N" pattern (e.g. "Some Title Ep 3")
+        val epMatch = Regex("""\s+Ep\s+(\d{1,3})$""", RegexOption.IGNORE_CASE).find(trimmed)
+        if (epMatch != null) {
+            return "Episode ${epMatch.groupValues[1]}"
+        }
+        // Try "Title N" pattern (e.g. "Enjo Kouhai 1")
+        val numMatch = Regex("""\s+(\d{1,3})$""").find(trimmed)
+        if (numMatch != null) {
+            val beforeNumber = trimmed.substring(0, numMatch.range.first)
+            // Only extract if the text before the number matches the series name
+            if (beforeNumber.trim().equals(seriesName, ignoreCase = true)) {
+                return "Episode ${numMatch.groupValues[1]}"
+            }
+        }
+        // No recognizable pattern — use the raw name
+        return trimmed
     }
 
     // ── Anime Details ──────────────────────────────────────────────────
@@ -702,28 +735,31 @@ class Hanime :
             .filter { getTitle(it.name ?: "") == currentSeriesName }
 
         if (seriesVideos.isEmpty()) {
-            // No matching series found in franchise; return just the current video as a single episode
-            val currentVideo = videoModel.hentaiVideo ?: return emptyList()
-            return listOf(
-                SEpisode.create().apply {
-                    episode_number = 1f
-                    name = currentVideo.name ?: "Episode 1"
-                    date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
-                    val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
-                    setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
-                },
-            )
+        // No matching series found in franchise; return just the current video as a single episode
+        val currentVideo = videoModel.hentaiVideo ?: return emptyList()
+        val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
+        return listOf(
+            SEpisode.create().apply {
+                episode_number = 1f
+                name = formatEpisodeTitle(currentVideo.name, currentSeriesName, 0, titleFormat)
+                date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
+                val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
+                setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
+            },
+        )
         }
 
-        return seriesVideos.mapIndexed { idx, it ->
-            SEpisode.create().apply {
-                episode_number = idx + 1f
-                name = it.name ?: "Episode ${idx + 1}"
-                date_upload = (it.releasedAtUnix ?: 0) * 1000
-                val hvidParam = it.id?.let { id -> "&hvid=$id" } ?: ""
-                url = "$baseUrl/api/v8/video?id=${it.slug}$hvidParam"
-            }
-        }.reversed()
+    val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
+
+    return seriesVideos.mapIndexed { idx, it ->
+        SEpisode.create().apply {
+            episode_number = idx + 1f
+            name = formatEpisodeTitle(it.name, currentSeriesName, idx, titleFormat)
+            date_upload = (it.releasedAtUnix ?: 0) * 1000
+            val hvidParam = it.id?.let { id -> "&hvid=$id" } ?: ""
+            url = "$baseUrl/api/v8/video?id=${it.slug}$hvidParam"
+        }
+    }.reversed()
     }
 
     // ── URL Helpers ───────────────────────────────────────────────────
@@ -1084,6 +1120,10 @@ class Hanime :
 
         private const val PREF_CUSTOM_CDN_KEY = "custom_cdn"
         private const val PREF_CUSTOM_CDN_DEFAULT = ""
+
+        private const val PREF_EP_TITLE_FORMAT_KEY = "episode_title_format"
+        private const val PREF_EP_TITLE_FORMAT_DEFAULT = "clean"
+        private val EP_TITLE_FORMAT_LIST = arrayOf("clean", "full")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -1149,6 +1189,16 @@ class Hanime :
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
             validate = { it.isBlank() || it.toHttpUrlOrNull() != null },
             validationMessage = { "Must be a valid HTTP/HTTPS URL or empty" },
+        )
+
+        // Episode Title Format
+        screen.addListPreference(
+            key = PREF_EP_TITLE_FORMAT_KEY,
+            title = "Episode title format",
+            entries = listOf("Clean (Episode N)", "Full (Series Name N)"),
+            entryValues = EP_TITLE_FORMAT_LIST.toList(),
+            default = PREF_EP_TITLE_FORMAT_DEFAULT,
+            summary = "%s",
         )
     }
 }
