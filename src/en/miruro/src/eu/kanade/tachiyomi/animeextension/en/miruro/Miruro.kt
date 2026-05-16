@@ -169,6 +169,11 @@ class Miruro :
             }
 
             val media = jsonObj.optJSONObject("media") ?: jsonObj
+
+            val id = media.optInt("id", 0)
+            val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+            if (id > 0) cachedAnimeMeta = AnimeMeta(id, malId)
+
             val anime = parseAnimeFromMedia(media)
             return AnimesPage(listOf(anime), false)
         }
@@ -233,6 +238,17 @@ class Miruro :
         val media = jsonObj.optJSONObject("media") ?: jsonObj
         val titleObj = media.optJSONObject("title") ?: JSONObject()
 
+        val anilistId = media.optInt("id", 0)
+        val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+        if (anilistId > 0) {
+            val existing = cachedAnimeMeta
+            if (existing != null && existing.anilistId == anilistId) {
+                if (malId != null) existing.malId = malId
+            } else {
+                cachedAnimeMeta = AnimeMeta(anilistId, malId)
+            }
+        }
+
         val titleStyle = preferences.preferredTitleStyle
         val title = resolveTitle(titleObj, titleStyle)
 
@@ -281,8 +297,10 @@ class Miruro :
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request {
+        val anilistId = anime.url.toInt()
+        currentAnilistId = anilistId
         val query = buildPipeQuery(
-            "anilistId" to anime.url.toInt(),
+            "anilistId" to anilistId,
         )
         return buildPipeRequest("episodes", "GET", query = query)
     }
@@ -295,10 +313,10 @@ class Miruro :
         val preferredSubType = preferences.preferredSubType
         val mergeAcrossProviders = preferences.mergeAcrossProviders
 
+        val anilistId = currentAnilistId ?: extractAnilistIdFromPipeRequest(response.request.url.toString())
+
         val fillerEpisodes = if (preferences.markFillers || preferences.hideFillers) {
-            extractAnilistIdFromPipeRequest(response.request.url.toString())
-                ?.let { anilistId -> fetchMalId(anilistId)?.let { malId -> fetchFillerEpisodes(malId) } }
-                ?: emptySet()
+            resolveFillerEpisodes(anilistId, providers, preferredProvider)
         } else {
             emptySet()
         }
@@ -428,6 +446,18 @@ class Miruro :
 
     @Volatile
     private var currentEpisodeData: JSONObject? = null
+
+    @Volatile
+    private var currentAnilistId: Int? = null
+
+    private data class AnimeMeta(
+        val anilistId: Int,
+        var malId: Int? = null,
+        var fillerEpisodes: Set<Float>? = null,
+    )
+
+    @Volatile
+    private var cachedAnimeMeta: AnimeMeta? = null
 
     override fun videoListRequest(episode: SEpisode): Request {
         val episodeData = JSONObject(episode.url)
@@ -646,6 +676,50 @@ class Miruro :
 
     // ============================== Filler ===============================
 
+    private fun resolveFillerEpisodes(anilistId: Int?, providers: JSONObject, preferredProvider: String): Set<Float> {
+        if (anilistId == null) return emptySet()
+
+        val meta = cachedAnimeMeta
+        if (meta != null && meta.anilistId == anilistId && meta.fillerEpisodes != null) {
+            return meta.fillerEpisodes!!
+        }
+
+        val existing = meta?.takeIf { it.anilistId == anilistId }
+        val malId = existing?.malId
+            ?: fetchMalId(anilistId)
+
+        if (existing != null) {
+            existing.malId = malId
+        } else if (malId != null) {
+            cachedAnimeMeta = AnimeMeta(anilistId, malId)
+        }
+
+        if (malId == null) {
+            existing?.let { it.fillerEpisodes = emptySet() }
+            return emptySet()
+        }
+
+        val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
+        val fillers = fetchFillerEpisodes(malId, maxEp)
+
+        cachedAnimeMeta?.takeIf { it.anilistId == anilistId }?.let { it.fillerEpisodes = fillers }
+        return fillers
+    }
+
+    private fun findMaxEpisodeNumber(providers: JSONObject, preferredProvider: String): Float {
+        val providerData = providers.optJSONObject(preferredProvider) ?: return 0f
+        val episodesObj = providerData.optJSONObject("episodes") ?: return 0f
+        var max = 0f
+        for (key in episodesObj.keys()) {
+            val arr = episodesObj.optJSONArray(key) ?: continue
+            for (i in 0 until arr.length()) {
+                val num = arr.optJSONObject(i)?.optDouble("number", 0.0)?.toFloat() ?: continue
+                if (num > max) max = num
+            }
+        }
+        return max
+    }
+
     private fun anilistMalIdRequest(anilistId: Int): Request {
         val query = $$"""
         query media($id: Int, $type: MediaType) {
@@ -674,12 +748,13 @@ class Miruro :
         null
     }
 
-    private fun fetchFillerEpisodes(malId: Int): Set<Float> {
+    private fun fetchFillerEpisodes(malId: Int, maxEpisode: Float = Float.MAX_VALUE): Set<Float> {
         val fillerEpisodes = mutableSetOf<Float>()
         var page = 1
         var hasNextPage = true
+        val maxPages = 10
 
-        while (hasNextPage) {
+        while (hasNextPage && page <= maxPages) {
             val result = try {
                 jikanClient.newCall(
                     GET("$JIKAN_API_URL/anime/$malId/episodes?page=$page"),
@@ -691,14 +766,21 @@ class Miruro :
                 break
             }
 
-            result.data.forEach { ep ->
+            for (ep in result.data) {
+                val num = ep.number.toFloat()
+                if (num > maxEpisode) {
+                    hasNextPage = false
+                    break
+                }
                 if (ep.filler) {
-                    fillerEpisodes.add(ep.number.toFloat())
+                    fillerEpisodes.add(num)
                 }
             }
 
-            hasNextPage = result.pagination.hasNextPage
-            page++
+            if (hasNextPage) {
+                hasNextPage = result.pagination.hasNextPage
+                page++
+            }
         }
 
         return fillerEpisodes
