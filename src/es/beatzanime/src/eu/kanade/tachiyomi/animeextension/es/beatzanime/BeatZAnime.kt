@@ -8,9 +8,6 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.parseAs
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -24,8 +21,7 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     override val baseUrl = "https://www.beatz-anime.net"
 
-    private val indexHost = "dd.beatz-anime.net"
-    private val indexHttpUrl = "https://$indexHost".toHttpUrl()
+    private val ddlHost = "bz.beatz-anime.net"
 
     override val lang = "es"
 
@@ -66,6 +62,7 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
         return GET(url, headers)
     }
+
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
 
     override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
@@ -151,110 +148,34 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        val episodeList = mutableListOf<SEpisode>()
 
-        val indexUrlRaw = document.selectFirst("a[href*=$indexHost]")!!.attr("abs:href").toHttpUrl()
-        val indexUrl = if (indexUrlRaw.encodedPath.contains("api/raw/")) {
-            val path = indexUrlRaw.queryParameter("path")!!.substringAfter("/")
-                .substringBefore("/")
-            "https://$indexHost/$path/"
-        } else {
-            indexUrlRaw.toString()
-        }
+        return document.select("table tr:has(a[href*=$ddlHost/d/])")
+            .filter { row ->
+                row.select("td").getOrNull(2)?.text()?.equals("Video", ignoreCase = true) == true
+            }
+            .map { row ->
+                val cells = row.select("td")
+                val name = cells[0].text().trim()
+                val size = cells[3].text().trim()
+                val downloadUrl = cells[4].selectFirst("a")!!.attr("abs:href")
 
-        fun traverseFolder(basePath: String, relativePath: String, recursionDepth: Int = 0) {
-            if (recursionDepth == 2) return
-
-            val apiHeaders = headersBuilder().apply {
-                add("Accept", "application/json, text/plain, */*")
-                add("Host", indexHost)
-                add(
-                    "Referer",
-                    indexHttpUrl.newBuilder()
-                        .addPathSegments(basePath)
-                        .build()
-                        .toString(),
-                )
-            }.build()
-
-            val apiUrl = indexHttpUrl.newBuilder().apply {
-                addPathSegment("api")
-                addPathSegment("")
-                addQueryParameter("path", basePath)
-            }.build()
-
-            val data = client.newCall(
-                GET(apiUrl, apiHeaders),
-            ).execute().parseAs<IndexResponseDto>()
-
-            data.folder.value.forEach { item ->
-                if (item.folder != null) {
-                    traverseFolder("$basePath/${item.name}", item.name, recursionDepth + 1)
-                } else if (item.file != null) {
-                    val fileExt = item.name.substringAfterLast(".")
-                    if (!SUPPORTED_FORMATS.any { it.equals(fileExt, true) }) return@forEach
-
-                    episodeList.add(
-                        SEpisode.create().apply {
-                            name = item.name
-                            url = "$basePath/${item.name}"
-                            scanlator = buildList {
-                                if (relativePath != "") add(relativePath)
-                                add(item.size.formatBytes())
-                            }.joinToString(" • ")
-                        },
-                    )
+                SEpisode.create().apply {
+                    this.name = name
+                    url = downloadUrl
+                    scanlator = size
                 }
             }
-        }
-
-        traverseFolder("/${indexUrl.toHttpUrl().pathSegments.first()}", "")
-
-        return episodeList.reversed()
-    }
-
-    @Serializable
-    class IndexResponseDto(
-        val folder: FolderDto,
-    ) {
-        @Serializable
-        class FolderDto(
-            val value: List<ItemDto>,
-        ) {
-            @Serializable
-            class ItemDto(
-                val name: String,
-                val size: Long,
-                val folder: JsonObject? = null,
-                val file: JsonObject? = null,
-            )
-        }
-    }
-
-    private fun Long.formatBytes(): String = when {
-        this >= 1_000_000_000 -> "%.2f GB".format(this / 1_000_000_000.0)
-        this >= 1_000_000 -> "%.2f MB".format(this / 1_000_000.0)
-        this >= 1_000 -> "%.2f KB".format(this / 1_000.0)
-        this > 1 -> "$this bytes"
-        this == 1L -> "$this byte"
-        else -> ""
+            .reversed()
     }
 
     // ============================ Video Links =============================
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val url = indexHttpUrl.newBuilder().apply {
-            addPathSegment("api")
-            addPathSegment("raw")
-            addPathSegment("")
-            addQueryParameter("path", episode.url)
-        }.build().toString()
-
-        val path = episode.url.substringAfter("/").substringBeforeLast("/") + "/"
+        val url = episode.url
 
         val videoHeaders = headersBuilder().apply {
-            add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-            add("Referer", indexHttpUrl.newBuilder().addPathSegments(path).build().toString())
+            add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.5,*/*;q=0.4")
+            add("Referer", baseUrl)
         }.build()
 
         return listOf(Video(url, "Video", url, videoHeaders))
@@ -272,9 +193,5 @@ class BeatZAnime : ParsedAnimeHttpSource() {
         hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
         hasAttr("data-src") -> attr("abs:data-src")
         else -> attr("abs:src")
-    }
-
-    companion object {
-        private val SUPPORTED_FORMATS = listOf("mp4", "mkv")
     }
 }
