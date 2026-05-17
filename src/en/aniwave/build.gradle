@@ -1,5 +1,5 @@
 ext {
-    extName = 'AniWave'
+    extName = 'AniWave (Unoriginal)'
     extClass = '.AniWave'
     themePkg = 'anikototheme'
     baseUrl = 'https://animewave.to'

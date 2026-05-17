@@ -5,7 +5,7 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 class AniWave :
     AnikotoTheme(
         "en",
-        "AniWave",
+        "AniWave (Unoriginal)",
         domainEntries = listOf(
             "animewave.to",
             "aniwave.id",

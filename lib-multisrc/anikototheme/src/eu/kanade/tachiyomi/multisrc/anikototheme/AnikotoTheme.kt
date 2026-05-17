@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.multisrc.anikototheme
 
 import android.app.Application
+import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
 import androidx.preference.PreferenceScreen
@@ -65,12 +66,13 @@ abstract class AnikotoTheme(
 
     override val supportsLatest = true
 
-    private val domainValues = domainEntries.map { "https://$it" }
     private val defaultBaseUrl = "https://${domainEntries.first()}"
 
     protected val preferences by getPreferencesLazy { clearOldPrefs() }
 
     override var baseUrl: String by preferences.delegate(PREF_DOMAIN_KEY, defaultBaseUrl)
+
+    private val domainValues = domainEntries.map { "https://$it" }
 
     protected open val rateLimit = 5
 
@@ -760,15 +762,15 @@ abstract class AnikotoTheme(
 
     // ============================== Preferences ===========================
 
-    private fun clearOldPrefs() {
-        val domain = preferences.getString(PREF_DOMAIN_KEY, defaultBaseUrl)!!.removePrefix("https://")
-        val hostToggle = preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
+    private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
+        val domain = getString(PREF_DOMAIN_KEY, defaultBaseUrl)!!.removePrefix("https://")
+        val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
 
         val invalidDomain = domain !in domainEntries
         val invalidHosters = hostToggle.any { it !in hosterNames }
 
         if (invalidDomain || invalidHosters) {
-            preferences.edit().also { editor ->
+            edit().also { editor ->
                 if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
                 if (invalidHosters) {
                     editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
@@ -776,6 +778,7 @@ abstract class AnikotoTheme(
                 }
             }.apply()
         }
+        return this
     }
 
     protected var useEnglish by LazyMutable { getTitleLang == "English" }
