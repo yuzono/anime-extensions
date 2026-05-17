@@ -258,7 +258,7 @@ class Hanime :
             title = getTitle(item.name)
             thumbnail_url = item.coverUrl
             author = item.brand
-            description = item.description?.replace(Regex("<[^>]*>"), "")
+            description = item.description?.replace(HTML_TAG_REGEX, "")
             status = SAnime.UNKNOWN
             genre = item.tags.joinToString { it }
             initialized = true
@@ -362,8 +362,7 @@ class Hanime :
         }
         // Only strip trailing number if it's a standalone episode number
         // (1-3 digits at the end, preceded by a space)
-        val episodeSuffixRegex = Regex("""\s(\d{1,3})$""")
-        val match = episodeSuffixRegex.find(trimmed)
+        val match = EPISODE_SUFFIX_REGEX.find(trimmed)
         return if (match != null) {
             val beforeNumber = trimmed.substring(0, match.range.first)
             // Don't strip if the number is part of "Season N" (the N is a season label, not an episode number)
@@ -388,18 +387,18 @@ class Hanime :
 
         val trimmed = rawName.trim()
         // Try "Title Season N" pattern first (e.g. "Modaete yo, Adam-kun Season 1")
-        val seasonMatch = Regex("""\s+Season\s+(\d{1,3})$""", RegexOption.IGNORE_CASE).find(trimmed)
+        val seasonMatch = SEASON_PATTERN_REGEX.find(trimmed)
         if (seasonMatch != null) {
             val seasonNum = seasonMatch.groupValues[1]
             return "Season $seasonNum - $fallback"
         }
         // Try "Title Ep N" pattern (e.g. "Some Title Ep 3")
-        val epMatch = Regex("""\s+Ep\s+(\d{1,3})$""", RegexOption.IGNORE_CASE).find(trimmed)
+        val epMatch = EP_PATTERN_REGEX.find(trimmed)
         if (epMatch != null) {
             return "Episode ${epMatch.groupValues[1]}"
         }
         // Try "Title N" pattern (e.g. "Enjo Kouhai 1")
-        val numMatch = Regex("""\s+(\d{1,3})$""").find(trimmed)
+        val numMatch = TRAILING_NUMBER_REGEX.find(trimmed)
         if (numMatch != null) {
             val beforeNumber = trimmed.substring(0, numMatch.range.first)
             // Only extract if the text before the number matches the series name
@@ -712,7 +711,7 @@ class Hanime :
         return this.sortedWith(
             compareBy(
                 { it.quality.contains(quality) },
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_RESOLUTION_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
@@ -730,6 +729,7 @@ class Hanime :
 
         val currentSeriesName = getTitle(videoModel.hentaiVideo?.name ?: "")
         val allFranchiseVideos = videoModel.hentaiFranchiseHentaiVideos ?: return emptyList()
+        val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
 
         val seriesVideos = allFranchiseVideos
             .filter { getTitle(it.name ?: "") == currentSeriesName }
@@ -737,7 +737,6 @@ class Hanime :
         if (seriesVideos.isEmpty()) {
             // No matching series found in franchise; return just the current video as a single episode
             val currentVideo = videoModel.hentaiVideo ?: return emptyList()
-            val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
             return listOf(
                 SEpisode.create().apply {
                     episode_number = 1f
@@ -748,8 +747,6 @@ class Hanime :
                 },
             )
         }
-
-        val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
 
         return seriesVideos.mapIndexed { idx, it ->
             SEpisode.create().apply {
@@ -1124,6 +1121,29 @@ class Hanime :
         private const val PREF_EP_TITLE_FORMAT_KEY = "episode_title_format"
         private const val PREF_EP_TITLE_FORMAT_DEFAULT = "clean"
         private val EP_TITLE_FORMAT_LIST = arrayOf("clean", "full")
+
+        // Hoisted Regex constants — compiled once, reused on every call
+
+        /** Matches HTML tags for description sanitization. */
+        private val HTML_TAG_REGEX = Regex("<[^>]*>")
+
+        /** Matches a trailing episode suffix: a space followed by 1–3 digits at end of string. */
+        private val EPISODE_SUFFIX_REGEX = Regex("""\s(\d{1,3})$""")
+
+        /** Matches "Season N" at end of a title (case-insensitive). */
+        private val SEASON_PATTERN_REGEX = Regex("""\s+Season\s+(\d{1,3})$""", RegexOption.IGNORE_CASE)
+
+        /** Matches "Ep N" at end of a title (case-insensitive). */
+        private val EP_PATTERN_REGEX = Regex("""\s+Ep\s+(\d{1,3})$""", RegexOption.IGNORE_CASE)
+
+        /** Matches a trailing number at end of a title: one or more spaces then 1–3 digits. */
+        private val TRAILING_NUMBER_REGEX = Regex("""\s+(\d{1,3})$""")
+
+        /** Matches compound prefixes before a number (e.g. "x 3", "- 3", "× 3") that should NOT be stripped. */
+        private val PREFIX_REGEX = Regex("""[\s\-×x]$""", RegexOption.IGNORE_CASE)
+
+        /** Extracts numeric quality value from a quality label like "1080p". */
+        private val QUALITY_RESOLUTION_REGEX = Regex("""(\d+)p""")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
