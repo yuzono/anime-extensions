@@ -77,7 +77,7 @@ object AnikotoThemeFilters {
         val ratings: List<String> = emptyList(),
     )
 
-    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
+    fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
 
         return FilterSearchParams(
