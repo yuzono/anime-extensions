@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.es.veranime
 
+import android.net.Uri
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
@@ -23,6 +24,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
+import java.net.URLEncoder
 
 class VerAnime :
     AnimeHttpSource(),
@@ -71,7 +73,8 @@ class VerAnime :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = if (query.isNotBlank()) {
-        GET("$baseUrl/page/$page/?s=$query", headers)
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        GET("$baseUrl/page/$page/?s=$encodedQuery", headers)
     } else {
         popularAnimeRequest(page)
     }
@@ -233,8 +236,13 @@ class VerAnime :
             )
         } -> vidHideExtractor.videosFromUrl(url)
 
-        arrayOf("voe").any { url.contains(it, true) } -> voeExtractor.videosFromUrl(url)
-        arrayOf("yourupload", "upload").any { url.contains(it, true) } -> yourUploadExtractor.videoFromUrl(
+        Uri.parse(url).host?.let { host ->
+            host.equals("voe.sx", true) || host.endsWith(".voe.sx", true)
+        } == true -> voeExtractor.videosFromUrl(url)
+
+        Uri.parse(url).host?.let { host ->
+            host.equals("yourupload.com", true) || host.endsWith(".yourupload.com", true)
+        } == true -> yourUploadExtractor.videoFromUrl(
             url,
             headers = headers,
         )

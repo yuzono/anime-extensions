@@ -21,7 +21,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
                     .headers(headers)
                     .header("Referer", "https://animeav1.com/")
                     .build(),
-            ).execute().body.string()
+            ).execute().use { it.body.string() }
 
             val jsPathRegex = """src="(/assets/index-[A-Za-z0-9_-]+\.js)"""".toRegex()
             val jsPath = jsPathRegex.find(iframeResponse)?.groupValues?.get(1) ?: return emptyList()
@@ -32,7 +32,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
                     .url(jsUrl)
                     .headers(headers)
                     .build(),
-            ).execute().body.string()
+            ).execute().use { it.body.string() }
 
             // Extract array in kl()
             val arrRegex = """function\s+kl\s*\(\s*\)\s*\{\s*const\s+n\s*=\s*\[(.*?)\]""".toRegex()
@@ -157,7 +157,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
                     .headers(headers)
                     .header("Referer", "https://animeav1.com/")
                     .build(),
-            ).execute().body.string()
+            ).execute().use { it.body.string() }
 
             // Decrypt video payload
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
@@ -165,7 +165,9 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
             val ivSpec = IvParameterSpec(ivBytes)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
 
-            val ciphertext = apiResponse.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            val ciphertext = ByteArray(apiResponse.length / 2) { i ->
+                apiResponse.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
             val decryptedBytes = cipher.doFinal(ciphertext)
             val decrypted = String(decryptedBytes, Charsets.UTF_8)
 
@@ -199,8 +201,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
             }
 
             streams
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
             emptyList()
         }
     }
