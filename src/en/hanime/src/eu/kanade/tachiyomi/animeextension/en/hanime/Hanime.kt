@@ -735,31 +735,31 @@ class Hanime :
             .filter { getTitle(it.name ?: "") == currentSeriesName }
 
         if (seriesVideos.isEmpty()) {
-        // No matching series found in franchise; return just the current video as a single episode
-        val currentVideo = videoModel.hentaiVideo ?: return emptyList()
+            // No matching series found in franchise; return just the current video as a single episode
+            val currentVideo = videoModel.hentaiVideo ?: return emptyList()
+            val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
+            return listOf(
+                SEpisode.create().apply {
+                    episode_number = 1f
+                    name = formatEpisodeTitle(currentVideo.name, currentSeriesName, 0, titleFormat)
+                    date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
+                    val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
+                    setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
+                },
+            )
+        }
+
         val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
-        return listOf(
+
+        return seriesVideos.mapIndexed { idx, it ->
             SEpisode.create().apply {
-                episode_number = 1f
-                name = formatEpisodeTitle(currentVideo.name, currentSeriesName, 0, titleFormat)
-                date_upload = (currentVideo.releasedAtUnix ?: 0) * 1000
-                val hvidParam = currentVideo.id?.let { id -> "&hvid=$id" } ?: ""
-                setUrlWithoutDomain("$baseUrl/api/v8/video?id=${currentVideo.slug}$hvidParam")
-            },
-        )
-        }
-
-    val titleFormat = preferences.getString(PREF_EP_TITLE_FORMAT_KEY, PREF_EP_TITLE_FORMAT_DEFAULT) ?: PREF_EP_TITLE_FORMAT_DEFAULT
-
-    return seriesVideos.mapIndexed { idx, it ->
-        SEpisode.create().apply {
-            episode_number = idx + 1f
-            name = formatEpisodeTitle(it.name, currentSeriesName, idx, titleFormat)
-            date_upload = (it.releasedAtUnix ?: 0) * 1000
-            val hvidParam = it.id?.let { id -> "&hvid=$id" } ?: ""
-            url = "$baseUrl/api/v8/video?id=${it.slug}$hvidParam"
-        }
-    }.reversed()
+                episode_number = idx + 1f
+                name = formatEpisodeTitle(it.name, currentSeriesName, idx, titleFormat)
+                date_upload = (it.releasedAtUnix ?: 0) * 1000
+                val hvidParam = it.id?.let { id -> "&hvid=$id" } ?: ""
+                url = "$baseUrl/api/v8/video?id=${it.slug}$hvidParam"
+            }
+        }.reversed()
     }
 
     // ── URL Helpers ───────────────────────────────────────────────────
