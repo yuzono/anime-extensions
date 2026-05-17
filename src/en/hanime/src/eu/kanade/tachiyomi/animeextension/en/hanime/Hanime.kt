@@ -371,7 +371,7 @@ class Hanime :
                 trimmed
             }
             // Don't strip if the number is part of a compound like "x 3" or "- 3"
-            else if (Regex("""[xX\-–]$""").containsMatchIn(beforeNumber)) {
+            else if (PREFIX_REGEX.containsMatchIn(beforeNumber)) {
                 trimmed
             } else {
                 beforeNumber.trim()
