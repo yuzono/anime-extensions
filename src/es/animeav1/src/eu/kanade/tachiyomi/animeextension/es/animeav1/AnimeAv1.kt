@@ -1,13 +1,14 @@
 package eu.kanade.tachiyomi.animeextension.es.animeav1
 
-import android.app.Application
 import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -18,14 +19,16 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
+import java.util.Locale
 
-class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeAv1 :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeAv1"
 
@@ -35,9 +38,7 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override val supportsLatest = true
 
-    private val preferences: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
-    }
+    private val preferences: SharedPreferences by getPreferencesLazy()
 
     companion object {
         private const val PREF_QUALITY_KEY = "preferred_quality"
@@ -57,18 +58,21 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
             "StreamWish",
             "Voe",
             "YourUpload",
+            "DoodStream",
             "FileLions",
-            "StreamHideVid",
+            "VidHide",
         )
+
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val animeDetails = SAnime.create().apply {
-            title = doc.selectFirst("h1.line-clamp-2")?.text()?.trim() ?: ""
+            doc.selectFirst("h1.line-clamp-2")?.text()?.let { title = it }
             description = doc.selectFirst(".entry > p")?.text()
             genre = doc.select("header > .items-center > a").joinToString { it.text() }
-            thumbnail_url = doc.selectFirst("img.object-cover")?.attr("src")
+            thumbnail_url = doc.selectFirst("img.object-cover")?.attr("abs:src")
         }
         doc.select("header > .items-center.text-sm span").eachText().forEach {
             when {
@@ -82,7 +86,7 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/catalogo?order=popular&page=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select("article[class*=\"group/item\"]")
         val nextPage = document.select(".pointer-events-none:not([class*=\"max-sm:hidden\"]) ~ a").any()
         val animeList = elements.map { element ->
@@ -111,17 +115,18 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val script = doc.selectFirst("script:containsData(node_ids)")?.data().orEmpty()
-        val episodeListRegex = """episodes\s*:\s*\[([^\]]*)\]""".toRegex()
+        val episodeListRegex = """episodes\s*:\s*\[([^]]*)]""".toRegex()
         val episodeRegex = """\{\s*id\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*number\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*\}""".toRegex()
+        val baseUrl = doc.location().substringBefore("?").substringBefore("#")
         val episodes = episodeListRegex.find(script)?.let {
             episodeRegex.findAll(it.groupValues[1]).map { match ->
                 val number = match.groupValues[2]
                 SEpisode.create().apply {
                     name = "Episodio $number"
                     episode_number = number.toFloatOrNull() ?: 0F
-                    setUrlWithoutDomain("${doc.location()}/$number")
+                    setUrlWithoutDomain("$baseUrl/$number")
                 }
             }.toList()
         }.orEmpty()
@@ -132,23 +137,26 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun getFilterList(): AnimeFilterList = AnimeAv1Filters.FILTER_LIST
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val videoList = mutableListOf<Video>()
         val script = doc.selectFirst("script:containsData(node_ids)")?.data() ?: return emptyList()
 
         val jsonRegex = Regex("""\{\s*server\s*:\s*"([^"]*)"\s*,\s*url\s*:\s*"([^"]*)"\s*\}""")
-        val subRegex = Regex("""SUB\s*:\s*\[([^\]]*)\]""")
-        val dubRegex = Regex("""DUB\s*:\s*\[([^\]]*)\]""")
+        val subRegex = Regex("""SUB\s*:\s*\[([^]]*)]""")
+        val dubRegex = Regex("""DUB\s*:\s*\[([^]]*)]""")
 
-        fun processMatches(regex: Regex, type: String): List<Video> {
-            return regex.findAll(script)
-                .flatMap { jsonRegex.findAll(it.groupValues[1]) }
-                .map { it.groupValues[2].substringBefore("?embed") }
-                .distinct().toList()
-                .parallelCatchingFlatMapBlocking { url ->
-                    serverVideoResolver(url, type)
-                }
-        }
+        fun processMatches(regex: Regex, type: String): List<Video> = regex.findAll(script)
+            .flatMap { jsonRegex.findAll(it.groupValues[1]) }
+            .map {
+                Pair(
+                    it.groupValues[2].substringBefore("?embed"),
+                    it.groupValues[1],
+                )
+            }
+            .distinctBy { it.first }.toList()
+            .catchingFlatMapBlocking { (url, server) ->
+                serverVideoResolver(url, type, server)
+            }
 
         processMatches(dubRegex, "DUB").also(videoList::addAll)
         processMatches(subRegex, "SUB").also(videoList::addAll)
@@ -157,30 +165,43 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     /*--------------------------------Video extractors------------------------------------*/
-    private val voeExtractor by lazy { VoeExtractor(client) }
-    private val pixelDrainExtractor by lazy { PixelDrainExtractor(client) }
+    private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val pixelDrainExtractor by lazy { PixelDrainExtractor() }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
-        return runCatching {
-            val source = serverName?.ifEmpty { url } ?: url
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "pixeldrain" -> pixelDrainExtractor.videosFromUrl(url, "$prefix ")
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-                "player.zilla" -> {
-                    val m3u = url.replace("play/", "m3u8/")
-                    listOf(Video(m3u, "$prefix HLS", m3u))
-                }
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+    private suspend fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> {
+        val source = serverName?.ifEmpty { url } ?: url
+        val matched = conventions
+            .firstOrNull { (_, names) ->
+                val sourceLower = source.lowercase(Locale.ROOT)
+                names.any { it.lowercase(Locale.ROOT) in sourceLower }
             }
-        }.getOrNull() ?: emptyList()
+            ?.first
+        return when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "pixeldrain" -> pixelDrainExtractor.videosFromUrl(url, "$prefix ")
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+            "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+            "filelions" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix FileLions:$it" })
+            "doodstream" -> doodExtractor.videosFromUrl(url, prefix)
+            "vidhide" -> {
+                val urlLower = url.lowercase(Locale.ROOT)
+                val sourceLower = source.lowercase(Locale.ROOT)
+                val name = if (urlLower.contains("streamhide") || urlLower.contains("streamvid") || sourceLower.contains("streamhidevid")) "StreamHideVid" else "VidHide"
+                vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix $name:$it" })
+            }
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+            "player.zilla" -> {
+                val m3u = url.replace("play/", "m3u8/")
+                listOf(Video(m3u, "$prefix HLS", m3u))
+            }
+            else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+        }
     }
 
     private val conventions = listOf(
@@ -189,8 +210,8 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
         "pixeldrain" to listOf("pixeldrain"),
         "player.zilla" to listOf("player.zilla"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "filelions" to listOf("filelions", "lion", "fviplions"),
         "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2play", "ds2video", "dooood", "d000d", "d0000d"),
-        "streamlare" to listOf("streamlare", "slmaxed"),
         "yourupload" to listOf("yourupload", "upload"),
         "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
     )
@@ -204,7 +225,7 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
                 { it.quality.contains(langPref, true) },
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
@@ -217,13 +238,6 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -233,13 +247,6 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -249,13 +256,6 @@ class AnimeAv1 : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }
