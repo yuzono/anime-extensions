@@ -13,4 +13,5 @@ class AniWave :
             "aniwave.ro",
         ),
         hosterNames = listOf("megaplay", "vidstream", "vidcloud", "kiwi-stream"),
-    )
+        hosterDisplayNames = listOf("MegaPlay", "Vidstream", "VidCloud", "Kiwi-Stream"),
+        )

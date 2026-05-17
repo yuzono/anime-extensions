@@ -461,7 +461,7 @@ abstract class AnikotoTheme(
                 }.build()
 
                 client.newCall(GET("https://mapper.mewcdn.online/api/mal/$mapperMal/$mapperSlug/$mapperTs", mapperHeaders))
-                    .execute().use { apiResponse ->
+                    .awaitSuccess().use { apiResponse ->
                         val mapperJson = apiResponse.parseAs<JsonObject>()
                         for ((key, value) in mapperJson) {
                             if (key.equals("status", true)) continue
