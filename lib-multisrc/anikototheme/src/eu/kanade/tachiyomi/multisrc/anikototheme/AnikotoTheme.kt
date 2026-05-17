@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
+import android.widget.Toast
+import androidx.preference.ListPreference
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -24,8 +27,6 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
-import keiyoushi.utils.addListPreference
-import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -59,6 +60,7 @@ abstract class AnikotoTheme(
     override val name: String,
     private val domainEntries: List<String>,
     private val hosterNames: List<String>,
+    private val hosterDisplayNames: List<String> = hosterNames.map { it.replaceFirstChar { c -> c.uppercase() } },
 ) : ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
@@ -95,13 +97,6 @@ abstract class AnikotoTheme(
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    protected open fun updateDomainConfig() {
-        client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
-            .build()
-        docHeaders = headersBuilder().build()
-    }
-
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = GET(
@@ -121,7 +116,7 @@ abstract class AnikotoTheme(
             setUrlWithoutDomain(EP_URL_SUFFIX_REGEX.replace(a.attr("href").substringBefore("?"), ""))
             title = getTitle(a)
         }
-        thumbnail_url = element.selectFirst("div.poster img")?.let {
+        thumbnail_url = element.selectFirst(listingThumbnailSelector)?.let {
             it.attr("data-src").ifBlank { it.attr("src") }
         }
     }
@@ -166,7 +161,7 @@ abstract class AnikotoTheme(
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = AnikotoThemeFilters.getSearchParameters(filters)
-        val vrf = if (query.isNotBlank()) utils.vrfEncrypt(query) else ""
+        val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("filter")
@@ -218,6 +213,13 @@ abstract class AnikotoTheme(
             author = newDocument.select("div:contains(Studios) > span > a").joinToString(", ") { it.text().trim() }
             status = parseStatus(newDocument.select("div:contains(Status) > span").text())
             description = buildDescription(newDocument, titleElement)
+
+            if (detailThumbnailSelector.isNotBlank()) {
+                newDocument.selectFirst(detailThumbnailSelector)?.let { img ->
+                    val url = img.attr("data-src").ifBlank { img.attr("src") }
+                    if (url.isNotBlank()) thumbnail_url = url
+                }
+            }
         }
     }
 
@@ -245,7 +247,7 @@ abstract class AnikotoTheme(
 
             if (!animeId.isNullOrBlank()) {
                 try {
-                    val listHeaders = headersBuilder().apply {
+                    val listHeaders = headers.newBuilder().apply {
                         add("Accept", "application/json, text/javascript, */*; q=0.01")
                         add("Referer", response.request.url.toString())
                         add("X-Requested-With", "XMLHttpRequest")
@@ -253,16 +255,18 @@ abstract class AnikotoTheme(
 
                     client.newCall(GET("$baseUrl/api/watch-order/$animeId", listHeaders)).execute().use { apiResponse ->
                         val relatedDoc = apiResponse.parseAs<ResultResponse>().toDocument()
-                        relatedDoc.select("div.item.flexserieslist").forEach { element ->
-                            val href = element.selectFirst("a[href*=/watch/]")?.attr("href")?.substringBefore("?")?.trim() ?: return@forEach
-                            val path = extractAnimePath(href) ?: return@forEach
+                        relatedDoc.select(watchOrderItemSelector).forEach { element ->
+                            val href = element.selectFirst("a[href*=/watch/]")?.attr("href")
+                                ?: element.attr("href").takeIf { it.contains("/watch/") }
+                                ?: return@forEach
+                            val path = extractAnimePath(href.substringBefore("?").trim()) ?: return@forEach
                             if (path == currentAnimePath) return@forEach
                             val nameElement = element.selectFirst(".info .name") ?: return@forEach
                             resultList.add(
                                 SAnime.create().apply {
                                     url = path
                                     title = getTitle(nameElement).trim()
-                                    thumbnail_url = element.selectFirst("img")?.attr("src")?.trim()
+                                    thumbnail_url = extractRelatedThumbnail(element)
                                 },
                             )
                         }
@@ -270,7 +274,7 @@ abstract class AnikotoTheme(
                 } catch (_: Exception) { }
             }
 
-            document.select("section.w-side-section").firstOrNull {
+            document.select(recommendedSectionSelector).firstOrNull {
                 it.select(".head .title").text().equals("Recommended", ignoreCase = true)
             }?.select("a.item")?.forEach { element ->
                 val path = extractAnimePath(element.attr("href").substringBefore("?").trim()) ?: return@forEach
@@ -280,7 +284,7 @@ abstract class AnikotoTheme(
                     SAnime.create().apply {
                         url = path
                         title = getTitle(nameElement).trim()
-                        thumbnail_url = element.selectFirst("img")?.attr("src")?.trim()
+                        thumbnail_url = extractRelatedThumbnail(element)
                     },
                 )
             }
@@ -289,6 +293,28 @@ abstract class AnikotoTheme(
             Log.e("AnikotoTheme", "Failed to parse related anime", e)
             emptyList()
         }
+    }
+
+    /**
+     * Parses related anime from the watch-order API response.
+     * Override this if the site uses a different HTML structure.
+     */
+    protected open fun parseWatchOrderRelated(document: Document, currentAnimePath: String): List<SAnime> {
+        val resultList = mutableListOf<SAnime>()
+        document.select("div.item.flexserieslist").forEach { element ->
+            val href = element.selectFirst("a[href*=/watch/]")?.attr("href")?.substringBefore("?")?.trim() ?: return@forEach
+            val path = extractAnimePath(href) ?: return@forEach
+            if (path == currentAnimePath) return@forEach
+            val nameElement = element.selectFirst(".info .name") ?: return@forEach
+            resultList.add(
+                SAnime.create().apply {
+                    url = path
+                    title = getTitle(nameElement).trim()
+                    thumbnail_url = extractRelatedThumbnail(element)
+                },
+            )
+        }
+        return resultList
     }
 
     // ============================== Episodes ==============================
@@ -307,12 +333,12 @@ abstract class AnikotoTheme(
             }
         }
 
-        val listHeaders = headersBuilder().apply {
+        val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", baseUrl + animeUrl)
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
-        return GET("$baseUrl/ajax/episode/list/$id?vrf=${utils.vrfEncrypt(id)}", listHeaders)
+        return GET("$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}", listHeaders)
     }
 
     override fun episodeListSelector() = "div.episodes ul > li > a"
@@ -379,7 +405,7 @@ abstract class AnikotoTheme(
         val malParams = episode.url.substringAfter("&mal=", "").takeIf { it.isNotBlank() }
         val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&mal=")
 
-        val listHeaders = headersBuilder().apply {
+        val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", "$baseUrl$epurlPart")
             add("X-Requested-With", "XMLHttpRequest")
@@ -419,28 +445,7 @@ abstract class AnikotoTheme(
         val typeSelection = typeToggle
         val serverNumSelection = serverNumsToggle
 
-        val serverData = document.select("div.servers > div.type").flatMap { elem ->
-            val label = elem.selectFirst("label")?.text()?.trim()?.let { lbl ->
-                when (lbl.uppercase()) {
-                    "SUB" -> "Sub"
-                    "H-SUB" -> "H-Sub"
-                    "DUB" -> "Dub"
-                    "A-DUB" -> "A-Dub"
-                    else -> lbl.replaceFirstChar { it.uppercase() }
-                }
-            } ?: elem.attr("data-type").replaceFirstChar { it.uppercase() }
-
-            elem.select("li").mapNotNull { serverElement ->
-                val serverId = serverElement.attr("data-link-id")
-                if (serverId.isBlank()) return@mapNotNull null
-                val serverName = serverElement.text().lowercase()
-                if (hostToggle.none { serverName.contains(it, true) }) return@mapNotNull null
-                if (!typeSelection.contains(label, true)) return@mapNotNull null
-                val serverNum = getServerNumber(serverName)
-                if (!serverNumSelection.contains(serverNum.toString())) return@mapNotNull null
-                VideoData(label, serverId, serverName)
-            }
-        }.toMutableList()
+        val serverData = parseServerListData(document, typeSelection, serverNumSelection).toMutableList()
 
         // Mapper API servers
         val mapperMal = response.request.header("X-Mapper-Mal")
@@ -449,7 +454,7 @@ abstract class AnikotoTheme(
 
         if (!mapperMal.isNullOrBlank() && !mapperSlug.isNullOrBlank() && !mapperTs.isNullOrBlank()) {
             try {
-                val mapperHeaders = headersBuilder().apply {
+                val mapperHeaders = headers.newBuilder().apply {
                     add("Accept", "application/json, text/javascript, */*; q=0.01")
                     add("Referer", "$baseUrl/")
                     add("Origin", baseUrl)
@@ -509,7 +514,7 @@ abstract class AnikotoTheme(
     }
 
     private suspend fun getEmbedLink(serverId: String, epUrl: String): String {
-        val listHeaders = headersBuilder().apply {
+        val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", baseUrl + epUrl)
             add("X-Requested-With", "XMLHttpRequest")
@@ -528,7 +533,7 @@ abstract class AnikotoTheme(
             return emptyList()
         }
 
-        val pageHeaders = headersBuilder().add("Referer", parentUrl).build()
+        val pageHeaders = headers.newBuilder().add("Referer", parentUrl).build()
 
         val pageBody = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
@@ -538,7 +543,7 @@ abstract class AnikotoTheme(
         val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
             ?: throw Exception("Could not find data-id")
 
-        val apiHeaders = headersBuilder().apply {
+        val apiHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
             add("X-Requested-With", "XMLHttpRequest")
             add("Referer", embedUrl)
@@ -595,46 +600,44 @@ abstract class AnikotoTheme(
         )
     }
 
-    // ============================ Shared Utilities ========================
+    // =================== Protected Open Selector Properties ===============
 
-    protected open fun getTitle(element: Element): String {
-        val enTitle = element.text().trim().takeIf(String::isNotBlank)
-        val jpTitle = element.attr("data-jp").trim().takeIf(String::isNotBlank)
-        return if (useEnglish) {
-            enTitle ?: jpTitle ?: element.text().trim()
-        } else {
-            jpTitle ?: enTitle ?: element.text().trim()
-        }
-    }
+    protected open val watchOrderItemSelector = "div.item.flexserieslist"
+    protected open val listingThumbnailSelector = "div.poster img"
+    protected open val metaContainerSelector = "div.bmeta"
+    protected open val scoreLabelName = "MAL"
+    protected open val aliasContainerSelector = "div.names.font-italic"
+    protected open val metaExclusionLabels = listOf("Genres", "Status", "Studios", "Producers", "MAL")
+    protected open val recommendedSectionSelector = "section.w-side-section"
+    protected open val synopsisContentSelector = "div.synopsis > div.shorting > div.content"
+    protected open val detailThumbnailSelector = ""
 
-    protected open fun parseStatus(statusString: String): Int = when (statusString) {
-        "Ongoing Anime", "Currently Airing" -> SAnime.ONGOING
-        "Finished Airing", "Completed" -> SAnime.COMPLETED
-        else -> SAnime.UNKNOWN
-    }
+    // ========================= Protected Open Helpers =====================
 
-    private fun buildDescription(document: Document, titleElement: Element?): String = buildString {
+    protected open fun vrfEncrypt(input: String): String = utils.vrfEncrypt(input)
+
+    protected open fun buildDescription(document: Document, titleElement: Element?): String = buildString {
         val enTitle = titleElement?.text()?.trim()?.takeIf(String::isNotBlank)
         val jpTitle = titleElement?.attr("data-jp")?.trim()?.takeIf(String::isNotBlank)
-        val malScore = document.select("div.bmeta div.meta > div").firstOrNull {
-            it.ownText().trim().removeSuffix(":").equals("MAL", ignoreCase = true)
+        val malScore = document.select("$metaContainerSelector div.meta > div").firstOrNull {
+            it.ownText().trim().removeSuffix(":").equals(scoreLabelName, ignoreCase = true)
         }?.select("span")?.text()?.trim()
 
         val fancyScore = getFancyScore(malScore)
 
         if (scorePosition == SCORE_POS_TOP && fancyScore.isNotBlank()) appendLine(fancyScore).appendLine()
 
-        document.selectFirst("div.synopsis > div.shorting > div.content")?.text()?.let {
+        document.selectFirst(synopsisContentSelector)?.text()?.let {
             appendLine(it).appendLine()
         }
 
-        val meta = document.select("div.bmeta div.meta > div").mapNotNull { div ->
+        val meta = document.select("$metaContainerSelector div.meta > div").mapNotNull { div ->
             val label = div.ownText().trim().removeSuffix(":").removeSuffix(" ")
             var value = div.select("span").text().trim()
             if (label.equals("Duration", ignoreCase = true)) {
                 value.filter { it.isDigit() }.takeIf { it.isNotEmpty() }?.let { value = "$it min" }
             }
-            if (label.isNotBlank() && value.isNotBlank() && label !in listOf("Genres", "Status", "Studios", "Producers", "MAL")) {
+            if (label.isNotBlank() && value.isNotBlank() && label !in metaExclusionLabels) {
                 "$label: $value"
             } else {
                 null
@@ -654,7 +657,7 @@ abstract class AnikotoTheme(
 
         val altNames = mutableListOf<String>()
         if (useEnglish) jpTitle?.let { altNames.add(it) } else enTitle?.let { altNames.add(it) }
-        document.selectFirst("div.names.font-italic")?.text()?.takeIf { it.isNotBlank() }?.let { namesText ->
+        document.selectFirst(aliasContainerSelector)?.text()?.takeIf { it.isNotBlank() }?.let { namesText ->
             altNames.addAll(namesText.split(";").map { it.trim() }.filter { it.isNotBlank() && it != jpTitle && it != enTitle })
         }
         if (altNames.isNotEmpty()) appendLine("Other name(s): ${altNames.joinToString(", ")}").appendLine()
@@ -662,19 +665,84 @@ abstract class AnikotoTheme(
         if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotBlank()) append(fancyScore)
     }.trim()
 
-    protected open fun getFancyScore(score: String?): String {
-        if (score.isNullOrBlank()) return ""
-        return try {
-            val scoreBig = score.toBigDecimal()
-            if (scoreBig.signum() <= 0) return ""
-            val stars = scoreBig.divide(BigDecimal(2), 0, RoundingMode.HALF_UP).toInt().coerceIn(0, 5)
-            "★".repeat(stars) + "☆".repeat(5 - stars) + " " + scoreBig.stripTrailingZeros().toPlainString()
+    protected open fun resolveSearchAnime(document: Document): Document {
+        if (document.location().startsWith("$baseUrl/filter?keyword=")) {
+            val foundAnimePath = document.selectFirst(searchAnimeSelector())?.selectFirst("a[href]")?.attr("href")
+                ?: throw IllegalStateException("Search element not found")
+            val resolveAnimePath = EP_URL_SUFFIX_REGEX.replace(foundAnimePath, "")
+            return client.newCall(GET(baseUrl + resolveAnimePath)).execute().useAsJsoup()
+        }
+        return document
+    }
+
+    protected open fun extractAnimePath(href: String?): String? {
+        if (href.isNullOrBlank()) return null
+        val path = try {
+            href.toHttpUrl().encodedPath
         } catch (_: Exception) {
-            ""
+            return null
+        }
+        return EP_URL_SUFFIX_REGEX.replace(path, "").takeIf { it.startsWith("/watch/") }
+    }
+
+    protected open fun parseServerListData(
+        document: Document,
+        typeSelection: Set<String>,
+        serverNumSelection: Set<String>,
+    ): List<VideoData> {
+        return document.select("div.servers > div.type").flatMap { elem ->
+            val label = elem.selectFirst("label")?.text()?.trim()?.let { lbl ->
+                when (lbl.uppercase()) {
+                    "SUB" -> "Sub"
+                    "H-SUB" -> "H-Sub"
+                    "DUB" -> "Dub"
+                    "A-DUB" -> "A-Dub"
+                    else -> lbl.replaceFirstChar { it.uppercase() }
+                }
+            } ?: elem.attr("data-type").replaceFirstChar { it.uppercase() }
+
+            elem.select("li").mapNotNull { serverElement ->
+                val serverId = serverElement.attr("data-link-id")
+                if (serverId.isBlank()) return@mapNotNull null
+                val serverName = serverElement.text().lowercase()
+                if (hostToggle.none { serverName.contains(it, true) }) return@mapNotNull null
+                if (!typeSelection.contains(label, true)) return@mapNotNull null
+                val serverNum = getServerNumber(serverName)
+                if (!serverNumSelection.contains(serverNum.toString())) return@mapNotNull null
+                VideoData(label, serverId, serverName)
+            }
         }
     }
 
-    private fun extractM3u8FromSources(sources: kotlinx.serialization.json.JsonElement): String? = when (sources) {
+    protected open fun extractRelatedThumbnail(element: Element): String? = element.selectFirst("img")?.attr("src")?.trim()
+
+    protected open fun mapMapperName(key: String): String = when {
+        key.equals("gogoanime", true) -> "Vidstream"
+        key.equals("anivibe", true) -> "Vibe-Stream"
+        key.equals("animepahe", true) -> "Kiwi-Stream"
+        key.startsWith("Kiwi-Stream", true) -> key
+        else -> key
+    }
+
+    protected open fun getServerInfo(serverName: String): Triple<String, String, String?> {
+        val qualityMatch = Regex("""(\d+)p$""").find(serverName)
+        val quality = qualityMatch?.value
+        val nameWithoutQuality = if (qualityMatch != null) serverName.substringBeforeLast("-${qualityMatch.value}") else serverName
+
+        val parts = nameWithoutQuality.split("-")
+        val numPart = parts.lastOrNull()?.toIntOrNull()
+        val rawBaseName = if (numPart != null && parts.size > 1) parts.dropLast(1).joinToString("-") else nameWithoutQuality
+
+        val displayName = rawBaseName.split("-").joinToString("-") { word ->
+            word.replaceFirstChar { it.uppercase() }
+        }
+
+        return Triple(displayName, if (numPart != null) "S$numPart" else "S1", quality)
+    }
+
+    protected open fun getServerNumber(serverName: String): Int = serverName.split("-").lastOrNull()?.toIntOrNull() ?: 1
+
+    protected open fun extractM3u8FromSources(sources: kotlinx.serialization.json.JsonElement): String? = when (sources) {
         is JsonObject -> sources["file"]?.jsonPrimitive?.content
         is JsonArray -> sources.firstOrNull()?.let {
             when (it) {
@@ -687,7 +755,7 @@ abstract class AnikotoTheme(
         else -> null
     }
 
-    private suspend fun resolveEmbedChain(url: String): String {
+    protected open suspend fun resolveEmbedChain(url: String): String {
         var currentUrl = url
         repeat(3) {
             try {
@@ -703,15 +771,10 @@ abstract class AnikotoTheme(
         return currentUrl
     }
 
-    private fun mapMapperName(key: String): String = when {
-        key.equals("gogoanime", true) -> "Vidstream"
-        key.equals("anivibe", true) -> "Vibe-Stream"
-        key.equals("animepahe", true) -> "Kiwi-Stream"
-        key.startsWith("Kiwi-Stream", true) -> key
-        else -> key
-    }
+    @Synchronized
+    protected open fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
 
-    private fun extractMapperDownloadUrl(typeObj: JsonObject): String? {
+    protected open fun extractMapperDownloadUrl(typeObj: JsonObject): String? {
         val downloadObj = typeObj["download"]?.jsonObject ?: return null
         for (quality in listOf("1080p", "720p", "480p", "360p")) {
             downloadObj.entries.firstOrNull { it.key.contains(quality, true) }?.let {
@@ -721,44 +784,37 @@ abstract class AnikotoTheme(
         return downloadObj.entries.firstOrNull()?.let { (it.value as? JsonPrimitive)?.content }
     }
 
-    private fun getServerInfo(serverName: String): Triple<String, String, String?> {
-        val qualityMatch = Regex("""(\d+)p$""").find(serverName)
-        val quality = qualityMatch?.value
-        val nameWithoutQuality = if (qualityMatch != null) serverName.substringBeforeLast("-${qualityMatch.value}") else serverName
+    // ============================ Shared Utilities ========================
 
-        val parts = nameWithoutQuality.split("-")
-        val numPart = parts.lastOrNull()?.toIntOrNull()
-        val baseName = if (numPart != null && parts.size > 1) parts.dropLast(1).joinToString("-") else nameWithoutQuality
-
-        return Triple(baseName.replaceFirstChar { it.uppercase() }, if (numPart != null) "S$numPart" else "S1", quality)
+    protected open fun getTitle(element: Element): String {
+        val enTitle = element.text().trim().takeIf(String::isNotBlank)
+        val jpTitle = element.attr("data-jp").trim().takeIf(String::isNotBlank)
+        return if (useEnglish) {
+            enTitle ?: jpTitle ?: element.text().trim()
+        } else {
+            jpTitle ?: enTitle ?: element.text().trim()
+        }
     }
 
-    private fun extractAnimePath(href: String?): String? {
-        if (href.isNullOrBlank()) return null
-        val path = try {
-            href.toHttpUrl().encodedPath
+    protected open fun parseStatus(statusString: String): Int = when (statusString) {
+        "Ongoing Anime", "Currently Airing" -> SAnime.ONGOING
+        "Finished Airing", "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
+    }
+
+    protected open fun getFancyScore(score: String?): String {
+        if (score.isNullOrBlank()) return ""
+        return try {
+            val scoreBig = score.toBigDecimal()
+            if (scoreBig.signum() <= 0) return ""
+            val stars = scoreBig.divide(BigDecimal(2), 0, RoundingMode.HALF_UP).toInt().coerceIn(0, 5)
+            "★".repeat(stars) + "☆".repeat(5 - stars) + " " + scoreBig.stripTrailingZeros().toPlainString()
         } catch (_: Exception) {
-            return null
+            ""
         }
-        return EP_URL_SUFFIX_REGEX.replace(path, "").takeIf { it.startsWith("/watch/") }
     }
 
-    private fun getServerNumber(serverName: String): Int = serverName.split("-").lastOrNull()?.toIntOrNull() ?: 1
-
-    private fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
-
-    private fun resolveSearchAnime(document: Document): Document {
-        if (document.location().startsWith("$baseUrl/filter?keyword=")) {
-            val foundAnimePath = document.selectFirst(searchAnimeSelector())?.selectFirst("a[href]")?.attr("href")
-                ?: throw IllegalStateException("Search element not found")
-            val resolveAnimePath = EP_URL_SUFFIX_REGEX.replace(foundAnimePath, "")
-            return client.newCall(GET(baseUrl + resolveAnimePath)).execute().useAsJsoup()
-        }
-        return document
-    }
-
-    @Synchronized
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
+    protected fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
 
     // ============================== Preferences ===========================
 
@@ -781,6 +837,15 @@ abstract class AnikotoTheme(
         return this
     }
 
+    private fun getHosters(): Set<String> {
+        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
+        if (hosterSelection.any { it !in hosterNames }) {
+            preferences.edit().putStringSet(PREF_HOSTER_KEY, hosterNames.toSet()).apply()
+            return hosterNames.toSet()
+        }
+        return hosterSelection
+    }
+
     protected var useEnglish by LazyMutable { getTitleLang == "English" }
 
     protected val getTitleLang by preferences.delegate(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT)
@@ -793,121 +858,167 @@ abstract class AnikotoTheme(
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred domain",
-            entries = domainEntries,
-            entryValues = domainValues,
-            default = defaultBaseUrl,
-            summary = "%s",
-        ) {
-            baseUrl = it
-            updateDomainConfig()
+        try {
+            getHosters()
+        } catch (e: Exception) {
+            Toast.makeText(screen.context, e.toString(), Toast.LENGTH_LONG).show()
         }
 
-        screen.addListPreference(
-            key = PREF_TITLE_LANG_KEY,
-            title = "Preferred title language",
-            entries = PREF_TITLE_LANG_LIST,
-            entryValues = PREF_TITLE_LANG_LIST,
-            default = PREF_TITLE_LANG_DEFAULT,
-            summary = "%s",
-        ) {
-            useEnglish = it == "English"
-        }
+        ListPreference(screen.context).apply {
+            key = PREF_DOMAIN_KEY
+            title = "Preferred Domain"
+            entries = domainEntries.toTypedArray()
+            entryValues = domainValues.toTypedArray()
+            setDefaultValue(defaultBaseUrl)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addListPreference(
-            key = PREF_QUALITY_KEY,
-            title = "Preferred quality",
-            entries = PREF_QUALITY_ENTRIES,
-            entryValues = PREF_QUALITY_ENTRIES,
-            default = PREF_QUALITY_DEFAULT,
-            summary = "%s",
-        )
+        ListPreference(screen.context).apply {
+            key = PREF_TITLE_LANG_KEY
+            title = "Preferred Title Language"
+            entries = PREF_TITLE_LANG_ENTRIES
+            entryValues = PREF_TITLE_LANG_ENTRIES
+            setDefaultValue(PREF_TITLE_LANG_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addListPreference(
-            key = PREF_SERVER_KEY,
-            title = "Preferred Server",
-            entries = hosterNames,
-            entryValues = hosterNames,
-            default = hosterNames.first(),
-            summary = "%s",
-        )
+        ListPreference(screen.context).apply {
+            key = PREF_QUALITY_KEY
+            title = "Preferred Quality"
+            entries = PREF_QUALITY_DISPLAY_ENTRIES
+            entryValues = PREF_QUALITY_ENTRIES
+            setDefaultValue(PREF_QUALITY_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addListPreference(
-            key = PREF_TYPE_KEY,
-            title = "Preferred Type",
-            entries = TYPES_ENTRIES,
-            entryValues = TYPES_ENTRIES,
-            default = PREF_TYPE_DEFAULT,
-            summary = "%s",
-        )
+        ListPreference(screen.context).apply {
+            key = PREF_SERVER_KEY
+            title = "Preferred Server"
+            entries = hosterDisplayNames.toTypedArray()
+            entryValues = hosterNames.toTypedArray()
+            setDefaultValue(hosterNames.first())
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addListPreference(
-            key = PREF_SCORE_POSITION_KEY,
-            title = "Score display position",
-            entries = PREF_SCORE_POSITION_ENTRIES,
-            entryValues = PREF_SCORE_POSITION_VALUES,
-            default = PREF_SCORE_POSITION_DEFAULT,
-            summary = "%s",
-        )
+        ListPreference(screen.context).apply {
+            key = PREF_TYPE_KEY
+            title = "Preferred Type"
+            entries = PREF_TYPE_DISPLAY_ENTRIES
+            entryValues = PREF_TYPE_ENTRIES
+            setDefaultValue(PREF_TYPE_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addSetPreference(
-            key = PREF_HOSTER_KEY,
-            title = "Enable/Disable Hosts",
-            summary = "Select which video hosts to show",
-            entries = hosterNames,
-            entryValues = hosterNames,
-            default = hosterNames.toSet(),
-        )
+        ListPreference(screen.context).apply {
+            key = PREF_SCORE_POSITION_KEY
+            title = "Score Display Position"
+            entries = PREF_SCORE_POSITION_ENTRIES
+            entryValues = PREF_SCORE_POSITION_VALUES
+            setDefaultValue(PREF_SCORE_POSITION_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addSetPreference(
-            key = PREF_SERVER_NUMS_KEY,
-            title = "Enable/Disable Servers",
-            summary = "Select which servers to show",
-            entries = SERVER_NUM_NAMES,
-            entryValues = SERVER_NUM_VALUES,
-            default = PREF_SERVER_NUMS_DEFAULT,
-        )
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_HOSTER_KEY
+            title = "Enable/Disable Hosts"
+            summary = "Select which hosts to use"
+            entries = hosterDisplayNames.toTypedArray()
+            entryValues = hosterNames.toTypedArray()
+            setDefaultValue(hosterNames.toSet())
+            setOnPreferenceChangeListener { _, newValue ->
+                @Suppress("UNCHECKED_CAST")
+                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
+            }
+        }.also(screen::addPreference)
 
-        screen.addSetPreference(
-            key = PREF_TYPE_TOGGLE_KEY,
-            title = "Enable/Disable Types",
-            summary = "Select which video types to show",
-            entries = TYPES_ENTRIES,
-            entryValues = TYPES_VALUES,
-            default = DEFAULT_TYPES,
-        )
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_SERVER_NUMS_KEY
+            title = "Enable/Disable Servers"
+            summary = "Select which servers to show"
+            entries = SERVER_NUM_NAMES
+            entryValues = SERVER_NUM_VALUES
+            setDefaultValue(PREF_SERVER_NUMS_DEFAULT)
+            setOnPreferenceChangeListener { _, newValue ->
+                @Suppress("UNCHECKED_CAST")
+                val newSet = newValue as Set<String>
+                if (newSet.isEmpty()) {
+                    Toast.makeText(screen.context, "Must select at least one server", Toast.LENGTH_LONG).show()
+                    false
+                } else {
+                    preferences.edit().putStringSet(key, newSet).apply()
+                    true
+                }
+            }
+        }.also(screen::addPreference)
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_TYPE_TOGGLE_KEY
+            title = "Enable/Disable Types"
+            summary = "Select which video types to show"
+            entries = PREF_TYPE_DISPLAY_ENTRIES
+            entryValues = PREF_TYPE_ENTRIES
+            setDefaultValue(DEFAULT_TYPES)
+            setOnPreferenceChangeListener { _, newValue ->
+                @Suppress("UNCHECKED_CAST")
+                val newSet = newValue as Set<String>
+                if (newSet.isEmpty()) {
+                    Toast.makeText(screen.context, "Must select at least one type", Toast.LENGTH_LONG).show()
+                    false
+                } else {
+                    preferences.edit().putStringSet(key, newSet).apply()
+                    true
+                }
+            }
+        }.also(screen::addPreference)
     }
 
     companion object {
         private val SOFTSUB_REGEX = Regex("""\bsoftsub\b""", RegexOption.IGNORE_CASE)
         private val RELEASE_REGEX = Regex("""Release: (\d+/\d+/\d+ \d+:\d+)""")
-        private val EP_URL_SUFFIX_REGEX = Regex("""/ep-\d+$""")
+        val EP_URL_SUFFIX_REGEX = Regex("""/ep-\d+$""")
         private val DATE_FORMATTER = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.ENGLISH)
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
         private const val PREF_TITLE_LANG_DEFAULT = "English"
-        private val PREF_TITLE_LANG_LIST = listOf("English", "Japanese")
+        private val PREF_TITLE_LANG_ENTRIES = arrayOf("English", "Japanese")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private val PREF_QUALITY_ENTRIES = listOf("1080", "720", "480", "360")
-        private val PREF_QUALITY_DEFAULT = PREF_QUALITY_ENTRIES.first()
+        private val PREF_QUALITY_ENTRIES = arrayOf("1080", "720", "480", "360")
+        private val PREF_QUALITY_DISPLAY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_DEFAULT = PREF_QUALITY_ENTRIES[0]
 
         private const val PREF_HOSTER_KEY = "hoster_selection"
         private const val PREF_SERVER_KEY = "preferred_server"
 
         private const val PREF_SERVER_NUMS_KEY = "server_number_selection"
-        private val SERVER_NUM_NAMES = listOf("Server 1", "Server 2", "Server 3")
-        private val SERVER_NUM_VALUES = listOf("1", "2", "3")
+        private val SERVER_NUM_NAMES = arrayOf("Server 1", "Server 2", "Server 3")
+        private val SERVER_NUM_VALUES = arrayOf("1", "2", "3")
         private val PREF_SERVER_NUMS_DEFAULT = SERVER_NUM_VALUES.toSet()
 
         private const val PREF_TYPE_TOGGLE_KEY = "type_selection"
-        private val TYPES_ENTRIES = listOf("Sub", "H-Sub", "Dub", "A-Dub")
-        private val TYPES_VALUES = listOf("Sub", "H-Sub", "Dub", "A-Dub")
-        private val DEFAULT_TYPES = TYPES_VALUES.toSet()
+        private val PREF_TYPE_ENTRIES = arrayOf("Sub", "H-Sub", "Dub", "A-Dub")
+        private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Hard Sub", "Dub", "Alternate Dub")
+        private val DEFAULT_TYPES = PREF_TYPE_ENTRIES.toSet()
 
         private const val PREF_TYPE_KEY = "preferred_language"
         private const val PREF_TYPE_DEFAULT = "Sub"
@@ -918,8 +1029,8 @@ abstract class AnikotoTheme(
 
         private const val PREF_SCORE_POSITION_KEY = "score_position"
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
-        private val PREF_SCORE_POSITION_ENTRIES = listOf("Top of description", "Bottom of description", "Don't show")
-        private val PREF_SCORE_POSITION_VALUES = listOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
+        private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
+        private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
 
         const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
