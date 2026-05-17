@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwave
+package eu.kanade.tachiyomi.multisrc.anikototheme
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -9,7 +9,7 @@ import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import eu.kanade.tachiyomi.animeextension.en.aniwave.AniWave.Companion.UA_MOBILE
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme.Companion.UA_MOBILE
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -23,7 +23,6 @@ class CloudflareBypass(private val context: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun getCookies(pageUrl: String): CloudFlareBypassResult? {
-        // Only clear cookies for the target domain instead of hardcoding unrelated domains.
         clearCookiesForUrl(pageUrl)
 
         val latch = CountDownLatch(1)
@@ -38,10 +37,9 @@ class CloudflareBypass(private val context: Context) {
                     settings.domStorageEnabled = true
                     settings.userAgentString = UA_MOBILE
                 }
-                val defaultUserAgent = webView.settings.userAgentString
-                    ?: UA_MOBILE
+                val defaultUserAgent = webView?.settings?.userAgentString ?: UA_MOBILE
 
-                webView.webViewClient = object : WebViewClient() {
+                webView?.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, loadedUrl: String) {
                         pollForClearance(pageUrl, defaultUserAgent, cancelled) { bypassResult ->
                             if (cancelled.compareAndSet(false, true)) {
@@ -53,9 +51,9 @@ class CloudflareBypass(private val context: Context) {
                 }
 
                 CookieManager.getInstance().setCookie(pageUrl, "")
-                webView.loadUrl(pageUrl)
+                webView?.loadUrl(pageUrl)
             } catch (e: Exception) {
-                Log.e("AniWave-CF", "WebView failed: ${e.message}")
+                Log.e("AnikotoTheme-CF", "WebView failed: ${e.message}")
                 if (cancelled.compareAndSet(false, true)) latch.countDown()
             }
         }
@@ -65,7 +63,6 @@ class CloudflareBypass(private val context: Context) {
         } catch (_: InterruptedException) {
             return null
         } finally {
-            // Destroy WebView securely on the main thread to prevent memory leaks
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     webView?.stopLoading()
@@ -84,16 +81,13 @@ class CloudflareBypass(private val context: Context) {
     ) {
         val handler = Handler(Looper.getMainLooper())
         val startTime = System.currentTimeMillis()
-        val maxDurationMs = 30_000L // Matches the CountDownLatch timeout
+        val maxDurationMs = 30_000L
         val pollIntervalMs = 500L
 
         handler.postDelayed(
             object : Runnable {
                 override fun run() {
-                    // Stop if getCookies has already returned / timed out.
                     if (cancelled.get()) return
-
-                    // Hard upper bound so we never poll indefinitely.
                     val elapsed = System.currentTimeMillis() - startTime
                     if (elapsed >= maxDurationMs) return
 
@@ -111,10 +105,6 @@ class CloudflareBypass(private val context: Context) {
         )
     }
 
-    /**
-     * Clear cookies only for the host of the given URL, avoiding disruption
-     * to sessions on unrelated domains.
-     */
     private fun clearCookiesForUrl(pageUrl: String) {
         val domain = Uri.parse(pageUrl).host ?: return
         val cookieManager = CookieManager.getInstance()

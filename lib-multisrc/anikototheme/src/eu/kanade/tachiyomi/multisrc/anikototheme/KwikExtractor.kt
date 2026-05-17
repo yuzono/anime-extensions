@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwave
+package eu.kanade.tachiyomi.multisrc.anikototheme
 
 import android.app.Application
 import android.util.Log
@@ -18,15 +18,13 @@ class KwikExtractor(
     private val appContext: Application,
 ) {
     companion object {
-        private const val TAG = "AniWave-Kwik"
+        private const val TAG = "AnikotoTheme-Kwik"
         private val M3U8_REGEX = Regex("""(https?://[^\s\\'"]+\.m3u8[^\s\\'"]*?)""")
         private val KWIK_PARAMS_REGEX = Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""")
         private val KWIK_FORM_URL = Regex("""action="([^"]+)"""")
         private val KWIK_FORM_TOKEN = Regex("""value="([^"]+)"""")
     }
 
-    // Clone the base client so interceptors, cookie jars, logging, etc. are preserved,
-    // and only override redirect behavior.
     private val noRedirectClient by lazy {
         client.newBuilder()
             .followRedirects(false)
@@ -51,13 +49,7 @@ class KwikExtractor(
 
     suspend fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
         val videoUrl = getHlsStreamUrl(kwikUrl, referer)
-
-        return Video(
-            videoUrl,
-            quality,
-            videoUrl,
-            headers = kwikHeaders,
-        )
+        return Video(videoUrl, quality, videoUrl, headers = kwikHeaders)
     }
 
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
@@ -70,20 +62,13 @@ class KwikExtractor(
 
     fun getMp4Video(paheUrl: String, referer: String, quality: String = ""): Video {
         val videoUrl = getMp4StreamUrl(paheUrl, referer)
-
-        return Video(
-            videoUrl,
-            quality,
-            videoUrl,
-            headers = kwikHeaders,
-        )
+        return Video(videoUrl, quality, videoUrl, headers = kwikHeaders)
     }
 
     fun getMp4StreamUrl(kwikEmbedUrl: String, referer: String): String {
         val fileUrl = kwikEmbedUrl.replace("/e/", "/f/")
         Log.d(TAG, "MP4 extraction: $fileUrl")
 
-        // Visit /e/ first to establish session
         val sessionCookies = try {
             client.newCall(GET(kwikEmbedUrl, buildEPageHeaders(referer))).execute().use { resp ->
                 resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
@@ -93,7 +78,6 @@ class KwikExtractor(
             ""
         }
 
-        // Fetch /f/ page
         val fHeaders = buildFPageHeaders(referer, sessionCookies)
         var (html, allCookies) = client.newCall(GET(fileUrl, fHeaders)).execute().use { resp ->
             val fCookies = resp.headers("set-cookie").joinToString("; ") { it.substringBefore(";") }
@@ -104,7 +88,6 @@ class KwikExtractor(
             resp.body.string() to combined
         }
 
-        // Try CF bypass if decryption params missing
         if (!KWIK_PARAMS_REGEX.containsMatchIn(html) && !html.contains("eval(function(")) {
             Log.w(TAG, "/f/ missing decryption params, trying CF bypass...")
             getOrRefreshBypass(fileUrl)?.let { bypass ->
@@ -130,8 +113,6 @@ class KwikExtractor(
             ?: throw KwikException.ExtractionException("No form action found")
         val token = KWIK_FORM_TOKEN.find(decrypted)?.groupValues?.get(1)
             ?: throw KwikException.ExtractionException("No form token found")
-
-        // POST form with retry on 403/419
 
         var kwikLocation: String? = null
         var code = 419
@@ -166,15 +147,12 @@ class KwikExtractor(
                 synchronized(bypassLock) { cachedBypass = null }
                 getOrRefreshBypass(fileUrl)?.let { bypass ->
                     currentCookies = "$currentCookies; ${bypass.cookies}"
-                }
-                    ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
+                } ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
             }
         }
 
         return kwikLocation ?: throw KwikException.ExtractionException("MP4 extraction failed after $tries tries (HTTP $code)")
     }
-
-    // ========================= Headers =========================
 
     private fun buildEPageHeaders(referer: String): Headers = Headers.Builder()
         .add("Referer", referer)
@@ -189,16 +167,14 @@ class KwikExtractor(
 
     private fun buildFPageHeaders(referer: String, cookies: String = ""): Headers = Headers.Builder().apply {
         add("Referer", referer)
-            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .add("Accept-Language", "en-US,en;q=0.9")
-            .add("Sec-Fetch-Dest", "document")
-            .add("Sec-Fetch-Mode", "navigate")
-            .add("Sec-Fetch-Site", "same-site")
-            .add("Upgrade-Insecure-Requests", "1")
+        add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        add("Accept-Language", "en-US,en;q=0.9")
+        add("Sec-Fetch-Dest", "document")
+        add("Sec-Fetch-Mode", "navigate")
+        add("Sec-Fetch-Site", "same-site")
+        add("Upgrade-Insecure-Requests", "1")
         if (cookies.isNotBlank()) add("Cookie", cookies)
     }.build()
-
-    // ========================= CF Bypass =========================
 
     private fun getOrRefreshBypass(url: String): CloudFlareBypassResult? {
         synchronized(bypassLock) {
@@ -214,8 +190,6 @@ class KwikExtractor(
             }
         }
     }
-
-    // ========================= HLS Parsing =========================
 
     private fun parseHlsFromHtml(html: String, baseUrl: String): String {
         val document = Jsoup.parse(html, baseUrl)
@@ -248,12 +222,10 @@ class KwikExtractor(
                 }
             }
         }
-
         throw KwikException.ExtractionException("Could not extract m3u8 from /e/ page")
     }
 
     private fun extractM3u8FromUnpacked(unpacked: String): String? {
-        // Try various patterns for source URL
         val patterns = listOf(
             "const source=\\'" to "\\';",
             "var source=\\'" to "\\';",
@@ -270,11 +242,8 @@ class KwikExtractor(
         return M3U8_REGEX.find(unpacked)?.groupValues?.get(1)
     }
 
-    // ========================= Decryption =========================
-
     private fun decrypt(fullString: String, key: String, v1: Int, v2: Int): String {
         if (key.isEmpty() || v2 !in key.indices) return ""
-
         val keyIndexMap = key.withIndex().associate { it.value to it.index }
         val sb = StringBuilder()
         var i = 0
@@ -282,8 +251,6 @@ class KwikExtractor(
 
         while (i < fullString.length) {
             val nextIndex = fullString.indexOf(toFind, i)
-
-            // No more found, early return
             if (nextIndex == -1) break
 
             val decodedCharStr = buildString {
@@ -299,11 +266,8 @@ class KwikExtractor(
                 if (charCode in Char.MIN_VALUE.code..Char.MAX_VALUE.code) {
                     sb.append(charCode.toChar())
                 }
-            } catch (_: Exception) {
-                // Ignore invalid number formats securely
-            }
+            } catch (_: Exception) { }
         }
-
         return sb.toString()
     }
 
