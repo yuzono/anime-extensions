@@ -13,5 +13,6 @@ dependencies {
     implementation(project(':lib:youruploadextractor'))
     implementation(project(':lib:pixeldrainextractor'))
     implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:doodextractor'))
     implementation(project(':lib:universalextractor'))
 }

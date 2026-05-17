@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.es.animeav1
 import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
@@ -23,6 +24,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
+import java.util.Locale
 
 class AnimeAv1 :
     AnimeHttpSource(),
@@ -56,9 +58,12 @@ class AnimeAv1 :
             "StreamWish",
             "Voe",
             "YourUpload",
+            "DoodStream",
             "FileLions",
             "VidHide",
         )
+
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -67,7 +72,7 @@ class AnimeAv1 :
             title = doc.selectFirst("h1.line-clamp-2")?.text()?.trim() ?: ""
             description = doc.selectFirst(".entry > p")?.text()
             genre = doc.select("header > .items-center > a").joinToString { it.text() }
-            thumbnail_url = doc.selectFirst("img.object-cover")?.attr("src")
+            thumbnail_url = doc.selectFirst("img.object-cover")?.attr("abs:src")
         }
         doc.select("header > .items-center.text-sm span").eachText().forEach {
             when {
@@ -114,13 +119,14 @@ class AnimeAv1 :
         val script = doc.selectFirst("script:containsData(node_ids)")?.data().orEmpty()
         val episodeListRegex = """episodes\s*:\s*\[([^\]]*)\]""".toRegex()
         val episodeRegex = """\{\s*id\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*number\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*\}""".toRegex()
+        val baseUrl = doc.location().substringBefore("?").substringBefore("#")
         val episodes = episodeListRegex.find(script)?.let {
             episodeRegex.findAll(it.groupValues[1]).map { match ->
                 val number = match.groupValues[2]
                 SEpisode.create().apply {
                     name = "Episodio $number"
                     episode_number = number.toFloatOrNull() ?: 0F
-                    setUrlWithoutDomain("${doc.location()}/$number")
+                    setUrlWithoutDomain("$baseUrl/$number")
                 }
             }.toList()
         }.orEmpty()
@@ -141,10 +147,15 @@ class AnimeAv1 :
 
         fun processMatches(regex: Regex, type: String): List<Video> = regex.findAll(script)
             .flatMap { jsonRegex.findAll(it.groupValues[1]) }
-            .map { it.groupValues[2].substringBefore("?embed") }
-            .distinct().toList()
-            .parallelCatchingFlatMapBlocking { url ->
-                serverVideoResolver(url, type)
+            .map {
+                Pair(
+                    it.groupValues[2].substringBefore("?embed"),
+                    it.groupValues[1],
+                )
+            }
+            .distinctBy { it.first }.toList()
+            .parallelCatchingFlatMapBlocking { (url, server) ->
+                serverVideoResolver(url, type, server)
             }
 
         processMatches(dubRegex, "DUB").also(videoList::addAll)
@@ -160,17 +171,30 @@ class AnimeAv1 :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     suspend fun serverVideoResolver(url: String, prefix: String = "", serverName: String? = ""): List<Video> = runCatching {
         val source = serverName?.ifEmpty { url } ?: url
-        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in source.lowercase() } }?.first
+        val matched = conventions
+            .firstOrNull { (_, names) ->
+                val sourceLower = source.lowercase(Locale.ROOT)
+                names.any { it.lowercase(Locale.ROOT) in sourceLower }
+            }
+            ?.first
         when (matched) {
             "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
             "pixeldrain" -> pixelDrainExtractor.videosFromUrl(url, "$prefix ")
             "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
             "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-            "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix VidHide:$it" })
+            "filelions" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix FileLions:$it" })
+            "doodstream" -> doodExtractor.videosFromUrl(url, prefix)
+            "vidhide" -> {
+                val urlLower = url.lowercase(Locale.ROOT)
+                val sourceLower = source.lowercase(Locale.ROOT)
+                val name = if (urlLower.contains("streamhide") || urlLower.contains("streamvid") || sourceLower.contains("streamhidevid")) "StreamHideVid" else "VidHide"
+                vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix $name:$it" })
+            }
             "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
             "player.zilla" -> {
                 val m3u = url.replace("play/", "m3u8/")
@@ -186,8 +210,8 @@ class AnimeAv1 :
         "pixeldrain" to listOf("pixeldrain"),
         "player.zilla" to listOf("player.zilla"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "filelions" to listOf("filelions", "lion", "fviplions"),
         "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2play", "ds2video", "dooood", "d000d", "d0000d"),
-        "streamlare" to listOf("streamlare", "slmaxed"),
         "yourupload" to listOf("yourupload", "upload"),
         "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
     )
@@ -201,7 +225,7 @@ class AnimeAv1 :
                 { it.quality.contains(langPref, true) },
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
