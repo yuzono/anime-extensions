@@ -1,13 +1,12 @@
 ext {
     extName = 'VerAni.me'
     extClass = '.VerAnime'
-    extVersionCode = 0
+    extVersionCode = 1
 }
 
 apply from: "$rootDir/common.gradle"
 
 dependencies {
-    implementation(project(':lib:universalextractor'))
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:pixeldrainextractor'))
     implementation(project(':lib:voeextractor'))

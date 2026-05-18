@@ -6,7 +6,6 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
-import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -203,7 +202,6 @@ class VerAnime :
         }
     }
 
-    private val universalExtractor by lazy { UniversalExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val pixeldrainExtractor by lazy { PixelDrainExtractor() }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -273,7 +271,7 @@ class VerAnime :
 
         arrayOf("mp4upload.com").any { url.contains(it, true) } -> mp4uploadExtractor.videosFromUrl(url, headers)
         arrayOf("pixeldrain.com").any { url.contains(it, true) } -> pixeldrainExtractor.videosFromUrl(url)
-        else -> universalExtractor.videosFromUrl(url, headers)
+        else -> emptyList()
     }
 
     // ============================== Settings ==============================
