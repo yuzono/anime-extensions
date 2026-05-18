@@ -45,6 +45,7 @@ class JavGuru :
     override val supportsLatest = true
 
     override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .set("Accept-Language", "en-GB,en-US;q=0.9,en;q=0.8")
 
     private val noRedirectClient = client.newBuilder()
@@ -266,30 +267,40 @@ class JavGuru :
     }
 
     private fun resolveHosterUrl(iframeUrl: String): String? {
-        val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
+        val token = iframeUrl.toHttpUrlOrNull()?.queryParameter("xd")
+        val finalUrl = if (token != null) {
+            val base = iframeUrl.substringBefore("?")
+            "$base?xr=${token.reversed()}"
+        } else {
+            val iframeDocument = client.newCall(GET(iframeUrl, headers)).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.asJsoup()
+            }
+            val script = iframeDocument.selectFirst("script:containsData(cfg)")?.html() ?: return null
+            val cid = CID_REGEX.find(script)?.groupValues?.get(1) ?: return null
+            val rawBase = BASE_REGEX.find(script)?.groupValues?.get(1) ?: return null
+            val base = iframeUrl.toHttpUrlOrNull()?.resolve(rawBase)?.toString() ?: rawBase
+            val rtype = RTYPE_REGEX.find(script)?.groupValues?.get(1) ?: "x"
+            val keys = KEYS_REGEX.find(script)?.groupValues?.get(1)
+                ?.split(",")
+                ?.map { it.trim().removeSurrounding("'").removeSurrounding("\"") }
+                ?: return null
 
-        if (iframeResponse.isSuccessful.not()) {
-            iframeResponse.close()
-            return null
+            val element = iframeDocument.getElementById(cid) ?: return null
+            val tokenBuilder = StringBuilder()
+            for (key in keys) {
+                tokenBuilder.append(element.attr(key))
+            }
+            val fullToken = tokenBuilder.toString()
+            if (fullToken.isBlank()) return null
+            "$base?$rtype" + "r=${fullToken.reversed()}"
         }
-
-        val iframeDocument = iframeResponse.asJsoup()
-
-        val script = iframeDocument.selectFirst("script:containsData(start_player)")
-            ?.html() ?: return null
-
-        val olid = IFRAME_OLID_REGEX.find(script)?.groupValues?.get(1)?.reversed()
-            ?: return null
-
-        val olidUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
-            ?.substringBeforeLast("=")?.let { "$it=$olid" }
-            ?: return null
 
         val newHeaders = headersBuilder()
             .set("Referer", iframeUrl)
             .build()
 
-        val redirectUrl = noRedirectClient.newCall(GET(olidUrl, newHeaders))
+        val redirectUrl = noRedirectClient.newCall(GET(finalUrl, newHeaders))
             .execute().use { it.header("location") }
             ?: return null
 
@@ -315,7 +326,20 @@ class JavGuru :
 
     private fun getVideos(hosterUrl: String): List<Video> = when {
         listOf("javplaya", "javclan").any { it in hosterUrl } -> {
-            streamWishExtractor.videosFromUrl(hosterUrl)
+            streamWishExtractor.videosFromUrl(hosterUrl).map { video ->
+                val newHeaders = (video.headers ?: headers).newBuilder()
+                    .set("Referer", "$baseUrl/")
+                    .set("Origin", baseUrl)
+                    .build()
+                Video(
+                    video.url,
+                    video.quality,
+                    video.videoUrl,
+                    headers = newHeaders,
+                    subtitleTracks = emptyList(),
+                    audioTracks = video.audioTracks,
+                )
+            }
         }
 
         hosterUrl.contains("streamtape") -> {
@@ -388,8 +412,10 @@ class JavGuru :
         const val PREFIX_ID = "id:"
 
         private val IFRAME_B64_REGEX = Regex(""""iframe_url":"([^"]+)"""")
-        private val IFRAME_OLID_REGEX = Regex("""var OLID = '([^']+)'""")
-        private val IFRAME_OLID_URL = Regex("""realSrc *= *'([^']+)'""")
+        private val CID_REGEX = Regex("""cid:\s*['"]([^'"]+)['"]""")
+        private val BASE_REGEX = Regex("""base:\s*['"]([^'"]+)['"]""")
+        private val RTYPE_REGEX = Regex("""rtype:\s*['"]([^'"]+)['"]""")
+        private val KEYS_REGEX = Regex("""keys:\s*\[([^\]]+)\]""")
 
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
