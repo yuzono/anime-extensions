@@ -24,12 +24,15 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.select.Elements
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlin.math.min
 
 class JavGuru :
@@ -259,14 +262,21 @@ class JavGuru :
 
     override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
-        SEpisode.create().apply {
-            url = anime.url
-            name = "Episode"
-        },
-    )
+    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val dateText = document.selectFirst("span.thedate")?.text()?.substringAfter("Posted:")?.trim()
+        val dateUpload = DATE_FORMATTER.tryParse(dateText)
+
+        return listOf(
+            SEpisode.create().apply {
+                url = response.request.url.encodedPath
+                name = "Episode"
+                date_upload = dateUpload
+            },
+        )
+    }
 
     // ========================= Videos =========================
 
@@ -444,6 +454,10 @@ class JavGuru :
         private val RTYPE_REGEX = Regex("""rtype:\s*['"]([^'"]+)['"]""")
         private val KEYS_REGEX = Regex("""keys:\s*\[([^\]]+)\]""")
         private val PAGINATION_REGEX = Regex("""/page/(\d+)""")
+
+        private val DATE_FORMATTER by lazy {
+            SimpleDateFormat("MMMM d, yyyy", Locale.US)
+        }
 
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
