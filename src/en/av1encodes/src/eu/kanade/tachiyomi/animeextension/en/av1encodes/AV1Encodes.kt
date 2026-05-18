@@ -36,7 +36,7 @@ import java.net.URLEncoder
 import java.util.Locale
 
 @Suppress("SpellCheckingInspection")
-class Av1Encodes :
+class AV1Encodes :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
