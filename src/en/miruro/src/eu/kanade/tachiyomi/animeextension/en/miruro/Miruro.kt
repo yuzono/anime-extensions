@@ -21,6 +21,7 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -165,7 +166,7 @@ class Miruro :
             val anilistId = query.removePrefix(PREFIX_SEARCH)
             val request = buildPipeRequest("info/$anilistId", "GET")
             val jsonObj = client.newCall(request).awaitSuccess().use { response ->
-                JSONObject(decryptResponse(response))
+                JSONObject(response.use(::decryptResponse))
             }
 
             val media = jsonObj.optJSONObject("media") ?: jsonObj
@@ -268,9 +269,9 @@ class Miruro :
 
         val genresArray = media.optJSONArray("genres")
         val genres = if (genresArray != null) {
-            (0 until genresArray.length()).mapNotNull { genresArray.optString(it) }.joinToString(", ")
+            (0 until genresArray.length()).mapNotNull { genresArray.optString(it) }.joinToString()
         } else {
-            ""
+            null
         }
 
         val statusStr = media.optString("status", "")
@@ -481,6 +482,7 @@ class Miruro :
 
         if (!preferences.includeAllSubTypes || subTypesObj == null || subTypesObj.length() <= 1) return videos
 
+        val requests = mutableListOf<Pair<String, Request>>()
         for (subTypeKey in subTypesObj.keys()) {
             if (subTypeKey == defaultSubType) continue
             val episodeId = subTypesObj.optString(subTypeKey, "")
@@ -491,16 +493,16 @@ class Miruro :
                 "provider" to provider,
                 "category" to subTypeKey,
             )
-            val request = buildPipeRequest("sources", "GET", query = query)
-            val otherResponse = try {
-                client.newCall(request).execute()
-            } catch (_: Exception) {
-                continue
-            }
-            otherResponse.use { resp ->
-                videos.addAll(parseStreamsFromResponse(resp, subTypeKey))
-            }
+            requests.add(subTypeKey to buildPipeRequest("sources", "GET", query = query))
         }
+
+        videos.addAll(
+            requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
+                client.newCall(request).awaitSuccess().use { resp ->
+                    parseStreamsFromResponse(resp, subTypeKey)
+                }
+            },
+        )
 
         return videos
     }
@@ -738,9 +740,8 @@ class Miruro :
     }
 
     private fun fetchMalId(anilistId: Int): Int? = try {
-        client.newCall(anilistMalIdRequest(anilistId)).execute().use { response ->
-            response.parseAs<AnilistMalIdResponse>().data.media.idMal
-        }
+        client.newCall(anilistMalIdRequest(anilistId)).execute()
+            .parseAs<AnilistMalIdResponse>().data.media.idMal
     } catch (e: Exception) {
         Log.e("Miruro", "Failed to resolve MAL ID: ${e.message}")
         null
@@ -756,9 +757,8 @@ class Miruro :
             val result = try {
                 jikanClient.newCall(
                     GET("$JIKAN_API_URL/anime/$malId/episodes?page=$page"),
-                ).execute().use { response ->
-                    response.parseAs<JikanEpisodesDto>()
-                }
+                ).execute()
+                    .parseAs<JikanEpisodesDto>()
             } catch (e: Exception) {
                 Log.e("Miruro", "Failed to fetch/parse Jikan episodes: ${e.message}")
                 break
@@ -902,7 +902,7 @@ class Miruro :
         } catch (_: Exception) {
             val jsonObj = JSONObject(json)
             jsonObj.optJSONArray("media")
-                ?: fallbackKeys.asSequence().mapNotNull { jsonObj.optJSONArray(it) }.firstOrNull()
+                ?: fallbackKeys.firstNotNullOfOrNull { jsonObj.optJSONArray(it) }
                 ?: return AnimesPage(emptyList(), false)
         }
 
