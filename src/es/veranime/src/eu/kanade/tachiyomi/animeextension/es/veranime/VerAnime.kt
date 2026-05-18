@@ -195,7 +195,7 @@ class VerAnime :
 
             val videos = serverVideoResolver(src)
             if (language.isNotBlank()) {
-                videos.map { Video(it.url, "[$language] ${it.quality}", it.videoUrl, it.headers) }
+                videos.map { it.copy(quality = "[$language] ${it.quality}") }
             } else {
                 videos
             }
