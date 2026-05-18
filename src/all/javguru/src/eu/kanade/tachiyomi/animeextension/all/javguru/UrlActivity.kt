@@ -7,15 +7,14 @@ import android.os.Bundle
 import android.util.Log
 import kotlin.system.exitProcess
 
-class JavGuruUrlActivity : Activity() {
+class UrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pathSegments = intent?.data?.pathSegments
-        if (pathSegments != null && pathSegments.size > 1) {
-            val id = pathSegments[0]
+        val data = intent?.data
+        if (data != null) {
             val mainIntent = Intent().apply {
                 action = "eu.kanade.tachiyomi.ANIMESEARCH"
-                putExtra("query", "${JavGuru.PREFIX_ID}$id")
+                putExtra("query", data.toString())
                 putExtra("filter", packageName)
             }
 
