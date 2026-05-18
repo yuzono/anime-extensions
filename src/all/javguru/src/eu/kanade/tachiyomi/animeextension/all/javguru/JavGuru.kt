@@ -382,11 +382,7 @@ class JavGuru :
         ?.let { "/$it/" }
 
     private fun String?.pageNumberFromUrlOrNull() = this
-        ?.substringBeforeLast("/")
-        ?.toHttpUrlOrNull()
-        ?.pathSegments
-        ?.last()
-        ?.toIntOrNull()
+        ?.let { PAGINATION_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() }
 
     private suspend fun Call.awaitIgnoreCode(code: Int): Response = await().also { response ->
         if (!response.isSuccessful && response.code != code) {
@@ -416,6 +412,7 @@ class JavGuru :
         private val BASE_REGEX = Regex("""base:\s*['"]([^'"]+)['"]""")
         private val RTYPE_REGEX = Regex("""rtype:\s*['"]([^'"]+)['"]""")
         private val KEYS_REGEX = Regex("""keys:\s*\[([^\]]+)\]""")
+        private val PAGINATION_REGEX = Regex("""/page/(\d+)""")
 
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
