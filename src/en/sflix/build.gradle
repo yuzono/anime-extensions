@@ -1,9 +1,13 @@
 ext {
     extName = 'SFlix'
     extClass = '.SFlix'
-    themePkg = 'dopeflix'
-    baseUrl = 'https://sflix.to'
-    overrideVersionCode = 17
+    extVersionCode = 18
+    isNsfw = false
 }
 
 apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:vidsrcextractor'))
+}
