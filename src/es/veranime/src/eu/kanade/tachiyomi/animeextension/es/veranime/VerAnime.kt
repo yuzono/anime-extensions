@@ -5,6 +5,7 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.vidguardextractor.VidGuardExtractor
@@ -203,6 +204,7 @@ class VerAnime :
 
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    private val pixeldrainExtractor by lazy { PixelDrainExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
@@ -269,6 +271,7 @@ class VerAnime :
         } -> vidGuardExtractor.videosFromUrl(url)
 
         arrayOf("mp4upload.com").any { url.contains(it, true) } -> mp4uploadExtractor.videosFromUrl(url, headers)
+        arrayOf("pixeldrain.com").any { url.contains(it, true) } -> pixeldrainExtractor.videosFromUrl(url)
         else -> universalExtractor.videosFromUrl(url, headers)
     }
 
