@@ -239,10 +239,12 @@ class Cycity :
 
     override fun videoListRequest(episode: SEpisode) = GET(getEpisodeUrl(episode))
 
-    override fun videoListParse(response: Response) = response.asJsoup().let {
-        val origin = VIDEO_URL_REGEX.find(it.select(".player-left").html())!!.groups[1]!!.value
+    override fun videoListParse(response: Response): List<Video> {
+        val document = response.asJsoup()
+        val origin = VIDEO_URL_REGEX.find(document.select(".player-left").html())!!.groups[1]!!.value
         val base64 = Base64.decode(origin, Base64.DEFAULT).toString(Charsets.UTF_8)
-        listOf(Video(URLDecoder.decode(base64, "UTF-8"), "默认", null))
+        val videoUrl = URLDecoder.decode(base64, "UTF-8")
+        return Video(videoUrl, "默认", videoUrl).let(::listOf)
     }
 
     override fun videoUrlRequest(video: Video) = GET(PARSE_URL + video.url)
