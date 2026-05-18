@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.cineby
 
 import android.content.SharedPreferences
 import android.text.InputType
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -15,6 +14,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -541,18 +541,16 @@ class Cineby :
 
         // Display "Name (Language)" but persist bare display names so
         // the catalog code can match them as keys.
-        screen.addPreference(
-            MultiSelectListPreference(screen.context).apply {
-                key = PREF_SERVERS_KEY
-                title = "Enabled Servers"
-                entries = CinebyExtractor.VIDEASY_SERVERS.map { server ->
-                    val lang = server.audioLabel ?: "Unknown"
-                    "${server.displayName} ($lang)"
-                }.toTypedArray()
-                entryValues = CinebyExtractor.SERVER_DISPLAY_NAMES.toTypedArray()
-                setDefaultValue(PREF_SERVERS_DEFAULT)
-                summary = "Select servers to enable. Languages shown per server."
+        screen.addSetPreference(
+            key = PREF_SERVERS_KEY,
+            title = "Enabled Servers",
+            entries = CinebyExtractor.VIDEASY_SERVERS.map { server ->
+                val lang = server.audioLabel ?: "Unknown"
+                "${server.displayName} ($lang)"
             },
+            entryValues = CinebyExtractor.SERVER_DISPLAY_NAMES,
+            default = PREF_SERVERS_DEFAULT,
+            summary = "Select servers to enable. Languages shown per server.",
         )
     }
 
