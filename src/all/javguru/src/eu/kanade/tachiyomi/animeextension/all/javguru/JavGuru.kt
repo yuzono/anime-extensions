@@ -24,12 +24,15 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.select.Elements
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlin.math.min
 
 class JavGuru :
@@ -45,6 +48,7 @@ class JavGuru :
     override val supportsLatest = true
 
     override fun headersBuilder() = super.headersBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .set("Accept-Language", "en-GB,en-US;q=0.9,en;q=0.8")
 
     private val noRedirectClient = client.newBuilder()
@@ -54,6 +58,8 @@ class JavGuru :
     private val preferences by getPreferencesLazy()
 
     private lateinit var popularElements: Elements
+
+    // ========================= Popular =========================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage = if (page == 1) {
         client.newCall(popularAnimeRequest(page))
@@ -87,6 +93,8 @@ class JavGuru :
         return AnimesPage(entries, end < popularElements.size)
     }
 
+    // ========================= Latest =========================
+
     override fun latestUpdatesRequest(page: Int): Request {
         val url = baseUrl + if (page > 1) "/page/$page/" else ""
 
@@ -118,7 +126,27 @@ class JavGuru :
         return AnimesPage(entries, page < lastPage)
     }
 
+    // ========================= Search =========================
+
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val queryUrl = query.toHttpUrlOrNull()
+        if (queryUrl != null) {
+            val host = queryUrl.host.removePrefix("www.")
+            val baseHost = baseUrl.toHttpUrl().host.removePrefix("www.")
+            if (host == baseHost) {
+                val cleanSegments = queryUrl.pathSegments.filter { it.isNotEmpty() }
+                if (cleanSegments.size == 1) {
+                    val idOrSlug = cleanSegments[0]
+                    val url = "/$idOrSlug/"
+                    val tempAnime = SAnime.create().apply { this.url = url }
+                    return getAnimeDetails(tempAnime).let {
+                        val anime = it.apply { this.url = url }
+                        AnimesPage(listOf(anime), false)
+                    }
+                }
+            }
+        }
+
         if (query.startsWith(PREFIX_ID)) {
             val id = query.substringAfter(PREFIX_ID)
             if (id.toIntOrNull() == null) {
@@ -171,24 +199,6 @@ class JavGuru :
         throw Exception("Select at least one Filter")
     }
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
-        return document.select("div.woo-sc-related-posts li").map { element ->
-            SAnime.create().apply {
-                element.select("a.thumbnail").let { a ->
-                    getIDFromUrl(a)?.let { url = it }
-                        ?: setUrlWithoutDomain(a.attr("href"))
-                }
-                element.select("img").let {
-                    title = it.attr("alt").ifBlank {
-                        element.select("a.related-title").attr("title")
-                    }
-                    thumbnail_url = it.attr("abs:src")
-                }
-            }
-        }
-    }
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             if (page > 1) addPathSegments("page/$page/")
@@ -198,9 +208,11 @@ class JavGuru :
         return GET(url, headers)
     }
 
-    override fun getFilterList() = getFilters()
-
     override fun searchAnimeParse(response: Response) = latestUpdatesParse(response)
+
+    // ========================= Details =========================
+
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -231,12 +243,45 @@ class JavGuru :
         }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
-        SEpisode.create().apply {
-            url = anime.url
-            name = "Episode"
-        },
-    )
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.select("div.woo-sc-related-posts li").map { element ->
+            SAnime.create().apply {
+                element.select("a.thumbnail").let { a ->
+                    getIDFromUrl(a)?.let { url = it }
+                        ?: setUrlWithoutDomain(a.attr("href"))
+                }
+                element.select("img").let {
+                    title = it.attr("alt").ifBlank {
+                        element.select("a.related-title").attr("title")
+                    }
+                    thumbnail_url = it.attr("abs:src")
+                }
+            }
+        }
+    }
+
+    // ========================= Episodes =========================
+
+    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
+
+    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
+
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val dateText = document.selectFirst("span.thedate")?.text()?.substringAfter("Posted:")?.trim()
+        val dateUpload = DATE_FORMATTER.tryParse(dateText)
+
+        return listOf(
+            SEpisode.create().apply {
+                url = response.request.url.encodedPath
+                name = "Episode"
+                date_upload = dateUpload
+            },
+        )
+    }
+
+    // ========================= Videos =========================
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -255,30 +300,40 @@ class JavGuru :
     }
 
     private fun resolveHosterUrl(iframeUrl: String): String? {
-        val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
+        val token = iframeUrl.toHttpUrlOrNull()?.queryParameter("xd")
+        val finalUrl = if (token != null) {
+            val base = iframeUrl.substringBefore("?")
+            "$base?xr=${token.reversed()}"
+        } else {
+            val iframeDocument = client.newCall(GET(iframeUrl, headers)).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.asJsoup()
+            }
+            val script = iframeDocument.selectFirst("script:containsData(cfg)")?.html() ?: return null
+            val cid = CID_REGEX.find(script)?.groupValues?.get(1) ?: return null
+            val rawBase = BASE_REGEX.find(script)?.groupValues?.get(1) ?: return null
+            val base = iframeUrl.toHttpUrlOrNull()?.resolve(rawBase)?.toString() ?: rawBase
+            val rtype = RTYPE_REGEX.find(script)?.groupValues?.get(1) ?: "x"
+            val keys = KEYS_REGEX.find(script)?.groupValues?.get(1)
+                ?.split(",")
+                ?.map { it.trim().removeSurrounding("'").removeSurrounding("\"") }
+                ?: return null
 
-        if (iframeResponse.isSuccessful.not()) {
-            iframeResponse.close()
-            return null
+            val element = iframeDocument.getElementById(cid) ?: return null
+            val tokenBuilder = StringBuilder()
+            for (key in keys) {
+                tokenBuilder.append(element.attr(key))
+            }
+            val fullToken = tokenBuilder.toString()
+            if (fullToken.isBlank()) return null
+            "$base?$rtype" + "r=${fullToken.reversed()}"
         }
-
-        val iframeDocument = iframeResponse.asJsoup()
-
-        val script = iframeDocument.selectFirst("script:containsData(start_player)")
-            ?.html() ?: return null
-
-        val olid = IFRAME_OLID_REGEX.find(script)?.groupValues?.get(1)?.reversed()
-            ?: return null
-
-        val olidUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
-            ?.substringBeforeLast("=")?.let { "$it=$olid" }
-            ?: return null
 
         val newHeaders = headersBuilder()
             .set("Referer", iframeUrl)
             .build()
 
-        val redirectUrl = noRedirectClient.newCall(GET(olidUrl, newHeaders))
+        val redirectUrl = noRedirectClient.newCall(GET(finalUrl, newHeaders))
             .execute().use { it.header("location") }
             ?: return null
 
@@ -304,7 +359,20 @@ class JavGuru :
 
     private fun getVideos(hosterUrl: String): List<Video> = when {
         listOf("javplaya", "javclan").any { it in hosterUrl } -> {
-            streamWishExtractor.videosFromUrl(hosterUrl)
+            streamWishExtractor.videosFromUrl(hosterUrl).map { video ->
+                val newHeaders = (video.headers ?: headers).newBuilder()
+                    .set("Referer", "$baseUrl/")
+                    .set("Origin", baseUrl)
+                    .build()
+                Video(
+                    video.url,
+                    video.quality,
+                    video.videoUrl,
+                    headers = newHeaders,
+                    subtitleTracks = emptyList(),
+                    audioTracks = video.audioTracks,
+                )
+            }
         }
 
         hosterUrl.contains("streamtape") -> {
@@ -334,9 +402,18 @@ class JavGuru :
         val quality = preferences.getString(PREF_QUALITY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
-        ).reversed()
+            compareBy<Video> {
+                val isJavClan = listOf("javplaya", "javclan", "streamwish", "wishembed").any { host ->
+                    it.videoUrl?.contains(host) == true || it.url.contains(host)
+                }
+                if (isJavClan) 1 else 0
+            }.thenByDescending {
+                it.quality.contains(quality)
+            },
+        )
     }
+
+    // ========================= Utilities =========================
 
     private fun getIDFromUrl(element: Elements): String? = element.attr("abs:href")
         .toHttpUrlOrNull()
@@ -347,11 +424,7 @@ class JavGuru :
         ?.let { "/$it/" }
 
     private fun String?.pageNumberFromUrlOrNull() = this
-        ?.substringBeforeLast("/")
-        ?.toHttpUrlOrNull()
-        ?.pathSegments
-        ?.last()
-        ?.toIntOrNull()
+        ?.let { PAGINATION_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() }
 
     private suspend fun Call.awaitIgnoreCode(code: Int): Response = await().also { response ->
         if (!response.isSuccessful && response.code != code) {
@@ -359,6 +432,8 @@ class JavGuru :
             throw Exception("HTTP error ${response.code}")
         }
     }
+
+    override fun getFilterList() = getFilters()
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -377,8 +452,15 @@ class JavGuru :
         const val PREFIX_ID = "id:"
 
         private val IFRAME_B64_REGEX = Regex(""""iframe_url":"([^"]+)"""")
-        private val IFRAME_OLID_REGEX = Regex("""var OLID = '([^']+)'""")
-        private val IFRAME_OLID_URL = Regex("""realSrc *= *'([^']+)'""")
+        private val CID_REGEX = Regex("""cid:\s*['"]([^'"]+)['"]""")
+        private val BASE_REGEX = Regex("""base:\s*['"]([^'"]+)['"]""")
+        private val RTYPE_REGEX = Regex("""rtype:\s*['"]([^'"]+)['"]""")
+        private val KEYS_REGEX = Regex("""keys:\s*\[([^\]]+)\]""")
+        private val PAGINATION_REGEX = Regex("""/page/(\d+)""")
+
+        private val DATE_FORMATTER by lazy {
+            SimpleDateFormat("MMMM d, yyyy", Locale.US)
+        }
 
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
@@ -386,6 +468,4 @@ class JavGuru :
         private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private val PREF_QUALITY_DEFAULT = PREF_QUALITY_VALUES.first()
     }
-
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 }
