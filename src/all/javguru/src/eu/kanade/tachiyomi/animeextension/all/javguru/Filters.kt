@@ -29,12 +29,12 @@ abstract class TextFilter(name: String, private val urlSubDirectory: String) : A
     fun toUrlPart() = state.trim()
         .lowercase()
         .replace(SPECIAL_CHAR_REGEX, "-")
-        .replace(TRAILING_HIPHEN_REGEX, "")
+        .replace(TRAILING_HYPHEN_REGEX, "")
         .let { "/$urlSubDirectory/$it/" }
 
     companion object {
         private val SPECIAL_CHAR_REGEX = "[^a-z0-9]+".toRegex()
-        private val TRAILING_HIPHEN_REGEX = "-+$".toRegex()
+        private val TRAILING_HYPHEN_REGEX = "-+$".toRegex()
     }
 }
 
