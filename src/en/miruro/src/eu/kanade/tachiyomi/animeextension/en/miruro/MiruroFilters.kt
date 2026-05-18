@@ -73,12 +73,12 @@ object MiruroFilters {
     )
 
     data class FilterSearchParams(
-        val sort: String = "",
+        val sort: String = "all",
         val genres: List<String> = emptyList(),
         val tags: List<String> = emptyList(),
-        val year: String = "",
-        val season: String = "",
-        val status: String = "",
+        val year: String = "all",
+        val season: String = "all",
+        val status: String = "all",
         val formats: List<String> = emptyList(),
     )
 
