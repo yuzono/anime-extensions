@@ -56,6 +56,8 @@ class JavGuru :
 
     private lateinit var popularElements: Elements
 
+    // ========================= Popular =========================
+
     override suspend fun getPopularAnime(page: Int): AnimesPage = if (page == 1) {
         client.newCall(popularAnimeRequest(page))
             .awaitSuccess()
@@ -88,6 +90,8 @@ class JavGuru :
         return AnimesPage(entries, end < popularElements.size)
     }
 
+    // ========================= Latest =========================
+
     override fun latestUpdatesRequest(page: Int): Request {
         val url = baseUrl + if (page > 1) "/page/$page/" else ""
 
@@ -119,15 +123,21 @@ class JavGuru :
         return AnimesPage(entries, page < lastPage)
     }
 
+    // ========================= Search =========================
+
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        if (query.startsWith("https://")) {
-            val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
-                throw Exception("Unsupported url")
+        val queryUrl = query.toHttpUrlOrNull()
+        if (queryUrl != null && queryUrl.host == baseUrl.toHttpUrl().host) {
+            val cleanSegments = queryUrl.pathSegments.filter { it.isNotEmpty() }
+            if (cleanSegments.isNotEmpty()) {
+                val idOrSlug = cleanSegments[0]
+                val url = "/$idOrSlug/"
+                val tempAnime = SAnime.create().apply { this.url = url }
+                return getAnimeDetails(tempAnime).let {
+                    val anime = it.apply { this.url = url }
+                    AnimesPage(listOf(anime), false)
+                }
             }
-            val id = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
-                ?: throw Exception("Unsupported url")
-            return getSearchAnime(page, "$PREFIX_ID$id", filters)
         }
         if (query.startsWith(PREFIX_ID)) {
             val id = query.substringAfter(PREFIX_ID)
@@ -183,24 +193,6 @@ class JavGuru :
         throw Exception("Select at least one Filter")
     }
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
-        return document.select("div.woo-sc-related-posts li").map { element ->
-            SAnime.create().apply {
-                element.select("a.thumbnail").let { a ->
-                    getIDFromUrl(a)?.let { url = it }
-                        ?: setUrlWithoutDomain(a.attr("href"))
-                }
-                element.select("img").let {
-                    title = it.attr("alt").ifBlank {
-                        element.select("a.related-title").attr("title")
-                    }
-                    thumbnail_url = it.attr("abs:src")
-                }
-            }
-        }
-    }
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             if (page > 1) addPathSegments("page/$page/")
@@ -210,9 +202,11 @@ class JavGuru :
         return GET(url, headers)
     }
 
-    override fun getFilterList() = getFilters()
-
     override fun searchAnimeParse(response: Response) = latestUpdatesParse(response)
+
+    // ========================= Details =========================
+
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -243,12 +237,38 @@ class JavGuru :
         }
     }
 
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.select("div.woo-sc-related-posts li").map { element ->
+            SAnime.create().apply {
+                element.select("a.thumbnail").let { a ->
+                    getIDFromUrl(a)?.let { url = it }
+                        ?: setUrlWithoutDomain(a.attr("href"))
+                }
+                element.select("img").let {
+                    title = it.attr("alt").ifBlank {
+                        element.select("a.related-title").attr("title")
+                    }
+                    thumbnail_url = it.attr("abs:src")
+                }
+            }
+        }
+    }
+
+    // ========================= Episodes =========================
+
+    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
         SEpisode.create().apply {
             url = anime.url
             name = "Episode"
         },
     )
+
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    // ========================= Videos =========================
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -373,6 +393,8 @@ class JavGuru :
         ).reversed()
     }
 
+    // ========================= Utilities =========================
+
     private fun getIDFromUrl(element: Elements): String? = element.attr("abs:href")
         .toHttpUrlOrNull()
         ?.pathSegments
@@ -390,6 +412,8 @@ class JavGuru :
             throw Exception("HTTP error ${response.code}")
         }
     }
+
+    override fun getFilterList() = getFilters()
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -420,6 +444,4 @@ class JavGuru :
         private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private val PREF_QUALITY_DEFAULT = PREF_QUALITY_VALUES.first()
     }
-
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 }
