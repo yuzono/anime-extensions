@@ -27,6 +27,12 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -528,7 +534,7 @@ class Animelib :
         url = href
         title = rusName
         thumbnail_url = cover.default
-        description = summary
+        description = summary.toDescriptionText()
         status = convertStatus(animeStatus.id)
         author = publisher?.joinToString { it.name }
         artist = authors?.joinToString { it.name }
@@ -539,5 +545,24 @@ class Animelib :
         name = "Сезон $season Серия $number $episodeName"
         episode_number = number.toFloat()
         date_upload = dateFormatter.tryParse(date)
+    }
+
+    private fun JsonElement?.toDescriptionText(): String? =
+        this?.collectText()?.trim()?.ifEmpty { null }
+
+    private fun JsonElement.collectText(): String = when (this) {
+        is JsonPrimitive -> contentOrNull ?: ""
+        is JsonArray -> joinToString("") { it.collectText() }
+        is JsonObject -> {
+            val type = this["type"]?.jsonPrimitive?.contentOrNull
+            if (type == "hardBreak") {
+                "\n"
+            } else {
+                val text = this["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val content = this["content"]?.collectText().orEmpty()
+                val result = text + content
+                if (type == "paragraph" || type == "heading") "$result\n" else result
+            }
+        }
     }
 }
