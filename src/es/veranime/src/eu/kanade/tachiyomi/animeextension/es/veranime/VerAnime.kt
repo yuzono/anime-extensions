@@ -147,7 +147,7 @@ class VerAnime :
             )
         }
 
-        return episodes.distinctBy { it.url }.reversed()
+        return episodes
     }
 
     private fun parseEpisodeElement(element: org.jsoup.nodes.Element, seasonPrefix: String): SEpisode? {
@@ -195,7 +195,9 @@ class VerAnime :
 
             val videos = serverVideoResolver(src)
             if (language.isNotBlank()) {
-                videos.map { it.copy(quality = "[$language] ${it.quality}") }
+                videos.map {
+                    Video(it.url, "[$language] ${it.quality}", it.videoUrl, it.headers, it.subtitleTracks, it.audioTracks)
+                }
             } else {
                 videos
             }
