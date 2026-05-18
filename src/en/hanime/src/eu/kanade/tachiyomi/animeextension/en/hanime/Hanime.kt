@@ -1119,31 +1119,32 @@ class Hanime :
         private const val PREF_CUSTOM_CDN_DEFAULT = ""
 
         private const val PREF_EP_TITLE_FORMAT_KEY = "episode_title_format"
-        private const val PREF_EP_TITLE_FORMAT_DEFAULT = "clean"
-        private val EP_TITLE_FORMAT_LIST = arrayOf("clean", "full")
+        private val EP_TITLE_FORMAT_ENTRIES = listOf("Clean (Episode N)", "Full (Series Name N)")
+        private val EP_TITLE_FORMAT_LIST = listOf("clean", "full")
+        private val PREF_EP_TITLE_FORMAT_DEFAULT = EP_TITLE_FORMAT_LIST.first()
 
         // Hoisted Regex constants — compiled once, reused on every call
 
         /** Matches HTML tags for description sanitization. */
-        private val HTML_TAG_REGEX = Regex("<[^>]*>")
+        private val HTML_TAG_REGEX by lazy { Regex("<[^>]*>") }
 
         /** Matches a trailing episode suffix: a space followed by 1–3 digits at end of string. */
-        private val EPISODE_SUFFIX_REGEX = Regex("""\s(\d{1,3})$""")
+        private val EPISODE_SUFFIX_REGEX by lazy { Regex("""\s(\d{1,3})$""") }
 
         /** Matches "Season N" at end of a title (case-insensitive). */
-        private val SEASON_PATTERN_REGEX = Regex("""\s+Season\s+(\d{1,3})$""", RegexOption.IGNORE_CASE)
+        private val SEASON_PATTERN_REGEX by lazy { Regex("""\s+Season\s+(\d{1,3})$""", RegexOption.IGNORE_CASE) }
 
         /** Matches "Ep N" at end of a title (case-insensitive). */
-        private val EP_PATTERN_REGEX = Regex("""\s+Ep\s+(\d{1,3})$""", RegexOption.IGNORE_CASE)
+        private val EP_PATTERN_REGEX by lazy { Regex("""\s+Ep\s+(\d{1,3})$""", RegexOption.IGNORE_CASE) }
 
         /** Matches a trailing number at end of a title: one or more spaces then 1–3 digits. */
-        private val TRAILING_NUMBER_REGEX = Regex("""\s+(\d{1,3})$""")
+        private val TRAILING_NUMBER_REGEX by lazy { Regex("""\s+(\d{1,3})$""") }
 
         /** Matches compound prefixes before a number (e.g. "x 3", "- 3", "× 3") that should NOT be stripped. */
-        private val PREFIX_REGEX = Regex("""[\s\-×x]$""", RegexOption.IGNORE_CASE)
+        private val PREFIX_REGEX by lazy { Regex("""[\s\-×x]$""", RegexOption.IGNORE_CASE) }
 
         /** Extracts numeric quality value from a quality label like "1080p". */
-        private val QUALITY_RESOLUTION_REGEX = Regex("""(\d+)p""")
+        private val QUALITY_RESOLUTION_REGEX by lazy { Regex("""(\d+)p""") }
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -1215,8 +1216,8 @@ class Hanime :
         screen.addListPreference(
             key = PREF_EP_TITLE_FORMAT_KEY,
             title = "Episode title format",
-            entries = listOf("Clean (Episode N)", "Full (Series Name N)"),
-            entryValues = EP_TITLE_FORMAT_LIST.toList(),
+            entries = EP_TITLE_FORMAT_ENTRIES,
+            entryValues = EP_TITLE_FORMAT_LIST,
             default = PREF_EP_TITLE_FORMAT_DEFAULT,
             summary = "%s",
         )
