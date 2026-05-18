@@ -104,58 +104,8 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
 
         if (unshuffled == null) return emptyList()
 
-        // Derive Key
-        var nKey = ""
-        val bKey = "7519".toList() // ord("ᵟ") = 7519
-        for (char in bKey) {
-            nKey += ("10$char").toInt().toChar()
-        }
-        nKey += 't' // ord("https:"[1]) = 't'
-        nKey += nKey.substring(1, 3)
-        nKey += 'n'
-        nKey += 'm'
-        nKey += 'u'
-
-        nKey += 97.toChar() // "a" (97)
-        nKey += 57.toChar() // "9" (57)
-
-        nKey += 49.toChar() // "1" (49)
-        nKey += 49.toChar() // "1" (49)
-
-        nKey += 99.toChar() // "c" (99)
-        nKey += 97.toChar() // "a" (97)
-
-        val keyBytes = nKey.toByteArray(Charsets.UTF_8)
-
-        // Derive IV
-        val vIv = "https:"
-        val pIv = "$vIv//"
-        val oIv = "#$swarmId"
-
-        val gIv = vIv.length * pIv.length // 6 * 8 = 48
-        var bIv = ""
-        for (iE in 1..9) {
-            bIv += (iE + gIv).toChar()
-        }
-        val oeIv = "111"
-        val yeIv = oeIv.length * oIv[0].code // 3 * 35 = 105
-        val heIv = oeIv.toInt() * 1 + vIv.length // 117
-        val kIv = heIv + 4 // 121
-        val seIv = vIv[1].code // 116
-        val peIv = seIv * 1 - 2 // 114
-
-        bIv += gIv.toChar()
-        bIv += oeIv.toInt().toChar()
-        bIv += yeIv.toChar()
-        bIv += heIv.toChar()
-        bIv += kIv.toChar()
-        bIv += seIv.toChar()
-        bIv += peIv.toChar()
-
-        val ivBytes = ByteArray(16)
-        for (i in 0 until 16) {
-            ivBytes[i] = (bIv[i].code and 0xFF).toByte()
-        }
+        val keyBytes = "kiemtienmua911ca".toByteArray()
+        val ivBytes = "1234567890oiuytr".toByteArray()
 
         // Fetch video payload
         val apiUrl = "https://animeav1.uns.bio/api/v1/video?id=$swarmId"
@@ -209,5 +159,74 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
         }
 
         return streams
+    }
+
+    /**
+     * keyBytes is derived from "kiemtienmua911ca" (the last 16 chars of the shuffled array).
+     *
+     * Keep this for reference.
+     */
+    @Suppress("unused")
+    private fun keyBytes(): ByteArray {
+        // Derive Key
+        var nKey = ""
+        val bKey = "7519".toList() // ord("ᵟ") = 7519
+        for (char in bKey) {
+            nKey += ("10$char").toInt().toChar()
+        }
+        nKey += 't' // ord("https:"[1]) = 't'
+        nKey += nKey.substring(1, 3)
+        nKey += 'n'
+        nKey += 'm'
+        nKey += 'u'
+
+        nKey += 97.toChar() // "a" (97)
+        nKey += 57.toChar() // "9" (57)
+
+        nKey += 49.toChar() // "1" (49)
+        nKey += 49.toChar() // "1" (49)
+
+        nKey += 99.toChar() // "c" (99)
+        nKey += 97.toChar() // "a" (97)
+        return nKey.toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * ivBytes is derived from a complex combination of the shuffled array and some hardcoded values.
+     *
+     * Keep this for reference.
+     */
+    @Suppress("unused")
+    private fun ivBytes(): ByteArray {
+        // Derive IV
+        val vIv = "https:"
+        val pIv = "$vIv//"
+        val oIv = "#"
+
+        val gIv = vIv.length * pIv.length // 6 * 8 = 48
+        var bIv = ""
+        for (iE in 1..9) {
+            bIv += (iE + gIv).toChar()
+        }
+        val oeIv = "111"
+        val yeIv = oeIv.length * oIv[0].code // 3 * 35 = 105
+        val heIv = oeIv.toInt() * 1 + vIv.length // 117
+        val kIv = heIv + 4 // 121
+        val seIv = vIv[1].code // 116
+        val peIv = seIv * 1 - 2 // 114
+
+        bIv += gIv.toChar()
+        bIv += oeIv.toInt().toChar()
+        bIv += yeIv.toChar()
+        bIv += heIv.toChar()
+        bIv += kIv.toChar()
+        bIv += seIv.toChar()
+        bIv += peIv.toChar()
+
+        val ivBytes = ByteArray(16)
+        for (i in 0 until 16) {
+            ivBytes[i] = (bIv[i].code and 0xFF).toByte()
+        }
+        return ivBytes
     }
 }
