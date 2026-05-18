@@ -388,8 +388,15 @@ class JavGuru :
         val quality = preferences.getString(PREF_QUALITY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
-        ).reversed()
+            compareBy<Video> {
+                val isJavClan = listOf("javplaya", "javclan", "streamwish", "wishembed").any { host ->
+                    it.videoUrl?.contains(host) == true || it.url.contains(host)
+                }
+                if (isJavClan) 1 else 0
+            }.thenByDescending {
+                it.quality.contains(quality)
+            },
+        )
     }
 
     // ========================= Utilities =========================
