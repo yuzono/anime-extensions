@@ -13,7 +13,7 @@ class PixelDrainExtractor {
         return if (mId.isNullOrEmpty()) {
             listOf(Video(url, "${prefix}PixelDrain", url))
         } else {
-            listOf(Video("https://pixeldrain.com/api/file/${mId}?download", "${prefix}PixelDrain", "https://pixeldrain.com/api/file/${mId}?download"))
+            listOf(Video("https://pixeldrain.com/api/file/$mId?download", "${prefix}PixelDrain", "https://pixeldrain.com/api/file/$mId?download"))
         }
     }
 }

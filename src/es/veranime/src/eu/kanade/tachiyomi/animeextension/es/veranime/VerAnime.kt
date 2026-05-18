@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.es.veranime
 
 import android.net.Uri
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
@@ -20,9 +19,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import java.net.URLEncoder
@@ -46,7 +46,7 @@ class VerAnime :
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/animes/page/$page/?orderby=popular", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select(".anime-card a, article a")
         val nextPage = document.select(".pagination .next, a.next").any()
 
@@ -60,7 +60,7 @@ class VerAnime :
                     ?: element.selectFirst("img")?.attr("alt")?.trim() ?: "Anime"
                 thumbnail_url = element.selectFirst("img")?.attr("abs:src")
             }
-        }.distinctBy { it.url }
+        }
 
         return AnimesPage(animeList, nextPage)
     }
@@ -85,12 +85,11 @@ class VerAnime :
     // =========================== Anime Details ============================
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("h1")?.text()?.trim() ?: "Anime"
             description =
                 document.selectFirst(".anime-hero-description, .sinopsis, .description, p.desc, .info p, .pelicula-overview p")?.text()
-                    ?.trim()
             genre = document.select("a[href*=\"categoria\"]").map { it.text().trim() }.distinct().joinToString()
             status = parseStatus(
                 document.selectFirst("div.anime-info-label:contains(Estado) span, div.anime-info-label:contains(Estado), .status")
@@ -111,7 +110,7 @@ class VerAnime :
     // ============================== Episodes ==============================
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val episodes = mutableListOf<SEpisode>()
 
         // Some series group episodes into seasons
@@ -155,7 +154,9 @@ class VerAnime :
     private fun parseEpisodeElement(element: org.jsoup.nodes.Element, seasonPrefix: String): SEpisode? {
         val href = element.attr("abs:href")
         val text = element.text().trim()
-        if (href.isBlank() || href.contains("proximos-capitulos") || element.hasClass("ver-ahora") || text.contains(
+        if (href.isBlank() || href.contains("proximos-capitulos") ||
+            element.hasClass("ver-ahora") ||
+            text.contains(
                 "ver ahora",
                 true,
             )
@@ -168,11 +169,11 @@ class VerAnime :
             setUrlWithoutDomain(href)
 
             val episodeNumber =
-                Regex("""(?i)(?:capitulo|episodio)\s*(\d+)""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
+                Regex("""(?i)(?:capitulo|episodio)\s*(\d+)""").find(text)?.groupValues?.getOrNull(1)?.toFloatOrNull()
             if (episodeNumber != null) {
                 episode_number = episodeNumber
             } else {
-                Regex("""(?:capitulo|episodio)-(\d+)""").find(url)?.groupValues?.get(1)?.toFloatOrNull()?.let {
+                Regex("""(?:capitulo|episodio)-(\d+)""").find(url)?.groupValues?.getOrNull(1)?.toFloatOrNull()?.let {
                     episode_number = it
                 }
             }
@@ -182,7 +183,7 @@ class VerAnime :
     // ============================ Video Links =============================
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val iframes = document.select("iframe[src], iframe[data-src]")
 
         return iframes.parallelCatchingFlatMapBlocking { iframe ->
@@ -278,14 +279,14 @@ class VerAnime :
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_ENTRIES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -299,6 +300,6 @@ class VerAnime :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
     }
 }
