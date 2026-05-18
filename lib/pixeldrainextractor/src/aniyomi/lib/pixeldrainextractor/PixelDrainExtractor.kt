@@ -1,9 +1,8 @@
 package aniyomi.lib.pixeldrainextractor
 
 import eu.kanade.tachiyomi.animesource.model.Video
-import okhttp3.OkHttpClient
 
-class PixelDrainExtractor(private val client: OkHttpClient) {
+class PixelDrainExtractor {
 
     companion object {
         private val mIdRegex by lazy { Regex("""/u/(.*)""") }
@@ -14,7 +13,7 @@ class PixelDrainExtractor(private val client: OkHttpClient) {
         return if (mId.isNullOrEmpty()) {
             listOf(Video(url, "${prefix}PixelDrain", url))
         } else {
-            listOf(Video("https://pixeldrain.com/api/file/${mId}?download", "${prefix}PixelDrain", "https://pixeldrain.com/api/file/${mId}?download"))
+            listOf(Video("https://pixeldrain.com/api/file/$mId?download", "${prefix}PixelDrain", "https://pixeldrain.com/api/file/$mId?download"))
         }
     }
 }
