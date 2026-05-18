@@ -204,7 +204,7 @@ class VerAnime :
 
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val pixeldrainExtractor by lazy { PixelDrainExtractor(client) }
+    private val pixeldrainExtractor by lazy { PixelDrainExtractor() }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
