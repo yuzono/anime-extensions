@@ -189,21 +189,41 @@ class AnimeVerse :
         return "$baseUrl$path"
     }
 
+    @SuppressLint("DefaultLocale")
+    private fun formatRating(rating10: Double): String {
+        if (rating10 <= 0) return ""
+        val fullStars = (rating10 / 2.0).roundToInt().coerceIn(0, 5)
+        val emptyStars = 5 - fullStars
+        val stars = "★".repeat(fullStars) + "☆".repeat(emptyStars)
+        return "$stars ${String.format("%.2f", rating10)}"
+    }
+
     private fun base64UrlEncode(data: ByteArray): String = Base64.encodeToString(data, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     private fun base64UrlDecode(str: String): ByteArray = Base64.decode(str, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
+
     private fun JsonObject.int(key: String): Int = this[key]?.jsonPrimitive?.intOrNull ?: 0
+
     private fun JsonObject.double(key: String): Double = this[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0
+
+    private fun JsonObject.stringArray(key: String): List<String> = this[key]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
 
     private fun jsonToAnime(el: JsonElement): SAnime {
         val o = el.jsonObject
+        val genres = o.stringArray("genres")
+        val studios = o.stringArray("studios")
+        val mainTitle = o.string("title") ?: "Unknown"
+        val altTitle = o.string("alternativeTitle")?.takeIf { it.isNotEmpty() }
+        val useAlt = prefs.getBoolean("use_alt_title", false)
+
         return SAnime.create().apply {
-            title = o.string("title") ?: "Unknown"
+            title = if (useAlt) altTitle ?: mainTitle else mainTitle
             url = "/series/${o.string("slug")}"
             thumbnail_url = resolveImage(o.string("cover") ?: o.string("thumb"))
-            genre = listOfNotNull(o.string("type"), o.string("ratingLabel")).joinToString(", ")
+            author = studios.takeIf { it.isNotEmpty() }?.joinToString(", ")
+            genre = genres.takeIf { it.isNotEmpty() }?.joinToString(", ")
             status = SAnime.UNKNOWN
         }
     }
@@ -254,13 +274,18 @@ class AnimeVerse :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/api/v1/catalog?q=${URLEncoder.encode(query, "UTF-8")}")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val arr = extractArray(json.parseToJsonElement(response.body.string()))
+        val root = json.parseToJsonElement(response.body.string())
+        val arr = extractArray(root)
         val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
 
         val filtered = if (q.isBlank()) {
             arr
         } else {
-            arr.filter { it.jsonObject.string("title")?.lowercase()?.contains(q) == true }
+            arr.filter { el ->
+                val o = el.jsonObject
+                o.string("searchTitle")?.lowercase()?.contains(q) == true ||
+                    o.string("title")?.lowercase()?.contains(q) == true
+            }
         }
 
         return AnimesPage(filtered.map(::jsonToAnime), false)
@@ -270,34 +295,62 @@ class AnimeVerse :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl/series/${anime.slug()}")
 
-    @SuppressLint("DefaultLocale")
-    private fun formatRating(rating10: Double): String {
-        if (rating10 <= 0) return ""
-        val fullStars = (rating10 / 2.0).roundToInt().coerceIn(0, 5)
-        val emptyStars = 5 - fullStars
-        val stars = "★".repeat(fullStars) + "☆".repeat(emptyStars)
-        return "$stars ${String.format("%.2f", rating10)}"
-    }
-
     override fun animeDetailsParse(response: Response): SAnime {
         val slug = response.request.url.encodedPath.substringAfter("/series/")
+
         val o = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute().use {
             json.parseToJsonElement(it.body.string()).jsonObject
         }
+
+        val cat = client.newCall(GET("$baseUrl/api/v1/catalog")).execute().use {
+            val arr = extractArray(json.parseToJsonElement(it.body.string()))
+            arr.firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
+        }
+
         val rating = o.double("rating")
         val synopsis = o.string("synopsis").orEmpty()
         val ratingLine = formatRating(rating)
         val epCount = o["episodes"]?.jsonArray?.size ?: 0
-        val epLine = if (epCount > 0) "Episodes: $epCount" else ""
 
-        val header = listOf(ratingLine, epLine).filter { it.isNotEmpty() }.joinToString("\n")
+        val mainTitle = o.string("title") ?: "Unknown"
+        val altTitle = cat?.string("alternativeTitle")?.takeIf { it.isNotEmpty() && it != mainTitle }
+        val useAlt = prefs.getBoolean("use_alt_title", false)
+        val displayTitle = if (useAlt) altTitle ?: mainTitle else mainTitle
+
+        val genres = cat?.stringArray("genres")?.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        val studios = cat?.stringArray("studios")?.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        val premiered = cat?.string("premiered")
+        val animeType = cat?.string("type") ?: o.string("type")
+        val ratingLabel = o.string("ratingLabel")
+
+        val header = listOfNotNull(ratingLine)
+
+        // If we used the alt title as the main title, show the original in the footer
+        val footerAltLine = if (displayTitle == altTitle) {
+            "**Original:** $mainTitle"
+        } else {
+            altTitle?.let { "**Alt:** $it" }
+        }
+
+        val footer = listOfNotNull(
+            footerAltLine,
+            animeType?.let { "**Type:** $it" },
+            premiered?.let { "**Premiered:** $it" },
+            ratingLabel?.let { "**Rating:** $it" },
+            if (epCount > 0) "**Episodes:** $epCount" else null,
+        )
+
+        val description = listOf(header.joinToString("\n"), synopsis, footer.joinToString("\n"))
+            .filter { it.isNotEmpty() }
+            .joinToString("\n\n")
 
         return SAnime.create().apply {
-            title = o.string("title") ?: "Unknown"
+            title = displayTitle
             url = "/series/${o.string("slug")}"
             thumbnail_url = resolveImage(o.string("cover") ?: o.string("thumb"))
-            description = if (header.isNotEmpty()) "$header\n\n$synopsis" else synopsis
-            genre = listOfNotNull(o.string("type"), o.string("ratingLabel")).joinToString(", ")
+            this.description = description
+            author = studios
+            genre = genres
             status = SAnime.UNKNOWN
         }
     }
@@ -355,11 +408,7 @@ class AnimeVerse :
         freshResp.close()
 
         val allEpisodes = freshData["episodes"]?.jsonArray ?: return emptyList()
-
-        val streams = allEpisodes
-            .map { it.jsonObject }
-            .filter { it.int("number") == epNum }
-
+        val streams = allEpisodes.map { it.jsonObject }.filter { it.int("number") == epNum }
         if (streams.isEmpty()) return emptyList()
 
         val cookie = synchronized(lock) { sessionCookie }
@@ -397,6 +446,13 @@ class AnimeVerse :
     // ============================== Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = "use_alt_title"
+            title = "Use Alternative Titles"
+            summary = "Prefer alternative/English titles over original. Falls back to original."
+            setDefaultValue(false)
+        }.also(screen::addPreference)
+
         SwitchPreferenceCompat(screen.context).apply {
             key = "direct_mp4"
             title = "Prefer Direct MP4"
