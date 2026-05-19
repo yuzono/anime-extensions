@@ -63,6 +63,8 @@ class Miruro :
     private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
     private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+    private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
+    private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
 
     companion object {
         const val PREFIX_SEARCH = "miruro:"
@@ -72,8 +74,8 @@ class Miruro :
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
-        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Bee")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee")
+        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli", "Bee", "Bun", "Hop", "Ally", "Dune", "Nun", "Kuz")
+        private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "ally", "dune", "nun", "kuz")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
@@ -114,6 +116,18 @@ class Miruro :
         private const val PREF_MERGE_PROVIDERS_TITLE = "Merge episodes across providers"
         private const val PREF_MERGE_PROVIDERS_DEFAULT = true
 
+        private const val PREF_EPISODE_SORT_KEY = "episode_sort_order"
+        private const val PREF_EPISODE_SORT_TITLE = "Episode List Order"
+        private val PREF_EPISODE_SORT_ENTRIES = listOf("Descending (Newest First)", "Ascending (Oldest First)")
+        private val PREF_EPISODE_SORT_VALUES = listOf("descending", "ascending")
+        private const val PREF_EPISODE_SORT_DEFAULT = "descending"
+
+        private const val PREF_DESCRIPTION_TRUNCATE_KEY = "description_truncation"
+        private const val PREF_DESCRIPTION_TRUNCATE_TITLE = "Description Truncation"
+        private val PREF_DESCRIPTION_TRUNCATE_ENTRIES = listOf("No Limit", "500 characters", "300 characters", "150 characters")
+        private val PREF_DESCRIPTION_TRUNCATE_VALUES = listOf("0", "500", "300", "150")
+        private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
+
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
 
@@ -127,6 +141,10 @@ class Miruro :
 
     private val jikanClient: OkHttpClient = network.client.newBuilder()
         .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1, unit = TimeUnit.SECONDS)
+        .build()
+
+    private val anilistClient: OkHttpClient = network.client.newBuilder()
+        .rateLimitHost("$ANILIST_GRAPHQL_URL/".toHttpUrl(), permits = 2, period = 1, unit = TimeUnit.SECONDS)
         .build()
 
     // ============================== Trending ===============================
@@ -267,6 +285,19 @@ class Miruro :
             media.optString("description", "")
         }
 
+        val truncatedDescription = preferences.descriptionTruncation.toIntOrNull()?.let { limit ->
+            if (limit > 0 && description.length > limit) {
+                val cutIndex = description.lastIndexOf(' ', limit)
+                if (cutIndex > limit * 2 / 3) {
+                    description.substring(0, cutIndex) + "…"
+                } else {
+                    description.substring(0, limit) + "…"
+                }
+            } else {
+                description
+            }
+        } ?: description
+
         val genresArray = media.optJSONArray("genres")
         val genres = if (genresArray != null) {
             (0 until genresArray.length()).mapNotNull { genresArray.optString(it) }.joinToString()
@@ -288,7 +319,7 @@ class Miruro :
         return SAnime.create().apply {
             title.takeIf(String::isNotBlank)?.let { this.title = it }
             thumbnail_url = coverUrl
-            this.description = description
+            this.description = truncatedDescription
             genre = genres
             this.status = status
             author = studio
@@ -322,18 +353,27 @@ class Miruro :
             emptySet()
         }
 
-        val episodes = mutableListOf<SEpisode>()
+        // Determine which provider to use as primary — auto-fallback if preferred has no episodes
+        val availableProviders = providers.keys().asSequence().toList()
+        val primaryProvider = if (providers.optJSONObject(preferredProvider)?.optJSONObject("episodes") != null) {
+            preferredProvider
+        } else {
+            availableProviders.firstOrNull { key ->
+                providers.optJSONObject(key)?.optJSONObject("episodes") != null
+            } ?: return emptyList()
+        }
 
-        val providerData = providers.optJSONObject(preferredProvider)
+        val episodes = mutableListOf<SEpisode>()
+        val providerData = providers.optJSONObject(primaryProvider)
         if (providerData != null) {
-            episodes.addAll(parseEpisodesFromProvider(providerData, preferredProvider, preferredSubType, fillerEpisodes))
+            episodes.addAll(parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes))
         }
 
         if (mergeAcrossProviders && episodes.isNotEmpty()) {
             val preferredNumbers = episodes.map { it.episode_number }.toSet()
-            for (providerKey in providers.keys()) {
-                if (providerKey == preferredProvider || providerKey == "hop") continue
-                val otherProviderData = providers.getJSONObject(providerKey)
+            for (providerKey in availableProviders) {
+                if (providerKey == primaryProvider) continue
+                val otherProviderData = providers.optJSONObject(providerKey) ?: continue
                 val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
                 for (ep in otherEpisodes) {
                     if (ep.episode_number !in preferredNumbers) {
@@ -342,18 +382,24 @@ class Miruro :
                 }
             }
         } else if (episodes.isEmpty()) {
-            for (providerKey in providers.keys()) {
-                if (providerKey == preferredProvider || providerKey == "hop") continue
-                val otherProviderData = providers.getJSONObject(providerKey)
+            // Primary provider had no usable episodes — try remaining providers
+            for (providerKey in availableProviders) {
+                if (providerKey == primaryProvider) continue
+                val otherProviderData = providers.optJSONObject(providerKey) ?: continue
                 val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
                 if (otherEpisodes.isNotEmpty()) {
                     episodes.addAll(otherEpisodes)
-                    break
+                    if (!mergeAcrossProviders) break
                 }
             }
         }
 
-        val result = episodes.reversed()
+        val airingSchedule = if (anilistId != null && anilistId > 0) fetchAiringSchedule(anilistId) else emptyMap()
+
+        val result = if (preferences.episodeSortOrder == "ascending") episodes else episodes.reversed()
+        for (ep in result) {
+            airingSchedule[ep.episode_number]?.let { ep.date_upload = it }
+        }
         return if (preferences.hideFillers) {
             result.filter { !it.scanlator.orEmpty().contains("Filler") }
         } else {
@@ -372,6 +418,13 @@ class Miruro :
         val subTypes = when (provider) {
             "kiwi" -> listOf("sub", "dub")
             "bee" -> listOf("ssub", "sub", "dub")
+            "telli" -> listOf("sub", "dub")
+            "bun" -> listOf("sub", "dub")
+            "hop" -> listOf("sub", "dub")
+            "ally" -> listOf("sub", "dub")
+            "dune" -> listOf("sub")
+            "nun" -> listOf("sub", "dub")
+            "kuz" -> listOf("sub", "dub")
             else -> listOf("sub", "dub")
         }
 
@@ -423,23 +476,24 @@ class Miruro :
             put("subTypes", JSONObject(subTypeIds))
         }
 
-        val audioLabels = subTypeIds.keys.map { subType ->
-            when (subType) {
-                "sub" -> "Sub"
-                "dub" -> "Dub"
-                "ssub" -> "Soft Sub"
-                else -> subType.replaceFirstChar { it.uppercase() }
-            }
-        }.sortedWith(compareBy { mapOf("Sub" to 0, "Dub" to 1)[it] ?: 2 })
-        val scanlatorLabel = audioLabels.joinToString(" & ")
+        val scanlatorLabel = when (defaultSubType) {
+            "sub" -> "Sub"
+            "dub" -> "Dub"
+            "ssub" -> "Soft Sub"
+            "h-sub" -> "Hard Sub"
+            "embed" -> "Embed"
+            else -> defaultSubType.replaceFirstChar { it.uppercase() }
+        }
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
+
+        val providerLabel = provider.replaceFirstChar { it.uppercase() }
 
         return SEpisode.create().apply {
             episode_number = number.toFloat()
             name = if (title.isNotEmpty()) "Episode ${number.toInt()}: $title" else "Episode ${number.toInt()}"
             setUrlWithoutDomain(episodeIdObj.toString())
-            scanlator = scanlatorLabel + if (isFiller) " • Filler" else ""
+            scanlator = "$providerLabel • $scanlatorLabel" + if (isFiller) " • Filler" else ""
         }
     }
 
@@ -455,6 +509,7 @@ class Miruro :
         val anilistId: Int,
         var malId: Int? = null,
         var fillerEpisodes: Set<Float>? = null,
+        var airingSchedule: Map<Float, Long>? = null,
     )
 
     @Volatile
@@ -478,7 +533,12 @@ class Miruro :
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
 
         val videos = mutableListOf<Video>()
-        videos.addAll(parseStreamsFromResponse(response, defaultSubType))
+
+        try {
+            videos.addAll(parseStreamsFromResponse(response, defaultSubType))
+        } catch (e: Exception) {
+            Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
+        }
 
         if (!preferences.includeAllSubTypes || subTypesObj == null || subTypesObj.length() <= 1) return videos
 
@@ -508,7 +568,13 @@ class Miruro :
     }
 
     private fun parseStreamsFromResponse(response: Response, subType: String?): List<Video> {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
+        val json = try {
+            response.use(::decryptResponse)
+        } catch (e: Exception) {
+            Log.e("Miruro", "Failed to decrypt stream response: ${e.message}")
+            return emptyList()
+        }
+        val jsonObj = JSONObject(json)
         val streamsArray = jsonObj.optJSONArray("streams") ?: return emptyList()
 
         val subTypeLabel = when (subType) {
@@ -565,11 +631,17 @@ class Miruro :
         }
 
         return sortedWith(
-            compareBy(
-                { it.quality.contains(subTypeLabel) },
-                { it.quality.contains(quality) },
-            ),
-        ).reversed()
+            compareByDescending<Video> { it.quality.contains(subTypeLabel) }
+                .thenByDescending {
+                    val q = Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    when {
+                        q == quality.toIntOrNull() -> 100000
+                        q > 0 -> q
+                        it.quality.contains(quality) -> 99999
+                        else -> 0
+                    }
+                },
+        )
     }
 
     // ============================== URL ==============================
@@ -670,6 +742,24 @@ class Miruro :
             default = PREF_MERGE_PROVIDERS_DEFAULT,
             summary = "Adds episodes from other providers that are missing from the preferred provider.",
         )
+
+        screen.addListPreference(
+            key = PREF_EPISODE_SORT_KEY,
+            title = PREF_EPISODE_SORT_TITLE,
+            entries = PREF_EPISODE_SORT_ENTRIES,
+            entryValues = PREF_EPISODE_SORT_VALUES,
+            default = PREF_EPISODE_SORT_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_DESCRIPTION_TRUNCATE_KEY,
+            title = PREF_DESCRIPTION_TRUNCATE_TITLE,
+            entries = PREF_DESCRIPTION_TRUNCATE_ENTRIES,
+            entryValues = PREF_DESCRIPTION_TRUNCATE_VALUES,
+            default = PREF_DESCRIPTION_TRUNCATE_DEFAULT,
+            summary = "%s",
+        )
     }
 
     // ============================== Helpers ==============================
@@ -740,11 +830,75 @@ class Miruro :
     }
 
     private fun fetchMalId(anilistId: Int): Int? = try {
-        client.newCall(anilistMalIdRequest(anilistId)).execute()
+        anilistClient.newCall(anilistMalIdRequest(anilistId)).execute()
             .parseAs<AnilistMalIdResponse>().data.media.idMal
     } catch (e: Exception) {
         Log.e("Miruro", "Failed to resolve MAL ID: ${e.message}")
         null
+    }
+
+    private fun anilistAiringScheduleRequest(anilistId: Int): Request {
+        val query = $$"""
+            query media($id: Int) {
+                Media(id: $id, type: ANIME) {
+                    nextAiringEpisode { episode airingAt }
+                    airingSchedule(notYetAired: false) {
+                        nodes { episode airingAt }
+                    }
+                }
+            }
+        """.trimIndent()
+        val variables = buildJsonObject {
+            put("id", anilistId)
+        }
+        val body = FormBody.Builder()
+            .add("query", query)
+            .add("variables", kotlinx.serialization.json.Json.encodeToString(variables))
+            .build()
+        return POST(ANILIST_GRAPHQL_URL, body = body)
+    }
+
+    private fun fetchAiringSchedule(anilistId: Int): Map<Float, Long> {
+        val existing = cachedAnimeMeta?.takeIf { it.anilistId == anilistId }
+        if (existing?.airingSchedule != null) return existing.airingSchedule!!
+
+        val result = try {
+            anilistClient.newCall(anilistAiringScheduleRequest(anilistId)).execute()
+                .body.string()
+        } catch (e: Exception) {
+            Log.e("Miruro", "Failed to fetch airing schedule: ${e.message}")
+            return emptyMap()
+        }
+
+        val jsonObj = try {
+            JSONObject(result)
+        } catch (_: Exception) {
+            return emptyMap()
+        }
+        val mediaObj = jsonObj.optJSONObject("data")?.optJSONObject("Media") ?: return emptyMap()
+
+        val schedule = mutableMapOf<Float, Long>()
+
+        mediaObj.optJSONObject("nextAiringEpisode")?.let { next ->
+            val ep = next.optInt("episode", -1)
+            val airingAt = next.optLong("airingAt", 0)
+            if (ep > 0 && airingAt > 0) {
+                schedule[ep.toFloat()] = airingAt * 1000L
+            }
+        }
+
+        val nodes = mediaObj.optJSONObject("airingSchedule")?.optJSONArray("nodes") ?: return schedule
+        for (i in 0 until nodes.length()) {
+            val node = nodes.optJSONObject(i) ?: continue
+            val ep = node.optInt("episode", -1)
+            val airingAt = node.optLong("airingAt", 0)
+            if (ep > 0 && airingAt > 0 && !schedule.containsKey(ep.toFloat())) {
+                schedule[ep.toFloat()] = airingAt * 1000L
+            }
+        }
+
+        cachedAnimeMeta?.takeIf { it.anilistId == anilistId }?.let { it.airingSchedule = schedule }
+        return schedule
     }
 
     private fun fetchFillerEpisodes(malId: Int, maxEpisode: Float = Float.MAX_VALUE): Set<Float> {
@@ -845,20 +999,26 @@ class Miruro :
         val obfuscated = response.header("x-obfuscated") ?: "1"
         val bodyBytes = response.body.bytes()
 
-        // Base64url decode
         val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
         if (obfuscated != "2") {
             return bodyStr
         }
 
-        val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
-        val data = decoded.mapIndexed { i, b ->
-            (b.toInt() xor PIPE_KEY[i % PIPE_KEY.size].toInt()).toByte()
-        }.toByteArray()
+        if (bodyStr.isEmpty()) {
+            throw Exception("Empty response from server")
+        }
 
-        // Gzip decompress
-        return GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
-            gzipStream.bufferedReader(Charsets.UTF_8).readText()
+        return try {
+            val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
+            val data = decoded.mapIndexed { i, b ->
+                (b.toInt() xor PIPE_KEY[i % PIPE_KEY.size].toInt()).toByte()
+            }.toByteArray()
+
+            GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
+                gzipStream.bufferedReader(Charsets.UTF_8).readText()
+            }
+        } catch (e: Exception) {
+            throw Exception("Failed to decrypt response from server: ${e.message}")
         }
     }
 
@@ -913,11 +1073,16 @@ class Miruro :
         return AnimesPage(animeList, animeList.size >= 20)
     }
 
-    private fun resolveTitle(titleObj: JSONObject, style: String): String = when (style) {
-        "romaji" -> titleObj.optString("romaji", "")
-        "english" -> titleObj.optString("english", "")
-        "native" -> titleObj.optString("native", "")
-        else -> titleObj.optString("userPreferred", titleObj.optString("romaji", ""))
+    private fun resolveTitle(titleObj: JSONObject, style: String): String {
+        val fallbackChain = when (style) {
+            "romaji" -> listOf("romaji", "userPreferred", "english", "native")
+            "english" -> listOf("english", "romaji", "userPreferred", "native")
+            "native" -> listOf("native", "userPreferred", "romaji", "english")
+            else -> listOf("userPreferred", "romaji", "english", "native")
+        }
+        return fallbackChain.firstNotNullOfOrNull { key ->
+            titleObj.optString(key, "").takeIf(String::isNotBlank)
+        } ?: ""
     }
 
     private fun parseAnimeFromMedia(media: JSONObject): SAnime {
