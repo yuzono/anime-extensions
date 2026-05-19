@@ -838,7 +838,7 @@ class Miruro :
     }
 
     private fun anilistAiringScheduleRequest(anilistId: Int): Request {
-        val query = $$"""
+        val query = """
             query media($id: Int) {
                 Media(id: $id, type: ANIME) {
                     nextAiringEpisode { episode airingAt }
