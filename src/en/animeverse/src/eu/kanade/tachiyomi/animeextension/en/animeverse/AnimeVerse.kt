@@ -234,7 +234,8 @@ class AnimeVerse :
         val root = json.parseToJsonElement(response.body.string())
         val arr = extractArray(root)
         val hasNext = (root as? JsonObject)
-            ?.get("hasNext")?.jsonPrimitive?.booleanOrNull ?: false
+            ?.get("hasNext")?.jsonPrimitive?.booleanOrNull
+            ?: arr.isNotEmpty()
         return AnimesPage(arr.map(::jsonToAnime), hasNext)
     }
 
@@ -245,7 +246,7 @@ class AnimeVerse :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val root = json.parseToJsonElement(response.body.string()).jsonObject
         val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
-        return AnimesPage(items.map(::recentToAnime), false)
+        return AnimesPage(items.map(::recentToAnime), items.isNotEmpty())
     }
 
     // ============================== Search ==============================
