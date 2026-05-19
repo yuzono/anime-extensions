@@ -18,13 +18,17 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -276,9 +280,9 @@ class AnimeVerse :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val slug = response.request.url.encodedPath.substringAfter("/series/")
-        val apiResp = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute()
-        val o = json.parseToJsonElement(apiResp.body.string()).jsonObject
-
+        val o = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute().use {
+            json.parseToJsonElement(it.body.string()).jsonObject
+        }
         val rating = o.double("rating")
         val synopsis = o.string("synopsis").orEmpty()
         val ratingLine = formatRating(rating)
@@ -310,10 +314,21 @@ class AnimeVerse :
             .map { it.jsonObject }
             .groupBy { it.int("number") }
             .map { (num, variants) ->
-                val streamsJson = variants.joinToString(",", "[", "]") { v ->
-                    """{"k":"${v.string("kind")}","s":"${v.string("stream")}"}"""
-                }
-                val payload = """{"slug":"$slug","ep":$num,"streams":$streamsJson}"""
+                val payload = buildJsonObject {
+                    put("slug", slug)
+                    put("ep", num)
+                    put(
+                        "streams",
+                        buildJsonArray {
+                            variants.forEach { v ->
+                                addJsonObject {
+                                    put("k", v.string("kind") ?: "")
+                                    put("s", v.string("stream") ?: "")
+                                }
+                            }
+                        },
+                    )
+                }.toString()
                 SEpisode.create().apply {
                     episode_number = num.toFloat()
                     name = "Episode $num"
@@ -332,15 +347,26 @@ class AnimeVerse :
         val payload = json.parseToJsonElement(String(base64UrlDecode(encoded))).jsonObject
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
-        val streams = payload["streams"]?.jsonArray ?: return emptyList()
-        val preferDirect = prefs.getBoolean("direct_mp4", true)
+        val preferDirect = prefs.getBoolean("direct_mp4", false)
+
+        val freshResp = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute()
+        val freshData = json.parseToJsonElement(freshResp.body.string()).jsonObject
+        freshResp.close()
+
+        val allEpisodes = freshData["episodes"]?.jsonArray ?: return emptyList()
+
+        val streams = allEpisodes
+            .map { it.jsonObject }
+            .filter { it.int("number") == epNum }
+
+        if (streams.isEmpty()) return emptyList()
+
         val cookie = synchronized(lock) { sessionCookie }
         val referer = "$baseUrl/series/$slug/$epNum"
 
-        return streams.flatMap { el ->
-            val o = el.jsonObject
-            val kind = (o.string("k") ?: "sub").uppercase()
-            val streamPath = o.string("s") ?: return@flatMap emptyList()
+        return streams.map { ep ->
+            val kind = (ep.string("kind") ?: "sub").uppercase()
+            val streamPath = ep.string("stream") ?: return@map emptyList()
             val directUrl = decodeStreamBase64(streamPath)
 
             val directVideo = if (directUrl.isNotEmpty()) {
@@ -359,16 +385,12 @@ class AnimeVerse :
                     .build(),
             )
 
-            buildList {
-                if (preferDirect) {
-                    directVideo?.let { add(it) }
-                    add(proxiedVideo)
-                } else {
-                    add(proxiedVideo)
-                    directVideo?.let { add(it) }
-                }
+            if (preferDirect) {
+                listOfNotNull(directVideo, proxiedVideo)
+            } else {
+                listOfNotNull(proxiedVideo, directVideo)
             }
-        }
+        }.flatten()
     }
 
     // ============================== Preferences ==============================
