@@ -65,6 +65,7 @@ class Miruro :
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
+    private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
 
     companion object {
         const val PREFIX_SEARCH = "miruro:"
@@ -127,6 +128,10 @@ class Miruro :
         private val PREF_DESCRIPTION_TRUNCATE_ENTRIES = listOf("No Limit", "500 characters", "300 characters", "150 characters")
         private val PREF_DESCRIPTION_TRUNCATE_VALUES = listOf("0", "500", "300", "150")
         private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
+
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider in scanlator"
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = true
 
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
@@ -344,6 +349,7 @@ class Miruro :
         val preferredProvider = preferences.preferredProvider
         val preferredSubType = preferences.preferredSubType
         val mergeAcrossProviders = preferences.mergeAcrossProviders
+        val showProvider = preferences.showProviderInScanlator
 
         val anilistId = currentAnilistId ?: extractAnilistIdFromPipeRequest(response.request.url.toString())
 
@@ -367,7 +373,7 @@ class Miruro :
         val seenNumbers = mutableSetOf<Float>()
         val providerData = providers.optJSONObject(primaryProvider)
         if (providerData != null) {
-            for (ep in parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes)) {
+            for (ep in parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes, showProvider)) {
                 if (seenNumbers.add(ep.episode_number)) {
                     episodes.add(ep)
                 }
@@ -378,7 +384,7 @@ class Miruro :
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
                 val otherProviderData = providers.optJSONObject(providerKey) ?: continue
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
+                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes, showProvider)
                 for (ep in otherEpisodes) {
                     if (seenNumbers.add(ep.episode_number)) {
                         episodes.add(ep)
@@ -389,7 +395,7 @@ class Miruro :
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
                 val otherProviderData = providers.optJSONObject(providerKey) ?: continue
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
+                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes, showProvider)
                 for (ep in otherEpisodes) {
                     if (seenNumbers.add(ep.episode_number)) {
                         episodes.add(ep)
@@ -417,6 +423,7 @@ class Miruro :
         provider: String,
         preferredSubType: String,
         fillerEpisodes: Set<Float> = emptySet(),
+        showProvider: Boolean = true,
     ): List<SEpisode> {
         val episodesObj = providerData.optJSONObject("episodes") ?: return emptyList()
 
@@ -456,7 +463,7 @@ class Miruro :
         return episodeMap.keys.mapNotNull { number ->
             val subTypeIds = episodeMap[number] ?: return@mapNotNull null
             val (rawNumber, title) = episodeMeta[number] ?: return@mapNotNull null
-            buildMergedEpisode(rawNumber, title, provider, preferredSubType, subTypeIds, subTypes, fillerEpisodes)
+            buildMergedEpisode(rawNumber, title, provider, preferredSubType, subTypeIds, subTypes, fillerEpisodes, showProvider)
         }
     }
 
@@ -468,6 +475,7 @@ class Miruro :
         subTypeIds: Map<String, String>,
         allSubTypes: List<String>,
         fillerEpisodes: Set<Float>,
+        showProvider: Boolean = true,
     ): SEpisode {
         val defaultSubType = subTypeIds.keys.firstOrNull { it == preferredSubType }
             ?: allSubTypes.firstOrNull { it in subTypeIds }
@@ -498,7 +506,11 @@ class Miruro :
             episode_number = number.toFloat()
             name = if (title.isNotEmpty()) "Episode ${number.toInt()}: $title" else "Episode ${number.toInt()}"
             setUrlWithoutDomain(episodeIdObj.toString())
-            scanlator = "$providerLabel • $scanlatorLabel" + if (isFiller) " • Filler" else ""
+            scanlator = buildString {
+                if (showProvider) append("$providerLabel • ")
+                append(scanlatorLabel)
+                if (isFiller) append(" • Filler")
+            }
         }
     }
 
@@ -749,6 +761,13 @@ class Miruro :
             title = PREF_MERGE_PROVIDERS_TITLE,
             default = PREF_MERGE_PROVIDERS_DEFAULT,
             summary = "Adds episodes from other providers that are missing from the preferred provider.",
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY,
+            title = PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE,
+            default = PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT,
+            summary = "Shows the provider name in the episode scanlator field.",
         )
 
         screen.addListPreference(
