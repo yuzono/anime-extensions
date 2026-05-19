@@ -1081,7 +1081,8 @@ class Miruro :
             else -> listOf("userPreferred", "romaji", "english", "native")
         }
         return fallbackChain.firstNotNullOfOrNull { key ->
-            titleObj.optString(key, "").takeIf(String::isNotBlank)
+            titleObj.optString(key, "")
+                .takeIf { it.isNotBlank() && it != "null" }
         } ?: ""
     }
 
@@ -1095,7 +1096,7 @@ class Miruro :
         val bannerImage = extractBannerImage(media.opt("bannerImage"))
 
         return SAnime.create().apply {
-            this.title = title
+            this.title = title.ifBlank { "Unknown" }
             thumbnail_url = thumbnail.ifEmpty { bannerImage }
             setUrlWithoutDomain(id)
         }
