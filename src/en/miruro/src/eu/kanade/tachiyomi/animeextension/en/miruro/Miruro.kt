@@ -364,33 +364,38 @@ class Miruro :
         }
 
         val episodes = mutableListOf<SEpisode>()
+        val seenNumbers = mutableSetOf<Float>()
         val providerData = providers.optJSONObject(primaryProvider)
         if (providerData != null) {
-            episodes.addAll(parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes))
+            for (ep in parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes)) {
+                if (seenNumbers.add(ep.episode_number)) {
+                    episodes.add(ep)
+                }
+            }
         }
 
         if (mergeAcrossProviders && episodes.isNotEmpty()) {
-            val preferredNumbers = episodes.map { it.episode_number }.toSet()
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
                 val otherProviderData = providers.optJSONObject(providerKey) ?: continue
                 val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
                 for (ep in otherEpisodes) {
-                    if (ep.episode_number !in preferredNumbers) {
+                    if (seenNumbers.add(ep.episode_number)) {
                         episodes.add(ep)
                     }
                 }
             }
         } else if (episodes.isEmpty()) {
-            // Primary provider had no usable episodes — try remaining providers
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
                 val otherProviderData = providers.optJSONObject(providerKey) ?: continue
                 val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
-                if (otherEpisodes.isNotEmpty()) {
-                    episodes.addAll(otherEpisodes)
-                    if (!mergeAcrossProviders) break
+                for (ep in otherEpisodes) {
+                    if (seenNumbers.add(ep.episode_number)) {
+                        episodes.add(ep)
+                    }
                 }
+                if (!mergeAcrossProviders && episodes.isNotEmpty()) break
             }
         }
 
@@ -630,12 +635,15 @@ class Miruro :
             else -> preferences.preferredSubType.replaceFirstChar { it.uppercase() }
         }
 
+        val qualityInt = quality.toIntOrNull() ?: 0
+        val qualityRegex = Regex("""(\d+)p""")
+
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
-                    val q = Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    val q = qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                     when {
-                        q == quality.toIntOrNull() -> 100000
+                        q == qualityInt -> 100000
                         q > 0 -> q
                         it.quality.contains(quality) -> 99999
                         else -> 0
@@ -830,8 +838,13 @@ class Miruro :
     }
 
     private fun fetchMalId(anilistId: Int): Int? = try {
-        anilistClient.newCall(anilistMalIdRequest(anilistId)).execute()
-            .parseAs<AnilistMalIdResponse>().data.media.idMal
+        anilistClient.newCall(anilistMalIdRequest(anilistId)).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.e("Miruro", "Anilist MAL ID request failed: ${response.code}")
+                return null
+            }
+            response.parseAs<AnilistMalIdResponse>().data.media.idMal
+        }
     } catch (e: Exception) {
         Log.e("Miruro", "Failed to resolve MAL ID: ${e.message}")
         null
@@ -863,8 +876,13 @@ class Miruro :
         if (existing?.airingSchedule != null) return existing.airingSchedule!!
 
         val result = try {
-            anilistClient.newCall(anilistAiringScheduleRequest(anilistId)).execute()
-                .body.string()
+            anilistClient.newCall(anilistAiringScheduleRequest(anilistId)).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("Miruro", "Anilist airing schedule request failed: ${response.code}")
+                    return emptyMap()
+                }
+                response.body.string()
+            }
         } catch (e: Exception) {
             Log.e("Miruro", "Failed to fetch airing schedule: ${e.message}")
             return emptyMap()
@@ -911,8 +929,13 @@ class Miruro :
             val result = try {
                 jikanClient.newCall(
                     GET("$JIKAN_API_URL/anime/$malId/episodes?page=$page"),
-                ).execute()
-                    .parseAs<JikanEpisodesDto>()
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e("Miruro", "Jikan episodes request failed: ${response.code}")
+                        break
+                    }
+                    response.parseAs<JikanEpisodesDto>()
+                }
             } catch (e: Exception) {
                 Log.e("Miruro", "Failed to fetch/parse Jikan episodes: ${e.message}")
                 break
