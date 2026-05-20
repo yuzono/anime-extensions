@@ -346,7 +346,7 @@ class AllAnimeChi :
         )
     }
 
-    private fun getVideoFromServer(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> = when (server.type) {
+    private suspend fun getVideoFromServer(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> = when (server.type) {
         "player" -> getFromPlayer(server, useHosterName)
         "internal" -> internalExtractor.videosFromServer(server, useHosterName, removeRaw = preferences.removeRaw)
         "external" -> getFromExternal(server, useHosterName)
@@ -379,7 +379,7 @@ class AllAnimeChi :
     private val allanimeExtractor by lazy { AllAnimeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
-    private fun getFromExternal(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> {
+    private suspend fun getFromExternal(server: Server, useHosterName: Boolean): List<Pair<Video, Float>> {
         val url = server.sourceUrl.replace(Regex("""^//"""), "https://")
         val prefix = if (useHosterName) {
             "${getHostName(url, server.sourceName)} - "

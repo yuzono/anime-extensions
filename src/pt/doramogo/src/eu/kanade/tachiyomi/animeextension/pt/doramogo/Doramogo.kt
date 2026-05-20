@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -127,7 +127,7 @@ class Doramogo : ParsedAnimeHttpSource() {
             it.attr("src")
         }
 
-        return urls.parallelCatchingFlatMapBlocking { getVideosFromURL(it) }
+        return urls.catchingFlatMapBlocking { getVideosFromURL(it) }
     }
 
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
@@ -135,49 +135,48 @@ class Doramogo : ParsedAnimeHttpSource() {
     private val gdriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private fun getVideosFromURL(url: String): List<Video> {
-        return when {
-            "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url)
 
-            "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+    private suspend fun getVideosFromURL(url: String): List<Video> = when {
+        "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url)
 
-            "drive.google.com" in url -> {
-                val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
-                gdriveExtractor.videosFromUrl(id, "GDrive")
-            }
+        "ok.ru" in url -> okruExtractor.videosFromUrl(url)
 
-            "embedrise.com" in url -> {
-                val m3u8Url = client.newCall(GET(url)).execute()
-                    .asJsoup()
-                    .selectFirst("video source")?.attr("src") ?: return emptyList()
-                playlistUtils.extractFromHls(
-                    m3u8Url,
-                    referer = url,
-                    videoNameGen = { "Embedrise - $it" },
-                )
-            }
-
-            "streamable.com" in url -> {
-                val mp4Url = client.newCall(GET(url)).execute()
-                    .asJsoup()
-                    .selectFirst("video")
-                    ?.attr("src")
-                    ?.let {
-                        if (it.startsWith("//")) {
-                            return@let "https:$it"
-                        }
-                        it
-                    }
-                    ?: return emptyList()
-                listOf(
-                    Video(mp4Url, "Streamable", mp4Url, headers),
-                )
-            }
-
-            "/player/" in url -> doramogoExtractor.videosFromUrl(url)
-
-            else -> emptyList()
+        "drive.google.com" in url -> {
+            val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
+            gdriveExtractor.videosFromUrl(id, "GDrive")
         }
+
+        "embedrise.com" in url -> {
+            val m3u8Url = client.newCall(GET(url)).execute()
+                .asJsoup()
+                .selectFirst("video source")?.attr("src") ?: return emptyList()
+            playlistUtils.extractFromHls(
+                m3u8Url,
+                referer = url,
+                videoNameGen = { "Embedrise - $it" },
+            )
+        }
+
+        "streamable.com" in url -> {
+            val mp4Url = client.newCall(GET(url)).execute()
+                .asJsoup()
+                .selectFirst("video")
+                ?.attr("src")
+                ?.let {
+                    if (it.startsWith("//")) {
+                        return@let "https:$it"
+                    }
+                    it
+                }
+                ?: return emptyList()
+            listOf(
+                Video(mp4Url, "Streamable", mp4Url, headers),
+            )
+        }
+
+        "/player/" in url -> doramogoExtractor.videosFromUrl(url)
+
+        else -> emptyList()
     }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
