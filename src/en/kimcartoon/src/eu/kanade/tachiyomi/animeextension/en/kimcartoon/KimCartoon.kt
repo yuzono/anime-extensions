@@ -246,7 +246,7 @@ class KimCartoon : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             setOnPreferenceChangeListener { _, newValue ->
                 val selected = newValue as String
                 val index = findIndexOfValue(selected)
-                preferences.edit().putString(key, entryValues[index] as String).commit()
+                preferences.edit().putString(key, entryValues[index].toString()).apply()
             }
         }.also(screen::addPreference)
     }
