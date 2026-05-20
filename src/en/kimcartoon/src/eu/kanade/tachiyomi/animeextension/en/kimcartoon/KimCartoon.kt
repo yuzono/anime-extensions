@@ -170,7 +170,7 @@ class KimCartoon : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    private fun extractVideos(url: String, label: String): List<Video> = when {
+    private suspend fun extractVideos(url: String, label: String): List<Video> = when {
         url.contains("streamtape") -> {
             StreamTapeExtractor(client).videosFromUrl(url, label)
         }
@@ -182,7 +182,7 @@ class KimCartoon : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
         else -> {
             try {
-                val iframeDoc = client.newCall(GET(url, headers)).execute().asJsoup()
+                val iframeDoc = client.newCall(GET(url, headers)).await().asJsoup()
                 val videoSrc = iframeDoc.selectFirst("video source[src], video[src]")?.attr("src")
                 if (videoSrc != null) {
                     listOf(Video(videoSrc, "$label - Direct", videoSrc))
