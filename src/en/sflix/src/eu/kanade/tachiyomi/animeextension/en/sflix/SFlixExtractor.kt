@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.sflix
 
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
-import aniyomi.lib.vidsrcextractor.VidsrcExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -24,10 +23,6 @@ class SFlixExtractor(
         isLenient = true
     }
     private val tag = "SFlixExtractor"
-
-    // ── Chain A: VidSrc ──────────────────────────────────────────────────────
-
-    suspend fun fromVidSrc(embedUrl: String, serverName: String): List<Video> = VidsrcExtractor(client, headers).videosFromUrl(embedLink = embedUrl, hosterName = serverName)
 
     // ── Chain B: MoviesAPI ───────────────────────────────────────────────────
 

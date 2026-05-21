@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.sflix
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.vidsrcextractor.VidsrcExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -242,12 +243,11 @@ class SFlix :
             else -> key("vidsrc")
         }
 
-        val extractor = SFlixExtractor(client, headers, baseUrl)
         return listOfNotNull(vidsrcUrl, moviesApiUrl)
             .parallelCatchingFlatMapBlocking { url ->
                 when {
-                    "vidsrc.xyz" in url -> extractor.fromVidSrc(url, "VidSrc")
-                    "moviesapi" in url -> extractor.fromMoviesApi(
+                    "vidsrc" in url -> vidsrcExtractor.videosFromUrl(embedLink = url, hosterName = "VidSrc")
+                    "moviesapi" in url -> sflixExtractor.fromMoviesApi(
                         url,
                         "MoviesAPI",
                         season ?: if (isTvType) "1" else null,
@@ -257,6 +257,9 @@ class SFlix :
                 }
             }
     }
+
+    private val vidsrcExtractor by lazy { VidsrcExtractor(client, headers) }
+    private val sflixExtractor by lazy { SFlixExtractor(client, headers, baseUrl) }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
