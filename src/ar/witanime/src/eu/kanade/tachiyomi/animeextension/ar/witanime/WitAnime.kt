@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -139,7 +140,7 @@ class WitAnime :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val vidBomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun extractVideos(url: String): List<Video> = when {
+    private suspend fun extractVideos(url: String): List<Video> = when {
         url.contains("yonaplay") -> extractFromMulti(url)
 
         url.contains("soraplay") -> {
@@ -190,8 +191,8 @@ class WitAnime :
             else -> headers
         }
         val doc = client.newCall(GET(url, newHeaders)).execute()
-            .asJsoup()
-        return doc.select(".OD li").flatMap { element ->
+            .useAsJsoup()
+        return doc.select(".OD li").parallelCatchingFlatMapBlocking { element ->
             val videoUrl = element.attr("onclick").substringAfter("go_to_player('")
                 .substringBefore("')")
                 .let {
@@ -200,7 +201,8 @@ class WitAnime :
                         else -> "https:$it"
                     }
                 }
-            runCatching { extractVideos(videoUrl) }.getOrElse { emptyList() }
+
+            extractVideos(videoUrl)
         }
     }
 
@@ -246,7 +248,7 @@ class WitAnime :
 
     companion object {
         // From TukTukCinema(AR)
-        private val VIDBOM_REGEX by lazy { Regex("//(?:v[aie]d[bp][aoe]?m)") }
+        private val VIDBOM_REGEX by lazy { Regex("//v[aie]d[bp][aoe]?m") }
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"

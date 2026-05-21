@@ -169,7 +169,7 @@ class OtakuFR :
         return serversList.parallelCatchingFlatMapBlocking(::getHosterVideos)
     }
 
-    private fun getHosterVideos(host: String): List<Video> = when {
+    private suspend fun getHosterVideos(host: String): List<Video> = when {
         host.startsWith("https://doo") || host.contains("d0000d")
         -> doodExtractor.videosFromUrl(host, quality = "Doodstream")
 

@@ -15,9 +15,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -118,7 +120,7 @@ class AsiaLiveAction :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -137,40 +139,38 @@ class AsiaLiveAction :
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return when {
-            arrayOf("vk").any(url) -> vkExtractor.videosFromUrl(url)
+    private suspend fun serverVideoResolver(url: String): List<Video> = when {
+        arrayOf("vk").any(url) -> vkExtractor.videosFromUrl(url)
 
-            arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
+        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
 
-            arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
 
-            arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+        arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
 
-            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
 
-            arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+        arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
 
-            !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
-                val body = client.newCall(GET(url)).execute().asJsoup()
-                return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
-                    val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
-                        .substringAfter("shareId = \"").substringBefore("\"")
-                    val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
-                        .execute().asJsoup()
-                    val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
-                    val amazonApi =
-                        client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
-                            .execute().asJsoup()
-                    val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-                    listOf(Video(videoUrl, "Amazon", videoUrl))
-                } else {
-                    emptyList()
-                }
+        !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
+            val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+            return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
+                val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
+                    .substringAfter("shareId = \"").substringBefore("\"")
+                val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
+                    .awaitSuccess().useAsJsoup()
+                val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
+                val amazonApi =
+                    client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
+                        .awaitSuccess().useAsJsoup()
+                val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
+                listOf(Video(videoUrl, "Amazon", videoUrl))
+            } else {
+                emptyList()
             }
-
-            else -> emptyList()
         }
+
+        else -> emptyList()
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -258,7 +258,7 @@ class AsiaLiveAction :
     private fun String?.getHdImg(): String? {
         if (this.isNullOrEmpty() || !this.contains("tmdb")) return this
 
-        val pattern = """(https:\/\/image\.tmdb\.org\/t\/p\/)([\w_]+)(\/[^\s]*)""".toRegex()
+        val pattern = """(https://image\.tmdb\.org/t/p/)([\w_]+)(/\S*)""".toRegex()
         return pattern.replace(this) { matchResult ->
             "${matchResult.groupValues[1]}w500${matchResult.groupValues[3]}"
         }

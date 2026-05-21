@@ -18,10 +18,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -71,7 +70,7 @@ class VerAnimes :
                 document.select(".fi").any() -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
-            document.select(".info .u:not(.sp) > li").map { it.text() }.map { textContent ->
+            document.select(".info .u:not(.sp) > li").map { it.text() }.forEach { textContent ->
                 when {
                     "Estudio" in textContent -> author = textContent.substringAfter("Estudio(s):").trim()
                     "Producido" in textContent -> artist = textContent.substringAfter("Producido por:").trim()
@@ -149,7 +148,7 @@ class VerAnimes :
 
         val serversDocument = client.newCall(request).execute().asJsoup()
 
-        return serversDocument.select("li").parallelCatchingFlatMapBlocking {
+        return serversDocument.select("li").catchingFlatMapBlocking {
             val link = hex2a(it.attr("encrypt"))
             serverVideoResolver(link)
         }
@@ -164,11 +163,11 @@ class VerAnimes :
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> = when {
+    private suspend fun serverVideoResolver(url: String): List<Video> = when {
         arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
         arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
         arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> runBlocking { vidHideExtractor.videosFromUrl(url) }
+        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> vidHideExtractor.videosFromUrl(url)
         arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url)
         arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers)
         arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)

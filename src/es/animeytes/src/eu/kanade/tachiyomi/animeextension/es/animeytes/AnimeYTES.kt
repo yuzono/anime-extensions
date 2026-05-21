@@ -12,6 +12,7 @@ import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.runBlocking
 
 class AnimeYTES :
     AnimeStream(
@@ -49,14 +50,16 @@ class AnimeYTES :
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = when (name) {
-        "OK" -> okruExtractor.videosFromUrl(url)
-        "Stream" -> streamtapeExtractor.videosFromUrl(url)
-        "Send" -> sendvidExtractor.videosFromUrl(url)
-        "Your" -> youruploadExtractor.videoFromUrl(url, headers)
-        "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
-        "Moon" -> filemoonExtractor.videosFromUrl(url)
-        else -> universalExtractor.videosFromUrl(url, headers)
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        when (name) {
+            "OK" -> okruExtractor.videosFromUrl(url)
+            "Stream" -> streamtapeExtractor.videosFromUrl(url)
+            "Send" -> sendvidExtractor.videosFromUrl(url)
+            "Your" -> youruploadExtractor.videoFromUrl(url, headers)
+            "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
+            "Moon" -> filemoonExtractor.videosFromUrl(url)
+            else -> universalExtractor.videosFromUrl(url, headers)
+        }
     }
 
     override fun List<Video>.sort(): List<Video> {
