@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.sflix
+package eu.kanade.tachiyomi.animeextension.en.sflixfmovie
 
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
