@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -38,8 +39,6 @@ class FanPelis :
     override val lang = "es"
 
     override val supportsLatest = false
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -102,41 +101,25 @@ class FanPelis :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
-        document.select(".movieplay iframe").map { iframe ->
+        return document.select(".movieplay iframe").parallelCatchingFlatMapBlocking { iframe ->
             var url = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
             (if (url.startsWith("//")) "https:$url" else url).also { url = it }
             val embedUrl = url.lowercase()
 
-            if (embedUrl.contains("streamtape")) {
-                val video = StreamTapeExtractor(client).videoFromUrl(url, "Streamtape")
-                if (video != null) {
-                    videoList.add(video)
-                }
-            }
-            if (embedUrl.contains("streamlare")) {
-                try {
-                    StreamlareExtractor(client).videosFromUrl(url)?.let {
-                        videoList.add(it)
-                    }
-                } catch (_: Exception) {}
-            }
-            if (embedUrl.contains("doodstream") || embedUrl.contains("dood")) {
-                val video = try {
-                    DoodExtractor(client).videoFromUrl(url, "DoodStream")
-                } catch (e: Exception) {
-                    null
-                }
-                if (video != null) {
-                    videoList.add(video)
-                }
-            }
-            if (embedUrl.contains("okru") || embedUrl.contains("ok.ru")) {
-                val videos = OkruExtractor(client).videosFromUrl(url)
-                videoList.addAll(videos)
+            when {
+                embedUrl.contains("streamtape") -> StreamTapeExtractor(client).videoFromUrl(url, "Streamtape")
+                    ?.let(::listOf)
+                    ?: emptyList()
+                embedUrl.contains("streamlare") -> StreamlareExtractor(client).videosFromUrl(url)
+                    ?.let(::listOf)
+                    ?: emptyList()
+                embedUrl.contains("doodstream") || embedUrl.contains("dood") -> DoodExtractor(client).videoFromUrl(url, "DoodStream")
+                    ?.let(::listOf)
+                    ?: emptyList()
+                embedUrl.contains("okru") || embedUrl.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(url)
+                else -> emptyList()
             }
         }
-        return videoList
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -156,7 +139,7 @@ class FanPelis :
             videoSorted[0] = videoSorted[preferredIdx]
         }
         videoSorted.toList()
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         this
     }
 

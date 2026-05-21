@@ -13,7 +13,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMap
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Connection
@@ -118,11 +120,11 @@ class Hentaijk :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val episodeLink = response.request.url.toString()
-        val videos = mutableListOf<Video>()
-        document.select("div.col-lg-12.rounded.bg-servers.text-white.p-3.mt-2 a").forEach { it ->
+        return document.select("div.col-lg-12.rounded.bg-servers.text-white.p-3.mt-2 a").parallelCatchingFlatMapBlocking {
             val server = it.text()
             val serverId = it.attr("data-id")
-            document.select("script").forEach { script ->
+            document.select("script").catchingFlatMap { script ->
+                val videos = mutableListOf<Video>()
                 if (script.data().contains("var video = [];")) {
                     val url = script.data()
                         .substringAfter("video[$serverId] = '<iframe class=\"player_conte\" src=\"")
@@ -155,24 +157,24 @@ class Hentaijk :
                             .execute().headers("location").forEach { loc ->
                                 val postkey = loc.replace("/gsplay/player.html#", "")
                                 val nozomitext = Jsoup.connect("https://hentaijk.com/gsplay/api.php").method(Connection.Method.POST).data("v", postkey).ignoreContentType(true).execute().body()
-                                nozomitext.toString().split("}").forEach { file ->
+                                nozomitext.split("}").forEach { file ->
                                     val nozomiUrl = file.substringAfter("\"file\":\"").substringBefore("\"").replace("\\", "")
                                     if (nozomiUrl.isNotBlank() && !nozomiUrl.contains("{")) {
-                                        videos.add(Video(nozomiUrl, server, nozomiUrl))
+                                        Video(nozomiUrl, server, nozomiUrl).let(videos::add)
                                     }
                                 }
                             }
                     }
 
                     when {
-                        "ok" in url -> OkruExtractor(client).videosFromUrl(url).forEach { videos.add(it) }
-                        "stream/jkmedia" in url -> videos.add(Video(url, "Xtreme S", url))
-                        "um.php" in url -> videos.add(HentaijkExtractor().videoFromUrl(url, server))
+                        "ok" in url -> OkruExtractor(client).videosFromUrl(url).let(videos::addAll)
+                        "stream/jkmedia" in url -> Video(url, "Xtreme S", url).let(videos::add)
+                        "um.php" in url -> HentaijkExtractor().videoFromUrl(url, server).let(videos::add)
                     }
                 }
+                videos
             }
         }
-        return videos
     }
 
     private class HentaijkExtractor {
@@ -204,7 +206,7 @@ class Hentaijk :
             videoSorted[0] = videoSorted[preferredIdx]
         }
         videoSorted.toList()
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         this
     }
 

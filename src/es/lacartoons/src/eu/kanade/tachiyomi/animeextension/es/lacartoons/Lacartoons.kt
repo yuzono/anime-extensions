@@ -18,9 +18,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 
@@ -125,12 +124,12 @@ class Lacartoons :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("iframe").parallelCatchingFlatMapBlocking {
+        return document.select("iframe").catchingFlatMapBlocking {
             serverVideoResolver(it.attr("src"))
         }
     }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
@@ -146,9 +145,7 @@ class Lacartoons :
             }
 
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
-                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> runBlocking {
-                VidHideExtractor(client, headers).videosFromUrl(url)
-            }
+                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> VidHideExtractor(client, headers).videosFromUrl(url)
 
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
 
