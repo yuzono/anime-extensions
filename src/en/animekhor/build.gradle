@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeKhor'
     themePkg = 'animestream'
     baseUrl = 'https://animekhor.org'
-    overrideVersionCode = 15
+    overrideVersionCode = 16
 }
 
 apply from: "$rootDir/common.gradle"

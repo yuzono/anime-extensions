@@ -18,7 +18,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -168,7 +167,7 @@ class Javgg :
         }
     }
 
-    private fun serverVideoResolver(server: String, url: String): List<Video> {
+    private suspend fun serverVideoResolver(server: String, url: String): List<Video> {
         val embedUrl = server.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
@@ -183,7 +182,7 @@ class Javgg :
                 StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
             }
 
-            embedUrl.contains("vidhide") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> runBlocking { VidHideExtractor(client, headers).videosFromUrl(url) }
+            embedUrl.contains("vidhide") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> VidHideExtractor(client, headers).videosFromUrl(url)
 
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
 
