@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.ru.animevost
 
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -11,21 +10,19 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import kotlin.collections.get
-import kotlin.text.Regex
-import kotlin.text.toRegex
 
 data class AnimeDescription(
     val year: String? = null,
@@ -76,7 +73,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     }
 
     private fun animeRequest(page: Int, sortBy: SortBy, sortDirection: SortDirection = SortDirection.DESC, genre: String = "all"): Request {
-        val url = baseUrl.toHttpUrlOrNull()!!.newBuilder()
+        val url = baseUrl.toHttpUrl().newBuilder()
 
         var body = FormBody.Builder()
             .add("dlenewssortby", sortBy.by)
@@ -117,15 +114,11 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         )?.remove()
 
         // Thumbnail
-        val img = document.selectFirst("img[src*='/uploads/']")
-        if (img != null) {
-            val src = img.attr("src")
-            anime.thumbnail_url = if (src.startsWith("http")) {
-                src
-            } else {
-                "${baseUrl.trimEnd('/')}/${src.removePrefix("/")}"
+        document.selectFirst("img[src*='/uploads/']")
+            ?.let { img: Element -> img.attr("src").ifEmpty { img.attr("data-src") } }
+            ?.let { src ->
+                anime.thumbnail_url = UrlUtils.fixUrl(src, baseUrl)
             }
-        }
 
         // Title
         anime.title = document.selectFirst("h1, .title, .shortstoryHead h1")?.text() ?: document.title()
@@ -148,12 +141,10 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         typeRegex.find(contentText)?.let { type = it.groupValues[1].trim() }
 
         // Rating — comes from its own dedicated element, not the content block
-        val ratingText = document.selectFirst(".current-rating, .rating")?.text() ?: ""
-        val rating = try {
-            ratingText.toInt()
-        } catch (_: Exception) {
-            0
-        }
+        val ratingText = document.selectFirst(".current-rating, .rating")?.text()
+        val rating = ratingText?.toIntOrNull()?.coerceIn(0, 100) ?: 0
+        val votesText = document.selectFirst(".ratingIn ~ span span")?.text()
+        val votes = votesText?.toIntOrNull() ?: 0
 
         // Strip "Поле: Значение" metadata lines so they don't duplicate
         // the structured fields already formatted by formatDescription.
@@ -169,7 +160,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
                 year.ifEmpty { null },
                 type.ifEmpty { null },
                 rating.takeIf { it > 0 },
-                null,
+                votes.takeIf { it > 0 },
                 pureDescription.ifEmpty { null },
             ),
         )
@@ -184,7 +175,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         }
 
         if (animeData.rating != null && animeData.votes != null) {
-            val ratingValue = animeData.rating!!
+            val ratingValue = animeData.rating
             val stars = 5 * ratingValue / 100
             val fullStars = "★".repeat(stars)
             val emptyStars = "☆".repeat((5 - stars).coerceAtLeast(0))
@@ -212,7 +203,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val startMarker = "var data = {"
         val endMarker = "};"
 
@@ -326,12 +317,12 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     // Required by ParsedAnimeHttpSource but unused — searchAnimeParse() is fully overridden.
     override fun searchAnimeSelector() = throw UnsupportedOperationException()
-    override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeFromElement(element: Element) = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // Common anime list parser
     private fun parseAnimeList(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val seenUrls = mutableSetOf<String>()
         val animes = mutableListOf<SAnime>()
 
@@ -368,7 +359,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
             // Thumbnail: look for a poster-sized upload image in the whole card.
             // DLE puts posters under /uploads/; we prefer that over any other img.
             val posterUrl = container.selectFirst("img[src*='/uploads/']")
-                ?.let { img -> img.attr("src").ifEmpty { img.attr("data-src") } }
+                ?.let { img: Element -> img.attr("src").ifEmpty { img.attr("data-src") } }
                 ?: container.extractThumbnail()
 
             posterUrl?.let { src ->
@@ -386,7 +377,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     override fun videoListParse(response: Response): List<Video> {
         val videoList = mutableListOf<Video>()
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val html = document.html()
         val fileData = Regex("\"file\"\\s*:\\s*\"(.+?)\"")
             .findAll(html)
@@ -503,21 +494,13 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     // Settings
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = "preferred_quality"
-            title = "Preferred quality"
-            entries = arrayOf("720p", "480p")
-            entryValues = arrayOf("720", "480")
-            setDefaultValue("480")
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = "preferred_quality",
+            title = "Preferred quality",
+            entries = listOf("720p", "480p"),
+            entryValues = listOf("720", "480"),
+            default = "720",
+            summary = "%s",
+        )
     }
 }
