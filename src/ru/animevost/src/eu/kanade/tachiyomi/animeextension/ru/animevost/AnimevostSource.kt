@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -22,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.collections.get
 import kotlin.text.Regex
 import kotlin.text.toRegex
 
@@ -57,27 +59,20 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
     private val nextPageSelector = "span.nav_ext + a, td.block_4 span:not(.nav_ext) + a"
 
+    private val backgroundImgRegex by lazy { Regex("""background-image:\s*url\(([^)]+)\)""") }
+
     // Helper to extract thumbnail from a given element
-    private fun extractThumbnail(from: Element): String? {
+    private fun Element.extractThumbnail(): String? {
         // 1) direct img inside
-        val img = from.selectFirst("img")
+        val img = selectFirst("img")
         var src = img?.attr("src")?.takeIf { it.isNotEmpty() } ?: img?.attr("data-src")
         if (src.isNullOrEmpty()) {
             // 2) background-image in style
-            val style = from.attr("style")
-            val m = Regex("background-image:\\s*url\\(([^)]+)\\)").find(style)
-            if (m != null) {
-                src = m.groupValues[1].trim().trim('"')
-            }
+            val style = attr("style")
+            src = backgroundImgRegex.find(style)?.groupValues?.get(1)?.trim()
+                ?.trim('"')?.trim('\'')
         }
-        if (!src.isNullOrEmpty()) {
-            return when {
-                src.startsWith("http") -> src
-                src.startsWith("/") -> baseUrl.trimEnd('/') + src
-                else -> baseUrl.trimEnd('/') + "/" + src
-            }
-        }
-        return null
+        return src
     }
 
     private fun animeRequest(page: Int, sortBy: SortBy, sortDirection: SortDirection = SortDirection.DESC, genre: String = "all"): Request {
@@ -352,7 +347,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
                     .distinctBy { it.cssSelector() }
             }
 
-        containers.forEach { container ->
+        containers.forEach { container: Element ->
             // Canonical URL comes from the first /tip/ link inside the card
             val link = container.selectFirst("a[href*='/tip/']") ?: return@forEach
             val href = link.attr("abs:href").ifEmpty { link.attr("href") }
@@ -372,17 +367,12 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
 
             // Thumbnail: look for a poster-sized upload image in the whole card.
             // DLE puts posters under /uploads/; we prefer that over any other img.
-            val posterImg = container.selectFirst("img[src*='/uploads/']")
-                ?: container.selectFirst("img")
-            posterImg?.let { img ->
-                val src = img.attr("src").ifEmpty { img.attr("data-src") }
-                if (src.isNotEmpty()) {
-                    anime.thumbnail_url = when {
-                        src.startsWith("http") -> src
-                        src.startsWith("/") -> baseUrl.trimEnd('/') + src
-                        else -> "${baseUrl.trimEnd('/')}/$src"
-                    }
-                }
+            val posterUrl = container.selectFirst("img[src*='/uploads/']")
+                ?.let { img -> img.attr("src").ifEmpty { img.attr("data-src") } }
+                ?: container.extractThumbnail()
+
+            posterUrl?.let { src ->
+                anime.thumbnail_url = UrlUtils.fixUrl(src, baseUrl)
             }
 
             animes.add(anime)
