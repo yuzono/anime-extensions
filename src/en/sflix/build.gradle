@@ -1,7 +1,7 @@
 ext {
     extName = 'SFlix'
     extClass = '.SFlix'
-    extVersionCode = 18
+    extVersionCode = 39
     isNsfw = false
 }
 
