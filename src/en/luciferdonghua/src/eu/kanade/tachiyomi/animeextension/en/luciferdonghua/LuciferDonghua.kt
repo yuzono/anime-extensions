@@ -68,7 +68,7 @@ class LuciferDonghua :
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "div.eplister > ul > li a"
 
-    override fun getEpisodeNumber(epNum: String) = epNum.replace("[4K]", "").substringBefore(" ").toFloatOrNull() ?: 0F
+    override fun getEpisodeNumber(epNum: String) = epNum.replace("[4K]", "").trim().substringBefore(" ").toFloatOrNull() ?: 0F
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         var episodeList = super.episodeListParse(response)
