@@ -1,11 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.animeverse
 
 import android.annotation.SuppressLint
-import android.app.Application
-import android.content.SharedPreferences
 import android.util.Base64
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -14,6 +11,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -31,13 +33,9 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import java.net.URLEncoder
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -57,18 +55,16 @@ class AnimeVerse :
         isLenient = true
     }
 
-    private val prefs: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
-    }
+    private val preferences by getPreferencesLazy()
 
     private val fingerprint: String by lazy {
-        prefs.getString("fp_json", null) ?: run {
+        preferences.getString("fp_json", null) ?: run {
             val ua = System.getProperty("http.agent")
                 ?.replace("\"", "\\\"")
                 ?.replace("\\", "\\\\")
                 ?: "Mozilla/5.0"
             """{"ua":"$ua","language":"en-US","timezone":"UTC","hw":8,"screen":"1920x1080x24","canvas":"kW9_MAWuv_3eBlyA7DxVWY","webgl":"Google Inc. (NVIDIA)|ANGLE (NVIDIA, GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0)"}"""
-        }.also { prefs.edit().putString("fp_json", it).apply() }
+        }.also { preferences.edit().putString("fp_json", it).apply() }
     }
 
     // ============================== Auth ==============================
@@ -83,8 +79,7 @@ class AnimeVerse :
             return authKey to sessionCookie
         }
 
-        val body = """{"fp":$fingerprint}"""
-            .toRequestBody("application/json".toMediaType())
+        val body = """{"fp":$fingerprint}""".toJsonBody()
 
         val sessionReq = Request.Builder()
             .url("$baseUrl/api/v1/session")
@@ -93,7 +88,7 @@ class AnimeVerse :
             .build()
 
         val sessionResp = network.client.newCall(sessionReq).execute()
-        val respBody = sessionResp.body.string()
+        val respBody = sessionResp.bodyString()
 
         if (!sessionResp.isSuccessful) {
             invalidateAuth()
@@ -106,7 +101,7 @@ class AnimeVerse :
             ?.let { sessionCookie = it }
 
         val obj = try {
-            json.parseToJsonElement(respBody).jsonObject
+            respBody.parseAs<JsonElement>(json).jsonObject
         } catch (_: Exception) {
             invalidateAuth()
             throw Exception("Invalid session JSON: $respBody")
@@ -216,7 +211,7 @@ class AnimeVerse :
         val studios = o.stringArray("studios")
         val mainTitle = o.string("title") ?: "Unknown"
         val altTitle = o.string("alternativeTitle")?.takeIf { it.isNotEmpty() }
-        val useAlt = prefs.getBoolean("use_alt_title", false)
+        val useAlt = preferences.getBoolean(PREF_USE_ALT_TITLE, PREF_USE_ALT_TITLE_DEFAULT)
 
         return SAnime.create().apply {
             title = if (useAlt) altTitle ?: mainTitle else mainTitle
@@ -251,7 +246,7 @@ class AnimeVerse :
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/v1/trending?period=today&page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val root = json.parseToJsonElement(response.body.string())
+        val root = response.bodyString().parseAs<JsonElement>(json)
         val arr = extractArray(root)
         val hasNext = (root as? JsonObject)
             ?.get("hasNext")?.jsonPrimitive?.booleanOrNull
@@ -264,7 +259,7 @@ class AnimeVerse :
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/v1/recent")
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val root = json.parseToJsonElement(response.body.string()).jsonObject
+        val root = response.bodyString().parseAs<JsonElement>(json).jsonObject
         val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
         return AnimesPage(items.map(::recentToAnime), items.isNotEmpty())
     }
@@ -274,7 +269,7 @@ class AnimeVerse :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/api/v1/catalog?q=${URLEncoder.encode(query, "UTF-8")}")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val root = json.parseToJsonElement(response.body.string())
+        val root = response.bodyString().parseAs<JsonElement>(json)
         val arr = extractArray(root)
         val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
 
@@ -298,14 +293,15 @@ class AnimeVerse :
     override fun animeDetailsParse(response: Response): SAnime {
         val slug = response.request.url.encodedPath.substringAfter("/series/")
 
-        val o = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute().use {
-            json.parseToJsonElement(it.body.string()).jsonObject
-        }
+        val o = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
+            .execute().bodyString()
+            .parseAs<JsonElement>(json)
+            .jsonObject
 
-        val cat = client.newCall(GET("$baseUrl/api/v1/catalog")).execute().use {
-            val arr = extractArray(json.parseToJsonElement(it.body.string()))
-            arr.firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
-        }
+        val arr = client.newCall(GET("$baseUrl/api/v1/catalog"))
+            .execute().bodyString()
+            .let { extractArray(it.parseAs<JsonElement>(json)) }
+        val cat = arr.firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
 
         val rating = o.double("rating")
         val synopsis = o.string("synopsis").orEmpty()
@@ -314,7 +310,7 @@ class AnimeVerse :
 
         val mainTitle = o.string("title") ?: "Unknown"
         val altTitle = cat?.string("alternativeTitle")?.takeIf { it.isNotEmpty() && it != mainTitle }
-        val useAlt = prefs.getBoolean("use_alt_title", false)
+        val useAlt = preferences.getBoolean(PREF_USE_ALT_TITLE, PREF_USE_ALT_TITLE_DEFAULT)
         val displayTitle = if (useAlt) altTitle ?: mainTitle else mainTitle
 
         val genres = cat?.stringArray("genres")?.takeIf { it.isNotEmpty() }?.joinToString(", ")
@@ -360,7 +356,7 @@ class AnimeVerse :
     override fun episodeListRequest(anime: SAnime): Request = GET("$baseUrl/api/v1/anime/${anime.slug()}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val o = json.parseToJsonElement(response.body.string()).jsonObject
+        val o = response.bodyString().parseAs<JsonElement>(json).jsonObject
         val episodes = o["episodes"]?.jsonArray ?: return emptyList()
         val slug = o.string("slug").orEmpty()
 
@@ -398,14 +394,15 @@ class AnimeVerse :
 
     override fun videoListParse(response: Response): List<Video> {
         val encoded = response.request.url.queryParameter("_d") ?: return emptyList()
-        val payload = json.parseToJsonElement(String(base64UrlDecode(encoded))).jsonObject
+        val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json).jsonObject
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
-        val preferDirect = prefs.getBoolean("direct_mp4", false)
+        val preferDirect = preferences.getBoolean(PREF_DIRECT_MP4, PREF_DIRECT_MP4_DEFAULT)
 
-        val freshResp = client.newCall(GET("$baseUrl/api/v1/anime/$slug")).execute()
-        val freshData = json.parseToJsonElement(freshResp.body.string()).jsonObject
-        freshResp.close()
+        val freshData = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
+            .execute().bodyString()
+            .parseAs<JsonElement>(json)
+            .jsonObject
 
         val allEpisodes = freshData["episodes"]?.jsonArray ?: return emptyList()
         val streams = allEpisodes.map { it.jsonObject }.filter { it.int("number") == epNum }
@@ -446,18 +443,25 @@ class AnimeVerse :
     // ============================== Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "use_alt_title"
-            title = "Use Alternative Titles"
-            summary = "Prefer alternative/English titles over original. Falls back to original."
-            setDefaultValue(false)
-        }.also(screen::addPreference)
+        screen.addSwitchPreference(
+            key = PREF_USE_ALT_TITLE,
+            title = "Use Alternative Titles",
+            summary = "Prefer alternative/English titles over original. Falls back to original.",
+            default = PREF_USE_ALT_TITLE_DEFAULT,
+        )
 
-        SwitchPreferenceCompat(screen.context).apply {
-            key = "direct_mp4"
-            title = "Prefer Direct MP4"
-            summary = "Use direct Base64 decoded MP4 stream instead of proxy."
-            setDefaultValue(false)
-        }.also(screen::addPreference)
+        screen.addSwitchPreference(
+            key = PREF_DIRECT_MP4,
+            title = "Prefer Direct MP4",
+            summary = "Use direct Base64 decoded MP4 stream instead of proxy.",
+            default = PREF_DIRECT_MP4_DEFAULT,
+        )
+    }
+
+    companion object {
+        private const val PREF_USE_ALT_TITLE = "use_alt_title"
+        private const val PREF_USE_ALT_TITLE_DEFAULT = false
+        private const val PREF_DIRECT_MP4 = "direct_mp4"
+        private const val PREF_DIRECT_MP4_DEFAULT = false
     }
 }
