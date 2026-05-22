@@ -291,11 +291,13 @@ abstract class AnimeStream(
     @Suppress("unused_parameter")
     protected open fun getEpisodeName(element: Element, epNum: String) = "$episodePrefix $epNum"
 
+    protected open fun getEpisodeNumber(epNum: String) = epNum.substringBefore(" ").toFloatOrNull() ?: 0F
+
     override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
         setUrlWithoutDomain(element.attr("href"))
         element.selectFirst(".epl-num")!!.text().let {
             name = getEpisodeName(element, it)
-            episode_number = it.substringBefore(" ").toFloatOrNull() ?: 0F
+            episode_number = getEpisodeNumber(it)
         }
         element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
         date_upload = element.selectFirst(".epl-date")?.text().toDate()
