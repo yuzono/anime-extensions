@@ -15,11 +15,11 @@ class AnimeKhor :
     ) {
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
         val prefix = "$name - "
-        return when {
+        when {
             url.contains("ahvsh.com") || name.equals("streamhide", true) -> {
-                runBlocking { VidHideExtractor(client, headers).videosFromUrl(url) { "$prefix$it" } }
+                VidHideExtractor(client, headers).videosFromUrl(url) { "$prefix$it" }
             }
 
             url.contains("ok.ru") -> {

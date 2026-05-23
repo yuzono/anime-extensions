@@ -157,7 +157,7 @@ class Pandrama :
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val vkExtractor by lazy { VkExtractor(client, headers) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)

@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -134,7 +135,7 @@ class Okanime :
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val hosterSelection = preferences.getStringSet(PREF_HOSTER_SELECTION_KEY, PREF_HOSTER_SELECTION_DEFAULT)!!
-        return response.asJsoup()
+        return response.useAsJsoup()
             .select("a.ep-link")
             .parallelCatchingFlatMapBlocking { element ->
                 val quality = element.selectFirst("span")?.text().orEmpty().let {
@@ -157,7 +158,7 @@ class Okanime :
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val vidBomExtractor by lazy { VidBomExtractor(client) }
 
-    private fun extractVideosFromUrl(url: String, quality: String, selection: Set<String>): List<Video> = when {
+    private suspend fun extractVideosFromUrl(url: String, quality: String, selection: Set<String>): List<Video> = when {
         "https://doo" in url && "/e/" in url && selection.contains("Dood") -> {
             doodExtractor.videoFromUrl(url, "DoodStream - $quality")
                 ?.let(::listOf)

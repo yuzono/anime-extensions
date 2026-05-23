@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -178,10 +178,10 @@ class AnimeBum :
         val scriptContent = document.select("script:containsData(var video = [])").firstOrNull()?.data()
             ?: return videoList
 
-        val iframeRegex = """video\[\d+\]\s*=\s*['"]<iframe[^>]+src=["']([^"']+)["']""".toRegex()
+        val iframeRegex = """video\[\d+]\s*=\s*['"]<iframe[^>]+src=["']([^"']+)["']""".toRegex()
         val matches = iframeRegex.findAll(scriptContent)
 
-        for (match in matches) {
+        matches.toList().parallelCatchingFlatMapBlocking { match ->
             var videoUrl = match.groupValues[1]
 
             if (videoUrl.startsWith("//")) {
@@ -190,8 +190,8 @@ class AnimeBum :
 
             val vidHideDomains = listOf("vidhide", "VidHidePro", "luluvdo", "vidhideplus")
 
-            val video = when {
-                vidHideDomains.any { videoUrl.contains(it, ignoreCase = true) } -> runBlocking { vidHideExtractor.videosFromUrl(videoUrl) }
+            when {
+                vidHideDomains.any { videoUrl.contains(it, ignoreCase = true) } -> vidHideExtractor.videosFromUrl(videoUrl)
 
                 "drive.google" in videoUrl -> {
                     val newUrl = "https://gdriveplayer.to/embed2.php?link=$videoUrl"
@@ -207,8 +207,8 @@ class AnimeBum :
 
                 else -> emptyList()
             }
-            videoList.addAll(video)
         }
+            .let(videoList::addAll)
         return videoList.sortedByDescending { it.quality }
     }
 
