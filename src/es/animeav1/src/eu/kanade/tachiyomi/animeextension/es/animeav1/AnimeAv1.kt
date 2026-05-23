@@ -19,8 +19,8 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
@@ -138,14 +138,13 @@ class AnimeAv1 :
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.useAsJsoup()
-        val videoList = mutableListOf<Video>()
         val script = doc.selectFirst("script:containsData(node_ids)")?.data() ?: return emptyList()
 
         val jsonRegex = Regex("""\{\s*server\s*:\s*"([^"]*)"\s*,\s*url\s*:\s*"([^"]*)"\s*\}""")
         val subRegex = Regex("""SUB\s*:\s*\[([^]]*)]""")
         val dubRegex = Regex("""DUB\s*:\s*\[([^]]*)]""")
 
-        fun processMatches(regex: Regex, type: String): List<Video> = regex.findAll(script)
+        fun processMatches(regex: Regex): List<Pair<String, String>> = regex.findAll(script)
             .flatMap { jsonRegex.findAll(it.groupValues[1]) }
             .map {
                 Pair(
@@ -154,14 +153,13 @@ class AnimeAv1 :
                 )
             }
             .distinctBy { it.first }.toList()
-            .catchingFlatMapBlocking { (url, server) ->
-                serverVideoResolver(url, type, server)
-            }
 
-        processMatches(dubRegex, "DUB").also(videoList::addAll)
-        processMatches(subRegex, "SUB").also(videoList::addAll)
+        val dubServers = processMatches(dubRegex).map { it to "DUB" }
+        val subServers = processMatches(subRegex).map { it to "SUB" }
 
-        return videoList
+        return (dubServers + subServers).parallelCatchingFlatMapBlocking { (pair, type) ->
+            serverVideoResolver(pair.first, type, pair.second)
+        }
     }
 
     /*--------------------------------Video extractors------------------------------------*/
