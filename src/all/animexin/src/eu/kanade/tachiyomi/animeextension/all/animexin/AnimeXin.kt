@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.VidstreamingEx
 import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.YouTubeExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import kotlinx.coroutines.runBlocking
 
 class AnimeXin :
     AnimeStream(
@@ -27,9 +28,9 @@ class AnimeXin :
     private val vidstreamingExtractor by lazy { VidstreamingExtractor(client) }
     private val youTubeExtractor by lazy { YouTubeExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
         val prefix = "$name - "
-        return when {
+        when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix)
 
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)

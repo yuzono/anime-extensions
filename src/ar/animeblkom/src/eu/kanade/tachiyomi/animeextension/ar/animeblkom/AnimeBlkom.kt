@@ -12,8 +12,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -132,20 +135,21 @@ class AnimeBlkom :
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("span.server a").flatMap {
-            runCatching { extractVideos(it) }.getOrElse { emptyList() }
+        return document.select("span.server a").parallelCatchingFlatMapBlocking {
+            extractVideos(it)
         }
     }
 
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    private fun extractVideos(element: Element): List<Video> {
+    private suspend fun extractVideos(element: Element): List<Video> {
         val url = element.attr("data-src").replace("http://", "https://")
         return when {
             ".vid4up" in url || "Blkom" in element.text() -> {
-                val videoDoc = client.newCall(GET(url, headers)).execute()
-                    .asJsoup()
+                val videoDoc = client.newCall(GET(url, headers))
+                    .awaitSuccess()
+                    .useAsJsoup()
                 videoDoc.select(videoListSelector()).map(::videoFromElement)
             }
 

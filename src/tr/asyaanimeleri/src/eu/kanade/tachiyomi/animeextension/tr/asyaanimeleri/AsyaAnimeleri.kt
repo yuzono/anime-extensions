@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -106,22 +107,24 @@ class AsyaAnimeleri :
     private val doodExtractor by lazy { DoodExtractor(client) }
     // private val dailyExtractor by lazy { DailymotionExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = when (name.lowercase().trim()) {
-        "vk" -> vkExtractor.videosFromUrl(url)
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        when (name.lowercase().trim()) {
+            "vk" -> vkExtractor.videosFromUrl(url)
 
-        "ok.ru" -> okruExtractor.videosFromUrl(url)
+            "ok.ru" -> okruExtractor.videosFromUrl(url)
 
-        "sibnet" -> sibnetExtractor.videosFromUrl(url)
+            "sibnet" -> sibnetExtractor.videosFromUrl(url)
 
-        // "daily" -> dailyExtractor.videosFromUrl(url)
-        "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
+            // "daily" -> dailyExtractor.videosFromUrl(url)
+            "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
 
-        "gdrive" -> {
-            val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
-            gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
+            "gdrive" -> {
+                val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
+                gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
+            }
+
+            else -> emptyList()
         }
-
-        else -> emptyList()
     }
 
     // ============================= Utilities ==============================

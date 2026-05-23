@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Element
@@ -102,28 +103,30 @@ class AnimeIndo :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = with(name) {
-        when {
-            contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        with(name) {
+            when {
+                contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
 
-            contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
+                contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
 
-            contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
+                contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
 
-            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
 
-            contains("gdrive") -> {
-                val gdriveUrl = when {
-                    baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
-                    else -> url
+                contains("gdrive") -> {
+                    val gdriveUrl = when {
+                        baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
+                        else -> url
+                    }
+                    gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
                 }
-                gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
-            }
 
-            else -> {
-                // just to detect video hosts easily
-                Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
-                emptyList()
+                else -> {
+                    // just to detect video hosts easily
+                    Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
+                    emptyList()
+                }
             }
         }
     }
