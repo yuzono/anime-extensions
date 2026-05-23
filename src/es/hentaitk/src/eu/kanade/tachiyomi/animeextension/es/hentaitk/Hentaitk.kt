@@ -20,9 +20,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -119,14 +118,14 @@ class Hentaitk :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         return if (document.select(".post-tape .page-link").any()) {
-            document.select(".post-tape .page-link").parallelCatchingFlatMapBlocking {
+            document.select(".post-tape .page-link").catchingFlatMapBlocking {
                 val urlPage = it.attr("abs:href")
                 val videoDoc = client.newCall(GET(urlPage)).execute().asJsoup()
                 val videoUrl = videoDoc.select(".embed-responsive-item iframe").attr("src")
                 serverVideoResolver(videoUrl)
             }
         } else {
-            document.select(".embed-responsive-item iframe").parallelCatchingFlatMapBlocking {
+            document.select(".embed-responsive-item iframe").catchingFlatMapBlocking {
                 serverVideoResolver(it.attr("src"))
             }
         }
@@ -142,7 +141,7 @@ class Hentaitk :
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru")
@@ -157,7 +156,7 @@ class Hentaitk :
 
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
                 embedUrl.contains("guccihide") || embedUrl.contains("streamvid")
-            -> runBlocking { vidHideExtractor.videosFromUrl(url) }
+            -> vidHideExtractor.videosFromUrl(url)
 
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
 

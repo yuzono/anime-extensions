@@ -406,23 +406,24 @@ class AnimeIndo :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = with(name) {
-        when {
-            contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        with(name) {
+            when {
+                contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
 
-            contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
+                contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
 
-            contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
+                contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
 
-            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
 
-            contains("gdrive") -> {
-                val gdriveUrl = when {
-                    baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
-                    else -> url
+                contains("gdrive") -> {
+                    val gdriveUrl = when {
+                        baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
+                        else -> url
+                    }
+                    gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
                 }
-                gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
-            }
 
             else -> {
                 Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
