@@ -35,6 +35,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -112,7 +115,9 @@ class Stremio : Source() {
         if (catalogList == null) {
             try {
                 setCatalogList(addons())
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Failed to load catalogs for search fallback", e)
+            }
         }
 
         val preferredCatalog = getDefaultCatalog()
@@ -309,24 +314,35 @@ class Stremio : Source() {
         }
     }
 
+    /**
+     * Resolves the default catalog preference to a CatalogDto.
+     * Also updates [selectedCatalogIndex] so the filter dropdown
+     * reflects the choice on the next filter rebuild.
+     *
+     * Must be called after [catalogList] has been populated.
+     */
     private fun getDefaultCatalog(): CatalogDto? {
         val value = preferences.defaultCatalog
         if (value.isBlank()) return null
 
-        val parts = value.split("|", limit = 3)
-        if (parts.size != 3) return null
+        val pref = try {
+            Json.decodeFromString<CatalogPref>(value)
+        } catch (_: Exception) {
+            // Fallback for old pipe-delimited format or corrupt data
+            return null
+        }
 
-        val (transportUrl, type, id) = parts
+        val list = catalogList ?: return null
 
-        val idx = catalogList?.indexOfFirst {
-            it.second.transportUrl == transportUrl &&
-                it.second.type == type &&
-                it.second.id == id
-        } ?: return null
+        val idx = list.indexOfFirst {
+            it.second.transportUrl == pref.transportUrl &&
+                it.second.type == pref.type &&
+                it.second.id == pref.id
+        }
 
         if (idx >= 0) {
             selectedCatalogIndex = idx
-            return catalogList!![idx].second
+            return list[idx].second
         }
 
         return null
@@ -818,14 +834,17 @@ class Stremio : Source() {
                             loaded.map { it.first }.toTypedArray()
                         defaultCatalogPref.entryValues = arrayOf("") +
                             loaded.map {
-                                "${it.second.transportUrl}|${it.second.type}|${it.second.id}"
+                                Json.encodeToString(
+                                    CatalogPref(it.second.transportUrl, it.second.type, it.second.id),
+                                )
                             }.toTypedArray()
                     } else {
                         defaultCatalogPref.entries = arrayOf("No catalogs available")
                         defaultCatalogPref.entryValues = arrayOf("")
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Failed to load catalogs for preference UI", e)
                 handler.post {
                     defaultCatalogPref.entries = arrayOf("Failed to load catalogs")
                     defaultCatalogPref.entryValues = arrayOf("")
@@ -959,4 +978,7 @@ class Stremio : Source() {
         screen.addPreference(logOutPref)
         screen.addPreference(getLibraryPref)
     }
+
+    @Serializable
+    data class CatalogPref(val transportUrl: String, val type: String, val id: String)
 }
