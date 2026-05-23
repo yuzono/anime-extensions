@@ -201,7 +201,7 @@ class Miruro :
 
             val id = media.optInt("id", 0)
             val malId = media.optInt("idMal", 0).takeIf { it > 0 }
-            if (id > 0) cachedAnimeMeta = AnimeMeta(id, malId)
+            if (id > 0) getOrCreateMeta(id, malId)
 
             val anime = parseAnimeFromMedia(media)
             return AnimesPage(listOf(anime), false)
@@ -270,11 +270,11 @@ class Miruro :
         val anilistId = media.optInt("id", 0)
         val malId = media.optInt("idMal", 0).takeIf { it > 0 }
         if (anilistId > 0) {
-            val existing = cachedAnimeMeta
-            if (existing != null && existing.anilistId == anilistId) {
+            val existing = anilistId.takeIf { it > 0 }?.let { getMeta(it) }
+            if (existing != null) {
                 if (malId != null) existing.malId = malId
             } else {
-                cachedAnimeMeta = AnimeMeta(anilistId, malId)
+                getOrCreateMeta(anilistId, malId)
             }
         }
 
@@ -286,11 +286,7 @@ class Miruro :
         val coverUrl = thumbnail.ifEmpty { bannerImage }
 
         val description = if (preferences.stripHtml) {
-            media.optString("description", "")
-                .replace("<br\\s*/?>".toRegex(RegexOption.IGNORE_CASE), "\n")
-                .replace("</p>".toRegex(RegexOption.IGNORE_CASE), "\n")
-                .replace("<[^>]+>".toRegex(), "")
-                .trim()
+            stripHtml(media.optString("description", ""))
         } else {
             media.optString("description", "")
         }
@@ -407,70 +403,37 @@ class Miruro :
         val episodes = mutableListOf<SEpisode>()
         val seenNumbers = mutableSetOf<Float>()
 
-        crossProviderMap.entries
-            .filter { it.value.containsKey(primaryProvider) }
-            .sortedBy { it.key }
-            .forEach { (number, providerEpMap) ->
-                if (seenNumbers.add(number)) {
-                    val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
-                    val fallbackProviders = providerEpMap.filterKeys { it != primaryProvider }
-                    episodes.add(
-                        buildMergedEpisode(
-                            rawNumber, title, primaryProvider, preferredSubType,
-                            providerEpMap[primaryProvider] ?: emptyMap(),
-                            providerSubTypesMap[primaryProvider] ?: emptyList(),
-                            fillerEpisodes, showProvider,
-                            fallbackProviders, providerSubTypesMap, anilistId,
-                        ),
-                    )
-                }
-            }
+        // Build episode list from providers
+        val providersToProcess = mutableListOf<String>()
+        providersToProcess.add(primaryProvider)
+        for (providerKey in availableProviders) {
+            if (providerKey != primaryProvider) providersToProcess.add(providerKey)
+        }
 
-        if (mergeAcrossProviders && episodes.isNotEmpty()) {
-            for (providerKey in availableProviders) {
-                if (providerKey == primaryProvider) continue
-                crossProviderMap.entries
-                    .filter { it.value.containsKey(providerKey) }
-                    .sortedBy { it.key }
-                    .forEach { (number, providerEpMap) ->
-                        if (seenNumbers.add(number)) {
-                            val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
-                            val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
-                            episodes.add(
-                                buildMergedEpisode(
-                                    rawNumber, title, providerKey, preferredSubType,
-                                    providerEpMap[providerKey] ?: emptyMap(),
-                                    providerSubTypesMap[providerKey] ?: emptyList(),
-                                    fillerEpisodes, showProvider,
-                                    fallbackProviders, providerSubTypesMap, anilistId,
-                                ),
-                            )
-                        }
-                    }
-            }
-        } else if (episodes.isEmpty()) {
-            for (providerKey in availableProviders) {
-                if (providerKey == primaryProvider) continue
-                crossProviderMap.entries
-                    .filter { it.value.containsKey(providerKey) }
-                    .sortedBy { it.key }
-                    .forEach { (number, providerEpMap) ->
-                        if (seenNumbers.add(number)) {
-                            val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
-                            val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
-                            episodes.add(
-                                buildMergedEpisode(
-                                    rawNumber, title, providerKey, preferredSubType,
-                                    providerEpMap[providerKey] ?: emptyMap(),
-                                    providerSubTypesMap[providerKey] ?: emptyList(),
-                                    fillerEpisodes, showProvider,
-                                    fallbackProviders, providerSubTypesMap, anilistId,
-                                ),
-                            )
-                        }
-                    }
+        for (providerKey in providersToProcess) {
+            if (providerKey != primaryProvider) {
+                if (mergeAcrossProviders && episodes.isEmpty()) continue
                 if (!mergeAcrossProviders && episodes.isNotEmpty()) break
             }
+
+            crossProviderMap.entries
+                .filter { it.value.containsKey(providerKey) }
+                .sortedBy { it.key }
+                .forEach { (number, providerEpMap) ->
+                    if (seenNumbers.add(number)) {
+                        val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                        val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
+                        episodes.add(
+                            buildMergedEpisode(
+                                rawNumber, title, providerKey, preferredSubType,
+                                providerEpMap[providerKey] ?: emptyMap(),
+                                providerSubTypesMap[providerKey] ?: emptyList(),
+                                fillerEpisodes, showProvider,
+                                fallbackProviders, providerSubTypesMap, anilistId,
+                            ),
+                        )
+                    }
+                }
         }
 
         val airingSchedule = if (anilistId != null && anilistId > 0) fetchAiringSchedule(anilistId) else emptyMap()
@@ -563,8 +526,13 @@ class Miruro :
         var airingSchedule: Map<Float, Long>? = null,
     )
 
-    @Volatile
-    private var cachedAnimeMeta: AnimeMeta? = null
+    private val animeMetaCache = object : LinkedHashMap<Int, AnimeMeta>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnimeMeta>?): Boolean = size > 16
+    }
+
+    private fun getOrCreateMeta(anilistId: Int, malId: Int? = null): AnimeMeta = animeMetaCache.getOrPut(anilistId) { AnimeMeta(anilistId, malId) }
+
+    private fun getMeta(anilistId: Int): AnimeMeta? = animeMetaCache[anilistId]
 
     override fun videoListRequest(episode: SEpisode): Request {
         val episodeData = JSONObject(episode.url)
@@ -873,7 +841,7 @@ class Miruro :
     private fun resolveFillerEpisodes(anilistId: Int?, providers: JSONObject, preferredProvider: String): Set<Float> {
         if (anilistId == null) return emptySet()
 
-        val meta = cachedAnimeMeta
+        val meta = getMeta(anilistId)
         if (meta != null && meta.anilistId == anilistId && meta.fillerEpisodes != null) {
             return meta.fillerEpisodes!!
         }
@@ -885,7 +853,7 @@ class Miruro :
         if (existing != null) {
             existing.malId = malId
         } else if (malId != null) {
-            cachedAnimeMeta = AnimeMeta(anilistId, malId)
+            getOrCreateMeta(anilistId, malId)
         }
 
         if (malId == null) {
@@ -896,7 +864,7 @@ class Miruro :
         val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
         val fillers = fetchFillerEpisodes(malId, maxEp)
 
-        cachedAnimeMeta?.takeIf { it.anilistId == anilistId }?.let { it.fillerEpisodes = fillers }
+        getMeta(anilistId)?.let { it.fillerEpisodes = fillers }
         return fillers
     }
 
@@ -968,7 +936,7 @@ class Miruro :
     }
 
     private fun fetchAiringSchedule(anilistId: Int): Map<Float, Long> {
-        val existing = cachedAnimeMeta?.takeIf { it.anilistId == anilistId }
+        val existing = anilistId.takeIf { it > 0 }?.let { getMeta(it) }?.takeIf { it.anilistId == anilistId }
         if (existing?.airingSchedule != null) return existing.airingSchedule!!
 
         val result = try {
@@ -1011,7 +979,7 @@ class Miruro :
             }
         }
 
-        cachedAnimeMeta?.takeIf { it.anilistId == anilistId }?.let { it.airingSchedule = schedule }
+        getMeta(anilistId)?.let { it.airingSchedule = schedule }
         return schedule
     }
 
@@ -1130,11 +1098,12 @@ class Miruro :
     }
 
     private suspend fun safePipeApiCall(request: Request, maxRetries: Int = 2): Response {
+        val retryableCodes = setOf(429, 444, 502, 503, 504)
         var lastResponse: Response? = null
         repeat(maxRetries) { attempt ->
             val response = client.newCall(request).execute()
             val code = response.code
-            if (code != 444 && code < 500) {
+            if (code !in retryableCodes) {
                 return response
             }
             lastResponse?.close()
@@ -1146,6 +1115,12 @@ class Miruro :
         }
         return lastResponse!!
     }
+
+    private fun stripHtml(input: String): String = input
+        .replace("<br\\s*/?>".toRegex(RegexOption.IGNORE_CASE), "\n")
+        .replace("</p>".toRegex(RegexOption.IGNORE_CASE), "\n")
+        .replace("<[^>]+>".toRegex(), "")
+        .trim()
 
     private fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
