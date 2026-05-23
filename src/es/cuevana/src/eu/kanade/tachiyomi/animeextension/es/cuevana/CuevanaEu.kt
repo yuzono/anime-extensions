@@ -23,7 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.flatMapCatching
+import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -147,7 +147,7 @@ class CuevanaEu(override val name: String, override val baseUrl: String) :
     ).map { (list, lang) ->
         list.mapNotNull { it.result } to lang
     }.flatMap { (list, lang) ->
-        list.flatMapCatching { server ->
+        list.catchingFlatMapBlocking { server ->
             val body = client.newCall(GET(server)).execute().useAsJsoup()
             val url = body.selectFirst("script:containsData(var message)")?.data()
                 ?.substringAfter("var url = '")?.substringBefore("'") ?: ""
@@ -155,7 +155,7 @@ class CuevanaEu(override val name: String, override val baseUrl: String) :
         }
     }
 
-    private fun loadExtractor(url: String, prefix: String = ""): List<Video> {
+    private suspend fun loadExtractor(url: String, prefix: String = ""): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("yourupload") -> {

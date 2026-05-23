@@ -1,0 +1,8 @@
+ext {
+    extName = 'Miruro.tv'
+    extClass = '.Miruro'
+    isNsfw = true
+    extVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"

@@ -33,12 +33,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import java.security.MessageDigest
@@ -61,6 +60,9 @@ class AllAnime :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
+
+    override fun headersBuilder() = super.headersBuilder()
+        .set("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
@@ -251,7 +253,6 @@ class AllAnime :
                         put("translationType", subPref)
                         put("episodeString", ep)
                     }
-                    put("query", STREAMS_QUERY)
                 }.toJsonString()
             }
         }
@@ -260,19 +261,22 @@ class AllAnime :
     // ============================ Video Links =============================
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val payload = episode.url
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
-        val postHeaders = headers.newBuilder().apply {
-            add("Accept", "*/*")
-            add("Content-Length", payload.contentLength().toString())
-            add("Content-Type", payload.contentType().toString())
-            add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", GRAPHQL_ORIGIN)
-            add("Referer", "$GRAPHQL_ORIGIN/")
-        }.build()
+        val extensions = buildJsonObject {
+            putJsonObject("persistedQuery") {
+                put("version", 1)
+                put("sha256Hash", STREAM_HASH)
+            }
+        }
 
-        return POST("$apiUrl/api", headers = postHeaders, body = payload)
+        val url = apiUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("variables", variables.toJsonString())
+            addQueryParameter("extensions", extensions.toJsonString())
+        }.build().toString()
+
+        return GET(url, headers)
     }
 
     private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
@@ -295,10 +299,10 @@ class AllAnime :
 
         // 2. If encrypted, decrypt directly (errors surface to user); otherwise parse as plain text
         val sourceUrls = if (!tobeparsed.isNullOrBlank()) {
-            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode.sourceUrls
+            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode?.sourceUrls
         } else {
-            responseBody.parseAs<EpisodeResult>().data.episode.sourceUrls
-        }
+            responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls
+        } ?: emptyList()
 
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
