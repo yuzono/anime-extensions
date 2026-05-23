@@ -23,6 +23,8 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -75,6 +77,9 @@ class Miruro :
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
+
+// Note: Not all providers may be available for every anime; fallback logic in videoListParse
+// will try remaining providers in preference order if the primary provider fails.
         private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli", "Bee", "Bun", "Hop", "Ally", "Dune", "Nun", "Kuz")
         private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "ally", "dune", "nun", "kuz")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
@@ -335,7 +340,6 @@ class Miruro :
 
     override fun episodeListRequest(anime: SAnime): Request {
         val anilistId = anime.url.toInt()
-        currentAnilistId = anilistId
         val query = buildPipeQuery(
             "anilistId" to anilistId,
         )
@@ -351,7 +355,7 @@ class Miruro :
         val mergeAcrossProviders = preferences.mergeAcrossProviders
         val showProvider = preferences.showProviderInScanlator
 
-        val anilistId = currentAnilistId ?: extractAnilistIdFromPipeRequest(response.request.url.toString())
+        val anilistId = extractAnilistIdFromPipeRequest(response.request.url.toString())
 
         val fillerEpisodes = if (preferences.markFillers || preferences.hideFillers) {
             resolveFillerEpisodes(anilistId, providers, preferredProvider)
@@ -369,38 +373,102 @@ class Miruro :
             } ?: return emptyList()
         }
 
-        val episodes = mutableListOf<SEpisode>()
-        val seenNumbers = mutableSetOf<Float>()
-        val providerData = providers.optJSONObject(primaryProvider)
-        if (providerData != null) {
-            for (ep in parseEpisodesFromProvider(providerData, primaryProvider, preferredSubType, fillerEpisodes, showProvider)) {
-                if (seenNumbers.add(ep.episode_number)) {
-                    episodes.add(ep)
+        // Build cross-provider episode map: episodeNumber → (provider → (subType → episodeId))
+        // This enables video-level fallback without extra network calls
+        val crossProviderMap = mutableMapOf<Float, MutableMap<String, Map<String, String>>>()
+        val episodeMetaMap = mutableMapOf<Float, Pair<Double, String>>()
+        val providerSubTypesMap = mutableMapOf<String, List<String>>()
+
+        for (providerKey in availableProviders) {
+            val providerData = providers.optJSONObject(providerKey) ?: continue
+            val episodesObj = providerData.optJSONObject("episodes") ?: continue
+            val subTypes = episodesObj.keys().asSequence().toList()
+            providerSubTypesMap[providerKey] = subTypes
+
+            for (subType in subTypes) {
+                val typeEpisodes = episodesObj.optJSONArray(subType) ?: continue
+                for (i in 0 until typeEpisodes.length()) {
+                    val epJson = typeEpisodes.getJSONObject(i)
+                    val number = epJson.optDouble("number", 0.0).toFloat()
+                    val id = epJson.optString("id", "")
+                    val title = epJson.optString("title", "")
+
+                    val providerEpIds = crossProviderMap.getOrPut(number) { mutableMapOf() }
+                        .getOrPut(providerKey) { mutableMapOf() } as MutableMap<String, String>
+                    providerEpIds[subType] = id
+
+                    if (number !in episodeMetaMap) {
+                        episodeMetaMap[number] = epJson.optDouble("number", 0.0) to title
+                    }
                 }
             }
         }
 
+        val episodes = mutableListOf<SEpisode>()
+        val seenNumbers = mutableSetOf<Float>()
+
+        crossProviderMap.entries
+            .filter { it.value.containsKey(primaryProvider) }
+            .sortedBy { it.key }
+            .forEach { (number, providerEpMap) ->
+                if (seenNumbers.add(number)) {
+                    val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                    val fallbackProviders = providerEpMap.filterKeys { it != primaryProvider }
+                    episodes.add(
+                        buildMergedEpisode(
+                            rawNumber, title, primaryProvider, preferredSubType,
+                            providerEpMap[primaryProvider] ?: emptyMap(),
+                            providerSubTypesMap[primaryProvider] ?: emptyList(),
+                            fillerEpisodes, showProvider,
+                            fallbackProviders, providerSubTypesMap, anilistId,
+                        ),
+                    )
+                }
+            }
+
         if (mergeAcrossProviders && episodes.isNotEmpty()) {
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
-                val otherProviderData = providers.optJSONObject(providerKey) ?: continue
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes, showProvider)
-                for (ep in otherEpisodes) {
-                    if (seenNumbers.add(ep.episode_number)) {
-                        episodes.add(ep)
+                crossProviderMap.entries
+                    .filter { it.value.containsKey(providerKey) }
+                    .sortedBy { it.key }
+                    .forEach { (number, providerEpMap) ->
+                        if (seenNumbers.add(number)) {
+                            val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                            val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
+                            episodes.add(
+                                buildMergedEpisode(
+                                    rawNumber, title, providerKey, preferredSubType,
+                                    providerEpMap[providerKey] ?: emptyMap(),
+                                    providerSubTypesMap[providerKey] ?: emptyList(),
+                                    fillerEpisodes, showProvider,
+                                    fallbackProviders, providerSubTypesMap, anilistId,
+                                ),
+                            )
+                        }
                     }
-                }
             }
         } else if (episodes.isEmpty()) {
             for (providerKey in availableProviders) {
                 if (providerKey == primaryProvider) continue
-                val otherProviderData = providers.optJSONObject(providerKey) ?: continue
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes, showProvider)
-                for (ep in otherEpisodes) {
-                    if (seenNumbers.add(ep.episode_number)) {
-                        episodes.add(ep)
+                crossProviderMap.entries
+                    .filter { it.value.containsKey(providerKey) }
+                    .sortedBy { it.key }
+                    .forEach { (number, providerEpMap) ->
+                        if (seenNumbers.add(number)) {
+                            val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                            val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
+                            episodes.add(
+                                buildMergedEpisode(
+                                    rawNumber, title, providerKey, preferredSubType,
+                                    providerEpMap[providerKey] ?: emptyMap(),
+                                    providerSubTypesMap[providerKey] ?: emptyList(),
+                                    fillerEpisodes, showProvider,
+                                    fallbackProviders, providerSubTypesMap, anilistId,
+                                ),
+                            )
+                        }
                     }
-                }
                 if (!mergeAcrossProviders && episodes.isNotEmpty()) break
             }
         }
@@ -418,55 +486,6 @@ class Miruro :
         }
     }
 
-    private fun parseEpisodesFromProvider(
-        providerData: JSONObject,
-        provider: String,
-        preferredSubType: String,
-        fillerEpisodes: Set<Float> = emptySet(),
-        showProvider: Boolean = true,
-    ): List<SEpisode> {
-        val episodesObj = providerData.optJSONObject("episodes") ?: return emptyList()
-
-        val subTypes = when (provider) {
-            "kiwi" -> listOf("sub", "dub")
-            "bee" -> listOf("ssub", "sub", "dub")
-            "telli" -> listOf("sub", "dub")
-            "bun" -> listOf("sub", "dub")
-            "hop" -> listOf("sub", "dub")
-            "ally" -> listOf("sub", "dub")
-            "dune" -> listOf("sub")
-            "nun" -> listOf("sub", "dub")
-            "kuz" -> listOf("sub", "dub")
-            else -> listOf("sub", "dub")
-        }
-
-        val episodeMap = mutableMapOf<Float, MutableMap<String, String>>()
-        val episodeMeta = mutableMapOf<Float, Pair<Double, String>>()
-
-        for (subType in subTypes) {
-            val typeEpisodes = episodesObj.optJSONArray(subType) ?: continue
-            for (i in 0 until typeEpisodes.length()) {
-                val epJson = typeEpisodes.getJSONObject(i)
-                val number = epJson.optDouble("number", 0.0).toFloat()
-                val id = epJson.optString("id", "")
-                val title = epJson.optString("title", "")
-
-                episodeMap.getOrPut(number) { mutableMapOf() }[subType] = id
-                if (number !in episodeMeta) {
-                    episodeMeta[number] = epJson.optDouble("number", 0.0) to title
-                }
-            }
-        }
-
-        if (episodeMap.isEmpty()) return emptyList()
-
-        return episodeMap.keys.mapNotNull { number ->
-            val subTypeIds = episodeMap[number] ?: return@mapNotNull null
-            val (rawNumber, title) = episodeMeta[number] ?: return@mapNotNull null
-            buildMergedEpisode(rawNumber, title, provider, preferredSubType, subTypeIds, subTypes, fillerEpisodes, showProvider)
-        }
-    }
-
     private fun buildMergedEpisode(
         number: Double,
         title: String,
@@ -476,6 +495,9 @@ class Miruro :
         allSubTypes: List<String>,
         fillerEpisodes: Set<Float>,
         showProvider: Boolean = true,
+        fallbackProviders: Map<String, Map<String, String>> = emptyMap(),
+        providerSubTypesMap: Map<String, List<String>> = emptyMap(),
+        anilistId: Int? = null,
     ): SEpisode {
         val defaultSubType = subTypeIds.keys.firstOrNull { it == preferredSubType }
             ?: allSubTypes.firstOrNull { it in subTypeIds }
@@ -487,6 +509,24 @@ class Miruro :
             put("provider", provider)
             put("defaultSubType", defaultSubType)
             put("subTypes", JSONObject(subTypeIds))
+            if (fallbackProviders.isNotEmpty()) {
+                val fallbackObj = JSONObject()
+                for ((fbProvider, fbSubTypes) in fallbackProviders) {
+                    fallbackObj.put(fbProvider, JSONObject(fbSubTypes))
+                }
+                put("fallbackProviders", fallbackObj)
+            }
+            val fbProviderSubTypes = JSONObject()
+            for ((fbProvider, fbSubTypeList) in providerSubTypesMap) {
+                if (fbProvider == provider || fbProvider !in fallbackProviders) continue
+                val arr = JSONArray()
+                fbSubTypeList.forEach { arr.put(it) }
+                fbProviderSubTypes.put(fbProvider, arr)
+            }
+            if (fbProviderSubTypes.length() > 0) {
+                put("fallbackProviderSubTypes", fbProviderSubTypes)
+            }
+            anilistId?.let { put("anilistId", it) }
         }
 
         val scanlatorLabel = when (defaultSubType) {
@@ -516,12 +556,6 @@ class Miruro :
 
     // ============================ Video Links ============================
 
-    @Volatile
-    private var currentEpisodeData: JSONObject? = null
-
-    @Volatile
-    private var currentAnilistId: Int? = null
-
     private data class AnimeMeta(
         val anilistId: Int,
         var malId: Int? = null,
@@ -534,20 +568,22 @@ class Miruro :
 
     override fun videoListRequest(episode: SEpisode): Request {
         val episodeData = JSONObject(episode.url)
-        currentEpisodeData = episodeData
         val query = buildPipeQuery(
             "episodeId" to episodeData.getString("episodeId"),
             "provider" to episodeData.getString("provider"),
             "category" to episodeData.getString("defaultSubType"),
+            "_ep" to episode.url,
         )
         return buildPipeRequest("sources", "GET", query = query)
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val episodeData = currentEpisodeData
+        val episodeData = extractEpisodeDataFromPipeRequest(response.request.url.toString())
         val provider = episodeData?.optString("provider", "") ?: ""
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
+        val fallbackProviders = episodeData?.optJSONObject("fallbackProviders")
+        val fallbackProviderSubTypes = episodeData?.optJSONObject("fallbackProviderSubTypes")
 
         val videos = mutableListOf<Video>()
 
@@ -557,29 +593,70 @@ class Miruro :
             Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
         }
 
-        if (!preferences.includeAllSubTypes || subTypesObj == null || subTypesObj.length() <= 1) return videos
+        if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
+            val requests = mutableListOf<Pair<String, Request>>()
+            for (subTypeKey in subTypesObj.keys()) {
+                if (subTypeKey == defaultSubType) continue
+                val episodeId = subTypesObj.optString(subTypeKey, "")
+                if (episodeId.isEmpty()) continue
 
-        val requests = mutableListOf<Pair<String, Request>>()
-        for (subTypeKey in subTypesObj.keys()) {
-            if (subTypeKey == defaultSubType) continue
-            val episodeId = subTypesObj.optString(subTypeKey, "")
-            if (episodeId.isEmpty()) continue
+                val query = buildPipeQuery(
+                    "episodeId" to episodeId,
+                    "provider" to provider,
+                    "category" to subTypeKey,
+                )
+                requests.add(subTypeKey to buildPipeRequest("sources", "GET", query = query))
+            }
 
-            val query = buildPipeQuery(
-                "episodeId" to episodeId,
-                "provider" to provider,
-                "category" to subTypeKey,
+            videos.addAll(
+                requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
+                    safePipeApiCall(request).use { resp ->
+                        parseStreamsFromResponse(resp, subTypeKey)
+                    }
+                },
             )
-            requests.add(subTypeKey to buildPipeRequest("sources", "GET", query = query))
         }
 
-        videos.addAll(
-            requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
-                client.newCall(request).awaitSuccess().use { resp ->
-                    parseStreamsFromResponse(resp, subTypeKey)
+        if (videos.isEmpty() && fallbackProviders != null) {
+            runBlocking {
+                val preferredSubType = preferences.preferredSubType
+                for (fallbackKey in PREF_PROVIDER_VALUES) {
+                    if (fallbackKey == provider) continue
+                    val fbSubTypesObj = fallbackProviders.optJSONObject(fallbackKey) ?: continue
+
+                    val fbSubTypeList = fallbackProviderSubTypes?.optJSONArray(fallbackKey)
+                        ?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
+                        ?: listOf(preferredSubType)
+
+                    val fbSubType = fbSubTypeList.firstOrNull { it == preferredSubType }
+                        ?: fbSubTypeList.firstOrNull()
+                        ?: continue
+                    val fbEpId = fbSubTypesObj.optString(fbSubType, "")
+                    if (fbEpId.isEmpty()) continue
+
+                    try {
+                        val query = buildPipeQuery(
+                            "episodeId" to fbEpId,
+                            "provider" to fallbackKey,
+                            "category" to fbSubType,
+                        )
+                        val fbVideos = safePipeApiCall(buildPipeRequest("sources", "GET", query = query))
+                            .use { parseStreamsFromResponse(it, fbSubType) }
+                        if (fbVideos.isNotEmpty()) {
+                            videos.addAll(fbVideos)
+                            Log.i("Miruro", "Fallback to provider $fallbackKey succeeded (${fbVideos.size} videos)")
+                            break
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Miruro", "Fallback provider $fallbackKey failed: ${e.message}")
+                    }
                 }
-            },
-        )
+            }
+        }
+
+        if (videos.isEmpty()) {
+            Log.w("Miruro", "All providers failed for episode, returning empty video list")
+        }
 
         return videos
     }
@@ -995,6 +1072,21 @@ class Miruro :
         }
     }
 
+    private fun extractEpisodeDataFromPipeRequest(url: String): JSONObject? {
+        return try {
+            val encoded = url.substringAfter("e=", "")
+            if (encoded.isEmpty()) return null
+            val decoded = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            val payload = JSONObject(String(decoded, Charsets.UTF_8))
+            val query = payload.optJSONObject("query") ?: return null
+            val epDataStr = query.optString("_ep", "")
+            if (epDataStr.isEmpty()) return null
+            JSONObject(epDataStr)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun buildPipeRequest(
         path: String,
         method: String = "GET",
@@ -1037,6 +1129,24 @@ class Miruro :
         }
     }
 
+    private suspend fun safePipeApiCall(request: Request, maxRetries: Int = 2): Response {
+        var lastResponse: Response? = null
+        repeat(maxRetries) { attempt ->
+            val response = client.newCall(request).execute()
+            val code = response.code
+            if (code != 444 && code < 500) {
+                return response
+            }
+            lastResponse?.close()
+            lastResponse = response
+            if (attempt < maxRetries - 1) {
+                Log.w("Miruro", "Pipe API returned $code, retrying (${attempt + 1}/$maxRetries)...")
+                delay(500)
+            }
+        }
+        return lastResponse!!
+    }
+
     private fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
         val bodyBytes = response.body.bytes()
@@ -1047,7 +1157,8 @@ class Miruro :
         }
 
         if (bodyStr.isEmpty()) {
-            throw Exception("Empty response from server")
+            Log.e("Miruro", "Empty response body from server")
+            return ""
         }
 
         return try {
@@ -1060,7 +1171,8 @@ class Miruro :
                 gzipStream.bufferedReader(Charsets.UTF_8).readText()
             }
         } catch (e: Exception) {
-            throw Exception("Failed to decrypt response from server: ${e.message}")
+            Log.e("Miruro", "Failed to decrypt response from server: ${e.message}")
+            return ""
         }
     }
 
