@@ -248,9 +248,9 @@ class AnimeVerse :
     override fun popularAnimeParse(response: Response): AnimesPage {
         val root = response.bodyString().parseAs<JsonElement>(json)
         val arr = extractArray(root)
+        // Only paginate if the API explicitly says there's more
         val hasNext = (root as? JsonObject)
-            ?.get("hasNext")?.jsonPrimitive?.booleanOrNull
-            ?: arr.isNotEmpty()
+            ?.get("hasNext")?.jsonPrimitive?.booleanOrNull == true
         return AnimesPage(arr.map(::jsonToAnime), hasNext)
     }
 
@@ -261,7 +261,7 @@ class AnimeVerse :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val root = response.bodyString().parseAs<JsonElement>(json).jsonObject
         val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
-        return AnimesPage(items.map(::recentToAnime), items.isNotEmpty())
+        return AnimesPage(items.map(::recentToAnime), false)
     }
 
     // ============================== Search ==============================
