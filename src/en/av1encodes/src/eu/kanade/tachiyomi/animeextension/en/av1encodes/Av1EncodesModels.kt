@@ -38,7 +38,7 @@ internal data class AudioTrackInfo(
 
 // ADDED: New model for the video_details array returned by the updated API.
 // NOTE: width/height come as strings like "1 920 pixels" / "1 080 pixels" from the API,
-// so we store them as String and parse digits-only in AV1Encodes.kt.
+// so we store them as String and parse digits-only in Av1Encodes.kt.
 @Serializable
 internal data class VideoDetailInfo(
     @SerialName("width") val width: String? = null,
