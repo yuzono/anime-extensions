@@ -538,13 +538,10 @@ class Animetsu :
         private const val PREF_SHOW_RELATIONS_DEFAULT = true
         private const val PREF_SHOW_CHARACTERS_KEY = "show_characters"
         private const val PREF_SHOW_CHARACTERS_DEFAULT = true
-
         private const val PREF_SHOW_TAGS_KEY = "show_tags_in_genre"
         private const val PREF_SHOW_TAGS_DEFAULT = true
-
         private const val PREF_SHOW_TRACKERS_KEY = "show_trackers"
         private const val PREF_SHOW_TRACKERS_DEFAULT = true
-
         private const val PREF_SHOW_TRAILER_KEY = "show_trailer"
         private const val PREF_SHOW_TRAILER_DEFAULT = true
         private const val PREF_SHOW_EP_STATS_KEY = "show_ep_stats"
