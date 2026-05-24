@@ -36,6 +36,8 @@ import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class GoogleDrive :
     AnimeHttpSource(),
@@ -194,56 +196,22 @@ class GoogleDrive :
             null
         } ?: return anime
 
-        // Get cover
-
-        val coverResponse = client.newCall(
-            createPost(driveDocument, folderId, nextPageToken, searchReqWithType(folderId, "cover", IMAGE_MIMETYPE)),
-        ).execute().parseAs<PostResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
-
-        coverResponse.items?.firstOrNull()?.let {
-            anime.thumbnail_url = "https://drive.google.com/uc?id=${it.id}"
-        }
+        findDriveItem(driveDocument, folderId, COVER_FILE_NAME, IMAGE_MIMETYPE)
+            ?.let { anime.thumbnail_url = it.toThumbnailUrl() }
 
         // Get details
 
-        val detailsResponse = client.newCall(
-            createPost(driveDocument, folderId, nextPageToken, searchReqWithType(folderId, "details.json", "")),
-        ).execute().parseAs<PostResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
-
-        detailsResponse.items?.firstOrNull()?.let {
-            val newPostHeaders = getHeaders.newBuilder().apply {
-                add("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
-                set("Host", "drive.usercontent.google.com")
-                add("Origin", "https://drive.google.com")
-                add("Referer", "https://drive.google.com/")
-                add("X-Drive-First-Party", "DriveWebUi")
-                add("X-Json-Requested", "true")
-            }.build()
-
-            val newPostUrl = "https://drive.usercontent.google.com/uc?id=${it.id}&authuser=0&export=download"
-
-            val newResponse = client.newCall(
-                POST(newPostUrl, headers = newPostHeaders, body = commonEmptyRequestBody),
-            ).execute().parseAs<DownloadResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
-
-            val downloadHeaders = headers.newBuilder().apply {
-                add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-                add("Connection", "keep-alive")
-                add("Cookie", getCookie("https://drive.usercontent.google.com"))
-                add("Host", "drive.usercontent.google.com")
-            }.build()
-
-            client.newCall(
-                GET(newResponse.downloadUrl, headers = downloadHeaders),
-            ).execute().parseAs<DetailsJson>().let { t ->
+        findDriveItem(driveDocument, folderId, DETAILS_FILE_NAME)
+            ?.let { downloadDriveFile(it.id) }
+            ?.let { json.decodeFromString<DetailsJson>(it) }
+            ?.let { t ->
                 t.title?.let { anime.title = it }
                 t.author?.let { anime.author = it }
                 t.artist?.let { anime.artist = it }
                 t.description?.let { anime.description = it }
                 t.genre?.let { anime.genre = it.joinToString(", ") }
-                t.status?.let { anime.status = it.toIntOrNull() ?: SAnime.UNKNOWN }
+                t.statusAsInt()?.let { anime.status = it }
             }
-        }
 
         return anime
     }
@@ -290,6 +258,11 @@ class GoogleDrive :
             if (driveDocument.selectFirst("title:contains(Error 404 \\(Not found\\))") != null) return
 
             var pageToken: String? = ""
+            val episodeDetails = findDriveItem(driveDocument, folderId, EPISODES_FILE_NAME)
+                ?.let { downloadDriveFile(it.id) }
+                ?.let { json.decodeFromString<List<EpisodeDetailsJson>>(it) }
+                .orEmpty()
+                .associateBy { it.episodeNumber }
             var counter = 1
 
             while (pageToken != null) {
@@ -302,14 +275,14 @@ class GoogleDrive :
                 }
 
                 if (parsed.items == null) throw Exception("Failed to load items, please log in through webview")
-                parsed.items.forEachIndexed { index, it ->
-                    if (it.mimeType.startsWith("video")) {
+                parsed.items.forEach { it ->
+                    if (it.isSupportedEpisodeFile()) {
                         val size = it.fileSize?.toLongOrNull()?.let { formatBytes(it) } ?: ""
                         val pathName = if (preferences.trimEpisodeInfo) path.trimInfo() else path
 
                         if (start != null && maxRecursionDepth == 1 && counter < start) {
                             counter++
-                            return@forEachIndexed
+                            return@forEach
                         }
                         if (stop != null && maxRecursionDepth == 1 && counter > stop) return
 
@@ -320,12 +293,17 @@ class GoogleDrive :
                                 url = "https://drive.google.com/uc?id=${it.id}"
                                 episode_number =
                                     ITEM_NUMBER_REGEX.find(it.title.trimInfo())?.groupValues?.get(1)
-                                        ?.toFloatOrNull() ?: (index + 1).toFloat()
+                                        ?.toFloatOrNull() ?: counter.toFloat()
                                 date_upload = -1L
                                 scanlator = if (preferences.scanlatorOrder) {
                                     "/$pathName • $size"
                                 } else {
                                     "$size • /$pathName"
+                                }
+                                episodeDetails[episode_number]?.let { details ->
+                                    details.name?.let { name = it }
+                                    details.dateUpload?.let { date_upload = it.toEpisodeDate() }
+                                    details.scanlator?.let { scanlator = it }
                                 }
                             },
                         )
@@ -463,8 +441,8 @@ class GoogleDrive :
         }
 
         if (parsed.items == null) throw Exception("Failed to load items, please log in through webview")
-        parsed.items.forEachIndexed { index, it ->
-            if (it.mimeType.startsWith("video")) {
+        parsed.items.forEach {
+            if (it.isSupportedEpisodeFile()) {
                 animeList.add(
                     SAnime.create().apply {
                         title = if (preferences.trimAnimeInfo) it.title.trimInfo() else it.title
@@ -488,7 +466,9 @@ class GoogleDrive :
                             "https://drive.google.com/drive/folders/${it.id}$recurDepth",
                             "multi",
                         ).toJsonString()
-                        thumbnail_url = ""
+                        thumbnail_url = findDriveItem(driveDocument, it.id, COVER_FILE_NAME, IMAGE_MIMETYPE)
+                            ?.toThumbnailUrl()
+                            ?: ""
                     },
                 )
             }
@@ -543,6 +523,61 @@ class GoogleDrive :
             ""
         }
     }
+
+    private fun findDriveItem(
+        document: Document,
+        folderId: String,
+        title: String,
+        mimeType: String = "",
+    ): PostResponse.ResponseItem? {
+        val response = runCatching {
+            client.newCall(
+                createPost(document, folderId, "", searchReqWithType(folderId, title, mimeType)),
+            ).execute().parseAs<PostResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
+        }.getOrNull()
+
+        return response?.items?.firstOrNull { it.title.equals(title, ignoreCase = true) }
+            ?: response?.items?.firstOrNull()
+    }
+
+    private fun downloadDriveFile(fileId: String): String {
+        val newPostHeaders = getHeaders.newBuilder().apply {
+            add("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+            set("Host", "drive.usercontent.google.com")
+            add("Origin", "https://drive.google.com")
+            add("Referer", "https://drive.google.com/")
+            add("X-Drive-First-Party", "DriveWebUi")
+            add("X-Json-Requested", "true")
+        }.build()
+
+        val newPostUrl = "https://drive.usercontent.google.com/uc?id=$fileId&authuser=0&export=download"
+
+        val newResponse = client.newCall(
+            POST(newPostUrl, headers = newPostHeaders, body = commonEmptyRequestBody),
+        ).execute().parseAs<DownloadResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
+
+        val downloadHeaders = headers.newBuilder().apply {
+            add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            add("Connection", "keep-alive")
+            add("Cookie", getCookie("https://drive.usercontent.google.com"))
+            add("Host", "drive.usercontent.google.com")
+        }.build()
+
+        return client.newCall(
+            GET(newResponse.downloadUrl, headers = downloadHeaders),
+        ).execute().body.string()
+    }
+
+    private fun PostResponse.ResponseItem.toThumbnailUrl(): String = "https://drive.google.com/thumbnail?id=$id&sz=w500"
+
+    private fun PostResponse.ResponseItem.isSupportedEpisodeFile(): Boolean {
+        val lowerTitle = title.lowercase(Locale.ROOT)
+        return mimeType.startsWith("video/") && SUPPORTED_VIDEO_EXTENSIONS.any { lowerTitle.endsWith(it) }
+    }
+
+    private fun String.toEpisodeDate(): Long = runCatching {
+        episodeDateFormat.parse(this)?.time ?: -1L
+    }.getOrDefault(-1L)
 
     private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
@@ -620,6 +655,13 @@ class GoogleDrive :
         private const val BOUNDARY = "=====vc17a3rwnndj====="
 
         private val ITEM_NUMBER_REGEX = Regex(""" - (?:S\d+E)?(\d+)\b""")
+        private val SUPPORTED_VIDEO_EXTENSIONS = listOf(".mp4", ".mkv")
+        private const val COVER_FILE_NAME = "cover.jpg"
+        private const val DETAILS_FILE_NAME = "details.json"
+        private const val EPISODES_FILE_NAME = "episodes.json"
+        private val episodeDateFormat by lazy {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+        }
     }
 
     private val SharedPreferences.domainList
