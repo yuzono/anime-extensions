@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.miruro
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import java.util.Calendar
 
 object MiruroFilters {
 
@@ -60,6 +61,8 @@ object MiruroFilters {
             MiruroFiltersData.TAGS.map { CheckBoxVal(it.first, false) },
         )
 
+    class DubLanguageFilter : QueryPartFilter("Dub Language", MiruroFiltersData.DUB_LANGUAGES)
+
     val FILTER_LIST get() = AnimeFilterList(
         SortFilter(),
         AnimeFilter.Separator(),
@@ -70,6 +73,7 @@ object MiruroFilters {
         YearFilter(),
         SeasonFilter(),
         StatusFilter(),
+        DubLanguageFilter(),
     )
 
     data class FilterSearchParams(
@@ -80,6 +84,7 @@ object MiruroFilters {
         val season: String = "all",
         val status: String = "all",
         val formats: List<String> = emptyList(),
+        val dubLanguage: String = "all",
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
@@ -92,6 +97,7 @@ object MiruroFilters {
             season = filters.asQueryPart<SeasonFilter>(),
             status = filters.asQueryPart<StatusFilter>(),
             formats = filters.parseCheckbox<FormatFilter>(MiruroFiltersData.FORMATS),
+            dubLanguage = filters.asQueryPart<DubLanguageFilter>(),
         )
     }
 
@@ -132,7 +138,7 @@ object MiruroFilters {
             Pair("Thriller", "Thriller"),
         )
 
-        val YEARS = arrayOf(ALL) + (2026 downTo 1940).map {
+        val YEARS = arrayOf(ALL) + (Calendar.getInstance().get(Calendar.YEAR) downTo 1940).map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
 
@@ -161,6 +167,27 @@ object MiruroFilters {
             Pair("OVA", "OVA"),
             Pair("ONA", "ONA"),
             Pair("Music", "MUSIC"),
+        )
+
+        val DUB_LANGUAGES = arrayOf(
+            ALL,
+            Pair("English", "English"),
+            Pair("Japanese", "Japanese"),
+            Pair("Spanish", "Español"),
+            Pair("Portuguese", "Português"),
+            Pair("French", "Français"),
+            Pair("German", "Deutsch"),
+            Pair("Italian", "Italiano"),
+            Pair("Korean", "한국어"),
+            Pair("Chinese", "中文"),
+            Pair("Arabic", "العربية"),
+            Pair("Hindi", "हिन्दी"),
+            Pair("Russian", "Русский"),
+            Pair("Turkish", "Türkçe"),
+            Pair("Thai", "ไทย"),
+            Pair("Polish", "Polski"),
+            Pair("Tagalog", "Tagalog"),
+            Pair("Ukrainian", "Українська"),
         )
 
         val TAGS = arrayOf(
