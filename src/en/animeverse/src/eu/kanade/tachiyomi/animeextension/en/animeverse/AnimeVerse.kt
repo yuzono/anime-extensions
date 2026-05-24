@@ -20,9 +20,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -363,21 +361,10 @@ class AnimeVerse :
         return episodes
             .map { it.jsonObject }
             .groupBy { it.int("number") }
-            .map { (num, variants) ->
+            .map { (num, _) ->
                 val payload = buildJsonObject {
                     put("slug", slug)
                     put("ep", num)
-                    put(
-                        "streams",
-                        buildJsonArray {
-                            variants.forEach { v ->
-                                addJsonObject {
-                                    put("k", v.string("kind") ?: "")
-                                    put("s", v.string("stream") ?: "")
-                                }
-                            }
-                        },
-                    )
                 }.toString()
                 SEpisode.create().apply {
                     episode_number = num.toFloat()
