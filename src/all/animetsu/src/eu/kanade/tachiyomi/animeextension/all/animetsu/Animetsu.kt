@@ -70,6 +70,28 @@ class Animetsu :
     private val preferredQuality: String
         get() = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
 
+    private val showExtraInfo: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_EXTRA_INFO_KEY, PREF_SHOW_EXTRA_INFO_DEFAULT)
+
+    private val showRelations: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_RELATIONS_KEY, PREF_SHOW_RELATIONS_DEFAULT)
+    private val showCharacters: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_CHARACTERS_KEY, PREF_SHOW_CHARACTERS_DEFAULT)
+    private val showStaff: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_STAFF_KEY, PREF_SHOW_STAFF_DEFAULT)
+
+    private val showTags: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TAGS_KEY, PREF_SHOW_TAGS_DEFAULT)
+
+    private val showTrackers: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TRACKERS_KEY, PREF_SHOW_TRACKERS_DEFAULT)
+
+    private val showTrailer: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TRAILER_KEY, PREF_SHOW_TRAILER_DEFAULT)
+
+    private val showEpStats: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_EP_STATS_KEY, PREF_SHOW_EP_STATS_DEFAULT)
+
     private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
         .add("Accept", "application/json, text/plain, */*")
         .add("Accept-Language", "en-US,en;q=0.9")
@@ -98,7 +120,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -139,7 +161,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -150,7 +172,16 @@ class Animetsu :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/info/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(titleLanguage)!!
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(
+        titleLanguage = titleLanguage,
+        showTags = showTags,
+        showExtraInfo = showExtraInfo,
+        showStaff = showStaff,
+        showCharacters = showCharacters,
+        showRelations = showRelations,
+        showTrackers = showTrackers,
+        showTrailer = showTrailer,
+    )!!
 
     // ============================== Related ===============================
 
@@ -204,7 +235,7 @@ class Animetsu :
         ).awaitSuccess()
 
         return response.parseAs<List<AnimetsuEpisodeDto>>()
-            .mapNotNull { it.toSEpisode(animeId) }
+            .mapNotNull { it.toSEpisode(animeId, showEpStats) }
             .sortedByDescending { it.episode_number }
             .takeIf { it.isNotEmpty() } ?: throw Exception("No episodes found")
     }
@@ -246,7 +277,6 @@ class Animetsu :
                     Track(sub.url, sub.lang ?: "Unknown")
                 }.orEmpty()
 
-                // Following order: AnimePahe proxy server, Anikoto proxy server, Unknown proxy server, AnimeGG proxy server and KickAssAnime proxy server
                 val subLabel = when (server.id.lowercase()) {
                     "pahe", "dio", "meg" -> " [Hard Subs]"
                     "kite", "kiss" -> " [Soft Subs]"
@@ -387,6 +417,62 @@ class Animetsu :
             summary = "Hides 18+ content from browse, search, and latest updates.",
             default = PREF_HIDE_ADULT_DEFAULT,
         )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_EXTRA_INFO_KEY,
+            title = "Show Extra Info",
+            summary = "Shows Extra Infromation of a series in description.",
+            default = PREF_SHOW_EXTRA_INFO_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_RELATIONS_KEY,
+            title = "Show Relations",
+            summary = "Shows related anime (sequels, prequels, etc.) in description.",
+            default = PREF_SHOW_RELATIONS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_CHARACTERS_KEY,
+            title = "Show Characters",
+            summary = "Shows main characters and voice actors in description.",
+            default = PREF_SHOW_CHARACTERS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_STAFF_KEY,
+            title = "Show Staff",
+            summary = "Shows staff information in description.",
+            default = PREF_SHOW_STAFF_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TAGS_KEY,
+            title = "Show Tags in Genre",
+            summary = "Appends community tags to the genre field.",
+            default = PREF_SHOW_TAGS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TRACKERS_KEY,
+            title = "Show Tracker Links",
+            summary = "Shows AniList and MyAnimeList links in description.",
+            default = PREF_SHOW_TRACKERS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TRAILER_KEY,
+            title = "Show Trailer",
+            summary = "Shows YouTube trailer link in description.",
+            default = PREF_SHOW_TRAILER_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_EP_STATS_KEY,
+            title = "Show Episode Stats",
+            summary = "Shows Views, Likes, and Dislikes in the scanlator field.",
+            default = PREF_SHOW_EP_STATS_DEFAULT,
+        )
     }
 
     // ============================= Utilities ==============================
@@ -441,6 +527,26 @@ class Animetsu :
 
         private const val PREF_HIDE_ADULT_KEY = "hide_adult_content"
         private const val PREF_HIDE_ADULT_DEFAULT = true
+
+        private const val PREF_SHOW_EXTRA_INFO_KEY = "show_extra_info"
+        private const val PREF_SHOW_EXTRA_INFO_DEFAULT = true
+        private const val PREF_SHOW_STAFF_KEY = "show_staff"
+        private const val PREF_SHOW_STAFF_DEFAULT = true
+        private const val PREF_SHOW_RELATIONS_KEY = "show_relations"
+        private const val PREF_SHOW_RELATIONS_DEFAULT = true
+        private const val PREF_SHOW_CHARACTERS_KEY = "show_characters"
+        private const val PREF_SHOW_CHARACTERS_DEFAULT = true
+
+        private const val PREF_SHOW_TAGS_KEY = "show_tags_in_genre"
+        private const val PREF_SHOW_TAGS_DEFAULT = true
+
+        private const val PREF_SHOW_TRACKERS_KEY = "show_trackers"
+        private const val PREF_SHOW_TRACKERS_DEFAULT = true
+
+        private const val PREF_SHOW_TRAILER_KEY = "show_trailer"
+        private const val PREF_SHOW_TRAILER_DEFAULT = true
+        private const val PREF_SHOW_EP_STATS_KEY = "show_ep_stats"
+        private const val PREF_SHOW_EP_STATS_DEFAULT = true
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING
