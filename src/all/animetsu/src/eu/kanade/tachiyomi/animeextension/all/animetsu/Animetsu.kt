@@ -397,7 +397,7 @@ class Animetsu :
 
         screen.addSetPreference(
             key = PREF_HOSTER_EXCLUDE_KEY,
-            title = "Enable/Disable Hosts",
+            title = "Exclude Hosts",
             summary = "Choose which hosts you want to exclude",
             entries = SERVER_ENTRIES,
             entryValues = SERVER_VALUES,
