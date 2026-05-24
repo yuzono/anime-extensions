@@ -36,8 +36,10 @@ import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 class GoogleDrive :
     AnimeHttpSource(),
@@ -196,7 +198,8 @@ class GoogleDrive :
             null
         } ?: return anime
 
-        findDriveItem(driveDocument, folderId, COVER_FILE_NAME, IMAGE_MIMETYPE)
+        findDriveItems(driveDocument, folderId, COVER_FILE_QUERY, IMAGE_MIMETYPE)
+            .firstOrNull { it.isCoverFile() }
             ?.let { anime.thumbnail_url = it.toThumbnailUrl() }
 
         // Get details
@@ -262,7 +265,7 @@ class GoogleDrive :
                 ?.let { downloadDriveFile(it.id) }
                 .parseJsonOrNull<List<EpisodeDetailsJson>>()
                 .orEmpty()
-                .associateBy { it.episodeNumber }
+                .associateBy { it.episodeNumber.toEpisodeKey() }
             var counter = 1
 
             while (pageToken != null) {
@@ -300,7 +303,7 @@ class GoogleDrive :
                                 } else {
                                     "$size • /$pathName"
                                 }
-                                episodeDetails[episode_number]?.let { details ->
+                                episodeDetails[episode_number.toEpisodeKey()]?.let { details ->
                                     details.name?.let { name = it }
                                     details.dateUpload?.let { date_upload = it.toEpisodeDate() }
                                     details.scanlator?.let { scanlator = it }
@@ -441,7 +444,8 @@ class GoogleDrive :
         }
 
         if (parsed.items == null) throw Exception("Failed to load items, please log in through webview")
-        val coverUrlsByFolderId = findDriveItems(driveDocument, folderId, COVER_FILE_NAME, IMAGE_MIMETYPE)
+        val coverUrlsByFolderId = findDriveItems(driveDocument, folderId, COVER_FILE_QUERY, IMAGE_MIMETYPE)
+            .filter { it.isCoverFile() }
             .flatMap { cover ->
                 cover.parents.orEmpty().map { parent -> parent.id to cover.toThumbnailUrl() }
             }
@@ -590,17 +594,33 @@ class GoogleDrive :
 
     private fun PostResponse.ResponseItem.toThumbnailUrl(): String = "https://drive.google.com/thumbnail?id=$id&sz=w500"
 
+    private fun PostResponse.ResponseItem.isCoverFile(): Boolean = mimeType.startsWith("image/") && title.substringBeforeLast(".").equals(COVER_BASENAME, ignoreCase = true)
+
     private fun PostResponse.ResponseItem.isSupportedEpisodeFile(): Boolean {
         val lowerTitle = title.lowercase(Locale.ROOT)
         return mimeType.startsWith("video/") && SUPPORTED_VIDEO_EXTENSIONS.any { lowerTitle.endsWith(it) }
     }
 
-    private fun String.toEpisodeDate(): Long = runCatching {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(this)?.time ?: -1L
-    }.getOrDefault(-1L)
+    private fun String.toEpisodeDate(): Long = EPISODE_DATE_FORMATS.firstNotNullOfOrNull { format ->
+        format.toSimpleDateFormat().parseEntire(this)?.time
+    } ?: -1L
 
-    private inline fun <reified T> String?.parseJsonOrNull(): T? =
-        this?.let { runCatching { json.decodeFromString<T>(it) }.getOrNull() }
+    private fun Float.toEpisodeKey(): String {
+        val intValue = toInt()
+        return if (this == intValue.toFloat()) intValue.toString() else toString()
+    }
+
+    private fun String.toSimpleDateFormat(): SimpleDateFormat = SimpleDateFormat(this, Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+
+    private fun SimpleDateFormat.parseEntire(date: String): java.util.Date? {
+        isLenient = false
+        val position = ParsePosition(0)
+        return parse(date, position)?.takeIf { position.index == date.length }
+    }
+
+    private inline fun <reified T> String?.parseJsonOrNull(): T? = this?.let { runCatching { json.decodeFromString<T>(it) }.getOrNull() }
 
     private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
@@ -679,9 +699,18 @@ class GoogleDrive :
 
         private val ITEM_NUMBER_REGEX = Regex(""" - (?:S\d+E)?(\d+)\b""")
         private val SUPPORTED_VIDEO_EXTENSIONS = listOf(".mp4", ".mkv")
-        private const val COVER_FILE_NAME = "cover.jpg"
+        private const val COVER_BASENAME = "cover"
+        private const val COVER_FILE_QUERY = "cover"
         private const val DETAILS_FILE_NAME = "details.json"
         private const val EPISODES_FILE_NAME = "episodes.json"
+        private val EPISODE_DATE_FORMATS = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        )
     }
 
     private val SharedPreferences.domainList
