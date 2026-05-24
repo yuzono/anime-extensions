@@ -359,8 +359,7 @@ class AnimeVerse :
         val slug = o.string("slug").orEmpty()
 
         return episodes
-            .map { it.jsonObject }
-            .groupBy { it.int("number") }
+            .groupBy { it.jsonObject.int("number") }
             .map { (num, _) ->
                 val payload = buildJsonObject {
                     put("slug", slug)
