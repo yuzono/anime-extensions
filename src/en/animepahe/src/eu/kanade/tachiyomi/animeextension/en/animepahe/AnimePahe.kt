@@ -282,6 +282,7 @@ class AnimePahe :
             .mapIndexed { index, episode ->
                 episode.apply {
                     episode_number = (index + 1).toFloat()
+                    name = "Episode ${index + 1}"
                 }
             }
             .reversed()
