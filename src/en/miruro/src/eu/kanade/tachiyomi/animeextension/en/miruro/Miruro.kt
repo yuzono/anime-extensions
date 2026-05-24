@@ -23,12 +23,10 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -40,7 +38,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.util.zip.GZIPInputStream
 
 class Miruro :
     AnimeHttpSource(),
@@ -70,6 +67,10 @@ class Miruro :
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
 
+    private val extractor by lazy {
+        MiruroExtractor(client, baseUrl, PIPE_KEY, headers)
+    }
+
     companion object {
         const val PREFIX_SEARCH = "miruro:"
 
@@ -79,8 +80,6 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-// Note: Not all providers may be available for every anime; fallback logic in videoListParse
-// will try remaining providers in preference order if the primary provider fails.
         private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli", "Bee", "Bun", "Hop", "Ally", "Dune", "Nun", "Kuz")
         private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "ally", "dune", "nun", "kuz")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
@@ -142,7 +141,6 @@ class Miruro :
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
 
-        // Mirror domains are fetched from https://miruro.com/
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
         private val MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
@@ -195,7 +193,7 @@ class Miruro :
             val anilistId = query.removePrefix(PREFIX_SEARCH)
             val request = buildPipeRequest("info/$anilistId", "GET")
             val jsonObj = client.newCall(request).awaitSuccess().use { response ->
-                JSONObject(response.use(::decryptResponse))
+                JSONObject(extractor.decryptResponse(response))
             }
 
             val media = jsonObj.optJSONObject("media") ?: jsonObj
@@ -204,7 +202,7 @@ class Miruro :
             val malId = media.optInt("idMal", 0).takeIf { it > 0 }
             if (id > 0) getOrCreateMeta(id, malId)
 
-            val anime = parseAnimeFromMedia(media)
+            val anime = parseAnimeFromMediaObj(media)
             return AnimesPage(listOf(anime), false)
         }
 
@@ -233,7 +231,6 @@ class Miruro :
             "perPage" to 20,
         )
 
-        // Apply filters — only add non-default values
         if (params.sort != "all") queryParams.put("sort", params.sort)
         if (params.season != "all") queryParams.put("season", params.season)
         if (params.year != "all") queryParams.put("year", params.year.toInt())
@@ -264,21 +261,75 @@ class Miruro :
     override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val jsonObj = JSONObject(validateResponse(response).use(::decryptResponse))
-        val media = jsonObj.optJSONObject("media") ?: jsonObj
-        val titleObj = media.optJSONObject("title") ?: JSONObject()
+        val json = validateResponse(response).use { extractor.decryptResponse(it) }
+        val dto = try {
+            jsonParser.decodeFromString<AnimeMediaDto>(json)
+        } catch (_: Exception) {
+            val jsonObj = JSONObject(json)
+            val mediaObj = jsonObj.optJSONObject("media") ?: jsonObj
+            return parseAnimeDetailsFromJsonObj(mediaObj)
+        }
 
-        val anilistId = media.optInt("id", 0)
-        val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+        val anilistId = dto.id
         if (anilistId > 0) {
-            val existing = anilistId.takeIf { it > 0 }?.let { getMeta(it) }
-            if (existing != null) {
-                if (malId != null) existing.malId = malId
-            } else {
-                getOrCreateMeta(anilistId, malId)
+            val existing = getMeta(anilistId)
+            if (existing != null && dto.malId != null) {
+                existing.malId = dto.malId
+            } else if (existing == null) {
+                getOrCreateMeta(anilistId, dto.malId)
             }
         }
 
+        val titleStyle = preferences.preferredTitleStyle
+        val title = resolveTitleFromDto(dto.title, titleStyle)
+
+        val coverUrl = dto.coverImage?.let { cover ->
+            cover.extraLarge?.ifEmpty { null }
+                ?: cover.large?.ifEmpty { null }
+                ?: cover.medium?.ifEmpty { null }
+        } ?: dto.bannerImage?.ifEmpty { null } ?: ""
+
+        val rawDescription = dto.description ?: ""
+        val description = if (preferences.stripHtml) stripHtml(rawDescription) else rawDescription
+
+        val truncatedDescription = preferences.descriptionTruncation.toIntOrNull()?.let { limit ->
+            if (limit > 0 && description.length > limit) {
+                val cutIndex = description.lastIndexOf(' ', limit)
+                if (cutIndex > limit * 2 / 3) {
+                    description.substring(0, cutIndex) + "\u2026"
+                } else {
+                    description.substring(0, limit) + "\u2026"
+                }
+            } else {
+                description
+            }
+        } ?: description
+
+        val genres = dto.genres.takeIf { it.isNotEmpty() }?.joinToString()
+
+        val status = when (dto.status?.uppercase()) {
+            "RELEASING" -> SAnime.ONGOING
+            "FINISHED" -> SAnime.COMPLETED
+            "CANCELLED" -> SAnime.CANCELLED
+            else -> SAnime.UNKNOWN
+        }
+
+        val studio = dto.studios?.edges
+            ?.firstOrNull { it.isMain }
+            ?.node?.name?.ifEmpty { null } ?: ""
+
+        return SAnime.create().apply {
+            title.takeIf(String::isNotBlank)?.let { this.title = it }
+            thumbnail_url = coverUrl
+            this.description = truncatedDescription
+            genre = genres
+            this.status = status
+            author = studio
+        }
+    }
+
+    private fun parseAnimeDetailsFromJsonObj(media: JSONObject): SAnime {
+        val titleObj = media.optJSONObject("title") ?: JSONObject()
         val titleStyle = preferences.preferredTitleStyle
         val title = resolveTitle(titleObj, titleStyle)
 
@@ -286,19 +337,16 @@ class Miruro :
         val bannerImage = extractBannerImage(media.opt("bannerImage"))
         val coverUrl = thumbnail.ifEmpty { bannerImage }
 
-        val description = if (preferences.stripHtml) {
-            stripHtml(media.optString("description", ""))
-        } else {
-            media.optString("description", "")
-        }
+        val rawDescription = media.optString("description", "")
+        val description = if (preferences.stripHtml) stripHtml(rawDescription) else rawDescription
 
         val truncatedDescription = preferences.descriptionTruncation.toIntOrNull()?.let { limit ->
             if (limit > 0 && description.length > limit) {
                 val cutIndex = description.lastIndexOf(' ', limit)
                 if (cutIndex > limit * 2 / 3) {
-                    description.substring(0, cutIndex) + "…"
+                    description.substring(0, cutIndex) + "\u2026"
                 } else {
-                    description.substring(0, limit) + "…"
+                    description.substring(0, limit) + "\u2026"
                 }
             } else {
                 description
@@ -316,12 +364,22 @@ class Miruro :
         val status = when (statusStr.uppercase()) {
             "RELEASING" -> SAnime.ONGOING
             "FINISHED" -> SAnime.COMPLETED
-            "NOT_YET_RELEASED" -> SAnime.UNKNOWN
             "CANCELLED" -> SAnime.CANCELLED
             else -> SAnime.UNKNOWN
         }
 
         val studio = extractMainStudio(media.opt("studios"))
+
+        val anilistId = media.optInt("id", 0)
+        val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+        if (anilistId > 0) {
+            val existing = getMeta(anilistId)
+            if (existing != null && malId != null) {
+                existing.malId = malId
+            } else if (existing == null) {
+                getOrCreateMeta(anilistId, malId)
+            }
+        }
 
         return SAnime.create().apply {
             title.takeIf(String::isNotBlank)?.let { this.title = it }
@@ -344,7 +402,7 @@ class Miruro :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsonObj = JSONObject(validateResponse(response).use(::decryptResponse))
+        val jsonObj = JSONObject(validateResponse(response).use { extractor.decryptResponse(it) })
 
         val providers = jsonObj.optJSONObject("providers") ?: return emptyList()
         val preferredProvider = preferences.preferredProvider
@@ -360,7 +418,6 @@ class Miruro :
             emptySet()
         }
 
-        // Determine which provider to use as primary — auto-fallback if preferred has no episodes
         val availableProviders = providers.keys().asSequence().toList()
         val primaryProvider = if (providers.optJSONObject(preferredProvider)?.optJSONObject("episodes") != null) {
             preferredProvider
@@ -370,8 +427,6 @@ class Miruro :
             } ?: return emptyList()
         }
 
-        // Build cross-provider episode map: episodeNumber → (provider → (subType → episodeId))
-        // This enables video-level fallback without extra network calls
         val crossProviderMap = mutableMapOf<Float, MutableMap<String, Map<String, String>>>()
         val episodeMetaMap = mutableMapOf<Float, Pair<Double, String>>()
         val providerSubTypesMap = mutableMapOf<String, List<String>>()
@@ -404,7 +459,6 @@ class Miruro :
         val episodes = mutableListOf<SEpisode>()
         val seenNumbers = mutableSetOf<Float>()
 
-        // Build episode list from providers
         val providersToProcess = mutableListOf<String>()
         providersToProcess.add(primaryProvider)
         for (providerKey in availableProviders) {
@@ -511,9 +565,9 @@ class Miruro :
             name = if (title.isNotEmpty()) "Episode ${number.toInt()}: $title" else "Episode ${number.toInt()}"
             setUrlWithoutDomain(episodeIdObj.toString())
             scanlator = buildString {
-                if (showProvider) append("$providerLabel • ")
+                if (showProvider) append("$providerLabel \u2022 ")
                 append(scanlatorLabel)
-                if (isFiller) append(" • Filler")
+                if (isFiller) append(" \u2022 Filler")
             }
         }
     }
@@ -561,21 +615,26 @@ class Miruro :
         val primaryResponse = if (response.code in setOf(429, 502, 503, 504)) {
             Log.w("Miruro", "Primary stream returned ${response.code}, retrying...")
             response.close()
-            runBlocking { safePipeApiCall(response.request, maxRetries = 3) }
+            runBlocking { extractor.safePipeApiCall(response.request, maxRetries = 3) }
         } else {
             if (response.code == 444) {
-                Log.w("Miruro", "Primary provider $provider returned 444 — falling back")
+                Log.w("Miruro", "Primary provider $provider returned 444 \u2014 falling back")
                 primaryFailed = true
+                extractor.recordProviderFailure(provider)
             }
             response
         }
 
         if (!primaryFailed) {
             try {
-                videos.addAll(parseStreamsFromResponse(primaryResponse, defaultSubType))
+                videos.addAll(extractor.parseStreamsFromResponse(primaryResponse, defaultSubType))
+                if (videos.isNotEmpty()) {
+                    extractor.recordProviderSuccess(provider)
+                }
             } catch (e: Exception) {
                 Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
                 primaryFailed = true
+                extractor.recordProviderFailure(provider)
             }
         }
 
@@ -597,8 +656,8 @@ class Miruro :
 
             videos.addAll(
                 requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
-                    safePipeApiCall(request).use { resp ->
-                        parseStreamsFromResponse(resp, subTypeKey)
+                    extractor.safePipeApiCall(request).use { resp ->
+                        extractor.parseStreamsFromResponse(resp, subTypeKey)
                     }
                 },
             )
@@ -608,107 +667,45 @@ class Miruro :
         if ((primaryFailed || videos.isEmpty()) && fallbackProviders != null) {
             runBlocking {
                 val preferredSubType = preferences.preferredSubType
-                for (fallbackKey in PREF_PROVIDER_VALUES) {
-                    if (fallbackKey == provider) continue
-                    val fbSubTypesObj = fallbackProviders.optJSONObject(fallbackKey) ?: continue
-
-                    val fbSubTypeList = fallbackProviderSubTypes?.optJSONArray(fallbackKey)
-                        ?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
-                        ?: listOf(preferredSubType)
-
-                    val orderedSubTypes = fbSubTypeList.sortedBy { if (it == preferredSubType) 0 else 1 }
-                    var foundVideos = false
-                    for (fbSubType in orderedSubTypes) {
-                        val fbEpId = fbSubTypesObj.optString(fbSubType, "")
-                        if (fbEpId.isEmpty()) continue
-
-                        try {
-                            val query = buildPipeQuery(
-                                "episodeId" to fbEpId,
-                                "provider" to fallbackKey,
-                                "category" to fbSubType,
-                            )
-                            val fbVideos = safePipeApiCall(buildPipeRequest("sources", "GET", query = query))
-                                .use { parseStreamsFromResponse(it, fbSubType) }
-                            if (fbVideos.isNotEmpty()) {
-                                videos.addAll(fbVideos)
-                                Log.i("Miruro", "Fallback to provider $fallbackKey/$fbSubType succeeded (${fbVideos.size} videos)")
-                                foundVideos = true
-                                break
-                            }
-                        } catch (e: Exception) {
-                            Log.e("Miruro", "Fallback provider $fallbackKey/$fbSubType failed: ${e.message}")
-                        }
-                    }
-                    if (foundVideos) break
+                val fbProvidersKotlin = fallbackProviders.keys().asSequence().associateWith { key ->
+                    val subObj = fallbackProviders.optJSONObject(key) ?: JSONObject()
+                    subObj.keys().asSequence().associateWith { subObj.optString(it) }
                 }
+                val fbSubTypesKotlin = fallbackProviderSubTypes?.let { fbPst ->
+                    fbPst.keys().asSequence().associateWith { key ->
+                        val arr = fbPst.optJSONArray(key) ?: JSONArray()
+                        (0 until arr.length()).map { arr.getString(it) }
+                    }
+                } ?: emptyMap()
+
+                val fallbackVideos = extractor.fetchFallbackVideos(
+                    provider = provider,
+                    fallbackProviders = org.json.JSONObject().also { obj ->
+                        fbProvidersKotlin.forEach { (k, v) ->
+                            obj.put(k, org.json.JSONObject(v))
+                        }
+                    }.let { jsonStr ->
+                        kotlinx.serialization.json.Json.parseToJsonElement(jsonStr.toString()).jsonObject
+                    },
+                    fallbackProviderSubTypes = org.json.JSONObject().also { obj ->
+                        fbSubTypesKotlin.forEach { (k, v) ->
+                            obj.put(k, org.json.JSONArray(v))
+                        }
+                    }.let { jsonStr ->
+                        kotlinx.serialization.json.Json.parseToJsonElement(jsonStr.toString()).jsonObject
+                    },
+                    preferredSubType = preferredSubType,
+                    prefProviderValues = PREF_PROVIDER_VALUES,
+                ) { path, method, query ->
+                    val jsonQuery = org.json.JSONObject(query.toString())
+                    buildPipeRequest(path, method, query = jsonQuery)
+                }
+                videos.addAll(fallbackVideos)
             }
         }
 
         if (videos.isEmpty()) {
             Log.w("Miruro", "All providers failed for episode, returning empty video list")
-        }
-
-        return videos
-    }
-
-    private fun parseStreamsFromResponse(response: Response, subType: String?): List<Video> {
-        val json = try {
-            response.use(::decryptResponse)
-        } catch (e: Exception) {
-            Log.e("Miruro", "Failed to decrypt stream response: ${e.message}")
-            return emptyList()
-        }
-        val jsonObj = JSONObject(json)
-        val streamsArray = jsonObj.optJSONArray("streams")
-        if (streamsArray == null) {
-            Log.w("Miruro", "No streams array in response (subType=$subType)")
-            return emptyList()
-        }
-        if (streamsArray.length() == 0) {
-            Log.w("Miruro", "Empty streams array in response (subType=$subType)")
-            return emptyList()
-        }
-
-        val subTypeLabel = when (subType) {
-            "sub" -> "Sub"
-            "dub" -> "Dub"
-            "ssub" -> "Soft Sub"
-            null -> null
-            else -> subType.replaceFirstChar { it.uppercase() }
-        }
-
-        val videos = mutableListOf<Video>()
-
-        for (i in 0 until streamsArray.length()) {
-            val stream = streamsArray.getJSONObject(i)
-            val type = stream.optString("type", "")
-            if (type != "hls") continue
-
-            val url = stream.optString("url", "")
-            if (url.isEmpty()) continue
-
-            val qualityStr = stream.optString("quality", "")
-            val quality = qualityStr.toIntOrNull() ?: 0
-            val resolution = stream.optJSONObject("resolution")
-            val width = resolution?.optInt("width", 0) ?: 0
-            val height = resolution?.optInt("height", 0) ?: 0
-            val codec = stream.optString("codec", "")
-            val audio = stream.optString("audio", "")
-            val fansub = stream.optString("fansub", "")
-            val referer = stream.optString("referer", "https://kwik.cx/")
-
-            val qualityLabel = buildString {
-                append("${quality}p")
-                if (subTypeLabel != null) append(" $subTypeLabel")
-                if (width > 0 && height > 0) append(" - ${width}x$height")
-                if (codec.isNotEmpty()) append(" $codec")
-                if (audio.isNotEmpty()) append(" $audio")
-                if (fansub.isNotEmpty()) append(" $fansub")
-            }
-
-            val videoHeaders = headers.newBuilder().set("Referer", referer).build()
-            videos.add(Video(url, qualityLabel, url, videoHeaders))
         }
 
         return videos
@@ -743,6 +740,16 @@ class Miruro :
     // ============================== URL ==============================
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/watch/${anime.url}"
+
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        val episodeData = try {
+            JSONObject(episode.url)
+        } catch (_: Exception) {
+            return baseUrl
+        }
+        val anilistId = episodeData.optInt("anilistId", 0)
+        return if (anilistId > 0) "$baseUrl/watch/$anilistId" else baseUrl
+    }
 
     // ============================== Filters ==============================
 
@@ -914,12 +921,12 @@ class Miruro :
     }
 
     private fun anilistMalIdRequest(anilistId: Int): Request {
-        val query = $$"""
-        query media($id: Int, $type: MediaType) {
-            Media(id: $id, type: $type) {
-                idMal
+        val query = """
+            query media(${'$'}id: Int, ${'$'}type: MediaType) {
+                Media(id: ${'$'}id, type: ${'$'}type) {
+                    idMal
+                }
             }
-        }
         """.trimIndent()
         val variables = buildJsonObject {
             put("id", anilistId)
@@ -947,8 +954,8 @@ class Miruro :
 
     private fun anilistAiringScheduleRequest(anilistId: Int): Request {
         val query = """
-            query media($id: Int) {
-                Media(id: $id, type: ANIME) {
+            query media(${'$'}id: Int) {
+                Media(id: ${'$'}id, type: ANIME) {
                     nextAiringEpisode { episode airingAt }
                     airingSchedule(notYetAired: false) {
                         nodes { episode airingAt }
@@ -1128,31 +1135,6 @@ class Miruro :
         }
     }
 
-    private suspend fun safePipeApiCall(request: Request, maxRetries: Int = 3): Response {
-        val permanentFailureCodes = setOf(444)
-        val transientRetryCodes = setOf(429, 502, 503, 504)
-        var lastResponse: Response? = null
-        repeat(maxRetries) { attempt ->
-            val response = client.newCall(request).execute()
-            val code = response.code
-            if (code in permanentFailureCodes) {
-                Log.w("Miruro", "Pipe API returned $code — provider does not have this content")
-                return response
-            }
-            if (code !in transientRetryCodes) {
-                return response
-            }
-            lastResponse?.close()
-            lastResponse = response
-            if (attempt < maxRetries - 1) {
-                val backoffMs = 1000L * (attempt + 1)
-                Log.w("Miruro", "Pipe API returned $code, retrying (${attempt + 1}/$maxRetries) in ${backoffMs}ms...")
-                delay(backoffMs)
-            }
-        }
-        return lastResponse!!
-    }
-
     private fun stripHtml(input: String): String = input
         .replace("<br\\s*/?>".toRegex(RegexOption.IGNORE_CASE), "\n")
         .replace("</p>".toRegex(RegexOption.IGNORE_CASE), "\n")
@@ -1170,35 +1152,6 @@ class Miruro :
             throw IOException("Series not yet available (HTTP $code)")
         }
         return response
-    }
-
-    private fun decryptResponse(response: Response): String {
-        val obfuscated = response.header("x-obfuscated") ?: "1"
-        val bodyBytes = response.body.bytes()
-
-        val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
-        if (obfuscated != "2") {
-            return bodyStr
-        }
-
-        if (bodyStr.isEmpty()) {
-            Log.e("Miruro", "Empty response body from server")
-            return ""
-        }
-
-        return try {
-            val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
-            val data = decoded.mapIndexed { i, b ->
-                (b.toInt() xor PIPE_KEY[i % PIPE_KEY.size].toInt()).toByte()
-            }.toByteArray()
-
-            GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
-                gzipStream.bufferedReader(Charsets.UTF_8).readText()
-            }
-        } catch (e: Exception) {
-            Log.e("Miruro", "Failed to decrypt response from server: ${e.message}")
-            return ""
-        }
     }
 
     private fun extractCoverImage(coverImage: Any?): String = when (coverImage) {
@@ -1227,6 +1180,7 @@ class Miruro :
                 return edge.optJSONObject("node")?.optString("name", "") ?: ""
             }
         }
+
         return edges.optJSONObject(0)?.optJSONObject("node")?.optString("name", "") ?: ""
     }
 
@@ -1234,22 +1188,29 @@ class Miruro :
         response: Response,
         fallbackKeys: List<String> = emptyList(),
     ): AnimesPage {
-        val json = response.use(::decryptResponse)
+        val json = response.use { extractor.decryptResponse(it) }
 
+        var hasNextPage = false
         val mediaArray = try {
             JSONArray(json)
         } catch (_: Exception) {
             val jsonObj = JSONObject(json)
+            val pageInfo = jsonObj.optJSONObject("pageInfo")
+            hasNextPage = pageInfo?.optBoolean("hasNextPage", false) ?: false
             jsonObj.optJSONArray("media")
                 ?: fallbackKeys.firstNotNullOfOrNull { jsonObj.optJSONArray(it) }
                 ?: return AnimesPage(emptyList(), false)
         }
 
         val animeList = (0 until mediaArray.length()).map { i ->
-            parseAnimeFromMedia(mediaArray.getJSONObject(i))
+            parseAnimeFromMediaObj(mediaArray.getJSONObject(i))
         }
 
-        return AnimesPage(animeList, animeList.size >= 20)
+        if (!hasNextPage && animeList.size >= 20) {
+            hasNextPage = true
+        }
+
+        return AnimesPage(animeList, hasNextPage)
     }
 
     private fun resolveTitle(titleObj: JSONObject, style: String): String {
@@ -1265,7 +1226,18 @@ class Miruro :
         } ?: ""
     }
 
-    private fun parseAnimeFromMedia(media: JSONObject): SAnime {
+    private fun resolveTitleFromDto(titleDto: AnimeMediaDto.TitleDto?, style: String): String {
+        if (titleDto == null) return ""
+        val fallbackChain = when (style) {
+            "romaji" -> listOf(titleDto.romaji, titleDto.userPreferred, titleDto.english, titleDto.native)
+            "english" -> listOf(titleDto.english, titleDto.romaji, titleDto.userPreferred, titleDto.native)
+            "native" -> listOf(titleDto.native, titleDto.userPreferred, titleDto.romaji, titleDto.english)
+            else -> listOf(titleDto.userPreferred, titleDto.romaji, titleDto.english, titleDto.native)
+        }
+        return fallbackChain.firstNotNullOfOrNull { it?.ifEmpty { null } } ?: ""
+    }
+
+    private fun parseAnimeFromMediaObj(media: JSONObject): SAnime {
         val titleObj = media.optJSONObject("title") ?: JSONObject()
         val titleStyle = preferences.preferredTitleStyle
         val title = resolveTitle(titleObj, titleStyle)
@@ -1280,36 +1252,4 @@ class Miruro :
             setUrlWithoutDomain(id)
         }
     }
-}
-
-@Serializable
-class AnilistMalIdResponse(
-    val data: DataObject,
-) {
-    @Serializable
-    class DataObject(
-        @SerialName("Media") val media: MediaObject,
-    ) {
-        @Serializable
-        class MediaObject(
-            @SerialName("idMal") val idMal: Int? = null,
-        )
-    }
-}
-
-@Serializable
-class JikanEpisodesDto(
-    val data: List<JikanEpisodeDataDto>,
-    val pagination: JikanPaginationDto,
-) {
-    @Serializable
-    class JikanEpisodeDataDto(
-        @SerialName("mal_id") val number: Int,
-        val filler: Boolean,
-    )
-
-    @Serializable
-    class JikanPaginationDto(
-        @SerialName("has_next_page") val hasNextPage: Boolean,
-    )
 }
