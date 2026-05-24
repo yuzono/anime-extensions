@@ -2,7 +2,7 @@ ext {
     extName = 'Miruro.tv'
     extClass = '.Miruro'
     isNsfw = true
-    extVersionCode = 4
+    extVersionCode = 5
 }
 
 apply from: "$rootDir/common.gradle"

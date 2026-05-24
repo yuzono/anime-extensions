@@ -554,14 +554,32 @@ class Miruro :
         val fallbackProviderSubTypes = episodeData?.optJSONObject("fallbackProviderSubTypes")
 
         val videos = mutableListOf<Video>()
+        var primaryFailed = false
 
-        try {
-            videos.addAll(parseStreamsFromResponse(response, defaultSubType))
-        } catch (e: Exception) {
-            Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
+        // Phase 1: primary provider — retry transient errors, skip permanent failures
+        val primaryResponse = if (response.code in setOf(429, 502, 503, 504)) {
+            Log.w("Miruro", "Primary stream returned ${response.code}, retrying...")
+            response.close()
+            runBlocking { safePipeApiCall(response.request, maxRetries = 3) }
+        } else {
+            if (response.code == 444) {
+                Log.w("Miruro", "Primary provider $provider returned 444 — falling back")
+                primaryFailed = true
+            }
+            response
         }
 
-        if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
+        if (!primaryFailed) {
+            try {
+                videos.addAll(parseStreamsFromResponse(primaryResponse, defaultSubType))
+            } catch (e: Exception) {
+                Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
+                primaryFailed = true
+            }
+        }
+
+        // Phase 2: alternate sub-types from primary provider
+        if (!primaryFailed && preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
             val requests = mutableListOf<Pair<String, Request>>()
             for (subTypeKey in subTypesObj.keys()) {
                 if (subTypeKey == defaultSubType) continue
@@ -585,7 +603,8 @@ class Miruro :
             )
         }
 
-        if (videos.isEmpty() && fallbackProviders != null) {
+        // Phase 3: fallback providers — try on primary failure OR empty results
+        if ((primaryFailed || videos.isEmpty()) && fallbackProviders != null) {
             runBlocking {
                 val preferredSubType = preferences.preferredSubType
                 for (fallbackKey in PREF_PROVIDER_VALUES) {
@@ -596,28 +615,31 @@ class Miruro :
                         ?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
                         ?: listOf(preferredSubType)
 
-                    val fbSubType = fbSubTypeList.firstOrNull { it == preferredSubType }
-                        ?: fbSubTypeList.firstOrNull()
-                        ?: continue
-                    val fbEpId = fbSubTypesObj.optString(fbSubType, "")
-                    if (fbEpId.isEmpty()) continue
+                    val orderedSubTypes = fbSubTypeList.sortedBy { if (it == preferredSubType) 0 else 1 }
+                    var foundVideos = false
+                    for (fbSubType in orderedSubTypes) {
+                        val fbEpId = fbSubTypesObj.optString(fbSubType, "")
+                        if (fbEpId.isEmpty()) continue
 
-                    try {
-                        val query = buildPipeQuery(
-                            "episodeId" to fbEpId,
-                            "provider" to fallbackKey,
-                            "category" to fbSubType,
-                        )
-                        val fbVideos = safePipeApiCall(buildPipeRequest("sources", "GET", query = query))
-                            .use { parseStreamsFromResponse(it, fbSubType) }
-                        if (fbVideos.isNotEmpty()) {
-                            videos.addAll(fbVideos)
-                            Log.i("Miruro", "Fallback to provider $fallbackKey succeeded (${fbVideos.size} videos)")
-                            break
+                        try {
+                            val query = buildPipeQuery(
+                                "episodeId" to fbEpId,
+                                "provider" to fallbackKey,
+                                "category" to fbSubType,
+                            )
+                            val fbVideos = safePipeApiCall(buildPipeRequest("sources", "GET", query = query))
+                                .use { parseStreamsFromResponse(it, fbSubType) }
+                            if (fbVideos.isNotEmpty()) {
+                                videos.addAll(fbVideos)
+                                Log.i("Miruro", "Fallback to provider $fallbackKey/$fbSubType succeeded (${fbVideos.size} videos)")
+                                foundVideos = true
+                                break
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Miruro", "Fallback provider $fallbackKey/$fbSubType failed: ${e.message}")
                         }
-                    } catch (e: Exception) {
-                        Log.e("Miruro", "Fallback provider $fallbackKey failed: ${e.message}")
                     }
+                    if (foundVideos) break
                 }
             }
         }
@@ -637,7 +659,15 @@ class Miruro :
             return emptyList()
         }
         val jsonObj = JSONObject(json)
-        val streamsArray = jsonObj.optJSONArray("streams") ?: return emptyList()
+        val streamsArray = jsonObj.optJSONArray("streams")
+        if (streamsArray == null) {
+            Log.w("Miruro", "No streams array in response (subType=$subType)")
+            return emptyList()
+        }
+        if (streamsArray.length() == 0) {
+            Log.w("Miruro", "Empty streams array in response (subType=$subType)")
+            return emptyList()
+        }
 
         val subTypeLabel = when (subType) {
             "sub" -> "Sub"
@@ -1097,20 +1127,26 @@ class Miruro :
         }
     }
 
-    private suspend fun safePipeApiCall(request: Request, maxRetries: Int = 2): Response {
-        val retryableCodes = setOf(429, 444, 502, 503, 504)
+    private suspend fun safePipeApiCall(request: Request, maxRetries: Int = 3): Response {
+        val permanentFailureCodes = setOf(444)
+        val transientRetryCodes = setOf(429, 502, 503, 504)
         var lastResponse: Response? = null
         repeat(maxRetries) { attempt ->
             val response = client.newCall(request).execute()
             val code = response.code
-            if (code !in retryableCodes) {
+            if (code in permanentFailureCodes) {
+                Log.w("Miruro", "Pipe API returned $code — provider does not have this content")
+                return response
+            }
+            if (code !in transientRetryCodes) {
                 return response
             }
             lastResponse?.close()
             lastResponse = response
             if (attempt < maxRetries - 1) {
-                Log.w("Miruro", "Pipe API returned $code, retrying (${attempt + 1}/$maxRetries)...")
-                delay(500)
+                val backoffMs = 1000L * (attempt + 1)
+                Log.w("Miruro", "Pipe API returned $code, retrying (${attempt + 1}/$maxRetries) in ${backoffMs}ms...")
+                delay(backoffMs)
             }
         }
         return lastResponse!!
