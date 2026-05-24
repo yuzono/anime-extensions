@@ -279,11 +279,9 @@ class AnimePahe :
         recursivePages(episodeList, response, session)
 
         return episodeList
-            .sortedBy { it.date_upload }
             .mapIndexed { index, episode ->
                 episode.apply {
                     episode_number = (index + 1).toFloat()
-                    name = "Episode ${index + 1}"
                 }
             }
             .reversed()
