@@ -75,10 +75,10 @@ class Animetsu :
 
     private val showRelations: Boolean
         get() = preferences.getBoolean(PREF_SHOW_RELATIONS_KEY, PREF_SHOW_RELATIONS_DEFAULT)
-        
+
     private val showCharacters: Boolean
         get() = preferences.getBoolean(PREF_SHOW_CHARACTERS_KEY, PREF_SHOW_CHARACTERS_DEFAULT)
-        
+
     private val showStaff: Boolean
         get() = preferences.getBoolean(PREF_SHOW_STAFF_KEY, PREF_SHOW_STAFF_DEFAULT)
 
