@@ -203,7 +203,7 @@ class GoogleDrive :
 
         findDriveItem(driveDocument, folderId, DETAILS_FILE_NAME)
             ?.let { downloadDriveFile(it.id) }
-            ?.let { json.decodeFromString<DetailsJson>(it) }
+            .parseJsonOrNull<DetailsJson>()
             ?.let { t ->
                 t.title?.let { anime.title = it }
                 t.author?.let { anime.author = it }
@@ -260,7 +260,7 @@ class GoogleDrive :
             var pageToken: String? = ""
             val episodeDetails = findDriveItem(driveDocument, folderId, EPISODES_FILE_NAME)
                 ?.let { downloadDriveFile(it.id) }
-                ?.let { json.decodeFromString<List<EpisodeDetailsJson>>(it) }
+                .parseJsonOrNull<List<EpisodeDetailsJson>>()
                 .orEmpty()
                 .associateBy { it.episodeNumber }
             var counter = 1
@@ -441,6 +441,12 @@ class GoogleDrive :
         }
 
         if (parsed.items == null) throw Exception("Failed to load items, please log in through webview")
+        val coverUrlsByFolderId = findDriveItems(driveDocument, folderId, COVER_FILE_NAME, IMAGE_MIMETYPE)
+            .flatMap { cover ->
+                cover.parents.orEmpty().map { parent -> parent.id to cover.toThumbnailUrl() }
+            }
+            .toMap()
+
         parsed.items.forEach {
             if (it.isSupportedEpisodeFile()) {
                 animeList.add(
@@ -466,9 +472,7 @@ class GoogleDrive :
                             "https://drive.google.com/drive/folders/${it.id}$recurDepth",
                             "multi",
                         ).toJsonString()
-                        thumbnail_url = findDriveItem(driveDocument, it.id, COVER_FILE_NAME, IMAGE_MIMETYPE)
-                            ?.toThumbnailUrl()
-                            ?: ""
+                        thumbnail_url = coverUrlsByFolderId[it.id] ?: ""
                     },
                 )
             }
@@ -529,18 +533,25 @@ class GoogleDrive :
         folderId: String,
         title: String,
         mimeType: String = "",
-    ): PostResponse.ResponseItem? {
+    ): PostResponse.ResponseItem? = findDriveItems(document, folderId, title, mimeType)
+        .firstOrNull { it.title.equals(title, ignoreCase = true) }
+
+    private fun findDriveItems(
+        document: Document,
+        folderId: String,
+        title: String,
+        mimeType: String = "",
+    ): List<PostResponse.ResponseItem> {
         val response = runCatching {
             client.newCall(
                 createPost(document, folderId, "", searchReqWithType(folderId, title, mimeType)),
             ).execute().parseAs<PostResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
         }.getOrNull()
 
-        return response?.items?.firstOrNull { it.title.equals(title, ignoreCase = true) }
-            ?: response?.items?.firstOrNull()
+        return response?.items.orEmpty()
     }
 
-    private fun downloadDriveFile(fileId: String): String {
+    private fun downloadDriveFile(fileId: String): String? = runCatching {
         val newPostHeaders = getHeaders.newBuilder().apply {
             add("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
             set("Host", "drive.usercontent.google.com")
@@ -554,7 +565,14 @@ class GoogleDrive :
 
         val newResponse = client.newCall(
             POST(newPostUrl, headers = newPostHeaders, body = commonEmptyRequestBody),
-        ).execute().parseAs<DownloadResponse> { JSON_REGEX.find(it)!!.groupValues[1] }
+        ).execute().use { response ->
+            if (!response.isSuccessful) return null
+
+            val responseBody = response.body.string()
+            val jsonBody = JSON_REGEX.find(responseBody)?.groupValues?.get(1) ?: return null
+
+            json.decodeFromString<DownloadResponse>(jsonBody)
+        }
 
         val downloadHeaders = headers.newBuilder().apply {
             add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -563,10 +581,12 @@ class GoogleDrive :
             add("Host", "drive.usercontent.google.com")
         }.build()
 
-        return client.newCall(
+        client.newCall(
             GET(newResponse.downloadUrl, headers = downloadHeaders),
-        ).execute().body.string()
-    }
+        ).execute().use { response ->
+            if (response.isSuccessful) response.body.string() else null
+        }
+    }.getOrNull()
 
     private fun PostResponse.ResponseItem.toThumbnailUrl(): String = "https://drive.google.com/thumbnail?id=$id&sz=w500"
 
@@ -576,8 +596,11 @@ class GoogleDrive :
     }
 
     private fun String.toEpisodeDate(): Long = runCatching {
-        episodeDateFormat.parse(this)?.time ?: -1L
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(this)?.time ?: -1L
     }.getOrDefault(-1L)
+
+    private inline fun <reified T> String?.parseJsonOrNull(): T? =
+        this?.let { runCatching { json.decodeFromString<T>(it) }.getOrNull() }
 
     private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
@@ -659,9 +682,6 @@ class GoogleDrive :
         private const val COVER_FILE_NAME = "cover.jpg"
         private const val DETAILS_FILE_NAME = "details.json"
         private const val EPISODES_FILE_NAME = "episodes.json"
-        private val episodeDateFormat by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-        }
     }
 
     private val SharedPreferences.domainList

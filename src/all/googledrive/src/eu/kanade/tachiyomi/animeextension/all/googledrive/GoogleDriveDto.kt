@@ -16,7 +16,13 @@ data class PostResponse(
         val title: String,
         val mimeType: String,
         val fileSize: String? = null,
-    )
+        val parents: List<Parent>? = null,
+    ) {
+        @Serializable
+        data class Parent(
+            val id: String,
+        )
+    }
 }
 
 @Serializable
