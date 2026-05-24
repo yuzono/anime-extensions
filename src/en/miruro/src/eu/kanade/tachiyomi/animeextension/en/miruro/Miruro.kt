@@ -38,6 +38,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
@@ -263,7 +264,7 @@ class Miruro :
     override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
+        val jsonObj = JSONObject(validateResponse(response).use(::decryptResponse))
         val media = jsonObj.optJSONObject("media") ?: jsonObj
         val titleObj = media.optJSONObject("title") ?: JSONObject()
 
@@ -343,7 +344,7 @@ class Miruro :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
+        val jsonObj = JSONObject(validateResponse(response).use(::decryptResponse))
 
         val providers = jsonObj.optJSONObject("providers") ?: return emptyList()
         val preferredProvider = preferences.preferredProvider
@@ -1157,6 +1158,19 @@ class Miruro :
         .replace("</p>".toRegex(RegexOption.IGNORE_CASE), "\n")
         .replace("<[^>]+>".toRegex(), "")
         .trim()
+
+    private fun validateResponse(response: Response): Response {
+        val code = response.code
+        if (code == 444) {
+            response.close()
+            throw IOException("Provider does not have this content")
+        }
+        if (code >= 500) {
+            response.close()
+            throw IOException("Series not yet available (HTTP $code)")
+        }
+        return response
+    }
 
     private fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
