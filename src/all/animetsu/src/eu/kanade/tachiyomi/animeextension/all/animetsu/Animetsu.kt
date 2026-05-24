@@ -421,7 +421,7 @@ class Animetsu :
         screen.addSwitchPreference(
             key = PREF_SHOW_EXTRA_INFO_KEY,
             title = "Show Extra Info",
-            summary = "Shows Extra Infromation of a series in description.",
+            summary = "Shows Extra Information of a series in description.",
             default = PREF_SHOW_EXTRA_INFO_DEFAULT,
         )
 
