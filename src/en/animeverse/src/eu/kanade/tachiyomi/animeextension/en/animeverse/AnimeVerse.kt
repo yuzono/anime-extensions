@@ -25,7 +25,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -226,7 +225,7 @@ class AnimeVerse :
 
     private fun JsonObject.double(key: String): Double = this[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0
 
-    private fun JsonObject.stringArray(key: String): List<String> = this[key]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+    private fun JsonObject.stringArray(key: String): List<String> = (this[key] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
 
     private fun jsonToAnime(el: JsonElement): SAnime {
         val o = el.jsonObject
@@ -259,8 +258,8 @@ class AnimeVerse :
 
     private fun extractArray(root: JsonElement): List<JsonElement> = when (root) {
         is JsonArray -> root
-        is JsonObject -> root.values.filterIsInstance<JsonArray>().firstOrNull()
-            ?: emptyList()
+        is JsonObject -> (root["items"] ?: root["data"] ?: root.values.firstOrNull { it is JsonArray })
+            as? JsonArray ?: emptyList()
         else -> emptyList()
     }
 
@@ -281,8 +280,8 @@ class AnimeVerse :
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/v1/recent")
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val root = response.bodyString().parseAs<JsonElement>(json).jsonObject
-        val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
+        val root = response.bodyString().parseAs<JsonElement>(json)
+        val items = extractArray(root)
         return AnimesPage(items.map(::recentToAnime), false)
     }
 
@@ -309,8 +308,8 @@ class AnimeVerse :
         val url = response.request.url.toString()
 
         return if (url.contains("/api/v1/schedule")) {
-            val root = response.bodyString().parseAs<JsonElement>(json).jsonObject
-            val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
+            val root = response.bodyString().parseAs<JsonElement>(json)
+            val items = extractArray(root)
             val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
 
             val filtered = if (q.isBlank()) {
@@ -326,8 +325,9 @@ class AnimeVerse :
                 }.mapNotNull { it.jsonObject.string("slug") }.toSet()
 
                 items.filter { el ->
-                    el.jsonObject.string("seriesTitle")?.lowercase()?.contains(q) == true ||
-                        el.jsonObject.string("seriesSlug") in matchingSlugs
+                    val o = el.jsonObject
+                    o.string("seriesTitle")?.lowercase()?.contains(q) == true ||
+                        o.string("seriesSlug") in matchingSlugs
                 }
             }
             AnimesPage(filtered.map(::recentToAnime), false)
@@ -359,15 +359,15 @@ class AnimeVerse :
 
         val o = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
             .execute().bodyString()
-            .parseAs<JsonElement>(json)
-            .jsonObject
+            .parseAs<JsonElement>(json) as? JsonObject
+            ?: throw Exception("Invalid anime data")
 
         val cat = getCatalog().firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
 
         val rating = o.double("rating")
         val synopsis = o.string("synopsis").orEmpty()
         val ratingLine = formatRating(rating)
-        val epCount = o["episodes"]?.jsonArray?.size ?: 0
+        val epCount = (o["episodes"] as? JsonArray)?.size ?: 0
 
         val mainTitle = o.string("title") ?: "Unknown"
         val altTitle = cat?.string("alternativeTitle")?.takeIf { it.isNotEmpty() && it != mainTitle }
@@ -418,14 +418,15 @@ class AnimeVerse :
     override fun episodeListRequest(anime: SAnime): Request = GET("$baseUrl/api/v1/anime/${anime.slug()}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val o = response.bodyString().parseAs<JsonElement>(json).jsonObject
-        val episodes = o["episodes"]?.jsonArray ?: return emptyList()
+        val o = response.bodyString().parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
+        val episodes = o["episodes"] as? JsonArray ?: return emptyList()
         val slug = o.string("slug").orEmpty()
 
         return episodes
-            .groupBy { it.jsonObject.int("number") }
+            .mapNotNull { it as? JsonObject }
+            .groupBy { it.int("number") }
             .map { (num, epList) ->
-                val kinds = epList.mapNotNull { it.jsonObject.string("kind")?.uppercase() }.distinct().sorted().joinToString(", ")
+                val kinds = epList.mapNotNull { it.string("kind")?.uppercase() }.distinct().sorted().joinToString(", ")
                 val payload = buildJsonObject {
                     put("slug", slug)
                     put("ep", num)
@@ -446,17 +447,16 @@ class AnimeVerse :
 
     override fun videoListParse(response: Response): List<Video> {
         val encoded = response.request.url.queryParameter("_d") ?: return emptyList()
-        val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json).jsonObject
+        val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
 
         val freshData = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
             .execute().bodyString()
-            .parseAs<JsonElement>(json)
-            .jsonObject
+            .parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
 
-        val allEpisodes = freshData["episodes"]?.jsonArray ?: return emptyList()
-        val streams = allEpisodes.map { it.jsonObject }.filter { it.int("number") == epNum }
+        val allEpisodes = freshData["episodes"] as? JsonArray ?: return emptyList()
+        val streams = allEpisodes.mapNotNull { it as? JsonObject }.filter { it.int("number") == epNum }
         if (streams.isEmpty()) return emptyList()
 
         val videoHeaders = Headers.Builder()
