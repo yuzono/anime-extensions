@@ -14,8 +14,9 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -66,14 +67,14 @@ class AnimeLek :
     override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response) = videosFromElement(response.asJsoup())
+    override fun videoListParse(response: Response) = videosFromElement(response.useAsJsoup())
 
     override fun videoListSelector() = "ul#episode-servers li.watch a"
 
     private fun videosFromElement(document: Document): List<Video> {
         val vidbomServers = listOf("vidbam", "vadbam", "vidbom", "vidbm")
 
-        return document.select(videoListSelector()).mapNotNull { element ->
+        return document.select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
             val url = element.attr("data-ep-url")
             val qualityy = element.text()
 
@@ -84,7 +85,7 @@ class AnimeLek :
 
                 url.contains("dood") -> {
                     DoodExtractor(client).videoFromUrl(url, qualityy)
-                        ?.let(::listOf)
+                        ?.let(::listOf).orEmpty()
                 }
 
                 url.contains("ok.ru") -> {
@@ -93,17 +94,17 @@ class AnimeLek :
 
                 url.contains("streamtape") -> {
                     StreamTapeExtractor(client).videoFromUrl(url)
-                        ?.let(::listOf)
+                        ?.let(::listOf).orEmpty()
                 }
 
                 url.contains("4shared") -> {
                     SharedExtractor(client).videoFromUrl(url, qualityy)
-                        ?.let(::listOf)
+                        ?.let(::listOf).orEmpty()
                 }
 
-                else -> null
+                else -> emptyList()
             }
-        }.flatten()
+        }
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()

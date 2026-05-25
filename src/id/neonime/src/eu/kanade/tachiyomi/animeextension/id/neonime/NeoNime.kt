@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.runBlocking
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -39,9 +40,9 @@ class NeoNime :
     private val preferences by getPreferencesLazy()
 
     // Private Fun
-    private fun reconstructDate(Str: String): Long {
+    private fun reconstructDate(str: String): Long {
         val pattern = SimpleDateFormat("dd-MM-yyyy", Locale.US)
-        return runCatching { pattern.parse(Str)?.time }
+        return runCatching { pattern.parse(str)?.time }
             .getOrNull() ?: 0L
     }
     private fun parseStatus(statusString: String): Int = when {
@@ -216,7 +217,7 @@ class NeoNime :
                 }
 
                 hosterSelection.contains("okru") && link.contains("ok.ru") -> {
-                    videoList.addAll(OkruExtractor(client).videosFromUrl(link))
+                    runBlocking { videoList.addAll(OkruExtractor(client).videosFromUrl(link)) }
                 }
 
                 hosterSelection.contains("yourupload") && link.contains("blogger.com") -> {
@@ -236,7 +237,7 @@ class NeoNime :
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                     )
-                    var iframe = client.newCall(
+                    val iframe = client.newCall(
                         GET(link, headers = headers),
                     ).execute().asJsoup()
 
@@ -307,10 +308,6 @@ class NeoNime :
             entries = arrayOf("Blogger", "Linkbox", "Ok.ru", "YourUpload", "GdrivePlayer")
             entryValues = arrayOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer")
             setDefaultValue(setOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer"))
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
@@ -319,13 +316,6 @@ class NeoNime :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue("1080")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(hostSelection)
         screen.addPreference(videoQualityPref)

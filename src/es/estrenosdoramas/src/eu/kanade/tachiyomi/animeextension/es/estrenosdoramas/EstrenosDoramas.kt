@@ -16,10 +16,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 
@@ -62,12 +62,12 @@ class EstrenosDoramas :
             description = document.selectFirst(".mindesc")?.text()?.trim()
             genre = document.select(".genxed a").joinToString { it.text() }
             thumbnail_url = document.selectFirst(".thumb img")?.attr("abs:src")
-            document.select(".spe > span").map {
-                val title = it.select("b").text()
+            document.select(".spe > span").forEach { span ->
+                val title = span.select("b").text()
                 when {
-                    title.contains("Estado") -> status = it.ownText().getStatus()
-                    title.contains("Casts") -> artist = it.select("a").joinToString { it.text() }
-                    title.contains("Network") -> author = it.select("a").joinToString { it.text() }
+                    title.contains("Estado") -> status = span.ownText().getStatus()
+                    title.contains("Casts") -> artist = span.select("a").joinToString { it.text() }
+                    title.contains("Network") -> author = span.select("a").joinToString { it.text() }
                 }
             }
         }
@@ -125,9 +125,11 @@ class EstrenosDoramas :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("[data-embed]").parallelCatchingFlatMapBlocking {
-            val link = it.attr("data-embed")
-            val realLink = fetchUrls(client.newCall(GET(link)).execute().networkResponse.toString()).firstOrNull()
+        return document.select("[data-embed]").parallelCatchingFlatMapBlocking { data ->
+            val link = data.attr("data-embed")
+            val realLink = fetchUrls(
+                client.newCall(GET(link)).awaitSuccess().use { it.networkResponse.toString() },
+            ).firstOrNull()
             serverVideoResolver(realLink?.ifEmpty { link } ?: "")
         }
     }
@@ -140,11 +142,11 @@ class EstrenosDoramas :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> = when {
+    private suspend fun serverVideoResolver(url: String): List<Video> = when {
         arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
         arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
         arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> runBlocking { vidHideExtractor.videosFromUrl(url) }
+        arrayOf("vidhide", "streamhide", "guccihide", "streamvid").any(url) -> vidHideExtractor.videosFromUrl(url)
         arrayOf("voe", "robertordercharacter", "donaldlineelse").any(url) -> voeExtractor.videosFromUrl(url)
         arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers)
         arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
@@ -178,7 +180,7 @@ class EstrenosDoramas :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 

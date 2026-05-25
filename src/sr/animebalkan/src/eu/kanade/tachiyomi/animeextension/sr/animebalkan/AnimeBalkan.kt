@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import kotlinx.coroutines.runBlocking
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -36,8 +37,8 @@ class AnimeBalkan :
     private val mailruExtractor by lazy { MailRuExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return when {
+    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+        when {
             "Server OK" in name || "ok.ru" in url -> okruExtractor.videosFromUrl(url)
 
             "Server Ru" in name || "mail.ru" in url -> mailruExtractor.videosFromUrl(url)
@@ -58,7 +59,7 @@ class AnimeBalkan :
             "Server AB" in name && baseUrl in url -> {
                 val doc = client.newCall(GET(url)).execute().asJsoup()
                 val videoUrl = doc.selectFirst("source")?.attr("src")
-                    ?: return emptyList()
+                    ?: return@runBlocking emptyList()
                 listOf(Video(videoUrl, "Server AB - Default", videoUrl))
             }
 
