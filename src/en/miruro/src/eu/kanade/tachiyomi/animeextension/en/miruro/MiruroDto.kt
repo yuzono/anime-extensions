@@ -137,6 +137,50 @@ class AnilistMalIdResponse(
 }
 
 @Serializable
+data class ConfigResponseDto(
+    val streaming: Map<String, ProviderConfigDto> = emptyMap(),
+    val providerOrder: List<String> = emptyList(),
+    val meta: MetaConfigDto? = null,
+) {
+    @Serializable
+    data class ProviderConfigDto(
+        val capabilities: ProviderCapabilitiesDto = ProviderCapabilitiesDto(),
+        val parent: String? = null,
+        val relationship: String? = null,
+        val visible: Boolean = true,
+        val player: String = "native",
+        val proxy: ProxyConfigDto? = null,
+        val cors: Boolean = false,
+        val fallback: Int? = null,
+    )
+
+    @Serializable
+    data class ProviderCapabilitiesDto(
+        val sub: Boolean = false,
+        val ssub: Boolean = false,
+        val download: Boolean = false,
+        @SerialName("skip_times")
+        val skipTimes: Boolean = false,
+        val thumbnails: Boolean = false,
+    )
+
+    @Serializable
+    data class ProxyConfigDto(
+        val rotate: Boolean = false,
+    )
+
+    @Serializable
+    data class MetaConfigDto(
+        val anilist: AnilistConfigDto? = null,
+    ) {
+        @Serializable
+        data class AnilistConfigDto(
+            val graphql: String = "https://graphql.anilist.co",
+        )
+    }
+}
+
+@Serializable
 class JikanEpisodesDto(
     val data: List<JikanEpisodeDataDto>,
     val pagination: JikanPaginationDto,

@@ -71,6 +71,97 @@ class Miruro :
         MiruroExtractor(client, baseUrl, PIPE_KEY, headers)
     }
 
+    @Volatile
+    private var siteConfig: ConfigResponseDto? = null
+
+    private fun fetchConfig(): ConfigResponseDto {
+        siteConfig?.let { return it }
+
+        return try {
+            val request = buildPipeRequest("config", "GET")
+            val json = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("Miruro", "Config endpoint returned ${response.code}, using defaults")
+                    return defaultConfig
+                }
+                extractor.decryptResponse(response)
+            }
+            if (json.isEmpty()) {
+                Log.w("Miruro", "Config response was empty, using defaults")
+                return defaultConfig
+            }
+            val config = jsonParser.decodeFromString<ConfigResponseDto>(json)
+            siteConfig = config
+            Log.i("Miruro", "Fetched site config: ${config.providerOrder.size} providers, order=${config.providerOrder}")
+            config
+        } catch (e: Exception) {
+            Log.w("Miruro", "Failed to fetch config: ${e.message}, using defaults")
+            defaultConfig
+        }
+    }
+
+    private fun getProviderOrder(): List<String> {
+        return try {
+            fetchConfig().providerOrder.ifEmpty { PREF_PROVIDER_VALUES }
+        } catch (_: Exception) {
+            PREF_PROVIDER_VALUES
+        }
+    }
+
+    private val defaultConfig = ConfigResponseDto(
+        streaming = mapOf(
+            "kiwi" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
+                visible = true,
+                player = "native",
+            ),
+            "telli" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                parent = "kiwi",
+                relationship = "embed",
+                visible = false,
+                player = "iframe",
+            ),
+            "bee" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, thumbnails = true),
+                visible = true,
+                player = "native",
+                fallback = 3,
+            ),
+            "bun" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
+                parent = "bee",
+                relationship = "embed",
+                visible = true,
+                player = "iframe",
+            ),
+            "hop" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true, thumbnails = true),
+                visible = true,
+                player = "native",
+                fallback = 4,
+            ),
+            "nun" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                parent = "ally",
+                relationship = "embed",
+                visible = true,
+                player = "iframe",
+            ),
+            "dune" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true),
+                visible = true,
+                player = "native",
+            ),
+            "ally" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
+                visible = true,
+                player = "native",
+            ),
+        ),
+        providerOrder = PREF_PROVIDER_VALUES,
+    )
+
     companion object {
         const val PREFIX_SEARCH = "miruro:"
 
@@ -80,8 +171,8 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli", "Bee", "Bun", "Hop", "Ally", "Dune", "Nun", "Kuz")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "ally", "dune", "nun", "kuz")
+        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli (embed)", "Bee", "Bun (embed)", "Hop", "Nun (embed)", "Dune", "Ally")
+        private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "nun", "dune", "ally")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
@@ -461,8 +552,16 @@ class Miruro :
 
         val providersToProcess = mutableListOf<String>()
         providersToProcess.add(primaryProvider)
+        val providerOrder = getProviderOrder()
+        for (providerKey in providerOrder) {
+            if (providerKey != primaryProvider && providerKey in availableProviders) {
+                providersToProcess.add(providerKey)
+            }
+        }
         for (providerKey in availableProviders) {
-            if (providerKey != primaryProvider) providersToProcess.add(providerKey)
+            if (providerKey != primaryProvider && providerKey !in providersToProcess) {
+                providersToProcess.add(providerKey)
+            }
         }
 
         for (providerKey in providersToProcess) {
@@ -695,7 +794,7 @@ class Miruro :
                         kotlinx.serialization.json.Json.parseToJsonElement(jsonStr.toString()).jsonObject
                     },
                     preferredSubType = preferredSubType,
-                    prefProviderValues = PREF_PROVIDER_VALUES,
+                    prefProviderValues = getProviderOrder(),
                 ) { path, method, query ->
                     val jsonQuery = org.json.JSONObject(query.toString())
                     buildPipeRequest(path, method, query = jsonQuery)
@@ -765,9 +864,10 @@ class Miruro :
             entryValues = MIRROR_VALUES,
             default = PREF_MIRROR_DEFAULT,
             summary = "%s",
-        ) {
-            baseUrl = it
-        }
+    ) {
+        baseUrl = it
+        siteConfig = null
+    }
 
         screen.addListPreference(
             key = PREF_PROVIDER_KEY,
