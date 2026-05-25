@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.util.Base64
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -168,10 +169,6 @@ class AnimeVerse :
 
     private fun SAnime.slug(): String = url.substringAfter("/series/")
 
-    private fun decodeStreamBase64(path: String): String = runCatching {
-        String(base64UrlDecode(path.substringAfter("/v/").substringBefore(".")))
-    }.getOrDefault("")
-
     private fun resolveImage(path: String?): String? {
         if (path.isNullOrEmpty()) return null
         if (path.startsWith("http")) return path
@@ -227,7 +224,7 @@ class AnimeVerse :
             title = o.string("seriesTitle") ?: "Unknown"
             url = "/series/${o.string("seriesSlug")}"
             thumbnail_url = resolveImage(o.string("thumb"))
-            genre = o.string("language")?.uppercase()
+            genre = o.string("language")?.uppercase() ?: o.string("releaseTime")
             status = SAnime.UNKNOWN
         }
     }
@@ -246,7 +243,6 @@ class AnimeVerse :
     override fun popularAnimeParse(response: Response): AnimesPage {
         val root = response.bodyString().parseAs<JsonElement>(json)
         val arr = extractArray(root)
-        // Only paginate if the API explicitly says there's more
         val hasNext = (root as? JsonObject)
             ?.get("hasNext")?.jsonPrimitive?.booleanOrNull == true
         return AnimesPage(arr.map(::jsonToAnime), hasNext)
@@ -264,24 +260,69 @@ class AnimeVerse :
 
     // ============================== Search ==============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/api/v1/catalog?q=${URLEncoder.encode(query, "UTF-8")}")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val dayFilter = filters.filterIsInstance<ScheduleDayFilter>().firstOrNull()
+        val day = dayFilter?.getValue()
+
+        return if (!day.isNullOrEmpty()) {
+            val url = if (query.isNotBlank()) {
+                "$baseUrl/api/v1/schedule?day=$day&q=${URLEncoder.encode(query, "UTF-8")}"
+            } else {
+                "$baseUrl/api/v1/schedule?day=$day"
+            }
+            GET(url)
+        } else {
+            GET("$baseUrl/api/v1/catalog?q=${URLEncoder.encode(query, "UTF-8")}")
+        }
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val root = response.bodyString().parseAs<JsonElement>(json)
-        val arr = extractArray(root)
-        val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
+        val url = response.request.url.toString()
 
-        val filtered = if (q.isBlank()) {
-            arr
-        } else {
-            arr.filter { el ->
-                val o = el.jsonObject
-                o.string("searchTitle")?.lowercase()?.contains(q) == true ||
-                    o.string("title")?.lowercase()?.contains(q) == true
+        return if (url.contains("/api/v1/schedule")) {
+            val root = response.bodyString().parseAs<JsonElement>(json).jsonObject
+            val items = root["items"]?.jsonArray ?: return AnimesPage(emptyList(), false)
+            val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
+
+            val filtered = if (q.isBlank()) {
+                items
+            } else {
+                // Fetch the full catalog to cross-reference alternative titles
+                val catalogResp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
+                val catalogArr = extractArray(catalogResp.bodyString().parseAs<JsonElement>(json))
+                catalogResp.close()
+
+                val matchingSlugs = catalogArr.filter { el ->
+                    val o = el.jsonObject
+                    o.string("searchTitle")?.lowercase()?.contains(q) == true ||
+                        o.string("title")?.lowercase()?.contains(q) == true ||
+                        o.string("alternativeTitle")?.lowercase()?.contains(q) == true
+                }.mapNotNull { it.jsonObject.string("slug") }.toSet()
+
+                items.filter { el ->
+                    el.jsonObject.string("seriesTitle")?.lowercase()?.contains(q) == true ||
+                        el.jsonObject.string("seriesSlug") in matchingSlugs
+                }
             }
-        }
+            AnimesPage(filtered.map(::recentToAnime), false)
+        } else {
+            val root = response.bodyString().parseAs<JsonElement>(json)
+            val arr = extractArray(root)
+            val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
 
-        return AnimesPage(filtered.map(::jsonToAnime), false)
+            val filtered = if (q.isBlank()) {
+                arr
+            } else {
+                arr.filter { el ->
+                    val o = el.jsonObject
+                    o.string("searchTitle")?.lowercase()?.contains(q) == true ||
+                        o.string("title")?.lowercase()?.contains(q) == true ||
+                        o.string("alternativeTitle")?.lowercase()?.contains(q) == true
+                }
+            }
+
+            AnimesPage(filtered.map(::jsonToAnime), false)
+        }
     }
 
     // ============================== Anime Details ==============================
@@ -314,12 +355,12 @@ class AnimeVerse :
         val genres = cat?.stringArray("genres")?.takeIf { it.isNotEmpty() }?.joinToString(", ")
         val studios = cat?.stringArray("studios")?.takeIf { it.isNotEmpty() }?.joinToString(", ")
         val premiered = cat?.string("premiered")
+        val year = cat?.int("year")?.takeIf { it > 0 }
         val animeType = cat?.string("type") ?: o.string("type")
         val ratingLabel = o.string("ratingLabel")
 
         val header = listOfNotNull(ratingLine)
 
-        // If we used the alt title as the main title, show the original in the footer
         val footerAltLine = if (displayTitle == altTitle) {
             "**Original:** $mainTitle"
         } else {
@@ -330,6 +371,7 @@ class AnimeVerse :
             footerAltLine,
             animeType?.let { "**Type:** $it" },
             premiered?.let { "**Premiered:** $it" },
+            year?.let { "**Year:** $it" },
             ratingLabel?.let { "**Rating:** $it" },
             if (epCount > 0) "**Episodes:** $epCount" else null,
         )
@@ -360,7 +402,8 @@ class AnimeVerse :
 
         return episodes
             .groupBy { it.jsonObject.int("number") }
-            .map { (num, _) ->
+            .map { (num, epList) ->
+                val kinds = epList.mapNotNull { it.jsonObject.string("kind")?.uppercase() }.distinct().sorted().joinToString(", ")
                 val payload = buildJsonObject {
                     put("slug", slug)
                     put("ep", num)
@@ -369,6 +412,7 @@ class AnimeVerse :
                     episode_number = num.toFloat()
                     name = "Episode $num"
                     url = base64UrlEncode(payload.toByteArray())
+                    scanlator = kinds.ifEmpty { null }
                 }
             }
             .sortedByDescending { it.episode_number }
@@ -383,7 +427,6 @@ class AnimeVerse :
         val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json).jsonObject
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
-        val preferDirect = preferences.getBoolean(PREF_DIRECT_MP4, PREF_DIRECT_MP4_DEFAULT)
 
         val freshData = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
             .execute().bodyString()
@@ -394,36 +437,32 @@ class AnimeVerse :
         val streams = allEpisodes.map { it.jsonObject }.filter { it.int("number") == epNum }
         if (streams.isEmpty()) return emptyList()
 
-        val cookie = synchronized(lock) { sessionCookie }
-        val referer = "$baseUrl/series/$slug/$epNum"
+        val videoHeaders = Headers.Builder()
+            .add("Referer", "$baseUrl/")
+            .add("Origin", baseUrl)
+            .build()
 
-        return streams.map { ep ->
+        return streams.mapNotNull { ep ->
             val kind = (ep.string("kind") ?: "sub").uppercase()
-            val streamPath = ep.string("stream") ?: return@map emptyList()
-            val directUrl = decodeStreamBase64(streamPath)
+            val streamUrl = ep.string("stream") ?: return@mapNotNull null
 
-            val directVideo = if (directUrl.isNotEmpty()) {
-                Video(directUrl, "$kind - Direct", directUrl)
-            } else {
-                null
-            }
+            Video(streamUrl, kind, streamUrl, videoHeaders)
+        }
+    }
 
-            val proxiedVideo = Video(
-                "$baseUrl$streamPath",
-                "$kind - Proxied",
-                "$baseUrl$streamPath",
-                Headers.Builder()
-                    .add("Referer", referer)
-                    .add("Cookie", "av_session=$cookie")
-                    .build(),
-            )
+    // ============================== Filters ==============================
 
-            if (preferDirect) {
-                listOfNotNull(directVideo, proxiedVideo)
-            } else {
-                listOfNotNull(proxiedVideo, directVideo)
-            }
-        }.flatten()
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        ScheduleDayFilter(),
+    )
+
+    private class ScheduleDayFilter :
+        AnimeFilter.Select<String>(
+            "Schedule Day",
+            arrayOf("None", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
+        ) {
+        private val apiValues = arrayOf("", "mon", "tue", "wed", "thu", "fri", "sat", "sun")
+        fun getValue(): String = apiValues[state]
     }
 
     // ============================== Preferences ==============================
@@ -435,19 +474,10 @@ class AnimeVerse :
             summary = "Prefer alternative/English titles over original. Falls back to original.",
             default = PREF_USE_ALT_TITLE_DEFAULT,
         )
-
-        screen.addSwitchPreference(
-            key = PREF_DIRECT_MP4,
-            title = "Prefer Direct MP4",
-            summary = "Use direct Base64 decoded MP4 stream instead of proxy.",
-            default = PREF_DIRECT_MP4_DEFAULT,
-        )
     }
 
     companion object {
         private const val PREF_USE_ALT_TITLE = "use_alt_title"
         private const val PREF_USE_ALT_TITLE_DEFAULT = false
-        private const val PREF_DIRECT_MP4 = "direct_mp4"
-        private const val PREF_DIRECT_MP4_DEFAULT = false
     }
 }
