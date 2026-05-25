@@ -35,6 +35,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.net.URLDecoder
 import java.net.URLEncoder
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -167,19 +168,25 @@ class AnimeVerse :
 
     // ========================= Catalog Cache ==========================
 
+    @Volatile
     private var catalogCache: List<JsonElement>? = null
     private var catalogCacheTime: Long = 0L
     private val catalogCacheLock = Any()
 
-    private val catalogCacheTtl = 5 * 60 * 1000L // 5 minutes;
+    private val catalogCacheTtl = 5 * 60 * 1000L // 5 minutes
 
-    private fun getCatalog(): List<JsonElement> = synchronized(catalogCacheLock) {
+    private fun getCatalog(existingResponse: Response? = null): List<JsonElement> = synchronized(catalogCacheLock) {
         val now = System.currentTimeMillis()
         catalogCache?.takeIf { now - catalogCacheTime < catalogCacheTtl }?.let { return it }
 
-        val resp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
-        val arr = extractArray(resp.bodyString().parseAs<JsonElement>(json))
-        resp.close()
+        val arr = if (existingResponse != null) {
+            extractArray(existingResponse.bodyString().parseAs<JsonElement>(json))
+        } else {
+            val resp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
+            val list = extractArray(resp.bodyString().parseAs<JsonElement>(json))
+            resp.close()
+            list
+        }
 
         catalogCache = arr
         catalogCacheTime = now
@@ -293,7 +300,8 @@ class AnimeVerse :
             }
             GET(url)
         } else {
-            GET("$baseUrl/api/v1/catalog?q=${URLEncoder.encode(query, "UTF-8")}")
+            val fragment = if (query.isNotBlank()) URLEncoder.encode(query, "UTF-8") else ""
+            GET("$baseUrl/api/v1/catalog#$fragment")
         }
     }
 
@@ -324,14 +332,13 @@ class AnimeVerse :
             }
             AnimesPage(filtered.map(::recentToAnime), false)
         } else {
-            val root = response.bodyString().parseAs<JsonElement>(json)
-            val arr = extractArray(root)
-            val q = response.request.url.queryParameter("q")?.lowercase().orEmpty()
+            val catalogArr = getCatalog(response)
+            val q = URLDecoder.decode(response.request.url.fragment ?: "", "UTF-8").lowercase()
 
             val filtered = if (q.isBlank()) {
-                arr
+                catalogArr
             } else {
-                arr.filter { el ->
+                catalogArr.filter { el ->
                     val o = el.jsonObject
                     o.string("searchTitle")?.lowercase()?.contains(q) == true ||
                         o.string("title")?.lowercase()?.contains(q) == true ||
