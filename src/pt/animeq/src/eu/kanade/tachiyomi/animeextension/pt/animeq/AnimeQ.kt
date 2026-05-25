@@ -79,7 +79,7 @@ class AnimeQ :
             val posterImg = requireNotNull(sheader.selectFirst("div.poster > img"))
             thumbnail_url = posterImg.getImageUrl()
             title = posterImg.attr("alt").ifEmpty {
-                sheader.selectFirst("div.data > h1")!!.text()
+                sheader.selectFirst("div.data > h1")?.text() ?: ""
             }.trim()
 
             genre = sheader.select("div.data div.sgeneros > a")
@@ -121,8 +121,8 @@ class AnimeQ :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private fun getPlayerVideos(player: Element): List<Video> {
-        val name = player.selectFirst("span.title")!!.text()
-            .run {
+        val name = player.selectFirst("span.title")?.text()
+            ?.run {
                 when (this.uppercase()) {
                     "SD" -> "360p"
                     "HD" -> "720p"
@@ -130,9 +130,10 @@ class AnimeQ :
                     "FHD", "FULLHD", "FULLHD / HLS" -> "1080p"
                     else -> this
                 }
-            }
+            } ?: "Player"
 
         val url = getPlayerUrl(player)
+        if (url.isEmpty() || !url.startsWith("http")) return emptyList()
 
         val videos = when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
@@ -165,10 +166,14 @@ class AnimeQ :
         val id = player.attr("data-post")
         val num = player.attr("data-nume")
         return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/$type/$num"))
-            .execute().use { it.body.string() }
-            .substringAfter("\"embed_url\":\"")
-            .substringBefore("\",")
-            .replace("\\", "")
+            .execute().use { response ->
+                if (!response.isSuccessful) return ""
+                val body = response.body.string()
+                if ("\"embed_url\":\"" !in body) return ""
+                body.substringAfter("\"embed_url\":\"")
+                    .substringBefore("\",")
+                    .replace("\\", "")
+            }
     }
 
     // ============================== Filters ===============================
