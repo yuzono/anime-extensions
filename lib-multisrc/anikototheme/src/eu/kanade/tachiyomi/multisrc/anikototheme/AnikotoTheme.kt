@@ -503,10 +503,10 @@ abstract class AnikotoTheme(
 
     private suspend fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
         val embedLink = getEmbedLink(server.serverId, epUrl)
-        if (server.serverName.contains("kiwi", true)) {
-            extractFromKiwistream(embedLink, server, epUrl)
-        } else {
-            extractFromPlayer(resolveEmbedChain(embedLink), embedLink, server)
+        when {
+            embedLink.contains("mewcdn.online/player/plyr.php") -> extractFromMewcdnPlayer(embedLink, server)
+            server.serverName.contains("kiwi", true) -> extractFromKiwistream(embedLink, server, epUrl)
+            else -> extractFromPlayer(resolveEmbedChain(embedLink), embedLink, server)
         }
     } catch (e: Exception) {
         Log.e("AnikotoTheme", "Failed to extract from ${server.serverName}: ${e.message}")
@@ -569,6 +569,27 @@ abstract class AnikotoTheme(
             videoNameGen = { "$serverBaseName $serverNum$typeSuffix - $it" },
             subtitleList = subtitles,
             referer = "https://$host/",
+        )
+    }
+
+    private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: VideoData): List<Video> {
+        val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotBlank() }
+            ?: throw Exception("No fragment found in mewcdn player URL")
+
+        val m3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
+        if (!m3u8.startsWith("http")) {
+            throw Exception("Invalid m3u8 URL decoded from mewcdn fragment")
+        }
+
+        val (serverBaseName, serverNum, qualityFromName) = getServerInfo(server.serverName)
+        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
+
+        return playlistUtils.extractFromHls(
+            m3u8,
+            videoNameGen = { quality ->
+                "$serverBaseName $serverNum$typeSuffix - ${qualityFromName ?: quality}"
+            },
+            referer = "https://mewcdn.online/",
         )
     }
 
