@@ -21,7 +21,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -136,7 +138,7 @@ class AnimeVerse :
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val req = chain.request()
-        if (!req.url.encodedPath.startsWith("/api/v1/")) return chain.proceed(req)
+        if (!req.url.encodedPath.startsWith("/api/v1/") && !req.url.encodedPath.startsWith("/r/")) return chain.proceed(req)
 
         val signed = sign(req)
         val resp = chain.proceed(signed)
@@ -430,6 +432,19 @@ class AnimeVerse :
                 val payload = buildJsonObject {
                     put("slug", slug)
                     put("ep", num)
+                    put(
+                        "items",
+                        buildJsonArray {
+                            epList.forEach { epObj ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", epObj.string("id").orEmpty())
+                                        put("kind", epObj.string("kind") ?: "sub")
+                                    },
+                                )
+                            }
+                        },
+                    )
                 }.toString()
                 SEpisode.create().apply {
                     episode_number = num.toFloat()
@@ -450,25 +465,59 @@ class AnimeVerse :
         val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
+        val items = (payload["items"] as? JsonArray) ?: return emptyList()
+        val preferDirect = preferences.getBoolean(PREF_DIRECT_MP4, PREF_DIRECT_MP4_DEFAULT)
+        val cookie = synchronized(lock) { sessionCookie }
 
-        val freshData = client.newCall(GET("$baseUrl/api/v1/anime/$slug"))
-            .execute().bodyString()
-            .parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
+        val seenUrls = mutableSetOf<String>()
 
-        val allEpisodes = freshData["episodes"] as? JsonArray ?: return emptyList()
-        val streams = allEpisodes.mapNotNull { it as? JsonObject }.filter { it.int("number") == epNum }
-        if (streams.isEmpty()) return emptyList()
+        return items.flatMap { item ->
+            val o = item.jsonObject
+            val id = o.string("id").orEmpty()
+            val kind = (o.string("kind") ?: "sub").uppercase()
 
-        val videoHeaders = Headers.Builder()
-            .add("Referer", "$baseUrl/")
-            .add("Origin", baseUrl)
-            .build()
+            val streamResp = client.newCall(GET("$baseUrl/api/v1/anime/$slug/stream/$epNum?id=$id")).execute()
+            val streamObj = streamResp.bodyString().parseAs<JsonElement>(json) as? JsonObject ?: return@flatMap emptyList()
+            val streamPath = streamObj.string("stream") ?: return@flatMap emptyList()
 
-        return streams.mapNotNull { ep ->
-            val kind = (ep.string("kind") ?: "sub").uppercase()
-            val streamUrl = ep.string("stream") ?: return@mapNotNull null
+            val directUrl = if (streamPath.startsWith("/r/")) {
+                runCatching { String(base64UrlDecode(streamPath.substringAfter("/r/").substringBefore("."))) }.getOrDefault("")
+            } else if (streamPath.startsWith("http")) {
+                streamPath
+            } else {
+                ""
+            }
 
-            Video(streamUrl, kind, streamUrl, videoHeaders)
+            val videoHeaders = Headers.Builder()
+                .add("Referer", "$baseUrl/")
+                .add("Origin", baseUrl)
+                .build()
+
+            val directVideo = if (directUrl.startsWith("http")) {
+                Video(directUrl, "$kind - Direct", directUrl, videoHeaders)
+            } else {
+                null
+            }
+
+            val proxyHeaders = Headers.Builder()
+                .add("Referer", "$baseUrl/")
+                .add("Origin", baseUrl)
+                .add("Cookie", "av_session=$cookie")
+                .build()
+
+            val proxiedVideo = if (streamPath.startsWith("/")) {
+                Video("$baseUrl$streamPath", "$kind - Proxied", "$baseUrl$streamPath", proxyHeaders)
+            } else {
+                null
+            }
+
+            val videos = if (preferDirect) {
+                listOfNotNull(directVideo, proxiedVideo)
+            } else {
+                listOfNotNull(proxiedVideo, directVideo)
+            }
+
+            videos.filter { seenUrls.add(it.url) }
         }
     }
 
@@ -496,10 +545,19 @@ class AnimeVerse :
             summary = "Prefer alternative/English titles over original. Falls back to original.",
             default = PREF_USE_ALT_TITLE_DEFAULT,
         )
+
+        screen.addSwitchPreference(
+            key = PREF_DIRECT_MP4,
+            title = "Prefer Direct MP4",
+            summary = "Use direct Base64 decoded MP4 stream instead of proxy.",
+            default = PREF_DIRECT_MP4_DEFAULT,
+        )
     }
 
     companion object {
         private const val PREF_USE_ALT_TITLE = "use_alt_title"
         private const val PREF_USE_ALT_TITLE_DEFAULT = false
+        private const val PREF_DIRECT_MP4 = "direct_mp4"
+        private const val PREF_DIRECT_MP4_DEFAULT = true
     }
 }
