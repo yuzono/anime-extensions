@@ -100,12 +100,10 @@ class Miruro :
         }
     }
 
-    private fun getProviderOrder(): List<String> {
-        return try {
-            fetchConfig().providerOrder.ifEmpty { PREF_PROVIDER_VALUES }
-        } catch (_: Exception) {
-            PREF_PROVIDER_VALUES
-        }
+    private fun getProviderOrder(): List<String> = try {
+        fetchConfig().providerOrder.ifEmpty { PREF_PROVIDER_VALUES }
+    } catch (_: Exception) {
+        PREF_PROVIDER_VALUES
     }
 
     private val defaultConfig = ConfigResponseDto(
@@ -353,10 +351,17 @@ class Miruro :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val json = validateResponse(response).use { extractor.decryptResponse(it) }
-        val dto = try {
-            jsonParser.decodeFromString<AnimeMediaDto>(json)
-        } catch (_: Exception) {
+        // /info/{id} wraps anime data under a "media" key alongside tvdb/tmdb/schedule/mappings
+        val mediaJson = try {
             val jsonObj = JSONObject(json)
+            jsonObj.optJSONObject("media")?.toString() ?: json
+        } catch (_: Exception) {
+            json
+        }
+        val dto = try {
+            jsonParser.decodeFromString<AnimeMediaDto>(mediaJson)
+        } catch (_: Exception) {
+            val jsonObj = JSONObject(mediaJson)
             val mediaObj = jsonObj.optJSONObject("media") ?: jsonObj
             return parseAnimeDetailsFromJsonObj(mediaObj)
         }
@@ -864,10 +869,10 @@ class Miruro :
             entryValues = MIRROR_VALUES,
             default = PREF_MIRROR_DEFAULT,
             summary = "%s",
-    ) {
-        baseUrl = it
-        siteConfig = null
-    }
+        ) {
+            baseUrl = it
+            siteConfig = null
+        }
 
         screen.addListPreference(
             key = PREF_PROVIDER_KEY,
