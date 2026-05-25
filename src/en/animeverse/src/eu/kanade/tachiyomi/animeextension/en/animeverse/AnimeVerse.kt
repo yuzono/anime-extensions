@@ -2,13 +2,16 @@ package eu.kanade.tachiyomi.animeextension.en.animeverse
 
 import android.annotation.SuppressLint
 import android.util.Base64
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
@@ -21,7 +24,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -57,6 +60,7 @@ class AnimeVerse :
     }
 
     private val preferences by getPreferencesLazy()
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val fingerprint: String by lazy {
         preferences.getString("fp_json", null) ?: run {
@@ -138,7 +142,7 @@ class AnimeVerse :
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val req = chain.request()
-        if (!req.url.encodedPath.startsWith("/api/v1/") && !req.url.encodedPath.startsWith("/r/")) return chain.proceed(req)
+        if (!req.url.encodedPath.startsWith("/api/v1/")) return chain.proceed(req)
 
         val signed = sign(req)
         val resp = chain.proceed(signed)
@@ -229,6 +233,12 @@ class AnimeVerse :
 
     private fun JsonObject.stringArray(key: String): List<String> = (this[key] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
 
+    private fun cleanQuality(q: String): String {
+        Regex("""(\d{3,4})p""").find(q)?.let { return it.value }
+        Regex("""\dx(\d+)""").find(q)?.groupValues?.get(1)?.let { return "${it}p" }
+        return q.substringBefore(" - ").substringBefore("(").trim()
+    }
+
     private fun jsonToAnime(el: JsonElement): SAnime {
         val o = el.jsonObject
         val genres = o.stringArray("genres")
@@ -267,7 +277,7 @@ class AnimeVerse :
 
     // ============================== Popular ==============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/v1/trending?period=today&page=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/v1/trending?period=week&page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val root = response.bodyString().parseAs<JsonElement>(json)
@@ -382,6 +392,8 @@ class AnimeVerse :
         val year = cat?.int("year")?.takeIf { it > 0 }
         val animeType = cat?.string("type") ?: o.string("type")
         val ratingLabel = o.string("ratingLabel")
+        val malId = o.int("malId")
+        val malLink = if (malId > 0) "[**MAL**](https://myanimelist.net/anime/$malId)" else null
 
         val header = listOfNotNull(ratingLine)
 
@@ -398,6 +410,7 @@ class AnimeVerse :
             year?.let { "**Year:** $it" },
             ratingLabel?.let { "**Rating:** $it" },
             if (epCount > 0) "**Episodes:** $epCount" else null,
+            malLink,
         )
 
         val description = listOf(header.joinToString("\n"), synopsis, footer.joinToString("\n"))
@@ -423,6 +436,7 @@ class AnimeVerse :
         val o = response.bodyString().parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
         val episodes = o["episodes"] as? JsonArray ?: return emptyList()
         val slug = o.string("slug").orEmpty()
+        val malId = o.int("malId")
 
         return episodes
             .mapNotNull { it as? JsonObject }
@@ -432,6 +446,7 @@ class AnimeVerse :
                 val payload = buildJsonObject {
                     put("slug", slug)
                     put("ep", num)
+                    put("malId", malId)
                     put(
                         "items",
                         buildJsonArray {
@@ -465,60 +480,264 @@ class AnimeVerse :
         val payload = String(base64UrlDecode(encoded)).parseAs<JsonElement>(json) as? JsonObject ?: return emptyList()
         val slug = payload.string("slug").orEmpty()
         val epNum = payload.int("ep")
+        val malId = payload.int("malId")
         val items = (payload["items"] as? JsonArray) ?: return emptyList()
         val preferDirect = preferences.getBoolean(PREF_DIRECT_MP4, PREF_DIRECT_MP4_DEFAULT)
         val cookie = synchronized(lock) { sessionCookie }
-
         val seenUrls = mutableSetOf<String>()
+        val videos = mutableListOf<Video>()
+        val hosterExclusion = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
 
-        return items.flatMap { item ->
+        for (item in items) {
             val o = item.jsonObject
             val id = o.string("id").orEmpty()
             val kind = (o.string("kind") ?: "sub").uppercase()
+            val kindPath = kind.lowercase()
 
-            val streamResp = client.newCall(GET("$baseUrl/api/v1/anime/$slug/stream/$epNum?id=$id")).execute()
-            val streamObj = streamResp.bodyString().parseAs<JsonElement>(json) as? JsonObject ?: return@flatMap emptyList()
-            val streamPath = streamObj.string("stream") ?: return@flatMap emptyList()
+            for (serverName in SERVERS) {
+                val serverLabel = SERVERS_DISPLAY[SERVERS.indexOf(serverName)]
 
-            val directUrl = if (streamPath.startsWith("/r/")) {
-                runCatching { String(base64UrlDecode(streamPath.substringAfter("/r/").substringBefore("."))) }.getOrDefault("")
-            } else if (streamPath.startsWith("http")) {
-                streamPath
-            } else {
-                ""
+                // Skip excluded hosts
+                if (hosterExclusion.contains(serverLabel)) continue
+
+                try {
+                    // Handle Chiki / MegaPlay directly using malId
+                    if (serverName == "chiki" && malId > 0) {
+                        val megaplayUrl = "https://megaplay.buzz/stream/mal/$malId/$epNum/$kindPath"
+                        try {
+                            val megaplayId = extractMegaplayId(megaplayUrl)
+
+                            if (!megaplayId.isNullOrEmpty()) {
+                                val megaplayVideos = fetchMegaplayVideos(megaplayId, megaplayUrl, kind, serverLabel)
+                                megaplayVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                            }
+                        } catch (_: Exception) {}
+                        continue
+                    }
+
+                    // Handle AnimeVerse and Choi via API
+                    val apiUrl = buildString {
+                        append("$baseUrl/api/v1/anime/$slug/stream/$epNum")
+                        append("?server=$serverName")
+                        if (id.isNotEmpty()) append("&id=$id")
+                    }
+
+                    val streamResp = client.newCall(GET(apiUrl)).execute()
+                    val streamObjects = when (val streamBody = streamResp.bodyString().parseAs<JsonElement>(json)) {
+                        is JsonArray -> streamBody.mapNotNull { it as? JsonObject }
+                        is JsonObject -> listOf(streamBody)
+                        else -> emptyList()
+                    }
+
+                    for (streamObj in streamObjects) {
+                        val streamPath = streamObj.string("stream") ?: continue
+
+                        // Handle Choi / Vidnest
+                        if (streamPath.contains("vidnest.fun")) {
+                            val vidnestVideos = fetchVidnestVideos(streamPath, kind, serverLabel)
+                            vidnestVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                        } else if (streamPath.startsWith("/hianime/")) {
+                            val vidnestUrl = "https://new.vidnest.fun$streamPath"
+                            val vidnestVideos = fetchVidnestVideos(vidnestUrl, kind, serverLabel)
+                            vidnestVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                        } else if (streamPath.matches(Regex("^\\d+$")) && serverName.equals("choi", ignoreCase = true)) {
+                            val vidnestUrl = "https://new.vidnest.fun/hianime/anime/$streamPath/$epNum/$kindPath"
+                            val vidnestVideos = fetchVidnestVideos(vidnestUrl, kind, serverLabel)
+                            vidnestVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                        }
+                        // Fallback for Chiki if AnimeVerse returns a MegaPlay link directly
+                        else if (streamPath.contains("megaplay.buzz") || streamPath.startsWith("/stream/mal/") || streamPath.startsWith("/stream/ani/") || streamPath.startsWith("/stream/s-2/")) {
+                            val refererUrl = if (streamPath.startsWith("http")) streamPath else "https://megaplay.buzz$streamPath"
+                            var megaplayId = when {
+                                streamPath.contains("id=") -> streamPath.substringAfter("id=").substringBefore("&").substringBefore("\"").trim()
+                                streamPath.matches(Regex("^\\d+$")) -> streamPath
+                                else -> ""
+                            }
+
+                            if (megaplayId.isEmpty()) {
+                                megaplayId = extractMegaplayId(refererUrl) ?: ""
+                            }
+
+                            if (megaplayId.isNotEmpty()) {
+                                val megaplayVideos = fetchMegaplayVideos(megaplayId, refererUrl, kind, serverLabel)
+                                megaplayVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                            }
+                        }
+                        // Standard AnimeVerse Proxy/Direct streams
+                        else {
+                            val videoHeaders = Headers.Builder()
+                                .add("Referer", "$baseUrl/")
+                                .add("Origin", baseUrl)
+                                .build()
+
+                            val directUrl = if (streamPath.startsWith("/r/")) {
+                                runCatching { String(base64UrlDecode(streamPath.substringAfter("/r/").substringBefore("."))) }.getOrDefault("")
+                            } else if (streamPath.startsWith("http")) {
+                                streamPath
+                            } else {
+                                ""
+                            }
+
+                            val directVideo = if (directUrl.startsWith("http")) {
+                                Video(directUrl, "$kind - $serverLabel - Direct", directUrl, videoHeaders)
+                            } else {
+                                null
+                            }
+
+                            val proxyHeaders = Headers.Builder()
+                                .add("Referer", "$baseUrl/")
+                                .add("Origin", baseUrl)
+                                .add("Cookie", "av_session=$cookie")
+                                .build()
+
+                            val proxiedVideo = if (streamPath.startsWith("/")) {
+                                Video("$baseUrl$streamPath", "$kind - $serverLabel - Proxied", "$baseUrl$streamPath", proxyHeaders)
+                            } else {
+                                null
+                            }
+
+                            val serverVideos = if (preferDirect) {
+                                listOfNotNull(directVideo, proxiedVideo)
+                            } else {
+                                listOfNotNull(proxiedVideo, directVideo)
+                            }
+
+                            serverVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Server might be offline or unavailable, skip it
+                }
             }
-
-            val videoHeaders = Headers.Builder()
-                .add("Referer", "$baseUrl/")
-                .add("Origin", baseUrl)
-                .build()
-
-            val directVideo = if (directUrl.startsWith("http")) {
-                Video(directUrl, "$kind - Direct", directUrl, videoHeaders)
-            } else {
-                null
-            }
-
-            val proxyHeaders = Headers.Builder()
-                .add("Referer", "$baseUrl/")
-                .add("Origin", baseUrl)
-                .add("Cookie", "av_session=$cookie")
-                .build()
-
-            val proxiedVideo = if (streamPath.startsWith("/")) {
-                Video("$baseUrl$streamPath", "$kind - Proxied", "$baseUrl$streamPath", proxyHeaders)
-            } else {
-                null
-            }
-
-            val videos = if (preferDirect) {
-                listOfNotNull(directVideo, proxiedVideo)
-            } else {
-                listOfNotNull(proxiedVideo, directVideo)
-            }
-
-            videos.filter { seenUrls.add(it.url) }
         }
+
+        return videos
+    }
+
+    // ========================= MegaPlay / VidWish ==========================
+
+    private fun extractMegaplayId(pageUrl: String): String? {
+        val pageHeaders = Headers.Builder()
+            .add("Referer", "https://megaplay.buzz/")
+            .build()
+        val pageResp = client.newCall(GET(pageUrl, pageHeaders)).execute()
+        val pageBody = pageResp.bodyString()
+
+        return Regex("""data-id\s*=\s*["']([^"']+)["']""").find(pageBody)?.groupValues?.get(1)
+    }
+
+    private fun extractM3u8FromSources(sources: JsonElement): String? = when (sources) {
+        is JsonObject -> sources["file"]?.jsonPrimitive?.contentOrNull
+        is JsonArray -> sources.firstOrNull()?.let {
+            when (it) {
+                is JsonObject -> it["file"]?.jsonPrimitive?.contentOrNull
+                is JsonPrimitive -> it.contentOrNull
+                else -> null
+            }
+        }
+        is JsonPrimitive -> sources.contentOrNull
+        else -> null
+    }
+
+    private fun fetchMegaplayVideos(id: String, referer: String, kind: String, serverName: String): List<Video> {
+        val videos = mutableListOf<Video>()
+        try {
+            val sourcesUrl = "https://megaplay.buzz/stream/getSources?id=$id"
+            val headers = Headers.Builder()
+                .add("Accept", "*/*")
+                .add("X-Requested-With", "XMLHttpRequest")
+                .add("Referer", referer)
+                .add("Origin", "https://megaplay.buzz")
+                .add("Sec-Fetch-Dest", "empty")
+                .add("Sec-Fetch-Mode", "cors")
+                .add("Sec-Fetch-Site", "cross-site")
+                .build()
+
+            val resp = client.newCall(GET(sourcesUrl, headers)).execute()
+            if (!resp.isSuccessful) return videos
+
+            val obj = resp.bodyString().parseAs<JsonElement>(json) as? JsonObject ?: return videos
+
+            val masterUrl = extractM3u8FromSources(obj["sources"] ?: return videos)
+                ?.takeIf { it.startsWith("http") }
+                ?: return videos
+
+            val subtitleTracks = (obj["tracks"] as? JsonArray)
+                ?.mapNotNull { trackEl ->
+                    val trackObj = trackEl as? JsonObject ?: return@mapNotNull null
+                    val file = trackObj.string("file") ?: return@mapNotNull null
+                    val label = trackObj.string("label") ?: ""
+                    val trackKind = trackObj.string("kind") ?: ""
+                    if (trackKind.equals("captions", true)) Track(file, label) else null
+                } ?: emptyList()
+
+            videos.addAll(
+                playlistUtils.extractFromHls(
+                    masterUrl,
+                    videoNameGen = { q -> "$kind - $serverName - ${cleanQuality(q)}" },
+                    subtitleList = subtitleTracks,
+                    referer = "https://megaplay.buzz/",
+                ),
+            )
+        } catch (_: Exception) {
+            // Network error, skip this source
+        }
+        return videos
+    }
+
+    // ========================= Vidnest Extractor ==========================
+
+    private fun fetchVidnestVideos(url: String, kind: String, serverName: String): List<Video> {
+        val videos = mutableListOf<Video>()
+        try {
+            val headers = Headers.Builder()
+                .add("Referer", "https://vidnest.fun/")
+                .add("Origin", "https://vidnest.fun")
+                .build()
+
+            val resp = client.newCall(GET(url, headers)).execute()
+            val body = resp.bodyString()
+
+            try {
+                val jsonElement = body.parseAs<JsonElement>(json)
+                val sourcesArr = if (jsonElement is JsonObject) {
+                    jsonElement["source"] as? JsonArray ?: jsonElement["sources"] as? JsonArray
+                } else {
+                    null
+                }
+
+                if (sourcesArr != null) {
+                    for (source in sourcesArr) {
+                        val srcObj = source as? JsonObject ?: continue
+                        val file = srcObj.string("file") ?: srcObj.string("url") ?: continue
+                        val quality = srcObj.string("quality") ?: srcObj.string("label") ?: ""
+                        val type = srcObj.string("type") ?: ""
+                        val label = buildString {
+                            append(kind)
+                            append(" - ")
+                            append(serverName)
+                            if (quality.isNotBlank()) {
+                                append(" - ")
+                                append(quality)
+                            }
+                            if (type.equals("hls", ignoreCase = true)) {
+                                append(" - HLS")
+                            }
+                        }
+                        videos.add(Video(file, label, file, headers))
+                    }
+                }
+            } catch (_: Exception) {
+                if (body.contains("#EXTM3U") || url.contains(".m3u8")) {
+                    videos.add(Video(url, "$kind - $serverName - HLS", url, headers))
+                } else if (url.contains(".mp4")) {
+                    videos.add(Video(url, "$kind - $serverName - MP4", url, headers))
+                }
+            }
+        } catch (_: Exception) {
+            // Network error, skip this source
+        }
+        return videos
     }
 
     // ============================== Filters ==============================
@@ -549,9 +768,18 @@ class AnimeVerse :
         screen.addSwitchPreference(
             key = PREF_DIRECT_MP4,
             title = "Prefer Direct MP4",
-            summary = "Use direct Base64 decoded MP4 stream instead of proxy.",
+            summary = "Use direct Base64 decoded MP4 stream instead of proxy. (Applies to AnimeVerse server)",
             default = PREF_DIRECT_MP4_DEFAULT,
         )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_HOSTER_EXCLUDE_KEY
+            title = PREF_HOSTER_EXCLUDE_TITLE
+            entries = SERVERS_DISPLAY
+            entryValues = SERVERS_DISPLAY
+            setDefaultValue(PREF_HOSTER_EXCLUDE_DEFAULT)
+            summary = "Choose which hosts you want to exclude"
+        }.also(screen::addPreference)
     }
 
     companion object {
@@ -559,5 +787,12 @@ class AnimeVerse :
         private const val PREF_USE_ALT_TITLE_DEFAULT = false
         private const val PREF_DIRECT_MP4 = "direct_mp4"
         private const val PREF_DIRECT_MP4_DEFAULT = true
+
+        private val SERVERS = arrayOf("animeverse", "choi", "chiki")
+        private val SERVERS_DISPLAY = arrayOf("AnimeVerse", "Choi", "Chiki")
+
+        private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
+        private const val PREF_HOSTER_EXCLUDE_TITLE = "Excluded Hosts"
+        private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
     }
 }
