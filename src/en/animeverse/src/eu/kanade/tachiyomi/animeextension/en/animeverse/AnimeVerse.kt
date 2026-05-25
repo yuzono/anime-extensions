@@ -165,6 +165,27 @@ class AnimeVerse :
             .build()
     }
 
+    // ========================= Catalog Cache ==========================
+
+    private var catalogCache: List<JsonElement>? = null
+    private var catalogCacheTime: Long = 0L
+    private val catalogCacheLock = Any()
+
+    private val catalogCacheTtl = 5 * 60 * 1000L // 5 minutes;
+
+    private fun getCatalog(): List<JsonElement> = synchronized(catalogCacheLock) {
+        val now = System.currentTimeMillis()
+        catalogCache?.takeIf { now - catalogCacheTime < catalogCacheTtl }?.let { return it }
+
+        val resp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
+        val arr = extractArray(resp.bodyString().parseAs<JsonElement>(json))
+        resp.close()
+
+        catalogCache = arr
+        catalogCacheTime = now
+        arr
+    }
+
     // =========================== Helpers ==============================
 
     private fun SAnime.slug(): String = url.substringAfter("/series/")
@@ -287,10 +308,7 @@ class AnimeVerse :
             val filtered = if (q.isBlank()) {
                 items
             } else {
-                // Fetch the full catalog to cross-reference alternative titles
-                val catalogResp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
-                val catalogArr = extractArray(catalogResp.bodyString().parseAs<JsonElement>(json))
-                catalogResp.close()
+                val catalogArr = getCatalog()
 
                 val matchingSlugs = catalogArr.filter { el ->
                     val o = el.jsonObject
@@ -337,10 +355,7 @@ class AnimeVerse :
             .parseAs<JsonElement>(json)
             .jsonObject
 
-        val arr = client.newCall(GET("$baseUrl/api/v1/catalog"))
-            .execute().bodyString()
-            .let { extractArray(it.parseAs<JsonElement>(json)) }
-        val cat = arr.firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
+        val cat = getCatalog().firstOrNull { it.jsonObject.string("slug") == slug }?.jsonObject
 
         val rating = o.double("rating")
         val synopsis = o.string("synopsis").orEmpty()
