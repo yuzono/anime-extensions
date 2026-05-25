@@ -18,7 +18,6 @@ import java.util.zip.GZIPInputStream
 
 class MiruroExtractor(
     private val client: OkHttpClient,
-    private val baseUrl: String,
     private val pipeKey: ByteArray,
     private val headers: Headers,
 ) {
@@ -64,15 +63,13 @@ class MiruroExtractor(
     suspend fun safePipeApiCall(request: Request, maxRetries: Int = 3): Response {
         var lastResponse: Response? = null
         repeat(maxRetries) { attempt ->
+            lastResponse?.close()
             val response = client.newCall(request).execute()
             val code = response.code
-            if (code in PERMANENT_FAILURE_CODES) {
+            if (code in PERMANENT_FAILURE_CODES || code !in TRANSIENT_RETRY_CODES) {
+                lastResponse = null // prevent finally from closing the returned response
                 return response
             }
-            if (code !in TRANSIENT_RETRY_CODES) {
-                return response
-            }
-            lastResponse?.close()
             lastResponse = response
             if (attempt < maxRetries - 1) {
                 val backoffMs = 1000L * (attempt + 1)
@@ -136,6 +133,8 @@ class MiruroExtractor(
             "sub" -> "Sub"
             "dub" -> "Dub"
             "ssub" -> "Soft Sub"
+            "h-sub" -> "Hard Sub"
+            "embed" -> "Embed"
             null -> null
             else -> subType.replaceFirstChar { it.uppercase() }
         }

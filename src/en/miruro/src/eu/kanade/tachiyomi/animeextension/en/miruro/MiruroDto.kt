@@ -3,36 +3,13 @@ package eu.kanade.tachiyomi.animeextension.en.miruro
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-val jsonParser = Json {
+internal val jsonParser = Json {
     ignoreUnknownKeys = true
     isLenient = true
     coerceInputValues = true
 }
-
-@Serializable
-data class PipePayload(
-    val path: String,
-    val method: String,
-    val query: JsonObject = JsonObject(emptyMap()),
-    val body: JsonElement? = null,
-    val version: String = "0.2.0",
-)
-
-@Serializable
-data class AnimeBrowseResponse(
-    val media: List<AnimeMediaDto>? = null,
-    val pageInfo: PageInfoDto? = null,
-    val results: List<AnimeMediaDto>? = null,
-    val data: List<AnimeMediaDto>? = null,
-)
-
-@Serializable
-data class PageInfoDto(
-    val hasNextPage: Boolean = false,
-)
 
 @Serializable
 data class AnimeMediaDto(
@@ -79,18 +56,6 @@ data class AnimeMediaDto(
 }
 
 @Serializable
-data class EpisodesResponseDto(
-    val providers: JsonObject = JsonObject(emptyMap()),
-)
-
-@Serializable
-data class ProviderEpisodeDto(
-    val number: Float,
-    val id: String = "",
-    val title: String = "",
-)
-
-@Serializable
 data class SourcesResponseDto(
     val streams: List<StreamDto> = emptyList(),
     val subtitles: List<SubtitleDto> = emptyList(),
@@ -122,15 +87,15 @@ data class SubtitleDto(
 )
 
 @Serializable
-class AnilistMalIdResponse(
+data class AnilistMalIdResponse(
     val data: DataObject,
 ) {
     @Serializable
-    class DataObject(
+    data class DataObject(
         @SerialName("Media") val media: MediaObject,
     ) {
         @Serializable
-        class MediaObject(
+        data class MediaObject(
             @SerialName("idMal") val idMal: Int? = null,
         )
     }
@@ -181,18 +146,18 @@ data class ConfigResponseDto(
 }
 
 @Serializable
-class JikanEpisodesDto(
+data class JikanEpisodesDto(
     val data: List<JikanEpisodeDataDto>,
     val pagination: JikanPaginationDto,
 ) {
     @Serializable
-    class JikanEpisodeDataDto(
+    data class JikanEpisodeDataDto(
         @SerialName("mal_id") val number: Int,
         val filler: Boolean,
     )
 
     @Serializable
-    class JikanPaginationDto(
+    data class JikanPaginationDto(
         @SerialName("has_next_page") val hasNextPage: Boolean,
     )
 }

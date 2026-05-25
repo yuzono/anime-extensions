@@ -29,7 +29,7 @@ object MiruroFilters {
     ): List<String> = (this.getFirst<R>() as CheckBoxFilterList).state
         .mapNotNull { checkbox ->
             if (checkbox.state) {
-                options.find { it.first == checkbox.name }!!.second
+                options.find { it.first == checkbox.name }?.second
             } else {
                 null
             }
