@@ -3,10 +3,10 @@ ext {
     extClass = '.DeTodoPeliculas'
     themePkg = 'dooplay'
     baseUrl = 'https://detodopeliculas.nu'
-    overrideVersionCode = 14
+    overrideVersionCode = 15
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:streamwishextractor"))

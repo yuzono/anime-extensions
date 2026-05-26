@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.fr.animevostfr
 
 import android.annotation.SuppressLint
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebResourceRequest
@@ -9,18 +8,16 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.applicationContext
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class CloudFlareInterceptor : Interceptor {
 
-    private val context = Injekt.get<Application>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -45,7 +42,7 @@ class CloudFlareInterceptor : Interceptor {
         var newRequest: Request? = null
 
         handler.post {
-            val webview = WebView(context)
+            val webview = WebView(applicationContext)
             webView = webview
             with(webview.settings) {
                 javaScriptEnabled = true

@@ -1,10 +1,10 @@
 ext {
     extName = 'AnimeMovil'
     extClass = '.AnimeMovil'
-    extVersionCode = 43
+    extVersionCode = 44
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:voeextractor'))

@@ -3,10 +3,10 @@ ext {
     extClass = '.Animenix'
     themePkg = 'dooplay'
     baseUrl = 'https://animenix.com'
-    overrideVersionCode = 17
+    overrideVersionCode = 18
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:filemoonextractor"))

@@ -1,10 +1,10 @@
 ext {
     extName = 'AniWorld'
     extClass = '.AniWorld'
-    extVersionCode = 36
+    extVersionCode = 37
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:voeextractor'))

@@ -3,10 +3,10 @@ ext {
     extClass = '.Cineplus123'
     themePkg = 'dooplay'
     baseUrl = 'https://cineplus123.org'
-    overrideVersionCode = 15
+    overrideVersionCode = 16
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:streamwishextractor"))

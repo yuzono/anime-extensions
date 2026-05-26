@@ -5,30 +5,27 @@ import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.NativeJSON
 import org.mozilla.javascript.NativeObject
 import org.mozilla.javascript.Scriptable
-import uy.kohesive.injekt.injectLazy
 
 class VidGuardExtractor(private val client: OkHttpClient) {
 
     private val playlistUtils by lazy { PlaylistUtils(client) }
 
-    private val json: Json by injectLazy()
-
     fun videosFromUrl(url: String, prefix: String) = videosFromUrl(url) { "${prefix}VidGuard:$it" }
 
     fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "VidGuard:$quality" }): List<Video> {
         try {
-            val res = client.newCall(GET(url)).execute().asJsoup()
+            val res = client.newCall(GET(url)).execute().useAsJsoup()
             val scriptData = res.selectFirst("script:containsData(eval)")?.data() ?: return emptyList()
 
-            val jsonStr2 = json.decodeFromString<SvgObject>(runJS2(scriptData))
+            val jsonStr2 = runJS2(scriptData).parseAs<SvgObject>()
             val playlistUrl = sigDecode(jsonStr2.stream)
 
             return playlistUtils.extractFromHls(playlistUrl, videoNameGen = videoNameGen)

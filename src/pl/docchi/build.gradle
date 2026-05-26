@@ -1,11 +1,11 @@
 ext {
     extName = 'Docchi'
     extClass = '.Docchi'
-    extVersionCode = 9
+    extVersionCode = 10
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:dailymotionextractor'))
