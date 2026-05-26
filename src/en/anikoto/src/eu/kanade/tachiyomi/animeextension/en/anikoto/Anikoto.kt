@@ -1,16 +1,18 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwave
+package eu.kanade.tachiyomi.animeextension.en.anikoto
 
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 
-class AniWave :
+class Anikoto :
     AnikotoTheme(
         "en",
-        "AniWave (Unoriginal)",
+        "Anikoto",
+        // https://anikoto.site/#domains
         domainEntries = listOf(
-            "animewave.to",
-            "aniwave.id",
-            "aniwave.best",
-            "aniwave.ro",
+            "anikototv.to",
+            "anikoto.cz",
+            "anikoto.me",
+            "anikoto.net",
+            "anikototv.se",
         ),
         hosterNames = listOf("megaplay", "vidstream", "vidcloud", "kiwi-stream"),
         hosterDisplayNames = listOf("MegaPlay", "Vidstream", "VidCloud", "Kiwi-Stream"),
