@@ -1,5 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.ru.yummyanime
-
+import okhttp3.Request
 import android.util.Base64
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.sibnetextractor.SibnetExtractor
