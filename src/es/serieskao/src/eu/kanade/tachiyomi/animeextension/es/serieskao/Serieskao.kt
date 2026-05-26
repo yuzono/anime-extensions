@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.animeextension.es.serieskao
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
-import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.fastreamextractor.FastreamExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
@@ -29,6 +28,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking

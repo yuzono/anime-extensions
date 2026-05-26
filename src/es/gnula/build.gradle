@@ -1,10 +1,10 @@
 ext {
     extName = 'Gnula'
     extClass = '.Gnula'
-    extVersionCode = 43
+    extVersionCode = 45
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamtapeextractor'))

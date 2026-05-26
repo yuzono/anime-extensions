@@ -1,10 +1,10 @@
 ext {
     extName = 'asia2tv'
     extClass = '.Asia2TV'
-    extVersionCode = 32
+    extVersionCode = 34
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:doodextractor'))

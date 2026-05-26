@@ -26,11 +26,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import okhttp3.MediaType.Companion.toMediaType
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -189,7 +189,7 @@ class TRAnimeIzle :
                 val fansubName = fansub.text()
 
                 val body = """{"EpisodeId":$episodeId,"FansubId":$fansubId}"""
-                    .toRequestBody("application/json".toMediaType())
+                    .toJsonRequestBody()
 
                 client.newCall(POST("$baseUrl/api/fansubSources", headers, body))
                     .execute()
@@ -224,9 +224,9 @@ class TRAnimeIzle :
     private val vudeoExtractor by lazy { VudeoExtractor(client) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
-    private fun getVideosFromId(id: String): List<Video> {
-        val url = client.newCall(POST("$baseUrl/api/sourcePlayer/$id")).execute()
-            .body.string()
+    private suspend fun getVideosFromId(id: String): List<Video> {
+        val url = client.newCall(POST("$baseUrl/api/sourcePlayer/$id")).awaitSuccess()
+            .bodyString()
             .substringAfter("src=")
             .substringAfter('"')
             .substringAfter("/embed2/?id=")

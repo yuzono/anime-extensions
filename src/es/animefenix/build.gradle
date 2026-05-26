@@ -1,10 +1,10 @@
 ext {
     extName = 'AnimeFenix'
     extClass = '.Animefenix'
-    extVersionCode = 69
+    extVersionCode = 71
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:mp4uploadextractor'))

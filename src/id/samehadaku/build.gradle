@@ -1,10 +1,10 @@
 ext {
     extName = 'Samehadaku'
     extClass = '.Samehadaku'
-    extVersionCode = 8
+    extVersionCode = 9
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:bloggerextractor"))

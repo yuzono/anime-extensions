@@ -1,10 +1,10 @@
 ext {
     extName = 'SeriesKao'
     extClass = '.Serieskao'
-    extVersionCode = 16
+    extVersionCode = 18
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:vudeoextractor'))

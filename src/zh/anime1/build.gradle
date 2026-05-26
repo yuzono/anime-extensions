@@ -1,10 +1,10 @@
 ext {
     extName = 'Anime1.me'
     extClass = '.Anime1'
-    extVersionCode = 3
+    extVersionCode = 4
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:bangumiscraper"))

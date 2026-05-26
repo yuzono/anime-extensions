@@ -1,11 +1,11 @@
 ext {
     extName = 'JavGG'
     extClass = '.Javgg'
-    extVersionCode = 16
+    extVersionCode = 18
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:okruextractor'))

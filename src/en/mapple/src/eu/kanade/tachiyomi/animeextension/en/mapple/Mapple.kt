@@ -24,13 +24,12 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
@@ -418,7 +417,7 @@ class Mapple :
                 ),
             )
 
-            val requestBody = json.encodeToString(payload).toRequestBody("application/json".toMediaType())
+            val requestBody = json.encodeToString(payload).toJsonRequestBody()
             val requestUrl = "$mappleApi/watch/${episodeData.type}/${episodeData.tmdbId}"
 
             val headers = headers.newBuilder()

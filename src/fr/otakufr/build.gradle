@@ -1,10 +1,10 @@
 ext {
     extName = 'OtakuFR'
     extClass = '.OtakuFR'
-    extVersionCode = 38
+    extVersionCode = 40
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamwishextractor'))

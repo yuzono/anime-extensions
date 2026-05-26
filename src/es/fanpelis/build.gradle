@@ -1,10 +1,10 @@
 ext {
     extName = 'FanPelis'
     extClass = '.FanPelis'
-    extVersionCode = 21
+    extVersionCode = 23
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamtapeextractor'))

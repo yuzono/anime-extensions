@@ -1,10 +1,10 @@
 ext {
     extName = 'Kuronime'
     extClass = '.Kuronime'
-    extVersionCode = 12
+    extVersionCode = 13
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamlareextractor'))

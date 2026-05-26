@@ -15,12 +15,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
@@ -75,7 +74,7 @@ class VVVVID :
               "fp+mp4": false,
               "device_id_seed": "${getRandomIntString()}"
             }
-        """.trimIndent().toRequestBody("application/json".toMediaType())
+        """.trimIndent().toJsonRequestBody()
 
         val response = client.newCall(
             POST("$baseUrl/user/login", body = body, headers = headers),

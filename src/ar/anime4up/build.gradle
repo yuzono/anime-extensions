@@ -1,10 +1,10 @@
 ext {
     extName = 'Anime4up'
     extClass = '.Anime4Up'
-    extVersionCode = 74
+    extVersionCode = 76
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:doodextractor'))
