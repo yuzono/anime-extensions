@@ -63,7 +63,7 @@ class KwikExtractor(
                 if (sessionCookies.isNotBlank()) append(sessionCookies).append("; ")
                 append(fCookies)
             }
-            resp.body.string() to combined
+            (resp.body?.string().orEmpty()) to combined
         }
 
         val match = KWIK_PARAMS_REGEX.find(html)

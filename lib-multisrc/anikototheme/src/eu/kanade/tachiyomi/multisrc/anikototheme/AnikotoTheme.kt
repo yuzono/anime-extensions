@@ -320,18 +320,19 @@ abstract class AnikotoTheme(
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request {
+    override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
+    override fun episodeListSelector() = "div.episodes ul > li > a"
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.substringAfter("#", "")
         val animeUrl = anime.url.substringBefore("#")
 
         val id = animeId.ifBlank {
-            client.newCall(GET(baseUrl + animeUrl)).execute().use { response ->
-                resolveSearchAnime(response.asJsoup()).let { doc ->
-                    doc.selectFirst("[data-id]")?.attr("data-id")
-                        ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
-                        ?: throw IllegalStateException("Anime ID not found")
-                }
-            }
+            val response = client.newCall(GET(baseUrl + animeUrl, docHeaders)).awaitSuccess()
+            val doc = resolveSearchAnime(response.asJsoup())
+            doc.selectFirst("[data-id]")?.attr("data-id")
+                ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
+                ?: throw IllegalStateException("Anime ID not found")
         }
 
         val listHeaders = headers.newBuilder().apply {
@@ -339,10 +340,10 @@ abstract class AnikotoTheme(
             add("Referer", baseUrl + animeUrl)
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
-        return GET("$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}", listHeaders)
-    }
 
-    override fun episodeListSelector() = "div.episodes ul > li > a"
+        val response = client.newCall(GET("$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}", listHeaders)).awaitSuccess()
+        return episodeListParse(response)
+    }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val referer = response.request.header("Referer")
@@ -461,7 +462,15 @@ abstract class AnikotoTheme(
                     add("Origin", baseUrl)
                 }.build()
 
-                client.newCall(GET("https://mapper.mewcdn.online/api/mal/$mapperMal/$mapperSlug/$mapperTs", mapperHeaders))
+                val mapperUrl = "https://mapper.mewcdn.online".toHttpUrl().newBuilder().apply {
+                    addPathSegment("api")
+                    addPathSegment("mal")
+                    addPathSegment(mapperMal)
+                    addPathSegment(mapperSlug)
+                    addPathSegment(mapperTs)
+                }.build()
+
+                client.newCall(GET(mapperUrl, mapperHeaders))
                     .awaitSuccess().use { apiResponse ->
                         val mapperJson = apiResponse.parseAs<JsonObject>()
                         for ((key, value) in mapperJson) {
@@ -574,7 +583,7 @@ abstract class AnikotoTheme(
 
         val pageBody = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
-            it.body.string()
+            it.body?.string().orEmpty()
         }
 
         val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
@@ -589,7 +598,7 @@ abstract class AnikotoTheme(
 
         val sourcesBody = client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("getSources failed: HTTP ${it.code}")
-            it.body.string()
+            it.body?.string().orEmpty()
         }
 
         val data = sourcesBody.parseAs<SourceResponseDto>()
@@ -940,7 +949,7 @@ abstract class AnikotoTheme(
 
     private suspend fun resolvePaheRedirect(paheUrl: String): String {
         val pageBody = client.newCall(GET(paheUrl, docHeaders)).awaitSuccess().use { response ->
-            response.body.string()
+            response.body?.string().orEmpty()
         }
         return PAHE_KWIK_REGEX.find(pageBody)?.groupValues?.get(1)
             ?: throw Exception("Could not find kwik.cx URL in redirect page from $paheUrl")
@@ -981,8 +990,8 @@ abstract class AnikotoTheme(
     // ============================== Preferences ===========================
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, defaultBaseUrl)!!.removePrefix("https://")
-        val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
+        val domain = (getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl).removePrefix("https://")
+        val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet()) ?: hosterNames.toSet()
 
         val invalidDomain = domain !in domainEntries
         val invalidHosters = hostToggle.any { it !in hosterNames }
@@ -1000,7 +1009,7 @@ abstract class AnikotoTheme(
     }
 
     private fun getHosters(): Set<String> {
-        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
+        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet()) ?: hosterNames.toSet()
         if (hosterSelection.any { it !in hosterNames }) {
             preferences.edit().putStringSet(PREF_HOSTER_KEY, hosterNames.toSet()).apply()
             return hosterNames.toSet()
