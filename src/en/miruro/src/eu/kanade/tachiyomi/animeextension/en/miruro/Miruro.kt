@@ -170,9 +170,22 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Telli (embed)", "Bee", "Bun (embed)", "Hop", "Nun (embed)", "Dune", "Ally")
+        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "GogoAnime (embed)", "Anikoto", "Anikoto (embed)", "Zoro", "9Anime (embed)", "AnimeKai", "9Anime")
         private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "nun", "dune", "ally")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
+
+        private val PROVIDER_DISPLAY_NAMES = mapOf(
+            "kiwi" to "AnimePahe",
+            "telli" to "GogoAnime",
+            "bee" to "Anikoto",
+            "bun" to "Anikoto",
+            "hop" to "Zoro",
+            "nun" to "9Anime",
+            "dune" to "AnimeKai",
+            "ally" to "9Anime",
+        )
+
+        fun providerDisplayName(alias: String): String = PROVIDER_DISPLAY_NAMES[alias] ?: alias.replaceFirstChar { it.uppercase() }
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
         private const val PREF_SUB_TYPE_TITLE = "Preferred Sub/Dub"
@@ -651,7 +664,7 @@ class Miruro :
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
 
-        val providerLabel = provider.replaceFirstChar { it.uppercase() }
+        val providerLabel = providerDisplayName(provider)
 
         return SEpisode.create().apply {
             episode_number = number.toFloat()
@@ -727,7 +740,7 @@ class Miruro :
 
         if (!primaryFailed && primaryResponse != null) {
             try {
-                videos.addAll(extractor.parseStreamsFromResponse(primaryResponse, defaultSubType))
+                videos.addAll(extractor.parseStreamsFromResponse(primaryResponse, defaultSubType, provider))
                 if (videos.isNotEmpty()) {
                     extractor.recordProviderSuccess(provider)
                 }
@@ -759,7 +772,7 @@ class Miruro :
             videos.addAll(
                 requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
                     extractor.safePipeApiCall(request).use { resp ->
-                        extractor.parseStreamsFromResponse(resp, subTypeKey)
+                        extractor.parseStreamsFromResponse(resp, subTypeKey, provider)
                     }
                 },
             )
@@ -816,11 +829,13 @@ class Miruro :
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.preferredQuality
         val subTypeLabel = formatSubTypeLabel(preferences.preferredSubType)
+        val providerName = providerDisplayName(preferences.preferredProvider)
 
         val qualityInt = quality.toIntOrNull() ?: 0
 
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(subTypeLabel) }
+            compareByDescending { it.quality.contains(providerName) }
+                .thenByDescending { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
                     val q = QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                     when {
