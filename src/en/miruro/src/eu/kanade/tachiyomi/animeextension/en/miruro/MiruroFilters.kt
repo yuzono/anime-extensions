@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter.TriState
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
@@ -15,6 +16,9 @@ object MiruroFilters {
     ) {
         fun toQueryPart() = vals[state].second
     }
+
+    open class TriStateFilterList(name: String, values: List<TriFilterVal>) : AnimeFilter.Group<TriState>(name, values)
+    class TriFilterVal(name: String) : TriState(name)
 
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
@@ -35,12 +39,29 @@ object MiruroFilters {
             }
         }
 
+    private inline fun <reified R> AnimeFilterList.parseTriState(
+        options: Array<Pair<String, String>>,
+    ): Pair<List<String>, List<String>> {
+        val state = (this.getFirst<R>() as TriStateFilterList).state
+        val included = mutableListOf<String>()
+        val excluded = mutableListOf<String>()
+        for (filter in state) {
+            if (filter.isIgnored()) continue
+            val value = options.find { it.first == filter.name }?.second ?: continue
+            when (filter.state) {
+                TriState.STATE_INCLUDE -> included.add(value)
+                TriState.STATE_EXCLUDE -> excluded.add(value)
+            }
+        }
+        return included to excluded
+    }
+
     class SortFilter : QueryPartFilter("Sort", MiruroFiltersData.SORT)
 
     class GenreFilter :
-        CheckBoxFilterList(
+        TriStateFilterList(
             "Genres",
-            MiruroFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+            MiruroFiltersData.GENRES.map { TriFilterVal(it.first) },
         )
 
     class YearFilter : QueryPartFilter("Year", MiruroFiltersData.YEARS)
@@ -56,9 +77,9 @@ object MiruroFilters {
         )
 
     class TagsFilter :
-        CheckBoxFilterList(
+        TriStateFilterList(
             "Tags",
-            MiruroFiltersData.TAGS.map { CheckBoxVal(it.first, false) },
+            MiruroFiltersData.TAGS.map { TriFilterVal(it.first) },
         )
 
     class DubLanguageFilter : QueryPartFilter("Dub Language", MiruroFiltersData.DUB_LANGUAGES)
@@ -79,7 +100,9 @@ object MiruroFilters {
     data class FilterSearchParams(
         val sort: String = "all",
         val genres: List<String> = emptyList(),
+        val excludedGenres: List<String> = emptyList(),
         val tags: List<String> = emptyList(),
+        val excludedTags: List<String> = emptyList(),
         val year: String = "all",
         val season: String = "all",
         val status: String = "all",
@@ -89,10 +112,14 @@ object MiruroFilters {
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
+        val (includedGenres, excludedGenres) = filters.parseTriState<GenreFilter>(MiruroFiltersData.GENRES)
+        val (includedTags, excludedTags) = filters.parseTriState<TagsFilter>(MiruroFiltersData.TAGS)
         return FilterSearchParams(
             sort = filters.asQueryPart<SortFilter>(),
-            genres = filters.parseCheckbox<GenreFilter>(MiruroFiltersData.GENRES),
-            tags = filters.parseCheckbox<TagsFilter>(MiruroFiltersData.TAGS),
+            genres = includedGenres,
+            excludedGenres = excludedGenres,
+            tags = includedTags,
+            excludedTags = excludedTags,
             year = filters.asQueryPart<YearFilter>(),
             season = filters.asQueryPart<SeasonFilter>(),
             status = filters.asQueryPart<StatusFilter>(),
@@ -123,7 +150,6 @@ object MiruroFilters {
             Pair("Drama", "Drama"),
             Pair("Ecchi", "Ecchi"),
             Pair("Fantasy", "Fantasy"),
-            Pair("Hentai", "Hentai"),
             Pair("Horror", "Horror"),
             Pair("Mahou Shoujo", "Mahou Shoujo"),
             Pair("Mecha", "Mecha"),

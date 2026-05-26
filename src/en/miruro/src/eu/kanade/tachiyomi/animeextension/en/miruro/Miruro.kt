@@ -337,6 +337,11 @@ class Miruro :
             params.genres.forEach { genresArray.put(it) }
             queryParams.put("genre", genresArray)
         }
+        if (params.excludedGenres.isNotEmpty()) {
+            val excludedGenresArray = JSONArray()
+            params.excludedGenres.forEach { excludedGenresArray.put(it) }
+            queryParams.put("excludedGenre", excludedGenresArray)
+        }
         if (params.formats.isNotEmpty()) {
             val formatsArray = JSONArray()
             params.formats.forEach { formatsArray.put(it) }
@@ -346,6 +351,11 @@ class Miruro :
             val tagsArray = JSONArray()
             params.tags.forEach { tagsArray.put(it) }
             queryParams.put("tag", tagsArray)
+        }
+        if (params.excludedTags.isNotEmpty()) {
+            val excludedTagsArray = JSONArray()
+            params.excludedTags.forEach { excludedTagsArray.put(it) }
+            queryParams.put("excludedTag", excludedTagsArray)
         }
         if (params.dubLanguage != "all") queryParams.put("dub", params.dubLanguage)
 
@@ -830,10 +840,10 @@ class Miruro :
     override fun getEpisodeUrl(episode: SEpisode): String {
         val episodeData = try {
             JSONObject(episode.url)
-    } catch (e: Exception) {
-        Log.w("Miruro", "Failed to parse episode URL data: ${e.message}")
-        return baseUrl
-    }
+        } catch (e: Exception) {
+            Log.w("Miruro", "Failed to parse episode URL data: ${e.message}")
+            return baseUrl
+        }
         val anilistId = episodeData.optInt("anilistId", 0)
         return if (anilistId > 0) "$baseUrl/watch/$anilistId" else baseUrl
     }
@@ -1181,11 +1191,11 @@ class Miruro :
             val decoded = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             val payload = JSONObject(String(decoded, Charsets.UTF_8))
             val query = payload.optJSONObject("query") ?: return null
-        query.optInt("anilistId", -1).takeIf { it > 0 }
-    } catch (e: Exception) {
-        Log.d("Miruro", "Failed to extract anilistId from pipe URL: ${e.message}")
-        null
-    }
+            query.optInt("anilistId", -1).takeIf { it > 0 }
+        } catch (e: Exception) {
+            Log.d("Miruro", "Failed to extract anilistId from pipe URL: ${e.message}")
+            null
+        }
     }
 
     private fun extractEpisodeDataFromPipeRequest(url: String): JSONObject? {
@@ -1196,12 +1206,12 @@ class Miruro :
             val payload = JSONObject(String(decoded, Charsets.UTF_8))
             val query = payload.optJSONObject("query") ?: return null
             val epDataStr = query.optString("_ep", "")
-        if (epDataStr.isEmpty()) return null
-        JSONObject(epDataStr)
-    } catch (e: Exception) {
-        Log.d("Miruro", "Failed to extract episode data from pipe URL: ${e.message}")
-        null
-    }
+            if (epDataStr.isEmpty()) return null
+            JSONObject(epDataStr)
+        } catch (e: Exception) {
+            Log.d("Miruro", "Failed to extract episode data from pipe URL: ${e.message}")
+            null
+        }
     }
 
     private fun buildPipeRequest(
