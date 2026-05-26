@@ -2,10 +2,10 @@ package eu.kanade.tachiyomi.animeextension.en.aniwave
 
 import android.app.Application
 import android.util.Log
-import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient

@@ -19,7 +19,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.encodeToString
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -29,10 +29,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup.parseBodyFragment
 import org.jsoup.nodes.Document
@@ -418,14 +415,10 @@ class AniZone :
                     put("updates", updates)
                 }
             }
-        }.toRequestBody()
+        }.toJsonRequestBody()
 
         return POST("$baseUrl/livewire/update", headers, body)
     }
-
-    private fun JsonObject.toRequestBody(): RequestBody = json.encodeToString(this).toRequestBody(
-        "application/json".toMediaType(),
-    )
 
     private fun parseDate(dateStr: String): Long = try {
         DATE_FORMAT.parse(dateStr)!!.time

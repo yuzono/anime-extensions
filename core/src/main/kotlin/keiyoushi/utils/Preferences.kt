@@ -1,6 +1,5 @@
 package keiyoushi.utils
 
-import android.app.Application
 import android.content.SharedPreferences
 import android.text.Editable
 import android.text.TextWatcher
@@ -13,8 +12,6 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -35,8 +32,7 @@ inline fun AnimeHttpSource.getPreferencesLazy(
 /**
  * Returns the [SharedPreferences] associated with passed source id
  */
-@Suppress("NOTHING_TO_INLINE")
-inline fun getPreferences(sourceId: Long): SharedPreferences = Injekt.get<Application>().getSharedPreferences("source_$sourceId", 0x0000)
+fun getPreferences(sourceId: Long): SharedPreferences = applicationContext.getSharedPreferences("source_$sourceId", 0x0000)
 
 // From https://al-e-shevelev.medium.com/mutable-lazy-in-kotlin-14233bed116d
 class LazyMutable<T>(

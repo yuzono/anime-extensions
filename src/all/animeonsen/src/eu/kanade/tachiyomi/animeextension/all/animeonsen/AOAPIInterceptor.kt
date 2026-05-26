@@ -1,15 +1,14 @@
 package eu.kanade.tachiyomi.animeextension.all.animeonsen
 
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 class AOAPIInterceptor(client: OkHttpClient) : Interceptor {
@@ -24,7 +23,7 @@ class AOAPIInterceptor(client: OkHttpClient) : Interceptor {
                     "client_secret": "349038c4157d0480784753841217270c3c5b35f4281eaee029de21cb04084235",
                     "grant_type": "client_credentials"
                 }
-            """.trimIndent().toRequestBody("application/json".toMediaType())
+            """.trimIndent().toJsonRequestBody()
 
             val headers = Headers.headersOf("user-agent", AO_USER_AGENT)
 

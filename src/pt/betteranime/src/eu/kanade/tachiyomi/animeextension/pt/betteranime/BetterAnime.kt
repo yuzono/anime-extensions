@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,9 +25,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -152,7 +151,7 @@ class BetterAnime :
                 )
             }
         }
-        val reqBody = json.encodeToString(JsonObject.serializer(), data).toRequestBody("application/json".toMediaType())
+        val reqBody = json.encodeToString(JsonObject.serializer(), data).toJsonRequestBody()
 
         val headers = headersBuilder()
             .add("x-livewire", "true")

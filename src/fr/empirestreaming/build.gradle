@@ -1,9 +1,9 @@
 ext {
     extName = 'EmpireStreaming'
     extClass = '.EmpireStreaming'
-    extVersionCode = 25
+    extVersionCode = 26
 }
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:voeextractor'))
