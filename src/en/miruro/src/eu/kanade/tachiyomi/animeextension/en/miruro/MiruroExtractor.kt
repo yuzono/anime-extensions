@@ -35,6 +35,19 @@ class MiruroExtractor(
         private const val CIRCUIT_COOLDOWN_MS = 180_000L
         private val PERMANENT_FAILURE_CODES = setOf(444)
         private val TRANSIENT_RETRY_CODES = setOf(429, 502, 503, 504)
+
+        private val PROVIDER_DISPLAY_NAMES = mapOf(
+            "kiwi" to "AnimePahe",
+            "telli" to "GogoAnime",
+            "bee" to "Anikoto",
+            "bun" to "Anikoto (embed)",
+            "hop" to "Zoro",
+            "nun" to "9Anime (embed)",
+            "dune" to "AnimeKai",
+            "ally" to "9Anime",
+        )
+
+        fun providerDisplayName(key: String): String = PROVIDER_DISPLAY_NAMES[key] ?: key.replaceFirstChar { it.uppercase() }
     }
 
     fun isProviderCircuitOpen(provider: String): Boolean {
@@ -109,7 +122,7 @@ class MiruroExtractor(
         }
     }
 
-    fun parseStreamsFromResponse(response: Response, subType: String?): List<Video> {
+    fun parseStreamsFromResponse(response: Response, subType: String?, providerKey: String = ""): List<Video> {
         val json = try {
             response.use(::decryptResponse)
         } catch (e: Exception) {
@@ -154,6 +167,7 @@ class MiruroExtractor(
             val height = stream.resolution?.height ?: 0
 
             val qualityLabel = buildString {
+                if (providerKey.isNotEmpty()) append("${providerDisplayName(providerKey)} - ")
                 append("${qualityInt}p")
                 if (subTypeLabel != null) append(" $subTypeLabel")
                 if (width > 0 && height > 0) append(" - ${width}x$height")
@@ -211,17 +225,17 @@ class MiruroExtractor(
                     )
                     val fbVideos = safePipeApiCall(
                         buildPipeRequest("sources", "GET", query),
-                    ).use { parseStreamsFromResponse(it, fbSubType) }
+                    ).use { parseStreamsFromResponse(it, fbSubType, fallbackKey) }
                     if (fbVideos.isNotEmpty()) {
                         videos.addAll(fbVideos)
                         recordProviderSuccess(fallbackKey)
-                        Log.i(TAG, "Fallback to provider $fallbackKey/$fbSubType succeeded (${fbVideos.size} videos)")
+                        Log.i(TAG, "Fallback to provider ${providerDisplayName(fallbackKey)} ($fallbackKey)/$fbSubType succeeded (${fbVideos.size} videos)")
                         foundVideos = true
                         break
                     }
                 } catch (e: Exception) {
                     recordProviderFailure(fallbackKey)
-                    Log.e(TAG, "Fallback provider $fallbackKey/$fbSubType failed: ${e.message}")
+                    Log.e(TAG, "Fallback provider ${providerDisplayName(fallbackKey)} ($fallbackKey)/$fbSubType failed: ${e.message}")
                 }
             }
             if (foundVideos) break
