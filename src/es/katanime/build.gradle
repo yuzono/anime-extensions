@@ -1,10 +1,10 @@
 ext {
     extName = 'Katanime'
     extClass = '.Katanime'
-    extVersionCode = 18
+    extVersionCode = 19
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamwishextractor'))
@@ -16,4 +16,5 @@ dependencies {
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:playlistutils'))
     implementation(project(":lib:unpacker"))
+    implementation(project(":lib:cryptoaes"))
 }

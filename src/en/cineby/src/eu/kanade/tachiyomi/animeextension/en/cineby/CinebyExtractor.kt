@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -123,7 +123,7 @@ class CinebyExtractor(
                 ).awaitSuccess().bodyString()
 
                 val requestBody = mapOf("text" to encryptedText, "id" to pathParts[1])
-                    .toRequestBody()
+                    .toJsonRequestBody()
                 val decrypted = client.newCall(POST(DECRYPTION_API_URL, body = requestBody))
                     .awaitSuccess()
                     .parseAs<VideasyDecryptionDto>()
