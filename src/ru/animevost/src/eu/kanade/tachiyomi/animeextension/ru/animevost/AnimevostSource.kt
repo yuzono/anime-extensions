@@ -354,7 +354,7 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
             // like "tv", "ova", "ona", "film", "dunhua" (<=6 chars, no hyphens/digits).
             // Real anime slugs are longer or contain a hyphen or digit.
             val slug = href.trimEnd('/').substringAfterLast('/').lowercase()
-            if (slug.length <= 6 && slug.isNotEmpty() && slug.all { it.isLetter() }) return@forEach
+            if (slug.length <= 6 && slug.all { it.isLetter() }) return@forEach
 
             // Title: prefer the link title-attribute or img alt (set by the site),
             // then any heading text, then the link text itself.
