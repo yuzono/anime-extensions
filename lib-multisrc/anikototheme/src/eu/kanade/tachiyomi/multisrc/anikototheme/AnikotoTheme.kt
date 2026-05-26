@@ -677,7 +677,7 @@ abstract class AnikotoTheme(
         }
 
         val altNames = mutableListOf<String>()
-        if (useEnglish) jpTitle?.let { altNames.add(it) } else enTitle?.let { altNames.add(it) }
+        if (useEnglish()) jpTitle?.let { altNames.add(it) } else enTitle?.let { altNames.add(it) }
         document.selectFirst(aliasContainerSelector)?.text()?.takeIf { it.isNotBlank() }?.let { namesText ->
             altNames.addAll(namesText.split(";").map { it.trim() }.filter { it.isNotBlank() && it != jpTitle && it != enTitle })
         }
@@ -810,7 +810,7 @@ abstract class AnikotoTheme(
     protected open fun getTitle(element: Element): String {
         val enTitle = element.text().trim().takeIf(String::isNotBlank)
         val jpTitle = element.attr("data-jp").trim().takeIf(String::isNotBlank)
-        return if (useEnglish) {
+        return if (useEnglish()) {
             enTitle ?: jpTitle ?: element.text().trim()
         } else {
             jpTitle ?: enTitle ?: element.text().trim()
@@ -867,7 +867,7 @@ abstract class AnikotoTheme(
         return hosterSelection
     }
 
-    protected var useEnglish by LazyMutable { getTitleLang == "English" }
+    protected fun useEnglish() = getTitleLang == "English"
 
     protected val getTitleLang by preferences.delegate(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT)
     protected val prefQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
