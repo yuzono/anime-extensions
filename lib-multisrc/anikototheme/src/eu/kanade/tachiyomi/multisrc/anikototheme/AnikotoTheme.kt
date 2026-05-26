@@ -1164,7 +1164,7 @@ abstract class AnikotoTheme(
         SwitchPreferenceCompat(screen.context).apply {
             key = PREF_LINK_TYPE_KEY
             title = "Use HLS links"
-            summary = "Default: MP4. Enable to use HLS instead.\nHLS may not support seeking without downloading first."
+            summary = "Defaults to MP4. Enable to use HLS instead.\nHLS may not support seeking without downloading first. Kiwi-Stream only."
             setDefaultValue(PREF_LINK_TYPE_DEFAULT)
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit().putBoolean(key, newValue as Boolean).commit()
