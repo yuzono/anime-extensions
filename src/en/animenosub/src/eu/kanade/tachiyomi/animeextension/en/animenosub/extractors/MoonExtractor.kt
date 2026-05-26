@@ -8,15 +8,14 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -98,7 +97,7 @@ class MoonExtractor(
                 .build()
 
             val requestBody = json.encodeToString(fingerprintBody)
-                .toRequestBody("application/json".toMediaType())
+                .toJsonRequestBody()
             val playbackUrl = "https://$embedHost/api/videos/$videoId/embed/playback"
 
             val response = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))

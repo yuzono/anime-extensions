@@ -31,7 +31,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -264,7 +264,7 @@ class KickAssAnime :
                 put("page", page)
                 put("query", query)
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
-            }.toRequestBody()
+            }.toJsonRequestBody()
 
             POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }

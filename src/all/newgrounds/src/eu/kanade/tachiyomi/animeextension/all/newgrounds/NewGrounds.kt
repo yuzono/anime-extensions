@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.all.newgrounds
 
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -18,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -28,7 +28,6 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import tryParse
-import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -48,7 +47,6 @@ class NewGrounds :
 
     private val preferences by getPreferencesLazy()
 
-    private val context = Injekt.get<Application>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     private val videoListHeaders by lazy {
@@ -504,7 +502,7 @@ class NewGrounds :
         val shouldPrompt = preferences.getBoolean("PROMPT_CONTENT_FILTERED", true)
         if (shouldPrompt) {
             handler.post {
-                Toast.makeText(context, "Log in via WebView to include adult content", Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, "Log in via WebView to include adult content", Toast.LENGTH_SHORT).show()
             }
         }
     }

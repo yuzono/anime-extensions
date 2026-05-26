@@ -1,11 +1,11 @@
 ext {
     extName = 'hanime.tv'
     extClass = '.Hanime'
-    extVersionCode = 20
+    extVersionCode = 21
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 android {
     // Chicory WASM runtime uses MethodHandle.invoke/invokeExact which requires API 26+;

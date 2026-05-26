@@ -7,11 +7,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 
 class BetterAnimeExtractor(
     private val client: OkHttpClient,
@@ -40,7 +39,7 @@ class BetterAnimeExtractor(
                 "info": "$qtoken"
             }
         """.trimIndent()
-        val reqBody = body.toRequestBody("application/json".toMediaType())
+        val reqBody = body.toJsonRequestBody()
         val request = POST("$baseUrl/changePlayer", headers, reqBody)
         return runCatching {
             val response = client.newCall(request).await().body.string()
