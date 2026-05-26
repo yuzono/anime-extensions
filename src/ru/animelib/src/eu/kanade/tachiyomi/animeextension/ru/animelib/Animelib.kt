@@ -563,12 +563,6 @@ class Animelib :
                 set("User-Agent", "Mozilla/5.0 (Android)")
             }.build()
 
-            // Debug log: report built url and headers
-            android.util.Log.d(
-                "Animelib",
-                "animelibVideoLinks: built url=$url href=$href team=${videoInfo.team.name} quality=${it.quality} serverUrl=$serverUrl headers=$videoHeaders",
-            )
-
             Video(url, quality, url, headers = videoHeaders, subtitleTracks = subtitles)
         }
 
