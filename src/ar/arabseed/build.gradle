@@ -1,10 +1,10 @@
 ext {
     extName = 'Arab Seed'
     extClass = '.ArabSeed'
-    extVersionCode = 28
+    extVersionCode = 29
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:doodextractor"))

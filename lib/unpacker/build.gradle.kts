@@ -1,13 +1,15 @@
 plugins {
-    id("lib-android")
+    alias(kei.plugins.library)
 }
 
 android {
-    sourceSets.named("test") {
-        java.directories.clear()
-        java.directories.add("test/java")
-        kotlin.directories.clear()
-        kotlin.directories.add("test/kotlin")
+    sourceSets {
+        named("test") {
+            java.directories.clear()
+            java.directories.add("test/java")
+            kotlin.directories.clear()
+            kotlin.directories.add("test/kotlin")
+        }
     }
 
     testOptions {

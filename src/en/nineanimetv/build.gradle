@@ -3,10 +3,10 @@ ext {
     extClass = '.NineAnimeTv'
     themePkg = 'zorotheme'
     baseUrl = 'https://9animetv.to'
-    overrideVersionCode = 7
+    overrideVersionCode = 8
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     api(project(":lib:rapidcloudextractor"))

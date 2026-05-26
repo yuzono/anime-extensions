@@ -23,12 +23,11 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
@@ -382,7 +381,7 @@ class XPrime :
                 .awaitSuccess().body.string()
 
             val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText))
-            val requestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
+            val requestBody = decryptionPayload.toJsonRequestBody()
             val decrypted = client.newCall(POST(decryptionApiUrl, body = requestBody)).awaitSuccess()
                 .parseAs<XprimeDecryptionDto>().result
 

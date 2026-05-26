@@ -5,7 +5,7 @@ ext {
     extNames = ["Jellyfin (1)", "Jellyfin (2)", "Jellyfin (3)"]
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation("org.apache.commons:commons-text:1.14.0")

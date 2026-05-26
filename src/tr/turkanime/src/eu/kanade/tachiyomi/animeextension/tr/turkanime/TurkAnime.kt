@@ -6,7 +6,6 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.cryptoaes.CryptoAES
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
@@ -14,7 +13,6 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.sendvidextractor.SendvidExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
-import aniyomi.lib.synchrony.Deobfuscator
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vkextractor.VkExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -36,6 +34,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.lib.synchrony.Deobfuscator
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap

@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.all.torrentio
 
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -22,13 +21,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
@@ -50,14 +48,13 @@ class Torrentio :
 
     private val preferences by getPreferencesLazy()
 
-    private val context = Injekt.get<Application>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== JustWatch API Request ===================
     private fun makeGraphQLRequest(query: String, variables: String): Request {
         val requestBody = """
         {"query": "${query.replace("\n", "")}", "variables": $variables}
-        """.trimIndent().toRequestBody("application/json; charset=utf-8".toMediaType())
+        """.trimIndent().toJsonRequestBody()
 
         val request = Request.Builder()
             .url("https://apis.justwatch.com/graphql")
@@ -379,7 +376,7 @@ class Torrentio :
             when {
                 token.isNullOrBlank() && debridProvider != "none" -> {
                     handler.post {
-                        context.let {
+                        applicationContext.let {
                             Toast.makeText(
                                 it,
                                 "Kindly input the debrid token in the extension settings.",

@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -27,9 +28,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 class Kool :
@@ -119,7 +118,7 @@ class Kool :
                             "enabled": false
                           }
                     }
-                """.toRequestBody("application/json".toMediaType()),
+                """.toJsonRequestBody(),
             ),
         ).execute().body.string()
         val jsonData = json.decodeFromString<JsonObject>(mhubjson)
@@ -161,7 +160,7 @@ class Kool :
             },
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
         )
     }
 
@@ -216,7 +215,7 @@ class Kool :
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else if (anime.url.substringAfter("&type=") == "series") {
             return POST(
@@ -235,7 +234,7 @@ class Kool :
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -249,7 +248,7 @@ class Kool :
                   "url": "$baseUrl${anime.url}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }
@@ -328,7 +327,7 @@ class Kool :
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else if (type == "series") {
             return POST(
@@ -354,7 +353,7 @@ class Kool :
                   },
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -368,7 +367,7 @@ class Kool :
                   "url": "$baseUrl${episode.url.substringAfter("?url=").substringBefore("&type=")}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }
@@ -491,7 +490,7 @@ class Kool :
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
 
@@ -521,7 +520,7 @@ class Kool :
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
 
@@ -551,7 +550,7 @@ class Kool :
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
 
@@ -581,7 +580,7 @@ class Kool :
                     },
                               "clientVersion": "1.1.3"
                             }
-                     """.toRequestBody("application/json".toMediaType()),
+                     """.toJsonRequestBody(),
                 )
             }
         }
@@ -681,7 +680,7 @@ class Kool :
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -695,7 +694,7 @@ class Kool :
                   "url": "$baseUrl${anime.url}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }
