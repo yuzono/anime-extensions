@@ -273,7 +273,7 @@ class KickAssAnime :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != PREF_DOMAIN_DEFAULT.toHttpUrl().host) {
                 throw Exception("Unsupported url")
             }
             val slug = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
