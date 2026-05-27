@@ -396,7 +396,7 @@ class Anikage :
         screen.addEditTextPreference(
             key = PREF_API_KEY,
             title = "API key",
-            default = PREF_API_DEFAULT,
+            default = "",
             summary = "Private API key",
         )
 
@@ -435,7 +435,7 @@ class Anikage :
         get() = getBoolean(PREF_ADULT_KEY, PREF_ADULT_DEFAULT)
 
     private val SharedPreferences.apiKey
-        get() = getString(PREF_API_KEY, PREF_API_DEFAULT)!!
+        get() = getString(PREF_API_KEY, "")?.takeIf(String::isNotBlank) ?: PREF_API_DEFAULT
 
     private val SharedPreferences.subOrDub
         get() = getString(PREF_ISSUBORDUB_SOURCE, PREF_ISSUBORDUB_DEFAULT)!!
