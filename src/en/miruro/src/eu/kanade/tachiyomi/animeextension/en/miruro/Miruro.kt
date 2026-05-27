@@ -202,7 +202,7 @@ class Miruro :
 
         private const val PREF_STREAM_FORMAT_KEY = "preferred_stream_format"
         private const val PREF_STREAM_FORMAT_TITLE = "Preferred Stream Format"
-        private val PREF_STREAM_FORMAT_ENTRIES = listOf("HLS", "Embed", "All")
+        private val PREF_STREAM_FORMAT_ENTRIES = listOf("HLS (Recommended)", "Embed", "First available")
         private val PREF_STREAM_FORMAT_VALUES = listOf("hls", "embed", "all")
         private const val PREF_STREAM_FORMAT_DEFAULT = "hls"
 
