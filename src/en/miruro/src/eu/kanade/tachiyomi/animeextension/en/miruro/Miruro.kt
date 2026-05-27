@@ -239,8 +239,8 @@ class Miruro :
         private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
 
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
-        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider in scanlator"
-        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = true
+	private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
+	private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
 
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
