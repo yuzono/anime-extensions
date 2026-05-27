@@ -64,6 +64,7 @@ class Miruro :
     private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
     private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+    private val SharedPreferences.preferredStreamFormat by preferences.delegate(PREF_STREAM_FORMAT_KEY, PREF_STREAM_FORMAT_DEFAULT)
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
@@ -198,6 +199,12 @@ class Miruro :
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
         private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private const val PREF_QUALITY_DEFAULT = "1080"
+
+        private const val PREF_STREAM_FORMAT_KEY = "preferred_stream_format"
+        private const val PREF_STREAM_FORMAT_TITLE = "Preferred Stream Format"
+        private val PREF_STREAM_FORMAT_ENTRIES = listOf("HLS", "MP4", "All")
+        private val PREF_STREAM_FORMAT_VALUES = listOf("hls", "mp4", "all")
+        private const val PREF_STREAM_FORMAT_DEFAULT = "hls"
 
         private const val PREF_TITLE_STYLE_KEY = "preferred_title_style"
         private const val PREF_TITLE_STYLE_TITLE = "Title Display Style"
@@ -830,11 +837,14 @@ class Miruro :
         val quality = preferences.preferredQuality
         val subTypeLabel = formatSubTypeLabel(preferences.preferredSubType)
         val providerName = providerDisplayName(preferences.preferredProvider)
+        val streamFormat = preferences.preferredStreamFormat
 
         val qualityInt = quality.toIntOrNull() ?: 0
+        val formatLabel = if (streamFormat != "all") streamFormat.uppercase() else null
 
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(providerName) }
+            compareByDescending<Video> { formatLabel == null || it.quality.contains(formatLabel) }
+                .thenByDescending { it.quality.contains(providerName) }
                 .thenByDescending { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
                     val q = QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -912,6 +922,15 @@ class Miruro :
             entries = PREF_QUALITY_ENTRIES,
             entryValues = PREF_QUALITY_VALUES,
             default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_STREAM_FORMAT_KEY,
+            title = PREF_STREAM_FORMAT_TITLE,
+            entries = PREF_STREAM_FORMAT_ENTRIES,
+            entryValues = PREF_STREAM_FORMAT_VALUES,
+            default = PREF_STREAM_FORMAT_DEFAULT,
             summary = "%s",
         )
 

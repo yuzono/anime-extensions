@@ -148,12 +148,13 @@ class MiruroExtractor(
         val videos = mutableListOf<Video>()
 
         for (stream in sourcesDto.streams) {
-            if (stream.type != "hls") continue
             if (stream.url.isEmpty()) continue
 
             val qualityInt = stream.quality.toIntOrNull() ?: 0
             val width = stream.resolution?.width ?: 0
             val height = stream.resolution?.height ?: 0
+
+            val streamTypeLabel = stream.type.uppercase()
 
             val qualityLabel = buildString {
                 if (providerKey.isNotEmpty()) append("${providerDisplayName(providerKey)} - ")
@@ -163,6 +164,7 @@ class MiruroExtractor(
                 if (stream.codec.isNotEmpty()) append(" ${stream.codec}")
                 if (stream.audio.isNotEmpty()) append(" ${stream.audio}")
                 if (stream.fansub.isNotEmpty()) append(" ${stream.fansub}")
+                append(" $streamTypeLabel")
             }
 
             val videoHeaders = headers.newBuilder().set("Referer", stream.referer).build()
