@@ -20,6 +20,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.decodeHex
 import keiyoushi.utils.delegate
+import keiyoushi.utils.getListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -664,7 +665,15 @@ class Miruro :
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
 
-        val providerLabel = providerDisplayName(provider)
+        val providerLabel = buildString {
+            append(providerDisplayName(provider))
+            if (fallbackProviders.isNotEmpty()) {
+                fallbackProviders.keys.forEach { fbKey ->
+                    append(", ")
+                    append(providerDisplayName(fbKey))
+                }
+            }
+        }
 
         return SEpisode.create().apply {
             episode_number = number.toFloat()
@@ -834,7 +843,7 @@ class Miruro :
         val qualityInt = quality.toIntOrNull() ?: 0
 
         return sortedWith(
-            compareByDescending { it.quality.contains(providerName) }
+            compareByDescending<Video> { it.quality.contains(providerName) }
                 .thenByDescending { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
                     val q = QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -882,13 +891,19 @@ class Miruro :
             siteConfig = null
         }
 
-        screen.addListPreference(
-            key = PREF_PROVIDER_KEY,
-            title = PREF_PROVIDER_TITLE,
-            entries = PREF_PROVIDER_ENTRIES,
-            entryValues = PREF_PROVIDER_VALUES,
-            default = PREF_PROVIDER_DEFAULT,
-            summary = "%s",
+        screen.addPreference(
+            screen.getListPreference(
+                key = PREF_PROVIDER_KEY,
+                title = PREF_PROVIDER_TITLE,
+                entries = PREF_PROVIDER_ENTRIES,
+                entryValues = PREF_PROVIDER_VALUES,
+                default = PREF_PROVIDER_DEFAULT,
+                summary = providerDisplayName(preferences.preferredProvider),
+                onChange = { pref, value ->
+                    pref.summary = providerDisplayName(value)
+                    true
+                },
+            ),
         )
 
         screen.addListPreference(
