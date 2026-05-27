@@ -239,8 +239,8 @@ class Miruro :
         private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
 
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
-	private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
-	private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
 
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
@@ -661,7 +661,22 @@ class Miruro :
             anilistId?.let { put("anilistId", it) }
         }
 
-        val scanlatorLabel = formatSubTypeLabel(defaultSubType)
+	val scanlatorLabel = buildString {
+		append(formatSubTypeLabel(defaultSubType))
+		if (fallbackProviders.isNotEmpty()) {
+			val seenSubTypes = mutableSetOf<String>()
+			seenSubTypes.add(defaultSubType)
+			for ((fbKey, fbSubTypes) in fallbackProviders) {
+				val fbDefault = fbSubTypes.keys.firstOrNull { it == preferredSubType }
+					?: providerSubTypesMap[fbKey]?.firstOrNull { it in fbSubTypes }
+					?: fbSubTypes.keys.first()
+				if (seenSubTypes.add(fbDefault)) {
+					append(", ")
+					append(formatSubTypeLabel(fbDefault))
+				}
+			}
+		}
+	}
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
 
