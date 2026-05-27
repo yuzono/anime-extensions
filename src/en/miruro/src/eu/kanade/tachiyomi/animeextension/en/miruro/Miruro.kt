@@ -28,7 +28,6 @@ import keiyoushi.utils.parseAs
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -257,6 +256,9 @@ class Miruro :
         private val CLOSE_P_REGEX = Regex("</p>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+        val SCANLATOR_SUB_TYPES = setOf("sub", "dub")
+        val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub", "embed")
     }
 
     private val jikanClient: OkHttpClient = network.client.newBuilder()
@@ -533,7 +535,7 @@ class Miruro :
             } ?: return emptyList()
         }
 
-        val crossProviderMap = mutableMapOf<Float, MutableMap<String, Map<String, String>>>()
+        val crossProviderMap = mutableMapOf<Float, MutableMap<String, MutableMap<String, String>>>()
         val episodeMetaMap = mutableMapOf<Float, Pair<Double, String>>()
         val providerSubTypesMap = mutableMapOf<String, List<String>>()
 
@@ -552,7 +554,7 @@ class Miruro :
                     val title = epJson.optString("title", "")
 
                     val providerEpIds = crossProviderMap.getOrPut(number) { mutableMapOf() }
-                        .getOrPut(providerKey) { mutableMapOf() } as MutableMap<String, String>
+                        .getOrPut(providerKey) { mutableMapOf<String, String>() }
                     providerEpIds[subType] = id
 
                     if (number !in episodeMetaMap) {
@@ -661,22 +663,16 @@ class Miruro :
             anilistId?.let { put("anilistId", it) }
         }
 
-	val scanlatorLabel = buildString {
-		append(formatSubTypeLabel(defaultSubType))
-		if (fallbackProviders.isNotEmpty()) {
-			val seenSubTypes = mutableSetOf<String>()
-			seenSubTypes.add(defaultSubType)
-			for ((fbKey, fbSubTypes) in fallbackProviders) {
-				val fbDefault = fbSubTypes.keys.firstOrNull { it == preferredSubType }
-					?: providerSubTypesMap[fbKey]?.firstOrNull { it in fbSubTypes }
-					?: fbSubTypes.keys.first()
-				if (seenSubTypes.add(fbDefault)) {
-					append(", ")
-					append(formatSubTypeLabel(fbDefault))
-				}
-			}
-		}
-	}
+        val allAvailableSubTypes = mutableSetOf<String>()
+        allAvailableSubTypes.addAll(subTypeIds.keys)
+        for ((_, fbSubTypes) in fallbackProviders) {
+            allAvailableSubTypes.addAll(fbSubTypes.keys)
+        }
+
+        val scanlatorLabel = allAvailableSubTypes
+            .filter { it in SCANLATOR_SUB_TYPES }
+            .sortedBy { SUB_TYPE_DISPLAY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }
+            .joinToString(", ") { formatSubTypeLabel(it) }
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
 
@@ -806,33 +802,13 @@ class Miruro :
         if ((primaryFailed || videos.isEmpty()) && fallbackProviders != null) {
             runBlocking {
                 val preferredSubType = preferences.preferredSubType
-                val fbProvidersKotlin = fallbackProviders.keys().asSequence().associateWith { key ->
-                    val subObj = fallbackProviders.optJSONObject(key) ?: JSONObject()
-                    subObj.keys().asSequence().associateWith { subObj.optString(it) }
-                }
-                val fbSubTypesKotlin = fallbackProviderSubTypes?.let { fbPst ->
-                    fbPst.keys().asSequence().associateWith { key ->
-                        val arr = fbPst.optJSONArray(key) ?: JSONArray()
-                        (0 until arr.length()).map { arr.getString(it) }
-                    }
-                } ?: emptyMap()
+                val fbProvidersJson = buildFallbackProvidersJson(fallbackProviders)
+                val fbSubTypesJson = fallbackProviderSubTypes?.let { buildFallbackSubTypesJson(it) }
 
                 val fallbackVideos = extractor.fetchFallbackVideos(
                     provider = provider,
-                    fallbackProviders = org.json.JSONObject().also { obj ->
-                        fbProvidersKotlin.forEach { (k, v) ->
-                            obj.put(k, org.json.JSONObject(v))
-                        }
-                    }.let { jsonStr ->
-                        kotlinx.serialization.json.Json.parseToJsonElement(jsonStr.toString()).jsonObject
-                    },
-                    fallbackProviderSubTypes = org.json.JSONObject().also { obj ->
-                        fbSubTypesKotlin.forEach { (k, v) ->
-                            obj.put(k, org.json.JSONArray(v))
-                        }
-                    }.let { jsonStr ->
-                        kotlinx.serialization.json.Json.parseToJsonElement(jsonStr.toString()).jsonObject
-                    },
+                    fallbackProviders = fbProvidersJson,
+                    fallbackProviderSubTypes = fbSubTypesJson,
                     preferredSubType = preferredSubType,
                     prefProviderValues = getProviderOrder(),
                 ) { path, method, query ->
@@ -1035,6 +1011,31 @@ class Miruro :
         "h-sub" -> "Hard Sub"
         "embed" -> "Embed"
         else -> subType.replaceFirstChar { it.uppercase() }
+    }
+
+    private fun buildFallbackProvidersJson(fallbackProviders: JSONObject): kotlinx.serialization.json.JsonObject {
+        val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
+        for (key in fallbackProviders.keys()) {
+            val subObj = fallbackProviders.optJSONObject(key) ?: continue
+            val subMap = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
+            for (subKey in subObj.keys()) {
+                subMap[subKey] = kotlinx.serialization.json.JsonPrimitive(subObj.optString(subKey, ""))
+            }
+            map[key] = kotlinx.serialization.json.JsonObject(subMap)
+        }
+        return kotlinx.serialization.json.JsonObject(map)
+    }
+
+    private fun buildFallbackSubTypesJson(fallbackProviderSubTypes: JSONObject): kotlinx.serialization.json.JsonObject {
+        val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
+        for (key in fallbackProviderSubTypes.keys()) {
+            val arr = fallbackProviderSubTypes.optJSONArray(key) ?: continue
+            val elements = (0 until arr.length()).map {
+                kotlinx.serialization.json.JsonPrimitive(arr.getString(it))
+            }
+            map[key] = kotlinx.serialization.json.JsonArray(elements)
+        }
+        return kotlinx.serialization.json.JsonObject(map)
     }
 
     // ============================== Filler ===============================

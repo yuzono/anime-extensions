@@ -35,20 +35,9 @@ class MiruroExtractor(
         private const val CIRCUIT_COOLDOWN_MS = 180_000L
         private val PERMANENT_FAILURE_CODES = setOf(444)
         private val TRANSIENT_RETRY_CODES = setOf(429, 502, 503, 504)
-
-        private val PROVIDER_DISPLAY_NAMES = mapOf(
-            "kiwi" to "AnimePahe",
-            "telli" to "GogoAnime",
-            "bee" to "Anikoto",
-            "bun" to "Anikoto (embed)",
-            "hop" to "Zoro",
-            "nun" to "9Anime (embed)",
-            "dune" to "AnimeKai",
-            "ally" to "9Anime",
-        )
-
-        fun providerDisplayName(key: String): String = PROVIDER_DISPLAY_NAMES[key] ?: key.replaceFirstChar { it.uppercase() }
     }
+
+    fun providerDisplayName(key: String): String = Miruro.providerDisplayName(key)
 
     fun isProviderCircuitOpen(provider: String): Boolean {
         val state = providerFailureState[provider] ?: return false
