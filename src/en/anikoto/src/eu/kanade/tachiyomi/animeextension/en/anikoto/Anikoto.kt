@@ -6,9 +6,10 @@ class Anikoto :
     AnikotoTheme(
         "en",
         "Anikoto",
-        // https://anikoto.site/#domains
+        // https://anikoto.site/#domains and https://megaplay.buzz/domains
         domainEntries = listOf(
             "anikototv.to",
+            "anikoto.bz",
             "anikoto.cz",
             "anikoto.me",
             "anikoto.net",
