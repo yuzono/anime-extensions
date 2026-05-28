@@ -3,6 +3,9 @@ package eu.kanade.tachiyomi.animeextension.en.miruro
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 
 internal val jsonParser = Json {
     ignoreUnknownKeys = true
@@ -58,7 +61,35 @@ data class AnimeMediaDto(
 data class SourcesResponseDto(
     val streams: List<StreamDto> = emptyList(),
     val subtitles: List<SubtitleDto> = emptyList(),
-)
+) {
+    @Serializable
+    data class NestedWrapper(
+        val streams: List<StreamDto> = emptyList(),
+        val subtitles: List<SubtitleDto> = emptyList(),
+    )
+
+    companion object {
+        fun parse(json: String): SourcesResponseDto {
+            val element = Json.parseToJsonElement(json).jsonObject
+
+            val directStreams = element["streams"]?.jsonArray
+            if (directStreams != null) {
+                return jsonParser.decodeFromString<SourcesResponseDto>(json)
+            }
+
+            for (entry in element.entries) {
+                val value = entry.value
+                if (value is JsonObject && value.containsKey("streams")) {
+                    return jsonParser.decodeFromString<NestedWrapper>(value.toString()).let {
+                        SourcesResponseDto(streams = it.streams, subtitles = it.subtitles)
+                    }
+                }
+            }
+
+            return SourcesResponseDto()
+        }
+    }
+}
 
 @Serializable
 data class StreamDto(
@@ -109,28 +140,17 @@ data class ConfigResponseDto(
     @Serializable
     data class ProviderConfigDto(
         val capabilities: ProviderCapabilitiesDto = ProviderCapabilitiesDto(),
-        val parent: String? = null,
-        val relationship: String? = null,
-        val visible: Boolean = true,
-        val player: String = "native",
-        val proxy: ProxyConfigDto? = null,
-        val cors: Boolean = false,
-        val fallback: Int? = null,
     )
 
     @Serializable
     data class ProviderCapabilitiesDto(
         val sub: Boolean = false,
+        val dub: Boolean = false,
         val ssub: Boolean = false,
         val download: Boolean = false,
         @SerialName("skip_times")
         val skipTimes: Boolean = false,
         val thumbnails: Boolean = false,
-    )
-
-    @Serializable
-    data class ProxyConfigDto(
-        val rotate: Boolean = false,
     )
 
     @Serializable
