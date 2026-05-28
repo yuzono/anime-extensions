@@ -8,9 +8,9 @@ import aniyomi.lib.rumbleextractor.RumbleExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.delegate
 import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 
@@ -22,14 +22,13 @@ class LuciferDonghua :
     ) {
 
     // ============================== Preferences ==============================
-    override val prefQualityValues = arrayOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
-    override val prefQualityEntries = prefQualityValues
+    override val prefQualityValues = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
 
-    private var SharedPreferences.ignorePreview
-        by LazyMutable { preferences.getBoolean(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT) }
+    private val SharedPreferences.ignorePreview
+        by preferences.delegate(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT)
 
-    private var SharedPreferences.enabledHosters
-        by LazyMutable { preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!! }
+    private val SharedPreferences.enabledHosters
+        by preferences.delegate(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen)
@@ -41,25 +40,21 @@ class LuciferDonghua :
             entries = INTERNAL_HOSTER_NAMES,
             entryValues = PREF_HOSTER_ENTRY_VALUES,
             default = PREF_HOSTER_DEFAULT,
-        ) {
-            preferences.enabledHosters = it
-        }
+        )
 
         screen.addSwitchPreference(
             key = IGNORE_PREVIEW_KEY,
             title = "Skip Preview episodes",
             summary = "",
             default = IGNORE_PREVIEW_DEFAULT,
-        ) {
-            preferences.ignorePreview = it
-        }
+        )
     }
 
     private companion object {
         private const val PREF_HOSTER_KEY = "luciferdonghua_hoster_selection"
         private val INTERNAL_HOSTER_NAMES = listOf("Dailymotion", "Rumble", "Ok.ru")
         private val PREF_HOSTER_ENTRY_VALUES = INTERNAL_HOSTER_NAMES.map { it.lowercase() }
-        private val PREF_HOSTER_DEFAULT = INTERNAL_HOSTER_NAMES.map { it.lowercase() }.toSet()
+        private val PREF_HOSTER_DEFAULT = PREF_HOSTER_ENTRY_VALUES.toSet()
 
         private const val IGNORE_PREVIEW_KEY = "luciferdonghua_ignore_preview"
         private const val IGNORE_PREVIEW_DEFAULT = true

@@ -11,15 +11,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.delegate
 import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import kotlin.getValue
 
 class DonghuaStream :
     AnimeStream(
@@ -27,8 +26,8 @@ class DonghuaStream :
         "DonghuaStream",
         "https://donghuastream.org",
     ) {
-    override val fetchFilters: Boolean
-        get() = false
+
+    override val fetchFilters = false
 
     // ============================ Manual Changes ==========================
 
@@ -46,11 +45,11 @@ class DonghuaStream :
         return GET(url)
     }
 
-    private var SharedPreferences.ignorePreview
-        by LazyMutable { preferences.getBoolean(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT) }
+    private val SharedPreferences.ignorePreview
+        by preferences.delegate(IGNORE_PREVIEW_KEY, IGNORE_PREVIEW_DEFAULT)
 
     private var SharedPreferences.enabledHosters
-        by LazyMutable { preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!! }
+        by preferences.delegate(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)
 
     private companion object {
         private const val PREF_HOSTER_KEY = "dm_hoster_selection"
@@ -72,22 +71,17 @@ class DonghuaStream :
             entries = INTERNAL_HOSTER_NAMES,
             entryValues = PREF_HOSTER_ENTRY_VALUES,
             default = PREF_HOSTER_DEFAULT,
-        ) {
-            preferences.enabledHosters = it
-        }
+        )
 
         screen.addSwitchPreference(
             key = IGNORE_PREVIEW_KEY,
             title = "Skip Preview episodes",
             summary = "",
             default = IGNORE_PREVIEW_DEFAULT,
-        ) {
-            preferences.ignorePreview = it
-        }
+        )
     }
 
-    override val prefQualityValues = arrayOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
-    override val prefQualityEntries = prefQualityValues
+    override val prefQualityValues = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
 
     override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
         .filter { !it.name.contains("Preview", ignoreCase = true) || !preferences.ignorePreview }
