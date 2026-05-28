@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.multisrc.animestream
 
+import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,9 @@ abstract class AnimeStream(
 
     protected open val videoSortPrefKey = prefQualityKey
     protected open val videoSortPrefDefault = prefQualityDefault
+
+    protected open val SharedPreferences.qualityPref by preferences.delegate(prefQualityKey, prefQualityDefault)
+    protected open val SharedPreferences.videoSortPref by preferences.delegate(videoSortPrefKey, videoSortPrefDefault)
 
     protected open val dateFormatter by lazy {
         val locale = when (lang) {
@@ -386,7 +390,7 @@ abstract class AnimeStream(
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy { it.quality.contains(quality, true) },
         ).reversed()

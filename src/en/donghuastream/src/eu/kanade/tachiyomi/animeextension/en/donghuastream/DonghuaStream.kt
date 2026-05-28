@@ -117,7 +117,7 @@ class DonghuaStream :
     private val qualityRegex by lazy { Regex("""(\d+)p""") }
 
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy<Video>(
                 { it.quality.contains(quality, true) },

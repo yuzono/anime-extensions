@@ -93,7 +93,7 @@ class LuciferDonghua :
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy(
                 { it.quality.contains(quality) },
