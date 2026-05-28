@@ -25,7 +25,6 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -64,7 +63,6 @@ class Miruro :
     private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
     private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
-    private val SharedPreferences.preferredStreamFormat by preferences.delegate(PREF_STREAM_FORMAT_KEY, PREF_STREAM_FORMAT_DEFAULT)
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
@@ -112,52 +110,25 @@ class Miruro :
     private val defaultConfig = ConfigResponseDto(
         streaming = mapOf(
             "kiwi" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
-                visible = true,
-                player = "native",
-            ),
-            "telli" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
-                parent = "kiwi",
-                relationship = "embed",
-                visible = false,
-                player = "iframe",
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
             ),
             "bee" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, thumbnails = true),
-                visible = true,
-                player = "native",
-                fallback = 3,
             ),
-            "bun" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
-                parent = "bee",
-                relationship = "embed",
-                visible = true,
-                player = "iframe",
+            "bonk" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, download = true, skipTimes = true),
+            ),
+            "ally" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
+            ),
+            "moo" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
             ),
             "hop" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true, thumbnails = true),
-                visible = true,
-                player = "native",
-                fallback = 4,
-            ),
-            "nun" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
-                parent = "ally",
-                relationship = "embed",
-                visible = true,
-                player = "iframe",
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, ssub = true, thumbnails = true),
             ),
             "dune" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true),
-                visible = true,
-                player = "native",
-            ),
-            "ally" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
-                visible = true,
-                player = "native",
             ),
         ),
         providerOrder = PREF_PROVIDER_VALUES,
@@ -171,19 +142,18 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "GogoAnime (embed)", "Anikoto", "Anikoto (embed)", "Zoro", "9Anime (embed)", "AnimeKai", "9Anime")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "telli", "bee", "bun", "hop", "nun", "dune", "ally")
+        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "Anikoto", "AniDao", "9Anime", "Mango", "Zoro", "AnimeKai")
+        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "dune")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private val PROVIDER_DISPLAY_NAMES = mapOf(
             "kiwi" to "AnimePahe",
-            "telli" to "GogoAnime",
             "bee" to "Anikoto",
-            "bun" to "Anikoto",
             "hop" to "Zoro",
-            "nun" to "9Anime",
-            "dune" to "AnimeKai",
             "ally" to "9Anime",
+            "bonk" to "AniDao",
+            "moo" to "Mango",
+            "dune" to "AnimeKai",
         )
 
         fun providerDisplayName(alias: String): String = PROVIDER_DISPLAY_NAMES[alias] ?: alias.replaceFirstChar { it.uppercase() }
@@ -199,12 +169,6 @@ class Miruro :
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
         private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private const val PREF_QUALITY_DEFAULT = "1080"
-
-        private const val PREF_STREAM_FORMAT_KEY = "preferred_stream_format"
-        private const val PREF_STREAM_FORMAT_TITLE = "Preferred Stream Format"
-        private val PREF_STREAM_FORMAT_ENTRIES = listOf("HLS (Recommended)", "Embed", "First available")
-        private val PREF_STREAM_FORMAT_VALUES = listOf("hls", "embed", "all")
-        private const val PREF_STREAM_FORMAT_DEFAULT = "hls"
 
         private const val PREF_TITLE_STYLE_KEY = "preferred_title_style"
         private const val PREF_TITLE_STYLE_TITLE = "Title Display Style"
@@ -257,15 +221,13 @@ class Miruro :
         private val MIRROR_VALUES = MIRROR_ENTRIES.map { "https://www.$it" }
         private val PREF_MIRROR_DEFAULT = MIRROR_VALUES.first()
 
-        private val TRANSIENT_RETRY_CODES = setOf(429, 502, 503, 504)
-
         private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
         private val CLOSE_P_REGEX = Regex("</p>", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
         val SCANLATOR_SUB_TYPES = setOf("sub", "dub")
-        val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub", "embed")
+        val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub")
     }
 
     private val jikanClient: OkHttpClient = network.client.newBuilder()
@@ -757,90 +719,36 @@ class Miruro :
         val provider = episodeData?.optString("provider", "") ?: ""
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
-        val fallbackProviders = episodeData?.optJSONObject("fallbackProviders")
-        val fallbackProviderSubTypes = episodeData?.optJSONObject("fallbackProviderSubTypes")
 
         val videos = mutableListOf<Video>()
-        var primaryFailed = false
 
-        // Phase 1: primary provider — retry transient errors, skip permanent failures
-        val primaryResponse = if (response.code in TRANSIENT_RETRY_CODES) {
-            Log.w("Miruro", "Primary stream returned ${response.code}, retrying...")
-            response.close()
-            runBlocking { extractor.safePipeApiCall(response.request, maxRetries = 3) }
-        } else if (response.code == 444) {
-            Log.w("Miruro", "Primary provider $provider returned 444 \u2014 falling back")
-            response.close()
-            primaryFailed = true
-            extractor.recordProviderFailure(provider)
-            null
-        } else {
-            response
-        }
+        // Primary stream
+        videos.addAll(
+            extractor.parseStreamsFromResponse(response, defaultSubType, provider),
+        )
 
-        if (!primaryFailed && primaryResponse != null) {
-            try {
-                videos.addAll(extractor.parseStreamsFromResponse(primaryResponse, defaultSubType, provider))
-                if (videos.isNotEmpty()) {
-                    extractor.recordProviderSuccess(provider)
-                }
-            } catch (e: Exception) {
-                Log.e("Miruro", "Failed to parse primary stream ($provider/$defaultSubType): ${e.message}")
-                primaryFailed = true
-                extractor.recordProviderFailure(provider)
-            } finally {
-                primaryResponse.close()
-            }
-        }
-
-        // Phase 2: alternate sub-types from primary provider
-        if (!primaryFailed && preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
-            val requests = mutableListOf<Pair<String, Request>>()
+        // Additional sub-types
+        if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
+            val requests = mutableListOf<Pair<String, String>>()
             for (subTypeKey in subTypesObj.keys()) {
                 if (subTypeKey == defaultSubType) continue
-                val episodeId = subTypesObj.optString(subTypeKey, "")
-                if (episodeId.isEmpty()) continue
-
-                val query = buildPipeQuery(
-                    "episodeId" to episodeId,
-                    "provider" to provider,
-                    "category" to subTypeKey,
-                )
-                requests.add(subTypeKey to buildPipeRequest("sources", "GET", query = query))
+                val subEpId = subTypesObj.optString(subTypeKey, "")
+                if (subEpId.isEmpty()) continue
+                requests.add(subTypeKey to subEpId)
             }
 
             videos.addAll(
-                requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
-                    extractor.safePipeApiCall(request).use { resp ->
+                requests.parallelCatchingFlatMapBlocking { (subTypeKey, subEpId) ->
+                    val query = buildPipeQuery(
+                        "episodeId" to subEpId,
+                        "provider" to provider,
+                        "category" to subTypeKey,
+                    )
+                    client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
                         extractor.parseStreamsFromResponse(resp, subTypeKey, provider)
                     }
                 },
             )
-        }
-
-        // Phase 3: fallback providers — try on primary failure OR empty results
-        if ((primaryFailed || videos.isEmpty()) && fallbackProviders != null) {
-            runBlocking {
-                val preferredSubType = preferences.preferredSubType
-                val fbProvidersJson = buildFallbackProvidersJson(fallbackProviders)
-                val fbSubTypesJson = fallbackProviderSubTypes?.let { buildFallbackSubTypesJson(it) }
-
-                val fallbackVideos = extractor.fetchFallbackVideos(
-                    provider = provider,
-                    fallbackProviders = fbProvidersJson,
-                    fallbackProviderSubTypes = fbSubTypesJson,
-                    preferredSubType = preferredSubType,
-                    prefProviderValues = getProviderOrder(),
-                ) { path, method, query ->
-                    val jsonQuery = org.json.JSONObject(query.toString())
-                    buildPipeRequest(path, method, query = jsonQuery)
-                }
-                videos.addAll(fallbackVideos)
-            }
-        }
-
-        if (videos.isEmpty()) {
-            Log.w("Miruro", "All providers failed for episode, returning empty video list")
         }
 
         return videos
@@ -850,13 +758,11 @@ class Miruro :
         val quality = preferences.preferredQuality
         val subTypeLabel = formatSubTypeLabel(preferences.preferredSubType)
         val providerName = providerDisplayName(preferences.preferredProvider)
-        val streamFormat = preferences.preferredStreamFormat
-
         val qualityInt = quality.toIntOrNull() ?: 0
-        val formatLabel = if (streamFormat != "all") streamFormat.uppercase() else null
+        // HLS only — no format filter needed
 
         return sortedWith(
-            compareByDescending<Video> { formatLabel == null || it.quality.contains(formatLabel) }
+            compareByDescending<Video> { it.quality.contains("HLS") }
                 .thenByDescending { it.quality.contains(providerName) }
                 .thenByDescending { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
@@ -935,15 +841,6 @@ class Miruro :
             entries = PREF_QUALITY_ENTRIES,
             entryValues = PREF_QUALITY_VALUES,
             default = PREF_QUALITY_DEFAULT,
-            summary = "%s",
-        )
-
-        screen.addListPreference(
-            key = PREF_STREAM_FORMAT_KEY,
-            title = PREF_STREAM_FORMAT_TITLE,
-            entries = PREF_STREAM_FORMAT_ENTRIES,
-            entryValues = PREF_STREAM_FORMAT_VALUES,
-            default = PREF_STREAM_FORMAT_DEFAULT,
             summary = "%s",
         )
 
@@ -1041,35 +938,8 @@ class Miruro :
         "dub" -> "Dub"
         "ssub" -> "Soft Sub"
         "h-sub" -> "Hard Sub"
-        "embed" -> "Embed"
         else -> subType.replaceFirstChar { it.uppercase() }
     }
-
-    private fun buildFallbackProvidersJson(fallbackProviders: JSONObject): kotlinx.serialization.json.JsonObject {
-        val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
-        for (key in fallbackProviders.keys()) {
-            val subObj = fallbackProviders.optJSONObject(key) ?: continue
-            val subMap = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
-            for (subKey in subObj.keys()) {
-                subMap[subKey] = kotlinx.serialization.json.JsonPrimitive(subObj.optString(subKey, ""))
-            }
-            map[key] = kotlinx.serialization.json.JsonObject(subMap)
-        }
-        return kotlinx.serialization.json.JsonObject(map)
-    }
-
-    private fun buildFallbackSubTypesJson(fallbackProviderSubTypes: JSONObject): kotlinx.serialization.json.JsonObject {
-        val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>()
-        for (key in fallbackProviderSubTypes.keys()) {
-            val arr = fallbackProviderSubTypes.optJSONArray(key) ?: continue
-            val elements = (0 until arr.length()).map {
-                kotlinx.serialization.json.JsonPrimitive(arr.getString(it))
-            }
-            map[key] = kotlinx.serialization.json.JsonArray(elements)
-        }
-        return kotlinx.serialization.json.JsonObject(map)
-    }
-
     // ============================== Filler ===============================
 
     private fun resolveFillerEpisodes(anilistId: Int?, providers: JSONObject, preferredProvider: String): Set<Float> {
@@ -1304,6 +1174,7 @@ class Miruro :
             put("query", query)
             put("body", if (body.length() == 0) JSONObject.NULL else body)
             put("version", "0.2.0")
+            put("timestamp", System.currentTimeMillis())
         }
 
         val jsonBytes = payload.toString().toByteArray(Charsets.UTF_8)
