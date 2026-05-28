@@ -4,7 +4,7 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.animeextension.en.luciferdonghua.extractors.RumbleExtractor
+import aniyomi.lib.rumbleextractor.RumbleExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream

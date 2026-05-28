@@ -4,8 +4,8 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.RumbleExtractor
-import eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors.StreamPlayExtractor
+import aniyomi.lib.rumbleextractor.RumbleExtractor
+import aniyomi.lib.streamplayextractor.StreamPlayExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video

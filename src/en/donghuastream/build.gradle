@@ -11,6 +11,6 @@ apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:dailymotionextractor'))
     implementation(project(':lib:okruextractor'))
-    implementation(project(':lib:playlistutils'))
-    implementation(project(':lib:unpacker'))
+    implementation(project(':lib:rumbleextractor'))
+    implementation(project(':lib:streamplayextractor'))
 }
