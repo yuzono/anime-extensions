@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,9 +25,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -86,13 +86,30 @@ class BetterAnime :
     // =============================== Search ===============================
     override fun getFilterList() = BAFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH_PATH)) {
-        val path = query.removePrefix(PREFIX_SEARCH_PATH)
-        client.newCall(GET("$baseUrl/$path", headers))
-            .awaitSuccess()
-            .use(::searchAnimeByPathParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val type = url.pathSegments.getOrNull(0)
+                ?: throw Exception("Unsupported url")
+            val lang = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            val item = url.pathSegments.getOrNull(2)
+                ?: throw Exception("Unsupported url")
+            val searchQuery = "$type/$lang/$item"
+            return getSearchAnime(page, "${PREFIX_SEARCH_PATH}$searchQuery", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH_PATH)) {
+            val path = query.removePrefix(PREFIX_SEARCH_PATH)
+            return client.newCall(GET("$baseUrl/$path", headers))
+                .awaitSuccess()
+                .use(::searchAnimeByPathParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByPathParse(response: Response): AnimesPage {
@@ -152,7 +169,7 @@ class BetterAnime :
                 )
             }
         }
-        val reqBody = json.encodeToString(JsonObject.serializer(), data).toRequestBody("application/json".toMediaType())
+        val reqBody = json.encodeToString(JsonObject.serializer(), data).toJsonRequestBody()
 
         val headers = headersBuilder()
             .add("x-livewire", "true")

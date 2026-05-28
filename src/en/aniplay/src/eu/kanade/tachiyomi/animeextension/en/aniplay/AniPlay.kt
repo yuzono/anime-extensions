@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import okhttp3.Headers
@@ -212,7 +213,7 @@ class AniPlay :
                         .build()
 
                 val requestBody = "[\"$animeId\",\"${extra.source}\",\"${extra.episodeId}\",\"$epNum\",\"$language\"]"
-                    .toRequestBody("application/json".toMediaType())
+                    .toJsonRequestBody()
 
                 val request = POST(url.toString(), headersWithAction, requestBody)
 

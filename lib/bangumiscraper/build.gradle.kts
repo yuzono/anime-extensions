@@ -1,7 +1,7 @@
 plugins {
-    id("lib-android")
+    alias(kei.plugins.library)
 }
 
 dependencies {
-    compileOnly(libs.aniyomi.lib)
+    compileOnlyApi(libs.aniyomi.lib)
 }

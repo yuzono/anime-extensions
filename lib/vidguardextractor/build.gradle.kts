@@ -1,5 +1,11 @@
 plugins {
-    id("lib-android")
+    alias(kei.plugins.library)
+}
+
+android {
+    defaultConfig {
+        consumerProguardFiles("proguard-rules.pro")
+    }
 }
 
 dependencies {

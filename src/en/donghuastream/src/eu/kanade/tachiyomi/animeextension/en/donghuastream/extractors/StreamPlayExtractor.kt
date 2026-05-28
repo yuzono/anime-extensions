@@ -1,12 +1,12 @@
 package eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors
 
-import aniyomi.lib.jsunpacker.JsUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs

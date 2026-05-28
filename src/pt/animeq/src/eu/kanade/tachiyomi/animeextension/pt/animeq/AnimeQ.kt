@@ -67,13 +67,25 @@ class AnimeQ :
     override fun latestUpdatesNextPageSelector() = "div.ContainerEps a.next.page-numbers"
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
-        val path = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$path"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val path = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$path"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -145,8 +157,8 @@ class AnimeQ :
         val document = response.asJsoup()
 
         return document.select("div.videoBox div.aba")
-            .parallelCatchingFlatMapBlocking {
-                val format = document.selectFirst("a[href=#" + it.attr("id") + "]")?.text()
+            .parallelCatchingFlatMapBlocking { div ->
+                val format = document.selectFirst("a[href=#" + div.attr("id") + "]")?.text()
                     ?: "default"
 
                 val quality = when (format) {
@@ -155,21 +167,21 @@ class AnimeQ :
                     "FHD" -> "1080p"
                     else -> format
                 }
-                val iframeSrc = it.selectFirst("iframe")?.tryGetAttr("data-litespeed-src", "src")
+                val iframeSrc = div.selectFirst("iframe")?.tryGetAttr("data-litespeed-src", "src")
                 if (!iframeSrc.isNullOrBlank()) {
                     return@parallelCatchingFlatMapBlocking getVideosFromURL(iframeSrc, quality)
                 }
-                it.select("script").mapNotNull {
-                    var javascript = it.attr("src")
-                        ?.substringAfter(";base64,")
-                        ?.substringBefore('"')
-                        ?.let { String(Base64.decode(it, Base64.DEFAULT)) }
+                div.select("script").mapNotNull { script ->
+                    var javascript = script.attr("src")
+                        .substringAfter(";base64,")
+                        .substringBefore('"')
+                        .let { String(Base64.decode(it, Base64.DEFAULT)) }
 
-                    if (javascript.isNullOrBlank()) {
-                        javascript = it.data()
+                    if (javascript.isBlank()) {
+                        javascript = script.data()
                     }
 
-                    if (javascript.isNullOrBlank() || "file:" !in javascript) {
+                    if (javascript.isBlank() || "file:" !in javascript) {
                         return@mapNotNull null
                     }
 
@@ -247,8 +259,8 @@ class AnimeQ :
     }
 
     private fun Element.tryGetAttr(vararg attributeKeys: String): String? {
-        val attributeKey = attributeKeys.first { hasAttr(it) }
-        return attributeKey?.let { attr(attributeKey) }
+        val attributeKey = attributeKeys.firstOrNull { hasAttr(it) }
+        return attributeKey?.let { attr(it) }
     }
 
     companion object {

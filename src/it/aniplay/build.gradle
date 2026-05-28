@@ -1,10 +1,10 @@
 ext {
     extName = 'AniPlay'
     extClass = '.AniPlay'
-    extVersionCode = 19
+    extVersionCode = 21
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:playlistutils"))

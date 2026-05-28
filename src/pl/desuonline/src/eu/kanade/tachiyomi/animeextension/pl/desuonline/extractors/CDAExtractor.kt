@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -14,9 +15,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import uy.kohesive.injekt.injectLazy
 
 class CDAExtractor(private val client: OkHttpClient, private val headers: Headers, private val referer: String) {
@@ -57,7 +56,7 @@ class CDAExtractor(private val client: OkHttpClient, private val headers: Header
                         add(videoData.hash2)
                     }
                 },
-            ).toRequestBody("application/json; charset=utf-8".toMediaType())
+            ).toJsonRequestBody()
 
             val postHeaders = headers.newBuilder().apply {
                 add("Accept", "application/json, text/javascript, */*; q=0.01")

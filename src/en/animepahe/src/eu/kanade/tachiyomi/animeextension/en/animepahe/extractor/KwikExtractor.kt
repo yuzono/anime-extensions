@@ -28,12 +28,12 @@ SOFTWARE.
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.app.Application
-import aniyomi.lib.jsunpacker.JsUnpacker
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
