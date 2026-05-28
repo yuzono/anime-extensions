@@ -1,7 +1,7 @@
 ext {
     extName = 'Hackstore'
     extClass = '.Hackstore'
-    extVersionCode = 37
+    extVersionCode = 38
 }
 
 apply plugin: "kei.plugins.extension.legacy"
