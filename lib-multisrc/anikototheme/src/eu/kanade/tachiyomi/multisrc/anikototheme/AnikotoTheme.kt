@@ -942,7 +942,9 @@ abstract class AnikotoTheme(
     protected open fun extractMapperDownloadUrls(typeObj: JsonObject): Map<String, String> {
         val downloadObj = typeObj["download"]?.jsonObject ?: return emptyMap()
         return downloadObj.entries.mapNotNull { (key, value) ->
-            val url = (value as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val url = (value as? JsonPrimitive)?.content
+                ?.replace("pahe.mewcdn.online", "pahe.win")
+                ?: return@mapNotNull null
             key.substringAfterLast("-") to url
         }.toMap()
     }
