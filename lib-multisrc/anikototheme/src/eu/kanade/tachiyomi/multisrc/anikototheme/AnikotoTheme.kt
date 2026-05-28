@@ -616,7 +616,7 @@ abstract class AnikotoTheme(
 
         return playlistUtils.extractFromHls(
             m3u8,
-            videoNameGen = { "$prefix$typeSuffix - $it" },
+            videoNameGen = { "$prefix$typeSuffix - ${cleanHlsQuality(it)}" },
             subtitleList = subtitles,
             referer = "https://$host/",
         )
@@ -641,7 +641,7 @@ abstract class AnikotoTheme(
         return playlistUtils.extractFromHls(
             m3u8,
             videoNameGen = { quality ->
-                "$prefix$typeSuffix - ${qualityFromName ?: quality} (HLS)"
+                "$prefix$typeSuffix - ${qualityFromName ?: cleanHlsQuality(quality)} (HLS)"
             },
             referer = "https://mewcdn.online/",
         )
@@ -984,6 +984,8 @@ abstract class AnikotoTheme(
             ""
         }
     }
+
+    private fun cleanHlsQuality(quality: String): String = quality.substringBefore(" (").substringBefore(" - ").trim()
 
     protected fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
 
