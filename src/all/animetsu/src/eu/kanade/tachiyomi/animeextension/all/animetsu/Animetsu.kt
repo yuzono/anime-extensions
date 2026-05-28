@@ -61,8 +61,11 @@ class Animetsu :
     private val preferredServer: String
         get() = preferences.getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) ?: PREF_PREFERRED_SERVER_DEFAULT
 
+    private val excludedAudioTypes: Set<String>
+        get() = preferences.getStringSet(PREF_AUDIO_TYPE_EXCLUDE_KEY, PREF_AUDIO_TYPE_EXCLUDE_DEFAULT) ?: PREF_AUDIO_TYPE_EXCLUDE_DEFAULT
+
     private val enabledAudioTypes: Set<String>
-        get() = preferences.getStringSet(PREF_AUDIO_TYPE_KEY, PREF_AUDIO_TYPE_DEFAULT) ?: PREF_AUDIO_TYPE_DEFAULT
+        get() = AUDIO_TYPE_VALUES.toSet() - excludedAudioTypes
 
     private val preferredAudioType: String
         get() = preferences.getString(PREF_PREFERRED_AUDIO_TYPE_KEY, PREF_PREFERRED_AUDIO_TYPE_DEFAULT) ?: PREF_PREFERRED_AUDIO_TYPE_DEFAULT
@@ -405,12 +408,12 @@ class Animetsu :
         )
 
         screen.addSetPreference(
-            key = PREF_AUDIO_TYPE_KEY,
-            title = "Enable/Disable Audio Types",
-            summary = "Select which audio types to show (Sub, Dub)",
+            key = PREF_AUDIO_TYPE_EXCLUDE_KEY,
+            title = "Exclude Audio Types",
+            summary = "Choose which audio types you want to exclude",
             entries = AUDIO_TYPE_ENTRIES,
             entryValues = AUDIO_TYPE_VALUES,
-            default = PREF_AUDIO_TYPE_DEFAULT,
+            default = PREF_AUDIO_TYPE_EXCLUDE_DEFAULT,
         )
 
         screen.addSwitchPreference(
@@ -483,11 +486,17 @@ class Animetsu :
         val hostExclusion = getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
         val invalidHosters = hostExclusion.any { it !in SERVER_VALUES }
         val invalidServer = getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) !in PREF_PREFERRED_SERVER_VALUES
+        val oldAudioTypes = getStringSet(PREF_AUDIO_TYPE_OLD_KEY, null)
 
-        if (invalidHosters || invalidServer) {
+        if (invalidHosters || invalidServer || oldAudioTypes != null) {
             edit().also { editor ->
                 if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, hostExclusion.filter { it in SERVER_VALUES }.toSet())
                 if (invalidServer) editor.putString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT)
+                if (oldAudioTypes != null) {
+                    val newExclusion = AUDIO_TYPE_VALUES.toSet() - oldAudioTypes
+                    editor.putStringSet(PREF_AUDIO_TYPE_EXCLUDE_KEY, newExclusion)
+                    editor.remove(PREF_AUDIO_TYPE_OLD_KEY)
+                }
             }.apply()
         }
     }
@@ -517,8 +526,9 @@ class Animetsu :
         private val PREF_PREFERRED_AUDIO_TYPE_ENTRIES = listOf("None", "Sub", "Dub")
         private val PREF_PREFERRED_AUDIO_TYPE_VALUES = listOf("none", "sub", "dub")
 
-        private const val PREF_AUDIO_TYPE_KEY = "enabled_audio_types"
-        private val PREF_AUDIO_TYPE_DEFAULT = setOf("sub")
+        private const val PREF_AUDIO_TYPE_OLD_KEY = "enabled_audio_types"
+        private const val PREF_AUDIO_TYPE_EXCLUDE_KEY = "audio_type_exclusion"
+        private val PREF_AUDIO_TYPE_EXCLUDE_DEFAULT = emptySet<String>()
         private val AUDIO_TYPE_ENTRIES = listOf("Sub", "Dub")
         private val AUDIO_TYPE_VALUES = listOf("sub", "dub")
 
