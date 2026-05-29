@@ -118,8 +118,14 @@ class Miruro :
             "bonk" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, download = true, skipTimes = true),
             ),
+            "twin" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
+            ),
             "ally" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
+            ),
+            "cog" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
             ),
             "moo" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
@@ -142,8 +148,8 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "Anikoto", "AniDao", "9Anime", "Mango", "Zoro", "AnimeKai")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "dune")
+        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "Anikoto", "AniDao", "AniTaku", "9Anime", "AnimeGG", "Mango", "Zoro", "AnimeKai")
+        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "twin", "ally", "cog", "moo", "hop", "dune")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private val PROVIDER_DISPLAY_NAMES = mapOf(
@@ -152,6 +158,8 @@ class Miruro :
             "hop" to "Zoro",
             "ally" to "9Anime",
             "bonk" to "AniDao",
+            "twin" to "AniTaku",
+            "cog" to "AnimeGG",
             "moo" to "Mango",
             "dune" to "AnimeKai",
         )
