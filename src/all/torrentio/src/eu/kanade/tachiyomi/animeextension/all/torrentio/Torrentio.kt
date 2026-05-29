@@ -25,9 +25,9 @@ import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -65,37 +65,37 @@ class Torrentio :
     }
 
     // ============================== JustWatch Api Query ======================
-    private fun justWatchQuery(): String = """
+    private fun justWatchQuery(): String = $$"""
             query GetPopularTitles(
-              ${"$"}country: Country!,
-              ${"$"}first: Int!,
-              ${"$"}language: Language!,
-              ${"$"}offset: Int,
-              ${"$"}searchQuery: String,
-              ${"$"}packages: [String!]!,
-              ${"$"}objectTypes: [ObjectType!]!,
-              ${"$"}popularTitlesSortBy: PopularTitlesSorting!,
-              ${"$"}releaseYear: IntFilter
+              $country: Country!,
+              $first: Int!,
+              $language: Language!,
+              $offset: Int,
+              $searchQuery: String,
+              $packages: [String!]!,
+              $objectTypes: [ObjectType!]!,
+              $popularTitlesSortBy: PopularTitlesSorting!,
+              $releaseYear: IntFilter
             ) {
               popularTitles(
-                country: ${"$"}country
-                first: ${"$"}first
-                offset: ${"$"}offset
-                sortBy: ${"$"}popularTitlesSortBy
+                country: $country
+                first: $first
+                offset: $offset
+                sortBy: $popularTitlesSortBy
                 filter: {
-                  objectTypes: ${"$"}objectTypes,
-                  searchQuery: ${"$"}searchQuery,
-                  packages: ${"$"}packages,
+                  objectTypes: $objectTypes,
+                  searchQuery: $searchQuery,
+                  packages: $packages,
                   genres: [],
                   excludeGenres: [],
-                  releaseYear: ${"$"}releaseYear
+                  releaseYear: $releaseYear
                 }
               ) {
                 edges {
                   node {
                     id
                     objectType
-                    content(country: ${"$"}country, language: ${"$"}language) {
+                    content(country: $country, language: $language) {
                       fullPath
                       title
                       shortDescription
@@ -104,7 +104,7 @@ class Torrentio :
                       }
                       posterUrl
                       genres {
-                        translation(language: ${"$"}language)
+                        translation(language: $language)
                       }
                       credits {
                         name
@@ -192,13 +192,25 @@ class Torrentio :
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/anime/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/anime/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -243,9 +255,9 @@ class Torrentio :
     // override suspend fun getAnimeDetails(anime: SAnime): SAnime = throw UnsupportedOperationException()
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val query = """
-            query GetUrlTitleDetails(${"$"}fullPath: String!, ${"$"}country: Country!, ${"$"}language: Language!) {
-              urlV2(fullPath: ${"$"}fullPath) {
+        val query = $$"""
+            query GetUrlTitleDetails($fullPath: String!, $country: Country!, $language: Language!) {
+              urlV2(fullPath: $fullPath) {
                 node {
                   ...TitleDetails
                 }
@@ -256,7 +268,7 @@ class Torrentio :
               ... on MovieOrShowOrSeason {
                 id
                 objectType
-                content(country: ${"$"}country, language: ${"$"}language) {
+                content(country: $country, language: $language) {
                   title
                   shortDescription
                   externalIds {
@@ -264,7 +276,7 @@ class Torrentio :
                   }
                   posterUrl
                   genres {
-                    translation(language: ${"$"}language)
+                    translation(language: $language)
                   }
                 }
               }
