@@ -5,7 +5,6 @@ import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import kotlinx.coroutines.runBlocking
 
 class LuciferDonghua :
     AnimeStream(
@@ -21,9 +20,9 @@ class LuciferDonghua :
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val filelionsExtractor by lazy { StreamWishExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix = prefix)
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
             url.contains("filelions") -> filelionsExtractor.videosFromUrl(url, videoNameGen = { quality -> "FileLions - $quality" })
@@ -33,7 +32,7 @@ class LuciferDonghua :
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy(
                 { it.quality.contains(quality) },

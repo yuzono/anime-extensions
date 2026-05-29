@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.multisrc.animestream
 
+import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -21,11 +21,13 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.SubFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.TypeFilter
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -58,11 +60,17 @@ abstract class AnimeStream(
         "pt-BR" -> "Qualidade preferida"
         else -> "Preferred quality"
     }
-    protected open val prefQualityValues = arrayOf("1080p", "720p", "480p", "360p")
-    protected open val prefQualityEntries = prefQualityValues
+    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p")
+    protected open val prefQualityEntries: List<String>
+        get() = prefQualityValues
 
-    protected open val videoSortPrefKey = prefQualityKey
-    protected open val videoSortPrefDefault = prefQualityDefault
+    protected open val videoSortPrefKey: String
+        get() = prefQualityKey
+    protected open val videoSortPrefDefault: String
+        get() = prefQualityDefault
+
+    protected open val SharedPreferences.qualityPref by preferences.delegate(prefQualityKey, prefQualityDefault)
+    protected open val SharedPreferences.videoSortPref by preferences.delegate(videoSortPrefKey, videoSortPrefDefault)
 
     protected open val dateFormatter by lazy {
         val locale = when (lang) {
@@ -125,7 +133,7 @@ abstract class AnimeStream(
     }
 
     protected open fun searchAnimeByPathParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -167,13 +175,14 @@ abstract class AnimeStream(
 
     protected open val filtersSelector = "span.sec1 > div.filter > ul"
 
-    private fun fetchFilterList() {
+    protected open suspend fun fetchFilterList() {
         if (fetchFilters && !AnimeStreamFilters.filterInitialized()) {
-            AnimeStreamFilters.filterElements = runBlocking {
-                withContext(Dispatchers.IO) {
-                    client.newCall(GET(animeListUrl)).execute()
-                        .asJsoup()
-                        .select(filtersSelector)
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    AnimeStreamFilters.filterElements =
+                        client.newCall(GET(animeListUrl)).awaitSuccess()
+                            .useAsJsoup()
+                            .select(filtersSelector)
                 }
             }
         }
@@ -290,7 +299,7 @@ abstract class AnimeStream(
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         return doc.select(episodeListSelector()).map(::episodeFromElement)
     }
 
@@ -311,14 +320,14 @@ abstract class AnimeStream(
             episode_number = it.substringBefore(" ").toFloatOrNull() ?: 0F
         }
         element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
-        date_upload = element.selectFirst(".epl-date")?.text().toDate()
+        date_upload = element.selectFirst(".epl-date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
     override fun videoListSelector() = "select.mirror > option[data-index], ul.mirror a[data-em]"
 
     override fun videoListParse(response: Response): List<Video> {
-        val items = response.asJsoup().select(videoListSelector())
+        val items = response.useAsJsoup().select(videoListSelector())
         return items.parallelCatchingFlatMapBlocking { element ->
             val name = element.text()
             val url = getHosterUrl(element)
@@ -326,7 +335,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getHosterUrl(element: Element): String {
+    protected open suspend fun getHosterUrl(element: Element): String {
         val encodedData = when (element.tagName()) {
             "option" -> element.attr("value")
             "a" -> element.attr("data-em")
@@ -337,13 +346,13 @@ abstract class AnimeStream(
     }
 
     // Taken from LuciferDonghua
-    protected open fun getHosterUrl(encodedData: String): String {
+    protected open suspend fun getHosterUrl(encodedData: String): String {
         val doc = if (encodedData.toHttpUrlOrNull() == null) {
             Base64.decode(encodedData, Base64.DEFAULT)
                 .let(::String) // bytearray -> string
                 .let(Jsoup::parse) // string -> document
         } else {
-            client.newCall(GET(encodedData, headers)).execute().asJsoup()
+            client.newCall(GET(encodedData, headers)).awaitSuccess().useAsJsoup()
         }
 
         return doc.selectFirst("iframe[src~=.]")?.safeUrl()
@@ -359,7 +368,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getVideoList(url: String, name: String): List<Video> {
+    protected open suspend fun getVideoList(url: String, name: String): List<Video> {
         Log.i(name, "getVideoList -> URL => $url || Name => $name")
         return emptyList()
     }
@@ -370,27 +379,19 @@ abstract class AnimeStream(
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = prefQualityKey
-            title = prefQualityTitle
-            entries = prefQualityEntries
-            entryValues = prefQualityValues
-            setDefaultValue(prefQualityDefault)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = prefQualityKey,
+            title = prefQualityTitle,
+            entries = prefQualityEntries,
+            entryValues = prefQualityValues,
+            default = prefQualityDefault,
+            summary = "%s",
+        )
     }
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy { it.quality.contains(quality, true) },
         ).reversed()
@@ -406,12 +407,6 @@ abstract class AnimeStream(
         ?.run {
             selectFirst("a")?.text() ?: ownText()
         }
-
-    protected open fun String?.toDate(): Long = this?.let {
-        runCatching {
-            dateFormatter.parse(trim())?.time
-        }.getOrNull()
-    } ?: 0L
 
     /**
      * Tries to get the image url via various possible attributes.
