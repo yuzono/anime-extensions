@@ -82,27 +82,4 @@ class AniWave :
         "Kiwi-Stream" -> "Kiwi-Stream"
         else -> super.getServerDisplayName(serverName)
     }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val params = AnikotoThemeFilters.getSearchParameters(filters)
-        val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
-
-        val url = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("filter")
-            addQueryParameter("keyword", query)
-            addQueryParameter("page", page.toString())
-            addQueryParameter("vrf", vrf)
-
-            addListQueryParameter("genre", params.genres)
-            addListQueryParameter("season", params.seasons)
-            addListQueryParameter("year", params.years)
-            addListQueryParameter("term_type", params.types)
-            addListQueryParameter("status", params.statuses)
-            addListQueryParameter("language", params.languages)
-            addListQueryParameter("rating", params.ratings)
-            addQueryParameterIfNotEmpty("sort", params.sort)
-        }.build().toString()
-
-        return GET(url, docHeaders)
-    }
 }

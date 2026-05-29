@@ -178,7 +178,7 @@ abstract class AnikotoTheme(
             addListQueryParameter("genre", params.genres)
             addListQueryParameter("season", params.seasons)
             addListQueryParameter("year", params.years)
-            addListQueryParameter("type", params.types)
+            addListQueryParameter("term_type", params.types)
             addListQueryParameter("status", params.statuses)
             addListQueryParameter("language", params.languages)
             addListQueryParameter("rating", params.ratings)
