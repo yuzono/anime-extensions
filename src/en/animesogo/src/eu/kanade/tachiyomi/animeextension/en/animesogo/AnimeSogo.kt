@@ -1,6 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.en.animesogo
 
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
+import eu.kanade.tachiyomi.network.GET
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -11,8 +18,8 @@ class AnimeSogo :
         domainEntries = listOf(
             "animesogo.to",
         ),
-        hosterNames = listOf("megaplay", "vidstream", "vidcloud", "kiwi-stream"),
-        hosterDisplayNames = listOf("MegaPlay", "Vidstream", "VidCloud", "Kiwi-Stream"),
+        hosterNames = listOf("HD-1", "HD-2", "HD-3", "Server-"),
+        hosterDisplayNames = listOf("HD-1", "HD-2", "HD-3", "Kiwi-Stream"),
     ) {
 
     // =================== Selector Overrides ==============================
@@ -35,39 +42,22 @@ class AnimeSogo :
     override fun parseServerListData(
         document: Document,
         typeSelection: Set<String>,
-        serverNumSelection: Set<String>,
     ): List<VideoData> {
         return document.select("div.type").flatMap { typeElem ->
             val typeLabel = resolveTypeLabel(typeElem)
-            if (!typeSelection.contains(typeLabel, true)) return@flatMap emptyList<VideoData>()
+
+            if (!isTypeEnabled(typeLabel, typeSelection)) return@flatMap emptyList()
 
             typeElem.select("a.server").mapNotNull { serverElem ->
                 val serverId = serverElem.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
 
-                val hosterName = mapSvIdToHoster(serverElem.attr("data-sv-id"))
-                if (hostToggle.none { hosterName.contains(it, true) }) return@mapNotNull null
-
-                val spanText = serverElem.selectFirst("span")?.text()?.trim()?.lowercase() ?: ""
-                val serverNum = resolveServerNumber(spanText)
-                if (!serverNumSelection.contains(serverNum.toString())) return@mapNotNull null
-
-                val qualitySuffix = if (spanText.startsWith("server-")) {
-                    "-" + spanText.substringAfter("server-")
-                } else {
-                    ""
-                }
-                val serverName = "$hosterName-$serverNum$qualitySuffix"
+                val serverName = serverElem.selectFirst("span")?.text()?.trim() ?: return@mapNotNull null
+                if (serverName !in hostToggle) return@mapNotNull null
 
                 VideoData(typeLabel, serverId, serverName)
             }
         }
-    }
-
-    private fun mapSvIdToHoster(svId: String): String = when (svId) {
-        "323" -> "vidstream"
-        "fbx" -> "kiwi-stream"
-        else -> svId.lowercase()
     }
 
     private fun resolveTypeLabel(typeElem: Element): String {
@@ -76,21 +66,46 @@ class AnimeSogo :
 
         return when {
             labelText.equals("SUB", true) -> "Sub"
-            labelText.equals("HSUB", true) || labelText.equals("S-Sub", true) -> "H-Sub"
+            labelText.equals("S-SUB", true) -> "S-Sub"
+            labelText.equals("HSUB", true) -> "HSub"
             labelText.equals("DUB", true) -> "Dub"
             labelText.equals("A-DUB", true) -> "A-Dub"
             dataType.equals("sub", true) -> "Sub"
-            dataType.equals("hsub", true) -> "H-Sub"
+            dataType.equals("hsub", true) -> "HSub"
             dataType.equals("dub", true) -> "Dub"
             dataType.equals("adub", true) -> "A-Dub"
             else -> (labelText ?: dataType).replaceFirstChar { it.uppercase() }
         }
     }
 
-    private fun resolveServerNumber(spanText: String): Int = when {
-        spanText.startsWith("hd-") -> spanText.substringAfter("hd-").toIntOrNull() ?: 1
-        spanText.startsWith("server-") -> 1
-        else -> spanText.toIntOrNull() ?: 1
+    override fun getServerDisplayName(serverName: String): String = when (serverName) {
+        "Server-" -> "Kiwi-Stream"
+        else -> super.getServerDisplayName(serverName)
+    }
+
+    // =================== Search Override =================================
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val params = AnikotoThemeFilters.getSearchParameters(filters)
+        val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("filter")
+            addQueryParameter("keyword", query)
+            addQueryParameter("page", page.toString())
+            addQueryParameter("vrf", vrf)
+
+            addListQueryParameter("genre", params.genres)
+            addListQueryParameter("season", params.seasons)
+            addListQueryParameter("year", params.years)
+            addListQueryParameter("term_type", params.types)
+            addListQueryParameter("status", params.statuses)
+            addListQueryParameter("language", params.languages)
+            addListQueryParameter("rating", params.ratings.map { it.lowercase().replace("-", "_") })
+            addQueryParameterIfNotEmpty("sort", params.sort)
+        }.build().toString()
+
+        return GET(url, docHeaders)
     }
 
     // =================== Thumbnail Override ==============================

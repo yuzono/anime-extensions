@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.cloudflareinterceptor.CloudflareInterceptor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -36,7 +35,6 @@ import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.CacheControl
 import okhttp3.Headers
@@ -91,7 +89,6 @@ abstract class AnikotoTheme(
 
     private val utils by lazy { AnikotoUtils() }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private val kwikExtractor by lazy { KwikExtractor(client, headers) }
 
     // ============================ Headers & Client =========================
 
@@ -296,28 +293,6 @@ abstract class AnikotoTheme(
         }
     }
 
-    /**
-     * Parses related anime from the watch-order API response.
-     * Override this if the site uses a different HTML structure.
-     */
-    protected open fun parseWatchOrderRelated(document: Document, currentAnimePath: String): List<SAnime> {
-        val resultList = mutableListOf<SAnime>()
-        document.select("div.item.flexserieslist").forEach { element ->
-            val href = element.selectFirst("a[href*=/watch/]")?.attr("href")?.substringBefore("?")?.trim() ?: return@forEach
-            val path = extractAnimePath(href) ?: return@forEach
-            if (path == currentAnimePath) return@forEach
-            val nameElement = element.selectFirst(".info .name") ?: return@forEach
-            resultList.add(
-                SAnime.create().apply {
-                    url = path
-                    title = getTitle(nameElement).trim()
-                    thumbnail_url = extractRelatedThumbnail(element)
-                },
-            )
-        }
-        return resultList
-    }
-
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
@@ -375,18 +350,9 @@ abstract class AnikotoTheme(
         val softSub = if (SOFTSUB_REGEX.containsMatchIn(title)) "SoftSub" else ""
         val name = element.parent()?.select("span.d-title")?.text().orEmpty()
 
-        val malId = element.attr("data-mal")
-        val slug = element.attr("data-slug")
-        val timestamp = element.attr("data-timestamp")
-
         return SEpisode.create().apply {
             this.name = "Episode $epNum" + if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else ""
-            this.url = buildString {
-                append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
-                if (malId.isNotBlank()) append("&mal=$malId")
-                if (slug.isNotBlank()) append("&slug=$slug")
-                if (timestamp.isNotBlank()) append("&ts=$timestamp")
-            }
+            this.url = "$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum"
             episode_number = epNum.toFloatOrNull() ?: 0f
             date_upload = RELEASE_REGEX.find(title)?.let { parseDate(it.groupValues[1]) } ?: 0L
             scanlator = listOf(sub, softSub, dub).filter(String::isNotBlank).joinToString(", ")
@@ -399,28 +365,16 @@ abstract class AnikotoTheme(
         val type: String,
         val serverId: String,
         val serverName: String,
-        val downloadUrls: Map<String, String> = emptyMap(),
     )
 
     override fun videoListRequest(episode: SEpisode): Request {
         val ids = episode.url.substringBefore("&")
-        val malParams = episode.url.substringAfter("&mal=", "").takeIf { it.isNotBlank() }
-        val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&mal=")
+        val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&")
 
         val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", "$baseUrl$epurlPart")
             add("X-Requested-With", "XMLHttpRequest")
-            malParams?.let { params ->
-                val parts = params.split("&")
-                add("X-Mapper-Mal", parts[0])
-                parts.drop(1).forEach { part ->
-                    when {
-                        part.startsWith("slug=") -> add("X-Mapper-Slug", part.substringAfter("slug="))
-                        part.startsWith("ts=") -> add("X-Mapper-Ts", part.substringAfter("ts="))
-                    }
-                }
-            }
         }.build()
         return GET("$baseUrl/ajax/server/list?servers=$ids", listHeaders)
     }
@@ -444,74 +398,11 @@ abstract class AnikotoTheme(
             return emptyList()
         }
 
-        val typeSelection = typeToggle
-        val serverNumSelection = serverNumsToggle
+        val serverData = parseServerListData(document, typeToggle)
 
-        val serverData = parseServerListData(document, typeSelection, serverNumSelection).toMutableList()
-
-        // Mapper API servers
-        val mapperMal = response.request.header("X-Mapper-Mal")
-        val mapperSlug = response.request.header("X-Mapper-Slug")
-        val mapperTs = response.request.header("X-Mapper-Ts")
-
-        if (!mapperMal.isNullOrBlank() && !mapperSlug.isNullOrBlank() && !mapperTs.isNullOrBlank()) {
-            try {
-                val mapperHeaders = headers.newBuilder().apply {
-                    add("Accept", "application/json, text/javascript, */*; q=0.01")
-                    add("Referer", "$baseUrl/")
-                    add("Origin", baseUrl)
-                }.build()
-
-                val mapperUrl = "https://mapper.mewcdn.online".toHttpUrl().newBuilder().apply {
-                    addPathSegment("api")
-                    addPathSegment("mal")
-                    addPathSegment(mapperMal)
-                    addPathSegment(mapperSlug)
-                    addPathSegment(mapperTs)
-                }.build()
-
-                client.newCall(GET(mapperUrl, mapperHeaders))
-                    .awaitSuccess().use { apiResponse ->
-                        val mapperJson = apiResponse.parseAs<JsonObject>()
-                        for ((key, value) in mapperJson) {
-                            if (key.equals("status", true)) continue
-                            val obj = try {
-                                value.jsonObject
-                            } catch (_: Exception) {
-                                continue
-                            }
-
-                            listOf("sub" to "H-Sub", "dub" to "A-Dub").forEach { (typeKey, typeLabel) ->
-                                val typeObj = try {
-                                    obj[typeKey]?.jsonObject
-                                } catch (_: Exception) {
-                                    null
-                                } ?: return@forEach
-
-                                val serverName = mapMapperName(key).lowercase()
-                                if (!hostToggle.any { serverName.contains(it, true) }) return@forEach
-                                if (!typeSelection.contains(typeLabel, true)) return@forEach
-
-                                val linkId = typeObj["url"]?.jsonPrimitive?.content
-                                val downloadUrls = extractMapperDownloadUrls(typeObj)
-
-                                if (linkId != null) {
-                                    serverData.add(VideoData(typeLabel, linkId, serverName, downloadUrls))
-                                } else if (downloadUrls.isNotEmpty()) {
-                                    serverData.add(VideoData(typeLabel, "", serverName, downloadUrls))
-                                }
-                            }
-                        }
-                    }
-            } catch (e: Exception) {
-                Log.e("AnikotoTheme", "Mapper API failed: ${e.message}")
-            }
-        }
-
-        val allVideos = serverData.parallelCatchingFlatMap { server ->
+        return serverData.parallelCatchingFlatMap { server ->
             extractVideo(server, epurl)
         }
-        return allVideos
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -521,39 +412,14 @@ abstract class AnikotoTheme(
     // ============================= Extractors =============================
 
     private suspend fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
-        val useHls = prefLinkType
-        val isKiwi = server.serverName.contains("kiwi", true)
-        val videos = mutableListOf<Video>()
-
-        val embedLink = if (server.serverId.isNotBlank()) getEmbedLink(server.serverId, epUrl) else ""
+        val embedLink = getEmbedLink(server.serverId, epUrl)
         val isMewcdn = embedLink.contains("mewcdn.online/player/plyr.php")
 
-        if (isKiwi) {
-            if (useHls) {
-                // HLS mode: only mewcdn HLS, no MP4 at all
-                if (isMewcdn) {
-                    videos.addAll(extractFromMewcdnPlayer(embedLink, server))
-                }
-            } else {
-                // MP4 mode: download MP4s + embed MP4, skip mewcdn HLS
-                if (server.downloadUrls.isNotEmpty()) {
-                    videos.addAll(extractFromDownloadUrls(server))
-                }
-                if (embedLink.isNotBlank() && !isMewcdn) {
-                    videos.addAll(extractFromKiwistream(embedLink, server, epUrl))
-                }
-            }
+        if (isMewcdn) {
+            extractFromMewcdnPlayer(embedLink, server)
         } else {
-            // Non-Kiwi servers: always extract
-            if (server.downloadUrls.isNotEmpty()) {
-                videos.addAll(extractFromDownloadUrls(server))
-            }
-            if (embedLink.isNotBlank()) {
-                videos.addAll(extractFromPlayer(resolveEmbedChain(embedLink), embedLink, server))
-            }
+            extractFromPlayer(embedLink, server)
         }
-
-        videos
     } catch (e: Exception) {
         Log.e("AnikotoTheme", "Failed to extract from ${server.serverName}: ${e.message}")
         emptyList()
@@ -572,18 +438,20 @@ abstract class AnikotoTheme(
         }
     }
 
-    private suspend fun extractFromPlayer(embedUrl: String, parentUrl: String, server: VideoData): List<Video> {
+    private suspend fun extractFromPlayer(embedUrl: String, server: VideoData): List<Video> {
         val host = try {
             embedUrl.toHttpUrl().host
         } catch (_: Exception) {
             return emptyList()
         }
 
-        val pageHeaders = headers.newBuilder().add("Referer", parentUrl).build()
+        val pageHeaders = headers.newBuilder()
+            .add("Referer", "$baseUrl/")
+            .build()
 
         val pageBody = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
-            it.body?.string().orEmpty()
+            it.body.string()
         }
 
         val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
@@ -598,7 +466,7 @@ abstract class AnikotoTheme(
 
         val sourcesBody = client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders)).awaitSuccess().use {
             if (!it.isSuccessful) throw Exception("getSources failed: HTTP ${it.code}")
-            it.body?.string().orEmpty()
+            it.body.string()
         }
 
         val data = sourcesBody.parseAs<SourceResponseDto>()
@@ -607,16 +475,14 @@ abstract class AnikotoTheme(
 
         val subtitles = data.tracks?.filter { it.kind.equals("captions", true) }?.map { Track(it.file, it.label) }.orEmpty()
 
-        val (serverBaseName, serverNum, _) = getServerInfo(server.serverName)
+        val displayName = getServerDisplayName(server.serverName)
         val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
-        val prefix = buildString {
-            append(serverBaseName)
-            if (serverNum.isNotBlank()) append(" $serverNum")
-        }
 
         return playlistUtils.extractFromHls(
             m3u8,
-            videoNameGen = { "$prefix$typeSuffix - ${cleanHlsQuality(it)}" },
+            videoNameGen = { quality ->
+                "$displayName$typeSuffix - ${cleanHlsQuality(quality)}"
+            },
             subtitleList = subtitles,
             referer = "https://$host/",
         )
@@ -626,75 +492,65 @@ abstract class AnikotoTheme(
         val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotBlank() }
             ?: throw Exception("No fragment found in mewcdn player URL")
 
-        val m3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
-        if (!m3u8.startsWith("http")) {
+        val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
+        if (!rawM3u8.startsWith("http")) {
             throw Exception("Invalid m3u8 URL decoded from mewcdn fragment")
         }
 
-        val (serverBaseName, serverNum, qualityFromName) = getServerInfo(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
-        val prefix = buildString {
-            append(serverBaseName)
-            if (serverNum.isNotBlank()) append(" $serverNum")
+        // Fetch player page to get HOST_MAP for CDN URL remapping
+        val pageHeaders = headers.newBuilder()
+            .add("Referer", "$baseUrl/")
+            .build()
+
+        val hostMap = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use { response ->
+            parseHostMap(response.body.string())
         }
+
+        val m3u8 = applyHostMap(rawM3u8, hostMap)
+
+        val displayName = getServerDisplayName(server.serverName)
+        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
 
         return playlistUtils.extractFromHls(
             m3u8,
             videoNameGen = { quality ->
-                "$prefix$typeSuffix - ${qualityFromName ?: cleanHlsQuality(quality)} (HLS)"
+                "$displayName$typeSuffix - ${cleanHlsQuality(quality)}"
             },
             referer = "https://mewcdn.online/",
         )
     }
 
-    private suspend fun extractFromKiwistream(embedUrl: String, server: VideoData, epUrl: String): List<Video> {
-        if (server.downloadUrls.isNotEmpty()) return emptyList()
-
-        val (serverBaseName, serverNum, qualityFromName) = getServerInfo(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
-        val prefix = buildString {
-            append(serverBaseName)
-            if (serverNum.isNotBlank()) append(" $serverNum")
-        }
-        val referer = "$baseUrl$epUrl"
-        val qualityLabel = qualityFromName ?: "default"
-        val videoLabel = "$prefix$typeSuffix - $qualityLabel"
-
-        return try {
-            listOf(kwikExtractor.getMp4Video(embedUrl, referer, videoLabel))
-        } catch (e: Exception) {
-            Log.w("AnikotoTheme", "Kiwi-Stream MP4 failed: ${e.message}")
-            emptyList()
-        }
+    private fun parseHostMap(html: String): Map<String, String> {
+        val mapRegex = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
+        val entryRegex = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
+        val mapMatch = mapRegex.find(html) ?: return emptyMap()
+        return entryRegex.findAll(mapMatch.groupValues[1]).associate { it.groupValues[1] to it.groupValues[2] }
     }
 
-    private suspend fun extractFromDownloadUrls(server: VideoData): List<Video> {
-        val (serverBaseName, serverNum, _) = getServerInfo(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
-        val prefix = buildString {
-            append(serverBaseName)
-            if (serverNum.isNotBlank()) append(" $serverNum")
+    private fun applyHostMap(url: String, hostMap: Map<String, String>): String {
+        var result = url
+        for ((origin, proxy) in hostMap) {
+            if (result.contains(origin)) {
+                result = result.replace(origin, proxy)
+                break
+            }
         }
-
-        return server.downloadUrls.entries.parallelCatchingFlatMap { (quality, paheUrl) ->
-            val kwikUrl = resolvePaheRedirect(paheUrl)
-            val videoLabel = "$prefix$typeSuffix - $quality"
-            listOf(kwikExtractor.getMp4Video(kwikUrl, paheUrl, videoLabel))
-        }
+        return result
     }
 
     // ============================ Video Sort ==============================
 
     override fun List<Video>.sort(): List<Video> {
         val quality = prefQuality
-        val server = prefServer
+        val serverDisplayName = getServerDisplayName(prefServer)
         val type = prefType
         val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
 
         val sortType = when (type) {
-            "Sub" -> listOf("Sub", "H-Sub")
+            "Sub" -> listOf("Sub", "S-Sub")
+            "S-Sub" -> listOf("S-Sub", "Sub")
             "Dub" -> listOf("Dub", "A-Dub")
-            "H-Sub" -> listOf("H-Sub", "Sub")
+            "HSub" -> listOf("HSub")
             "A-Dub" -> listOf("A-Dub", "Dub")
             else -> listOf(type)
         }
@@ -702,7 +558,7 @@ abstract class AnikotoTheme(
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(quality) }
                 .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
-                .thenByDescending { it.quality.contains(server, true) }
+                .thenByDescending { it.quality.contains(serverDisplayName, true) }
                 .thenByDescending { sortType.any { t -> it.quality.contains(" - $t ", true) } },
         )
     }
@@ -795,118 +651,48 @@ abstract class AnikotoTheme(
     protected open fun parseServerListData(
         document: Document,
         typeSelection: Set<String>,
-        serverNumSelection: Set<String>,
     ): List<VideoData> {
         return document.select("div.servers > div.type").flatMap { elem ->
             val label = elem.selectFirst("label")?.text()?.trim()?.let { lbl ->
                 when (lbl.uppercase()) {
                     "SUB" -> "Sub"
-                    "H-SUB" -> "H-Sub"
+                    "S-SUB" -> "S-Sub"
+                    "H-SUB", "HSUB" -> "HSub"
                     "DUB" -> "Dub"
-                    "A-DUB" -> "A-Dub"
+                    "A-DUB", "ADUB" -> "A-Dub"
                     else -> lbl.replaceFirstChar { it.uppercase() }
                 }
-            } ?: elem.attr("data-type").replaceFirstChar { it.uppercase() }
+            } ?: when (elem.attr("data-type").lowercase()) {
+                "sub" -> "Sub"
+                "hsub" -> "HSub"
+                "dub" -> "Dub"
+                "adub" -> "A-Dub"
+                else -> elem.attr("data-type").replaceFirstChar { it.uppercase() }
+            }
 
-            val sectionDownloadUrls = parseDownloadDataFromSection(elem)
+            if (!isTypeEnabled(label, typeSelection)) return@flatMap emptyList()
 
             elem.select("li").mapNotNull { serverElement ->
                 if (serverElement.hasClass("download-icon")) return@mapNotNull null
 
                 val serverId = serverElement.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
-                val serverName = serverElement.text().lowercase()
+                val serverName = serverElement.text().trim()
                 if (hostToggle.none { serverName.contains(it, true) }) return@mapNotNull null
 
-                val isKiwi = serverName.contains("kiwi", true)
-
-                // Expand type matching for Kiwi: Sub↔H-Sub, Dub↔A-Dub
-                val typeMatches = if (isKiwi) {
-                    typeSelection.contains(label, true) ||
-                        (label == "H-Sub" && typeSelection.contains("Sub", true)) ||
-                        (label == "A-Dub" && typeSelection.contains("Dub", true))
-                } else {
-                    typeSelection.contains(label, true)
-                }
-                if (!typeMatches) return@mapNotNull null
-
-                val serverNum = getServerNumber(serverName)
-                if (!serverNumSelection.contains(serverNum.toString())) return@mapNotNull null
-
-                val downloadUrls = sectionDownloadUrls.entries.firstOrNull {
-                    serverName.startsWith(it.key, true) || it.key.startsWith(serverName, true)
-                }?.value ?: emptyMap()
-
-                VideoData(label, serverId, serverName, downloadUrls)
+                VideoData(label, serverId, serverName)
             }
         }
     }
 
-    protected open fun parseDownloadDataFromSection(sectionElem: Element): Map<String, Map<String, String>> {
-        val result = mutableMapOf<String, Map<String, String>>()
-        sectionElem.select("li.download-icon").forEach { btn ->
-            val rawData = btn.attr("download-data")
-            if (rawData.isBlank()) return@forEach
-            try {
-                val decoded = String(Base64.decode(rawData, Base64.DEFAULT), Charsets.UTF_8)
-                val jsonObj = decoded.parseAs<JsonObject>()
-                for ((serverKey, serverValue) in jsonObj) {
-                    val downloadObj = (serverValue as? JsonObject) ?: continue
-                    val urls = downloadObj.entries.mapNotNull { (qualityKey, value) ->
-                        val url = (value as? JsonPrimitive)?.content ?: return@mapNotNull null
-                        qualityKey.substringAfterLast("-") to url
-                    }.toMap()
-                    if (urls.isNotEmpty()) {
-                        result[serverKey.lowercase()] = urls
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("AnikotoTheme", "Failed to parse download-data: ${e.message}")
-            }
+    protected open fun getServerDisplayName(serverName: String): String = serverName.split("-")
+        .filter { it.isNotBlank() }
+        .joinToString("-") { word ->
+            word.replaceFirstChar { it.uppercase() }
         }
-        return result
-    }
 
     protected open fun extractRelatedThumbnail(element: Element): String? = element.selectFirst("img")?.attr("src")?.trim()
 
-    protected open fun mapMapperName(key: String): String = when {
-        key.equals("gogoanime", true) -> "Vidstream"
-        key.equals("anivibe", true) -> "Vibe-Stream"
-        key.equals("animepahe", true) -> "Kiwi-Stream"
-        key.startsWith("Kiwi-Stream", true) -> key
-        else -> key
-    }
-
-    protected open fun getServerInfo(serverName: String): Triple<String, String, String?> {
-        val isKiwi = serverName.contains("kiwi", true)
-
-        val qualityMatch = Regex("""(\d+)p$""").find(serverName)
-        val quality = qualityMatch?.value
-        val nameWithoutQuality = if (qualityMatch != null) serverName.substringBeforeLast("-${qualityMatch.value}") else serverName
-
-        val parts = nameWithoutQuality.split("-")
-        val numPart = parts.lastOrNull()?.toIntOrNull()
-        val rawBaseName = if (numPart != null && parts.size > 1) parts.dropLast(1).joinToString("-") else nameWithoutQuality
-
-        val displayName = rawBaseName.split("-")
-            .filter { it.isNotBlank() }
-            .joinToString("-") { word ->
-                word.replaceFirstChar { it.uppercase() }
-            }
-
-        val serverNum = when {
-            isKiwi -> ""
-            numPart != null -> "S$numPart"
-            else -> "S1"
-        }
-
-        return Triple(displayName, serverNum, quality)
-    }
-
-    protected open fun getServerNumber(serverName: String): Int {
-        if (serverName.contains("kiwi", true)) return 1
-        return serverName.split("-").lastOrNull()?.toIntOrNull() ?: 1
-    }
     protected open fun extractM3u8FromSources(sources: kotlinx.serialization.json.JsonElement): String? = when (sources) {
         is JsonObject -> sources["file"]?.jsonPrimitive?.content
         is JsonArray -> sources.firstOrNull()?.let {
@@ -920,42 +706,8 @@ abstract class AnikotoTheme(
         else -> null
     }
 
-    protected open suspend fun resolveEmbedChain(url: String): String {
-        var currentUrl = url
-        repeat(3) {
-            try {
-                val iframeUrl = client.newCall(GET(currentUrl, docHeaders)).awaitSuccess().use {
-                    it.asJsoup().selectFirst("iframe[src]")?.attr("abs:src")
-                }
-                if (iframeUrl.isNullOrBlank()) return currentUrl
-                currentUrl = iframeUrl
-            } catch (_: Exception) {
-                return currentUrl
-            }
-        }
-        return currentUrl
-    }
-
     @Synchronized
     protected open fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }.getOrNull() ?: 0L
-
-    protected open fun extractMapperDownloadUrls(typeObj: JsonObject): Map<String, String> {
-        val downloadObj = typeObj["download"]?.jsonObject ?: return emptyMap()
-        return downloadObj.entries.mapNotNull { (key, value) ->
-            val url = (value as? JsonPrimitive)?.content
-                ?.replace("pahe.mewcdn.online", "pahe.win")
-                ?: return@mapNotNull null
-            key.substringAfterLast("-") to url
-        }.toMap()
-    }
-
-    private suspend fun resolvePaheRedirect(paheUrl: String): String {
-        val pageBody = client.newCall(GET(paheUrl, docHeaders)).awaitSuccess().use { response ->
-            response.body?.string().orEmpty()
-        }
-        return PAHE_KWIK_REGEX.find(pageBody)?.groupValues?.get(1)
-            ?: throw Exception("Could not find kwik.cx URL in redirect page from $paheUrl")
-    }
 
     // ============================ Shared Utilities ========================
 
@@ -987,6 +739,10 @@ abstract class AnikotoTheme(
         }
     }
 
+    protected fun isTypeEnabled(label: String, typeSelection: Set<String>): Boolean = typeSelection.contains(label, true) ||
+        (label == "S-Sub" && typeSelection.contains("Sub", true)) ||
+        (label == "A-Dub" && typeSelection.contains("Dub", true))
+
     private fun cleanHlsQuality(quality: String): String = quality.substringBefore(" (").substringBefore(" - ").trim()
 
     protected fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
@@ -1000,13 +756,21 @@ abstract class AnikotoTheme(
         val invalidDomain = domain !in domainEntries
         val invalidHosters = hostToggle.any { it !in hosterNames }
 
-        if (invalidDomain || invalidHosters) {
+        val savedTypes = getStringSet(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES) ?: DEFAULT_TYPES
+        val invalidTypes = savedTypes.any { it !in PREF_TYPE_ENTRIES }
+
+        val savedPrefType = getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT) ?: PREF_TYPE_DEFAULT
+        val invalidPrefType = savedPrefType !in PREF_TYPE_ENTRIES
+
+        if (invalidDomain || invalidHosters || invalidTypes || invalidPrefType) {
             edit().also { editor ->
                 if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
                 if (invalidHosters) {
                     editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
                     editor.putString(PREF_SERVER_KEY, hosterNames.first())
                 }
+                if (invalidTypes) editor.putStringSet(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES)
+                if (invalidPrefType) editor.putString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
             }.apply()
         }
         return this
@@ -1029,9 +793,7 @@ abstract class AnikotoTheme(
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val hostToggle: Set<String> by preferences.delegate(PREF_HOSTER_KEY, hosterNames.toSet())
     protected val typeToggle: Set<String> by preferences.delegate(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES)
-    protected val serverNumsToggle: Set<String> by preferences.delegate(PREF_SERVER_NUMS_KEY, PREF_SERVER_NUMS_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
-    protected val prefLinkType by preferences.delegate(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         try {
@@ -1114,24 +876,11 @@ abstract class AnikotoTheme(
 
         MultiSelectListPreference(screen.context).apply {
             key = PREF_HOSTER_KEY
-            title = "Enable/Disable Hosts"
-            summary = "Select which hosts to use"
+            title = "Enable/Disable Servers"
+            summary = "Select which servers to use"
             entries = hosterDisplayNames.toTypedArray()
             entryValues = hosterNames.toTypedArray()
             setDefaultValue(hosterNames.toSet())
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }.also(screen::addPreference)
-
-        MultiSelectListPreference(screen.context).apply {
-            key = PREF_SERVER_NUMS_KEY
-            title = "Enable/Disable Servers"
-            summary = "Select which servers to show"
-            entries = SERVER_NUM_NAMES
-            entryValues = SERVER_NUM_VALUES
-            setDefaultValue(PREF_SERVER_NUMS_DEFAULT)
             setOnPreferenceChangeListener { _, newValue ->
                 @Suppress("UNCHECKED_CAST")
                 val newSet = newValue as Set<String>
@@ -1164,16 +913,6 @@ abstract class AnikotoTheme(
                 }
             }
         }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_LINK_TYPE_KEY
-            title = "Use HLS links"
-            summary = "Defaults to MP4. Enable to use HLS instead.\nHLS may not support seeking without downloading first. Kiwi-Stream only."
-            setDefaultValue(PREF_LINK_TYPE_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
-        }.also(screen::addPreference)
     }
 
     companion object {
@@ -1196,14 +935,9 @@ abstract class AnikotoTheme(
         private const val PREF_HOSTER_KEY = "hoster_selection"
         private const val PREF_SERVER_KEY = "preferred_server"
 
-        private const val PREF_SERVER_NUMS_KEY = "server_number_selection"
-        private val SERVER_NUM_NAMES = arrayOf("Server 1", "Server 2", "Server 3")
-        private val SERVER_NUM_VALUES = arrayOf("1", "2", "3")
-        private val PREF_SERVER_NUMS_DEFAULT = SERVER_NUM_VALUES.toSet()
-
         private const val PREF_TYPE_TOGGLE_KEY = "type_selection"
-        private val PREF_TYPE_ENTRIES = arrayOf("Sub", "H-Sub", "Dub", "A-Dub")
-        private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Hard Sub", "Dub", "Alternate Dub")
+        private val PREF_TYPE_ENTRIES = arrayOf("Sub", "S-Sub", "HSub", "Dub", "A-Dub")
+        private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Soft Sub", "Hard Sub", "Dub", "Alternate Dub")
         private val DEFAULT_TYPES = PREF_TYPE_ENTRIES.toSet()
 
         private const val PREF_TYPE_KEY = "preferred_language"
@@ -1217,13 +951,6 @@ abstract class AnikotoTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
-
-        const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
-
-        private val PAHE_KWIK_REGEX = Regex("""\.attr\("href","(https?://kwik\.cx/f/[^"]+)"""")
-
-        private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
-        private const val PREF_LINK_TYPE_DEFAULT = false
     }
 
     // =============================== VRF ==================================

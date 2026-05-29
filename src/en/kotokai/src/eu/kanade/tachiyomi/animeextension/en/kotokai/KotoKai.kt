@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.network.GET
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 class KotoKai :
     AnikotoTheme(
@@ -20,8 +21,8 @@ class KotoKai :
             "animekai.se",
             "anikai.se",
         ),
-        hosterNames = listOf("megaplay", "vidstream", "kiwi-stream"),
-        hosterDisplayNames = listOf("MegaPlay", "Vidstream", "Kiwi-Stream"),
+        hosterNames = listOf("MegaPlay", "Vidstream", "VidCloud", "Kiwi-Stream"),
+        hosterDisplayNames = listOf("HD-1", "Vidstream", "VidCloud", "Kiwi-Stream"),
     ) {
 
     // =================== Video Server List Override ======================
@@ -29,74 +30,62 @@ class KotoKai :
     override fun parseServerListData(
         document: Document,
         typeSelection: Set<String>,
-        serverNumSelection: Set<String>,
     ): List<VideoData> {
-        val seen = mutableSetOf<String>()
+        return document.select("div.servers > div.type").flatMap { typeElem ->
+            val typeLabel = resolveTypeLabel(typeElem)
 
-        return document.select("div.type").flatMap { typeElem ->
-            val label = typeElem.selectFirst("label")?.text()?.trim()?.let { lbl ->
-                when (lbl.uppercase()) {
-                    "SUB" -> "Sub"
-                    "H-SUB" -> "H-Sub"
-                    "DUB" -> "Dub"
-                    "A-DUB" -> "A-Dub"
-                    else -> lbl.replaceFirstChar { it.uppercase() }
-                }
-            } ?: typeElem.attr("data-type").replaceFirstChar { it.uppercase() }
+            if (!isTypeEnabled(typeLabel, typeSelection)) return@flatMap emptyList()
 
-            if (!typeSelection.contains(label, true)) return@flatMap emptyList<VideoData>()
+            typeElem.select("li").mapNotNull { serverElem ->
+                if (serverElem.hasClass("download-icon")) return@mapNotNull null
 
-            typeElem.select("li").mapNotNull { serverElement ->
-                val serverId = serverElement.attr("data-link-id")
+                val serverId = serverElem.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
-                if (!seen.add(serverId)) return@mapNotNull null
 
-                val svId = serverElement.attr("data-sv-id")
-                val spanText = serverElement.text().trim().lowercase()
+                val serverName = serverElem.text().trim()
+                val hoster = mapServerToHoster(serverName) ?: return@mapNotNull null
+                if (hoster !in hostToggle) return@mapNotNull null
 
-                val hosterName = mapSvIdToHoster(svId, spanText)
-                if (hostToggle.none { hosterName.contains(it, true) }) return@mapNotNull null
-
-                val serverNum = parseServerNum(spanText)
-                if (!serverNumSelection.contains(serverNum.toString())) return@mapNotNull null
-
-                val serverName = buildServerName(spanText, svId)
-
-                VideoData(label, serverId, serverName)
+                VideoData(typeLabel, serverId, serverName)
             }
         }
     }
 
-    private fun buildServerName(text: String, svId: String): String = when (svId) {
-        "323" -> when {
-            text.startsWith("hd-1") -> "megaplay-1"
-            text.startsWith("hd-2") -> "vidstream-1"
-            text.startsWith("hd-") -> "vidstream-" + text.substringAfter("hd-")
-            else -> "vidstream-1"
-        }
-        "xtp" -> when {
-            text.startsWith("kiwi-stream-") -> "kiwi-stream-1-" + text.substringAfter("kiwi-stream-")
-            else -> "kiwi-stream-1"
-        }
-        else -> text.lowercase().replace(" ", "-")
+    private fun mapServerToHoster(serverName: String): String? = when {
+        serverName.startsWith("HD-", true) -> "MegaPlay"
+        serverName.startsWith("Vidstream", true) -> "Vidstream"
+        serverName.startsWith("VidCloud", true) -> "VidCloud"
+        serverName.startsWith("Kiwi-Stream", true) -> "Kiwi-Stream"
+        else -> null
     }
 
-    private fun mapSvIdToHoster(svId: String, text: String): String = when (svId) {
-        "323" -> when {
-            text.startsWith("hd-1") -> "megaplay"
-            text.startsWith("hd-2") -> "vidstream"
-            else -> "vidstream"
+    private fun resolveTypeLabel(typeElem: Element): String {
+        val labelText = typeElem.selectFirst("label")?.text()?.trim()
+        val dataType = typeElem.attr("data-type")
+
+        return when {
+            labelText.equals("SUB", true) -> "Sub"
+            labelText.equals("H-SUB", true) -> "S-Sub"
+            labelText.equals("HSUB", true) -> "HSub"
+            labelText.equals("DUB", true) -> "Dub"
+            labelText.equals("A-DUB", true) -> "A-Dub"
+            dataType.equals("sub", true) -> "Sub"
+            dataType.equals("hsub", true) -> "HSub"
+            dataType.equals("dub", true) -> "Dub"
+            dataType.equals("adub", true) -> "A-Dub"
+            else -> (labelText ?: dataType).replaceFirstChar { it.uppercase() }
         }
-        "xtp" -> "kiwi-stream"
-        else -> svId.lowercase()
     }
 
-    private fun parseServerNum(text: String): Int = when {
-        text.startsWith("hd-") -> text.substringAfter("hd-").toIntOrNull() ?: 1
-        else -> 1
+    override fun getServerDisplayName(serverName: String): String = when (serverName) {
+        "MegaPlay" -> "HD-"
+        "Vidstream" -> "Vidstream-"
+        "VidCloud" -> "VidCloud-"
+        "Kiwi-Stream" -> "Kiwi-Stream"
+        else -> super.getServerDisplayName(serverName)
     }
 
-    // =================== Search Request Override ======================
+    // =================== Search Request Override =========================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = AnikotoThemeFilters.getSearchParameters(filters)
@@ -112,7 +101,9 @@ class KotoKai :
             addListQueryParameter("season", params.seasons)
             addListQueryParameter("year", params.years)
             addListQueryParameter("term_type", params.types)
+            addListQueryParameter("status", params.statuses)
             addListQueryParameter("language", params.languages)
+            addListQueryParameter("rating", params.ratings)
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
 
