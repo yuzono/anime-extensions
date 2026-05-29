@@ -1,11 +1,10 @@
 package aniyomi.lib.megacloudextractor
 
 import android.util.Log
+import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.m3u8server.M3u8Integration
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

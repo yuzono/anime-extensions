@@ -7,5 +7,5 @@ plugins {
 baseVersionCode = 4
 
 dependencies {
-    implementation(project(":lib:megaupextractor"))
+    api(project(":lib:megaupextractor"))
 }

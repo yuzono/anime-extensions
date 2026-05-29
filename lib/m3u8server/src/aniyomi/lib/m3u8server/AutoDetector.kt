@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.lib.m3u8server
+package aniyomi.lib.m3u8server
 
 /**
  * Automatic file format detector and offset calculator
@@ -64,8 +64,8 @@ object AutoDetector {
     private fun isJpegHeader(data: ByteArray): Boolean {
         if (data.size < 3) return false
         return data[0] == JPEG_HEADER[0] &&
-               data[1] == JPEG_HEADER[1] &&
-               data[2] == JPEG_HEADER[2]
+            data[1] == JPEG_HEADER[1] &&
+            data[2] == JPEG_HEADER[2]
     }
 
     /**
@@ -74,9 +74,9 @@ object AutoDetector {
     private fun isPngHeader(data: ByteArray): Boolean {
         if (data.size < 4) return false
         return data[0] == PNG_HEADER[0] &&
-               data[1] == PNG_HEADER[1] &&
-               data[2] == PNG_HEADER[2] &&
-               data[3] == PNG_HEADER[3]
+            data[1] == PNG_HEADER[1] &&
+            data[2] == PNG_HEADER[2] &&
+            data[3] == PNG_HEADER[3]
     }
 
     /**
@@ -85,8 +85,8 @@ object AutoDetector {
     private fun isGifHeader(data: ByteArray): Boolean {
         if (data.size < 3) return false
         return data[0] == GIF_HEADER[0] &&
-               data[1] == GIF_HEADER[1] &&
-               data[2] == GIF_HEADER[2]
+            data[1] == GIF_HEADER[1] &&
+            data[2] == GIF_HEADER[2]
     }
 
     /**
@@ -117,11 +117,9 @@ object AutoDetector {
     /**
      * Checks if it's already a valid video format
      */
-    private fun isVideoFormat(data: ByteArray): Boolean {
-        return isMpegTsValid(data) ||
-               findPattern(data, MP4_FTYP) > 0 ||
-               findPattern(data, AVI_RIFF) > 0
-    }
+    private fun isVideoFormat(data: ByteArray): Boolean = isMpegTsValid(data) ||
+        findPattern(data, MP4_FTYP) > 0 ||
+        findPattern(data, AVI_RIFF) > 0
 
     /**
      * Finds a specific pattern in the data

@@ -1,23 +1,23 @@
-package eu.kanade.tachiyomi.lib.m3u8server
+package aniyomi.lib.m3u8server
 
 import android.util.Log
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.net.URI
-import java.net.URLEncoder
-import kotlin.text.Charsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.URI
+import java.net.URLEncoder
+import kotlin.text.Charsets
 
 /**
  * Real HTTP server for M3U8 processing using NanoHTTPD
@@ -25,7 +25,7 @@ import org.nanohttpd.protocols.http.response.Status
  */
 class M3u8HttpServer(
     port: Int = 0, // 0 means random port
-    private val client: OkHttpClient = OkHttpClient()
+    private val client: OkHttpClient = OkHttpClient(),
 ) : NanoHTTPD(port) {
 
     val port: Int
@@ -137,7 +137,8 @@ class M3u8HttpServer(
         session.headers.forEach { (key, value) ->
             when (key.lowercase()) {
                 "user-agent", "referer", "origin", "accept", "accept-language",
-                "accept-encoding", "connection", "cache-control", "pragma" -> {
+                "accept-encoding", "connection", "cache-control", "pragma",
+                -> {
                     headers[key] = value
                 }
             }
@@ -185,12 +186,10 @@ class M3u8HttpServer(
     /**
      * Health check
      */
-    fun getHealthStatus(): String {
-        return if (isRunning) {
-            "M3U8 HTTP Server is running on port $port"
-        } else {
-            "M3U8 HTTP Server is not running"
-        }
+    fun getHealthStatus(): String = if (isRunning) {
+        "M3U8 HTTP Server is running on port $port"
+    } else {
+        "M3U8 HTTP Server is not running"
     }
 
     private suspend fun fetchM3u8Content(url: String, headers: Map<String, String> = emptyMap()): String = withContext(Dispatchers.IO) {

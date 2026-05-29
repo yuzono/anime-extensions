@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.lib.m3u8server
+package aniyomi.lib.m3u8server
 
 import android.util.Log
 
@@ -47,18 +47,14 @@ class M3u8ServerManager {
     /**
      * Gets the server base URL
      */
-    fun getServerUrl(): String? {
-        return server?.let { "http://localhost:${it.port}" }
-    }
+    fun getServerUrl(): String? = server?.let { "http://localhost:${it.port}" }
 
     /**
      * Processes an M3U8 file through the server
      * @param m3u8Url Original M3U8 file URL
      * @return Processed M3U8 content
      */
-    fun processM3u8Url(m3u8Url: String): String? {
-        return server?.createLocalUrl(m3u8Url)
-    }
+    fun processM3u8Url(m3u8Url: String): String? = server?.createLocalUrl(m3u8Url)
 
     /**
      * Processes a segment through the server
@@ -66,23 +62,19 @@ class M3u8ServerManager {
      * @param headers Optional headers to use for the request
      * @return Processed segment data
      */
-    suspend fun processSegmentUrl(segmentUrl: String, headers: Map<String, String> = emptyMap()): ByteArray? {
-        return server?.processSegmentUrl(segmentUrl, headers)
-    }
+    suspend fun processSegmentUrl(segmentUrl: String, headers: Map<String, String> = emptyMap()): ByteArray? = server?.processSegmentUrl(segmentUrl, headers)
 
     /**
      * Gets server information
      */
-    fun getServerInfo(): String {
-        return if (isRunning()) {
-            val serverUrl = getServerUrl() ?: "Unknown"
-            """
+    fun getServerInfo(): String = if (isRunning()) {
+        val serverUrl = getServerUrl() ?: "Unknown"
+        """
             M3U8 HTTP Server is running
             Base URL: $serverUrl
             Status: ${server?.getHealthStatus()}
-            """.trimIndent()
-        } else {
-            "M3U8 HTTP Server is not running"
-        }
+        """.trimIndent()
+    } else {
+        "M3U8 HTTP Server is not running"
     }
 }

@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.lib.m3u8server
+package aniyomi.lib.m3u8server
 
 import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -75,9 +75,7 @@ class M3u8Integration(
      * Gets server information
      * @return String with server information
      */
-    fun getServerInfo(): String {
-        return serverManager.getServerInfo()
-    }
+    fun getServerInfo(): String = serverManager.getServerInfo()
 
     /**
      * Stops the server
@@ -90,7 +88,5 @@ class M3u8Integration(
      * Checks if the server is running
      * @return true if it's running
      */
-    fun isServerRunning(): Boolean {
-        return serverManager.isRunning()
-    }
+    fun isServerRunning(): Boolean = serverManager.isRunning()
 }
