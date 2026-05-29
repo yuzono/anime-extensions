@@ -1,13 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animesogo
 
-import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
-import eu.kanade.tachiyomi.network.GET
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -76,6 +69,11 @@ class AnimeSogo :
             dataType.equals("adub", true) -> "A-Dub"
             else -> (labelText ?: dataType).replaceFirstChar { it.uppercase() }
         }
+    }
+
+    override fun mapMapperServerName(key: String): String = when {
+        key.startsWith("Kiwi-Stream", true) -> "Server-"
+        else -> super.mapMapperServerName(key)
     }
 
     override fun getServerDisplayName(serverName: String): String = when (serverName) {

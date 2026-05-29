@@ -1,13 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.kotokai
 
-import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
-import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
-import eu.kanade.tachiyomi.network.GET
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
