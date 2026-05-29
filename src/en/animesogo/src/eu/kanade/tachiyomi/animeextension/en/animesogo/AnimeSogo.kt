@@ -1,6 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.en.animesogo
 
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
+import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
+import eu.kanade.tachiyomi.network.GET
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -79,6 +86,31 @@ class AnimeSogo :
     override fun getServerDisplayName(serverName: String): String = when (serverName) {
         "Server-" -> "Kiwi-Stream"
         else -> super.getServerDisplayName(serverName)
+    }
+
+    // =================== Search Override =================================
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val params = AnikotoThemeFilters.getSearchParameters(filters)
+        val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("filter")
+            addQueryParameter("keyword", query)
+            addQueryParameter("page", page.toString())
+            addQueryParameter("vrf", vrf)
+
+            addListQueryParameter("genre", params.genres)
+            addListQueryParameter("season", params.seasons)
+            addListQueryParameter("year", params.years)
+            addListQueryParameter("term_type", params.types)
+            addListQueryParameter("status", params.statuses)
+            addListQueryParameter("language", params.languages)
+            addListQueryParameter("rating", params.ratings.map { it.lowercase().replace("-", "_") })
+            addQueryParameterIfNotEmpty("sort", params.sort)
+        }.build().toString()
+
+        return GET(url, docHeaders)
     }
 
     // =================== Thumbnail Override ==============================
