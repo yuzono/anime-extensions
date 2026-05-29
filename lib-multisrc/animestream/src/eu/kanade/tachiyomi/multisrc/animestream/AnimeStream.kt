@@ -230,7 +230,7 @@ abstract class AnimeStream(
         else -> "Order"
     }
 
-    override fun getFilterList(): AnimeFilterList = if (fetchFilters && AnimeStreamFilters.filterInitialized()) {
+    override fun getFilterList(): AnimeFilterList = if (fetchFilters && AnimeStreamFilters.filterInitialized() && AnimeStreamFilters.filterElements.isNotEmpty()) {
         AnimeFilterList(
             GenresFilter(genresFilterText),
             SeasonFilter(seasonsFilterText),

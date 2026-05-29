@@ -32,6 +32,9 @@ class AnimeIndo :
         "https://animeindo.skin",
     ) {
 
+    // ============================== Filters ============================== (fetch URL)
+    override val animeListUrl = "$baseUrl/browse"
+
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/browse?sort=view&page=$page")
 
@@ -73,7 +76,7 @@ class AnimeIndo :
     // ============================== Filters ===============================
     override val filtersSelector = "div.filtersearch tbody > tr:not(:has(td.filter_title:contains(Search))) > td.filter_act"
 
-    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized() && AnimeStreamFilters.filterElements.isNotEmpty()) {
         AnimeFilterList(
             OrderFilter(orderFilterText),
             StatusFilter(statusFilterText),

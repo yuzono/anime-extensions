@@ -76,7 +76,7 @@ object AnimeStreamFilters {
             val value = element.selectFirst("input")!!.attr("value")
             Pair(key, value)
         }?.toTypedArray()
-        ?: emptyArray()
+        ?: arrayOf("" to "")
 
     private val GENRES_LIST by lazy { getPairListByIndex(0) }
     private val SEASON_LIST by lazy { getPairListByIndex(1) }
