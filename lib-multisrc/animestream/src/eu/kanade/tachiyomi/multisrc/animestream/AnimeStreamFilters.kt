@@ -71,9 +71,9 @@ object AnimeStreamFilters {
 
     fun getPairListByIndex(index: Int) = filterElements.getOrNull(index)
         ?.select("li")
-        ?.map { element ->
-            val key = element.selectFirst("label")!!.text()
-            val value = element.selectFirst("input")!!.attr("value")
+        ?.mapNotNull { element ->
+            val key = element.selectFirst("label")?.text() ?: return@mapNotNull null
+            val value = element.selectFirst("input")?.attr("value") ?: return@mapNotNull null
             Pair(key, value)
         }?.toTypedArray()
         ?: arrayOf("" to "")

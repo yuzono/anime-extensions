@@ -54,13 +54,18 @@ class AnimeIndo :
             addPathSegment("browse")
             addQueryParameter("page", page.toString())
             if (query.isNotBlank()) addQueryParameter("title", query)
-            if (multiString.isNotBlank()) addEncodedQueryParameter(multiString.dropLast(1), "")
             if (params.status.isNotBlank()) addQueryParameter("status", params.status)
             if (params.type.isNotBlank()) addQueryParameter("type", params.type)
             if (params.order.isNotBlank()) addQueryParameter("order", params.order)
         }
-
-        return GET(urlBuilder.build().toString())
+        val url = urlBuilder.build().toString().let {
+            if (multiString.isNotBlank()) {
+                "$it&$multiString".removeSuffix("&")
+            } else {
+                it
+            }
+        }
+        return GET(url)
     }
 
     override fun searchAnimeSelector() = "div.animepost > div > a"

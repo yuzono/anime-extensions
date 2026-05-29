@@ -22,7 +22,6 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.TypeFilter
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.tryParse
@@ -69,8 +68,10 @@ abstract class AnimeStream(
     protected open val videoSortPrefDefault: String
         get() = prefQualityDefault
 
-    protected open val SharedPreferences.qualityPref by preferences.delegate(prefQualityKey, prefQualityDefault)
-    protected open val SharedPreferences.videoSortPref by preferences.delegate(videoSortPrefKey, videoSortPrefDefault)
+    protected open val SharedPreferences.qualityPref: String
+        get() = getString(prefQualityKey, prefQualityDefault) ?: prefQualityDefault
+    protected open val SharedPreferences.videoSortPref: String
+        get() = getString(videoSortPrefKey, videoSortPrefDefault) ?: videoSortPrefDefault
 
     protected open val dateFormatter by lazy {
         val locale = when (lang) {
