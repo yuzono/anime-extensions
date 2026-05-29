@@ -8,6 +8,4 @@ baseVersionCode = 1
 
 dependencies {
     implementation(project(":lib:playlistutils"))
-    implementation(project(":lib:unpacker"))
-    implementation(project(":lib:cloudflareinterceptor"))
 }
