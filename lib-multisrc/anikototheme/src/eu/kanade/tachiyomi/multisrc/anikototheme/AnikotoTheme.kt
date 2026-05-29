@@ -35,6 +35,7 @@ import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.CacheControl
 import okhttp3.Headers
@@ -73,6 +74,8 @@ abstract class AnikotoTheme(
     private val domainValues = domainEntries.map { "https://$it" }
 
     protected open val rateLimit = 5
+
+    protected open val mapperUrl = "https://mapper.nekostream.site/api"
 
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
@@ -350,9 +353,18 @@ abstract class AnikotoTheme(
         val softSub = if (SOFTSUB_REGEX.containsMatchIn(title)) "SoftSub" else ""
         val name = element.parent()?.select("span.d-title")?.text().orEmpty()
 
+        val malId = element.attr("data-mal")
+        val slug = element.attr("data-slug")
+        val timestamp = element.attr("data-timestamp")
+
         return SEpisode.create().apply {
             this.name = "Episode $epNum" + if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else ""
-            this.url = "$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum"
+            this.url = buildString {
+                append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
+                if (malId.isNotBlank()) append("&mal=$malId")
+                if (slug.isNotBlank()) append("&slug=$slug")
+                if (timestamp.isNotBlank()) append("&ts=$timestamp")
+            }
             episode_number = epNum.toFloatOrNull() ?: 0f
             date_upload = RELEASE_REGEX.find(title)?.let { parseDate(it.groupValues[1]) } ?: 0L
             scanlator = listOf(sub, softSub, dub).filter(String::isNotBlank).joinToString(", ")
@@ -398,7 +410,10 @@ abstract class AnikotoTheme(
             return emptyList()
         }
 
-        val serverData = parseServerListData(document, typeToggle)
+        val serverData = parseServerListData(document, typeToggle).toMutableList()
+
+        val mapperServers = fetchMapperServers(episode)
+        serverData.addAll(mapperServers)
 
         return serverData.parallelCatchingFlatMap { server ->
             extractVideo(server, epurl)
@@ -436,6 +451,68 @@ abstract class AnikotoTheme(
             if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
             response.parseAs<ServerResponseDto>().result.url
         }
+    }
+
+    private suspend fun fetchMapperServers(episode: SEpisode): List<VideoData> {
+        val mapperBase = mapperUrl ?: return emptyList()
+
+        val epUrlStr = episode.url
+        val malId = epUrlStr.substringAfter("&mal=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: return emptyList()
+        val slug = epUrlStr.substringAfter("&slug=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: return emptyList()
+        val ts = epUrlStr.substringAfter("&ts=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: return emptyList()
+
+        val apiUrl = "$mapperBase/mal/$malId/$slug/$ts"
+
+        return try {
+            val mapperHeaders = headers.newBuilder().apply {
+                add("Accept", "application/json, text/javascript, */*; q=0.01")
+                add("Referer", "$baseUrl/")
+                add("Origin", baseUrl)
+            }.build()
+
+            client.newCall(GET(apiUrl, mapperHeaders)).awaitSuccess().use { apiResponse ->
+                val mapperJson = apiResponse.parseAs<JsonObject>()
+                val servers = mutableListOf<VideoData>()
+
+                for ((key, value) in mapperJson) {
+                    if (key.equals("status", true)) continue
+                    val obj = try {
+                        value.jsonObject
+                    } catch (_: Exception) {
+                        continue
+                    }
+
+                    listOf("sub" to "S-Sub", "dub" to "A-Dub").forEach { (typeKey, typeLabel) ->
+                        val typeObj = try {
+                            obj[typeKey]?.jsonObject
+                        } catch (_: Exception) {
+                            null
+                        } ?: return@forEach
+
+                        val linkId = typeObj["url"]?.jsonPrimitive?.content ?: return@forEach
+                        val serverName = mapMapperServerName(key)
+
+                        if (hostToggle.none { serverName.contains(it, true) }) return@forEach
+                        if (!isTypeEnabled(typeLabel, typeToggle)) return@forEach
+
+                        servers.add(VideoData(typeLabel, linkId, serverName))
+                    }
+                }
+
+                servers
+            }
+        } catch (e: Exception) {
+            Log.e("AnikotoTheme", "Mapper API failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    protected open fun mapMapperServerName(key: String): String = when {
+        key.equals("gogoanime", true) -> "Vidstream"
+        key.equals("anivibe", true) -> "Vibe-Stream"
+        key.equals("animepahe", true) -> "Kiwi-Stream"
+        key.startsWith("Kiwi-Stream", true) -> key
+        else -> key.replaceFirstChar { it.uppercase() }
     }
 
     private suspend fun extractFromPlayer(embedUrl: String, server: VideoData): List<Video> {
