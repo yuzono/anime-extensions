@@ -1,7 +1,7 @@
 ext {
     extName = 'Anime-Stream'
     extClass = '.AnimeStream'
-    extVersionCode = 3
+    extVersionCode = 2
 }
 
 apply plugin: "kei.plugins.extension.legacy"
