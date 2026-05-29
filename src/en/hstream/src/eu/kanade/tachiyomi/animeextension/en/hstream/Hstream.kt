@@ -16,16 +16,13 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -41,8 +38,6 @@ class Hstream :
     override val lang = "en"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
@@ -76,13 +71,25 @@ class Hstream :
     // =============================== Search ===============================
     override fun getFilterList() = HstreamFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/hentai/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/hentai/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -163,7 +170,7 @@ class Hstream :
             set("X-XSRF-TOKEN", URLDecoder.decode(token, "utf-8"))
         }.build()
 
-        val body = """{"episode_id": "$episodeId"}""".toRequestBody("application/json".toMediaType())
+        val body = """{"episode_id": "$episodeId"}""".toJsonRequestBody()
         val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
             .parseAs<PlayerApiResponse>()
 

@@ -197,7 +197,7 @@ class ArabSeed :
         )
 
     // =============================== Latest ===============================
-    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
     override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
     override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()

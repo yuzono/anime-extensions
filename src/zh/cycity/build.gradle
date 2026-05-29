@@ -1,10 +1,10 @@
 ext {
     extName = 'Cycity'
     extClass = '.Cycity'
-    extVersionCode = 2
+    extVersionCode = 3
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:cryptoaes'))

@@ -1,10 +1,10 @@
 ext {
     extName = 'AnimeCore'
     extClass = '.AnimeCore'
-    extVersionCode = 3
+    extVersionCode = 5
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:bloggerextractor"))

@@ -6,13 +6,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import uy.kohesive.injekt.injectLazy
 
 class DailymotionExtractor(private val client: OkHttpClient, private val headers: Headers) {
@@ -97,7 +96,7 @@ class DailymotionExtractor(private val client: OkHttpClient, private val headers
                   "password":"$password"
                }
             }
-        """.trimIndent().toRequestBody("application/json".toMediaType())
+        """.trimIndent().toJsonRequestBody()
 
         val idResponse = client.newCall(POST(idUrl, idHeaders, idData)).execute()
         val idParsed = idResponse.parseAs<ProtectedResponse>().data.video

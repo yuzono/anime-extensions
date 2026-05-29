@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.en.animenosub.extractors
 
-import aniyomi.lib.autoUnpacker
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers

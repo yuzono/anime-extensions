@@ -5,7 +5,6 @@ import android.text.InputType
 import android.util.Base64
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
-import aniyomi.lib.i18n.Intl
 import aniyomi.lib.megamaxmultiserver.MegaMaxMultiServer
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
@@ -20,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.i18n.Intl
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate

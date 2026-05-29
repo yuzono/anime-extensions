@@ -3,9 +3,8 @@ package aniyomi.lib.streamlareextractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import okhttp3.MediaType.Companion.toMediaType
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 
 class StreamlareExtractor(private val client: OkHttpClient) {
     fun videosFromUrl(url: String, prefix: String = "", suffix: String = ""): List<Video> {
@@ -14,7 +13,7 @@ class StreamlareExtractor(private val client: OkHttpClient) {
             POST(
                 "https://slwatch.co/api/video/stream/get",
                 body = "{\"id\":\"$id\"}"
-                    .toRequestBody("application/json".toMediaType()),
+                    .toJsonRequestBody(),
             ),
         ).execute().body.string()
 
