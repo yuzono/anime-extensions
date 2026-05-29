@@ -5,8 +5,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 fun getFilters() = AnimeFilterList(
     AnimeFilter.Header("Only One Filter Works at a time!!"),
+    AnimeFilter.Header("Except tags, which can be combined!"),
     AnimeFilter.Header("Ignored With Text Search!!"),
-    TagFilter(),
+    TagGroup(),
     CategoryFilter(),
     AnimeFilter.Separator(),
     ActressFilter(),
@@ -21,7 +22,13 @@ abstract class UriPartFilters(name: String, private val tags: List<UriPartFilter
     fun toUrlPart() = tags[state].urlPart
 }
 
-class TagFilter : UriPartFilters("Tags", TAGS)
+class TagCheckBox(name: String, val urlPart: String) : AnimeFilter.CheckBox(name)
+
+class TagGroup :
+    AnimeFilter.Group<TagCheckBox>(
+        "Tags",
+        TAGS.filter { it.name.isNotEmpty() }.map { TagCheckBox(it.name, it.urlPart) },
+    )
 
 class CategoryFilter : UriPartFilters("Categories", CATEGORIES)
 
@@ -47,7 +54,6 @@ class StudioFilter : TextFilter("Studio", "studio")
 class MakerFilter : TextFilter("Maker", "maker")
 
 fun <T> AnimeFilter<T>.toUrlPart(): String? = when (this) {
-    is TagFilter -> this.toUrlPart()
     is CategoryFilter -> this.toUrlPart()
     is ActressFilter -> this.toUrlPart()
     is ActorFilter -> this.toUrlPart()

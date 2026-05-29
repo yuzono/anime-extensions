@@ -164,11 +164,19 @@ class JavGuru :
                 .awaitSuccess()
                 .use(::searchAnimeParse)
         } else {
+            val selectedTags = filters.filterIsInstance<TagGroup>().firstOrNull()?.state?.filter { it.state } ?: emptyList()
+            if (selectedTags.isNotEmpty()) {
+                val combinedSlug = selectedTags.joinToString("+") { it.urlPart.trim('/').substringAfterLast('/') }
+                val url = "$baseUrl/tag/$combinedSlug/" + if (page > 1) "page/$page/" else ""
+                val request = GET(url, headers)
+                return client.newCall(request)
+                    .awaitSuccess()
+                    .use(::searchAnimeParse)
+            }
+
             filters.forEach { filter ->
                 when (filter) {
-                    is TagFilter,
-                    is CategoryFilter,
-                    -> {
+                    is CategoryFilter -> {
                         if (filter.state != 0) {
                             val url = "$baseUrl${filter.toUrlPart()}" + if (page > 1) "page/$page/" else ""
                             val request = GET(url, headers)
