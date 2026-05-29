@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
-import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 
 class LuciferDonghua :
@@ -82,9 +81,9 @@ class LuciferDonghua :
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val rumbleExtractor by lazy { RumbleExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             preferences.enabledHosters.contains("ok.ru") && url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix)
             preferences.enabledHosters.contains("dailymotion") && url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
             preferences.enabledHosters.contains("rumble") && url.contains("rumble") -> rumbleExtractor.videosFromUrl(url, prefix)

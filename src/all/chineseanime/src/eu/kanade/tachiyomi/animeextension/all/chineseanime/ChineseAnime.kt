@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import kotlinx.coroutines.runBlocking
 
 class ChineseAnime :
     AnimeStream(
@@ -34,13 +33,13 @@ class ChineseAnime :
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vatchusExtractor by lazy { VatchusExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
         return when {
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
             url.contains("embedwish") -> streamwishExtractor.videosFromUrl(url, prefix)
             url.contains("vatchus") -> vatchusExtractor.videosFromUrl(url, prefix)
-            url.contains("donghua.xyz/v/") -> runBlocking { vidHideExtractor.videosFromUrl(url) { "$prefix $it" } }
+            url.contains("donghua.xyz/v/") -> vidHideExtractor.videosFromUrl(url) { "$prefix $it" }
             else -> emptyList()
         }
     }

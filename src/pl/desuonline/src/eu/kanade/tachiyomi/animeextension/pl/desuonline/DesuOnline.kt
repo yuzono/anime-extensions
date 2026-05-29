@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -37,8 +36,8 @@ class DesuOnline :
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val gdriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
-        when {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
+        return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, name)
 
             url.contains("cda.pl") -> cdaExtractor.videosFromUrl(url, name)
@@ -46,7 +45,7 @@ class DesuOnline :
             url.contains("sibnet") -> sibnetExtractor.videosFromUrl(url, prefix = "$name - ")
 
             url.contains("drive.google.com") -> {
-                val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return@runBlocking emptyList()
+                val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
                 gdriveExtractor.videosFromUrl("https://drive.google.com/uc?id=$id", videoName = name)
             }
 

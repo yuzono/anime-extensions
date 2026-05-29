@@ -54,7 +54,7 @@ class MiniOppai :
     }
 
     // ============================ Video Links =============================
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         return when {
             "gdriveplayer" in url -> {
                 val playerUrl = buildString {

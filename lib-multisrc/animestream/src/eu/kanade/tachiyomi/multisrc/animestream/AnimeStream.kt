@@ -21,14 +21,13 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.SubFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.TypeFilter
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -134,7 +133,7 @@ abstract class AnimeStream(
     }
 
     protected open fun searchAnimeByPathParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -176,15 +175,16 @@ abstract class AnimeStream(
 
     protected open val filtersSelector = "span.sec1 > div.filter > ul"
 
-    private fun fetchFilterList() {
+    private suspend fun fetchFilterList() {
         if (fetchFilters && !AnimeStreamFilters.filterInitialized()) {
-            AnimeStreamFilters.filterElements = runBlocking {
+            runCatching {
                 withContext(Dispatchers.IO) {
-                    client.newCall(GET(animeListUrl)).execute()
-                        .asJsoup()
+                    client.newCall(GET(animeListUrl)).awaitSuccess()
+                        .useAsJsoup()
                         .select(filtersSelector)
                 }
-            }
+            }.getOrNull()
+                ?.let { AnimeStreamFilters.filterElements = it }
         }
     }
 
@@ -299,7 +299,7 @@ abstract class AnimeStream(
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         return doc.select(episodeListSelector()).map(::episodeFromElement)
     }
 
@@ -329,7 +329,7 @@ abstract class AnimeStream(
     override fun videoListSelector() = "select.mirror > option[data-index], ul.mirror a[data-em]"
 
     override fun videoListParse(response: Response): List<Video> {
-        val items = response.asJsoup().select(videoListSelector())
+        val items = response.useAsJsoup().select(videoListSelector())
         return items.parallelCatchingFlatMapBlocking { element ->
             val name = element.text()
             val url = getHosterUrl(element)
@@ -337,7 +337,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getHosterUrl(element: Element): String {
+    protected open suspend fun getHosterUrl(element: Element): String {
         val encodedData = when (element.tagName()) {
             "option" -> element.attr("value")
             "a" -> element.attr("data-em")
@@ -348,13 +348,13 @@ abstract class AnimeStream(
     }
 
     // Taken from LuciferDonghua
-    protected open fun getHosterUrl(encodedData: String): String {
+    protected open suspend fun getHosterUrl(encodedData: String): String {
         val doc = if (encodedData.toHttpUrlOrNull() == null) {
             Base64.decode(encodedData, Base64.DEFAULT)
                 .let(::String) // bytearray -> string
                 .let(Jsoup::parse) // string -> document
         } else {
-            client.newCall(GET(encodedData, headers)).execute().asJsoup()
+            client.newCall(GET(encodedData, headers)).awaitSuccess().useAsJsoup()
         }
 
         return doc.selectFirst("#embed_holder iframe[src~=.]")?.safeUrl()
@@ -370,7 +370,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getVideoList(url: String, name: String): List<Video> {
+    protected open suspend fun getVideoList(url: String, name: String): List<Video> {
         Log.i(name, "getVideoList -> URL => $url || Name => $name")
         return emptyList()
     }

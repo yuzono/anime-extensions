@@ -7,11 +7,11 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 
 class LMAnime :
@@ -24,7 +24,7 @@ class LMAnime :
     override val prefQualityValues = listOf("144p", "288p", "480p", "720p", "1080p")
 
     override fun videoListParse(response: Response): List<Video> {
-        val items = response.asJsoup().select(videoListSelector())
+        val items = response.useAsJsoup().select(videoListSelector())
         val allowed = preferences.allowedLangsPref
         return items
             .filter { element ->
@@ -41,7 +41,7 @@ class LMAnime :
     private val dailyExtractor by lazy { DailymotionExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "($name) - "
         return when {
             "dailymotion" in url -> dailyExtractor.videosFromUrl(url, "Dailymotion ($name)")

@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import kotlinx.coroutines.runBlocking
 import org.jsoup.nodes.Element
 
 class Animenosub :
@@ -32,9 +31,9 @@ class Animenosub :
 
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             listOf(
                 "bysesayeveum",
                 "filemoon",

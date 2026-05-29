@@ -15,7 +15,6 @@ import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
-import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -94,21 +93,19 @@ class DonghuaStream :
 
     private val rumbleExtractor by lazy { RumbleExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        return runBlocking {
-            when {
-                preferences.enabledHosters.contains("dailymotion") && url.contains("dailymotion") ->
-                    dailymotionExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.enabledHosters.contains("streamplay") && url.contains("streamplay") ->
-                    streamPlayExtractor.videosFromUrl(url, prefix = prefix)
-                preferences.enabledHosters.contains("ok.ru") && url.contains("ok.ru") ->
-                    UrlUtils.fixUrl(url)?.let { okruExtractor.videosFromUrl(url = it, prefix = prefix) }
-                        ?: emptyList()
-                preferences.enabledHosters.contains("rumble") && url.contains("rumble") ->
-                    rumbleExtractor.videosFromUrl(url, prefix = prefix)
-                else -> emptyList()
-            }
+        return when {
+            preferences.enabledHosters.contains("dailymotion") && url.contains("dailymotion") ->
+                dailymotionExtractor.videosFromUrl(url, prefix = prefix)
+            preferences.enabledHosters.contains("streamplay") && url.contains("streamplay") ->
+                streamPlayExtractor.videosFromUrl(url, prefix = prefix)
+            preferences.enabledHosters.contains("ok.ru") && url.contains("ok.ru") ->
+                UrlUtils.fixUrl(url)?.let { okruExtractor.videosFromUrl(url = it, prefix = prefix) }
+                    ?: emptyList()
+            preferences.enabledHosters.contains("rumble") && url.contains("rumble") ->
+                rumbleExtractor.videosFromUrl(url, prefix = prefix)
+            else -> emptyList()
         }
     }
 
