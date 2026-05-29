@@ -1,14 +1,14 @@
 ext {
     extName = 'LocoPelis'
     extClass = '.LocoPelis'
-    extVersionCode = 33
+    extVersionCode = 38
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:streamhidevid-extractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:vidhideextractor'))
 }

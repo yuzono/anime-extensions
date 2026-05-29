@@ -3,12 +3,12 @@ ext {
     extClass = '.JetAnime'
     themePkg = 'dooplay'
     baseUrl = 'https://ssl.jetanimes.com'
-    overrideVersionCode = 14
+    overrideVersionCode = 18
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(libs.jsunpacker)
-    implementation(project(':lib:playlist-utils'))
+    implementation(project(":lib:unpacker"))
+    implementation(project(':lib:playlistutils'))
 }

@@ -1,13 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.fr.hds
 
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -15,11 +15,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 
-class Hds : DooPlay(
-    "fr",
-    "HDS",
-    "https://on1.hds.quest",
-) {
+class Hds :
+    DooPlay(
+        "fr",
+        "HDS",
+        "https://on1.hds.quest",
+    ) {
 
     private val json: Json by injectLazy()
 
@@ -51,7 +52,7 @@ class Hds : DooPlay(
     data class VideoLinkDTO(@SerialName("embed_url") val url: String)
 
     private val fileMoonExtractor by lazy { FilemoonExtractor(client) }
-    private val streamHideVidExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -67,7 +68,7 @@ class Hds : DooPlay(
             val playerUrl = client.newCall(GET(securedUrl, headers)).execute().use { it.request.url.toString() }
             when {
                 playerUrl.contains("sentinel") -> fileMoonExtractor.videosFromUrl(playerUrl)
-                playerUrl.contains("hdsplay") -> streamHideVidExtractor.videosFromUrl(playerUrl)
+                playerUrl.contains("hdsplay") -> vidHideExtractor.videosFromUrl(playerUrl)
                 else -> emptyList()
             }
         }

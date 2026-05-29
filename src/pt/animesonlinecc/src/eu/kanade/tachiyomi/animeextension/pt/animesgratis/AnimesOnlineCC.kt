@@ -2,22 +2,23 @@ package eu.kanade.tachiyomi.animeextension.pt.animesonlinecc
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesOnlineCC : DooPlay(
-    "pt-BR",
-    "Animes Online CC",
-    "https://animesonlinecc.to",
-) {
+class AnimesOnlineCC :
+    DooPlay(
+        "pt-BR",
+        "Animes Online CC",
+        "https://animesonlinecc.to",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"
@@ -25,8 +26,7 @@ class AnimesOnlineCC : DooPlay(
     override fun popularAnimeRequest(page: Int) = GET(baseUrl, headers)
 
     // =============================== Latest ===============================
-    override fun latestUpdatesNextPageSelector() =
-        "div.pagination > a.arrow_pag > i.icon-caret-right"
+    override fun latestUpdatesNextPageSelector() = "div.pagination > a.arrow_pag > i.icon-caret-right"
 
     // =============================== Search ===============================
     override fun searchAnimeSelector() = "div#animation-2 > article > div.poster > a"

@@ -19,32 +19,29 @@ object AnimesDigitalFilters {
     open class TriStateFilterList(name: String, values: List<TriFilterVal>) : AnimeFilter.Group<TriState>(name, values)
     class TriFilterVal(name: String) : TriState(name)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     private inline fun <reified R> AnimeFilterList.parseTriFilter(
         options: Array<Pair<String, String>>,
-    ): List<List<String>> {
-        return (first { it is R } as TriStateFilterList).state
-            .filterNot { it.isIgnored() }
-            .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
-            .groupBy { it.first } // group by state
-            .let { dict ->
-                val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
-                val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
-                listOf(included, excluded)
-            }
-    }
+    ): List<List<String>> = (first { it is R } as TriStateFilterList).state
+        .filterNot { it.isIgnored() }
+        .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
+        .groupBy { it.first } // group by state
+        .let { dict ->
+            val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
+            val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
+            listOf(included, excluded)
+        }
 
     class InitialLetterFilter : QueryPartFilter("Primeira letra", AnimesDigitalFiltersData.INITIAL_LETTER)
     class AudioFilter : QueryPartFilter("Língua/Áudio", AnimesDigitalFiltersData.AUDIOS)
     class TypeFilter : QueryPartFilter("Tipo", AnimesDigitalFiltersData.TYPES)
 
-    class GenresFilter : TriStateFilterList(
-        "Gêneros",
-        AnimesDigitalFiltersData.GENRES.map { TriFilterVal(it.first) },
-    )
+    class GenresFilter :
+        TriStateFilterList(
+            "Gêneros",
+            AnimesDigitalFiltersData.GENRES.map { TriFilterVal(it.first) },
+        )
 
     val FILTER_LIST: AnimeFilterList
         get() = AnimeFilterList(

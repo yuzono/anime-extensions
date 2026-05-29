@@ -15,9 +15,7 @@ object DoramogoFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     class AudioFilter : QueryPartFilter("Audio", DoramogoFiltersData.AUDIOS)
 

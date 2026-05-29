@@ -1,15 +1,15 @@
 ext {
     extName = 'BLZone'
     extClass = '.BLZone'
-    extVersionCode = 1
+    extVersionCode = 5
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:mixdrop-extractor'))
-    implementation(project(':lib:vidguard-extractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:vidguardextractor'))
 }

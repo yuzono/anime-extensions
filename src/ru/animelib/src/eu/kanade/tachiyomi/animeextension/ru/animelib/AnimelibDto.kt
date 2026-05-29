@@ -10,7 +10,7 @@ data class AnimeStatus(
 
 @Serializable
 data class CoverInfo(
-    val thumbnail: String,
+    val default: String,
 )
 
 @Serializable
@@ -61,6 +61,16 @@ data class AnimeList(
 @Serializable
 data class AnimeInfo(
     val data: AnimeData,
+)
+
+@Serializable
+data class AnimeSimilars(
+    val data: List<AnimeSimilar>,
+)
+
+@Serializable
+data class AnimeSimilar(
+    val media: AnimeData,
 )
 
 // ============================== Episode ==============================

@@ -7,22 +7,22 @@ open class QueryFilter(
     name: String,
     private val options: List<Pair<String, String>>,
     val key: String,
-) :
-    AnimeFilter.Select<String>(name, options.map { it.first }.toTypedArray()) {
+) : AnimeFilter.Select<String>(name, options.map { it.first }.toTypedArray()) {
     val selected: String
         get() = options[state].second
 }
 
-class ChannelFilter : QueryFilter(
-    "分类",
-    listOf(
-        "动漫" to "anime",
-        "电影" to "movie",
-        "电视剧" to "tv",
-        "综艺" to "show",
-    ),
-    "channel",
-)
+class ChannelFilter :
+    QueryFilter(
+        "分类",
+        listOf(
+            "动漫" to "anime",
+            "电影" to "movie",
+            "电视剧" to "tv",
+            "综艺" to "show",
+        ),
+        "channel",
+    )
 
 class YearFilter(options: List<Pair<String, String>>) : QueryFilter("年份", options, "year")
 

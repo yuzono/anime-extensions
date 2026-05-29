@@ -4,6 +4,9 @@ import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.movie4k.extractors.VidozaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -13,11 +16,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.POST
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -27,12 +28,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
-class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
+class Kool :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Kool"
 
@@ -117,7 +118,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                             "enabled": false
                           }
                     }
-                """.toRequestBody("application/json".toMediaType()),
+                """.toJsonRequestBody(),
             ),
         ).execute().body.string()
         val jsonData = json.decodeFromString<JsonObject>(mhubjson)
@@ -147,9 +148,11 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     0 -> {
                         "null"
                     }
+
                     1 -> {
                         8
                     }
+
                     else -> {
                         tpage * 8 - (tpage - 1)
                     }
@@ -157,7 +160,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
             },
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
         )
     }
 
@@ -212,7 +215,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else if (anime.url.substringAfter("&type=") == "series") {
             return POST(
@@ -231,7 +234,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -245,7 +248,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "url": "$baseUrl${anime.url}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }
@@ -324,7 +327,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else if (type == "series") {
             return POST(
@@ -350,7 +353,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   },
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -364,14 +367,12 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "url": "$baseUrl${episode.url.substringAfter("?url=").substringBefore("&type=")}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> {
-        return videosFromElement(response)
-    }
+    override fun videoListParse(response: Response): List<Video> = videosFromElement(response)
 
     private fun videosFromElement(response: Response): List<Video> {
         val jsonData = response.body.string()
@@ -381,15 +382,17 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
         for (item in array) {
             when {
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://voe") ||
-                    item.jsonObject["url"]!!.jsonPrimitive.content.contains("scatch176duplicities") && hosterSelection?.contains("voe") == true -> {
+                    (item.jsonObject["url"]!!.jsonPrimitive.content.contains("scatch176duplicities") && hosterSelection?.contains("voe") == true) -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     videoList.addAll(VoeExtractor(client, headers).videosFromUrl(videoUrl))
                 }
+
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://clipboard") && hosterSelection?.contains("clip") == true -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     val video = Video(videoUrl, "Clipboard", videoUrl)
                     videoList.add(video)
                 }
+
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://streamtape") && hosterSelection?.contains("stape") == true -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     val video = StreamTapeExtractor(client).videoFromUrl(videoUrl)
@@ -397,6 +400,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                         videoList.add(video)
                     }
                 }
+
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://vidoza") && hosterSelection?.contains("vidoza") == true -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     val video = VidozaExtractor(client).videoFromUrl(videoUrl, "Vidoza")
@@ -404,10 +408,12 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                         videoList.add(video)
                     }
                 }
+
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://filemoon.sx") && hosterSelection?.contains("fmoon") == true -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     videoList.addAll(FilemoonExtractor(client).videosFromUrl(videoUrl))
                 }
+
                 response.request.url.toString().contains("kool-cluster/mediahubmx-resolve.json") -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
                     val video = Video(videoUrl, "TV", videoUrl)
@@ -453,6 +459,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     Log.i("searchAnimeRequest", filter.toUriPart())
                     search = filter.toUriPart()
                 }
+
                 else -> {}
             }
         }
@@ -483,9 +490,10 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
+
             search?.contains("serien") == true -> {
                 return POST(
                     "$baseUrl/kool/mediahubmx-catalog.json",
@@ -504,7 +512,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "cursor": ${
                         if (tpage == 0) {
                             "null"
-                        } else if (tpage == 1){
+                        } else if (tpage == 1) {
                             8
                         } else {
                             tpage * 8 - (tpage - 1)
@@ -512,9 +520,10 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
+
             search?.contains("tv") == true -> {
                 return POST(
                     "$baseUrl/kool-cluster/mediahubmx-catalog.json",
@@ -533,7 +542,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "cursor": ${
                         if (tpage == 0) {
                             "null"
-                        } else if (tpage == 1){
+                        } else if (tpage == 1) {
                             8
                         } else {
                             tpage * 8 - (tpage - 1)
@@ -541,9 +550,10 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     },
                   "clientVersion": "1.1.3"
             }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
                 )
             }
+
             else -> {
                 return POST(
                     "$baseUrl/kool/mediahubmx-catalog.json",
@@ -570,7 +580,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                     },
                               "clientVersion": "1.1.3"
                             }
-                     """.toRequestBody("application/json".toMediaType()),
+                     """.toJsonRequestBody(),
                 )
             }
         }
@@ -582,13 +592,11 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
         return parseSearchAnimeJson(moviejson, url)
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return AnimeFilterList(
-            AnimeFilter.Header("Wähle Suche aus!"),
-            AnimeFilter.Separator(),
-            SearchFilter(getSearchList()),
-        )
-    }
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        AnimeFilter.Header("Wähle Suche aus!"),
+        AnimeFilter.Separator(),
+        SearchFilter(getSearchList()),
+    )
 
     private class SearchFilter(vals: Array<Pair<String, String>>) : UriPartFilter("Suche", vals)
 
@@ -598,8 +606,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
         Pair("TV", "tv"),
     )
 
-    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -627,6 +634,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                 type == "iptv" -> {
                     anime.setUrlWithoutDomain(item.jsonObject["url"]?.jsonPrimitive?.content.orEmpty())
                 }
+
                 else -> {
                     anime.url = item.jsonObject["url"]?.jsonPrimitive?.content ?: "$baseUrl/data/watch/?_id=$animeId&type=$type"
                 }
@@ -672,7 +680,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "episode": {},
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         } else {
             return POST(
@@ -686,7 +694,7 @@ class Kool : ConfigurableAnimeSource, AnimeHttpSource() {
                   "url": "$baseUrl${anime.url}",
                   "clientVersion": "1.1.3"
              }
-            """.toRequestBody("application/json".toMediaType()),
+            """.toJsonRequestBody(),
             )
         }
     }

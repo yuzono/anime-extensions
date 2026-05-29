@@ -5,10 +5,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
 object ZonalerosFilters {
-    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(
-        displayName,
-        vals.map { it.first }.toTypedArray(),
-    ) {
+    open class QueryPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
+        AnimeFilter.Select<String>(
+            displayName,
+            vals.map { it.first }.toTypedArray(),
+        ) {
         fun toQueryPart(name: String) = vals[state].second.takeIf { it.isNotEmpty() }?.let { "&$name=${vals[state].second}" } ?: run { "" }
 
         fun toUriPart() = vals[state].second.takeIf { it.isNotEmpty() }?.let { vals[state].second } ?: run { "" }
@@ -21,34 +22,26 @@ object ZonalerosFilters {
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
-            }.joinToString("&$name[]=").let {
-                if (it.isBlank()) {
-                    ""
-                } else {
-                    "&$name[]=$it"
-                }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }.joinToString("&$name[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&$name[]=$it"
+            }
+        }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.asUriPart(): String {
-        return (this.getFirst<R>() as QueryPartFilter).toUriPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asUriPart(): String = (this.getFirst<R>() as QueryPartFilter).toUriPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: run { this }
 

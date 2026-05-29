@@ -3,6 +3,17 @@ package eu.kanade.tachiyomi.animeextension.es.latanime
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,27 +21,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Latanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Latanime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Latanime"
 
@@ -46,9 +50,7 @@ class Latanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun popularAnimeSelector(): String = "div.row > div"
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/emision?p=$page")
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/emision?p=$page")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -89,6 +91,7 @@ class Latanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
         return when {
             query.isNotBlank() -> GET("$baseUrl/buscar?q=$query&p=$page")
+
             else -> {
                 GET("$baseUrl/animes?fecha=${yearFilter.toUriPart()}&genero=${genreFilter.toUriPart()}&letra=${letterFilter.toUriPart()}")
             }
@@ -104,146 +107,148 @@ class Latanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         LetterFilter(),
     )
 
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(
-            Pair("Seleccionar", "false"),
-            Pair("2025", "2025"),
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020"),
-            Pair("2019", "2019"),
-            Pair("2018", "2018"),
-            Pair("2017", "2017"),
-            Pair("2016", "2016"),
-            Pair("2015", "2015"),
-            Pair("2014", "2014"),
-            Pair("2013", "2013"),
-            Pair("2012", "2012"),
-            Pair("2011", "2011"),
-            Pair("2010", "2010"),
-            Pair("2009", "2009"),
-            Pair("2008", "2008"),
-            Pair("2007", "2007"),
-            Pair("2006", "2006"),
-            Pair("2005", "2005"),
-            Pair("2004", "2004"),
-            Pair("2003", "2003"),
-            Pair("2002", "2002"),
-            Pair("2001", "2001"),
-            Pair("2000", "2000"),
-            Pair("1999", "1999"),
-            Pair("1998", "1998"),
-            Pair("1997", "1997"),
-            Pair("1996", "1996"),
-            Pair("1995", "1995"),
-            Pair("1994", "1994"),
-            Pair("1993", "1993"),
-            Pair("1992", "1992"),
-            Pair("1991", "1991"),
-            Pair("1990", "1990"),
-            Pair("1989", "1989"),
-            Pair("1988", "1988"),
-            Pair("1987", "1987"),
-            Pair("1986", "1986"),
-            Pair("1985", "1985"),
-            Pair("1984", "1984"),
-            Pair("1983", "1983"),
-            Pair("1982", "1982"),
-        ),
-    )
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(
+                Pair("Seleccionar", "false"),
+                Pair("2025", "2025"),
+                Pair("2024", "2024"),
+                Pair("2023", "2023"),
+                Pair("2022", "2022"),
+                Pair("2021", "2021"),
+                Pair("2020", "2020"),
+                Pair("2019", "2019"),
+                Pair("2018", "2018"),
+                Pair("2017", "2017"),
+                Pair("2016", "2016"),
+                Pair("2015", "2015"),
+                Pair("2014", "2014"),
+                Pair("2013", "2013"),
+                Pair("2012", "2012"),
+                Pair("2011", "2011"),
+                Pair("2010", "2010"),
+                Pair("2009", "2009"),
+                Pair("2008", "2008"),
+                Pair("2007", "2007"),
+                Pair("2006", "2006"),
+                Pair("2005", "2005"),
+                Pair("2004", "2004"),
+                Pair("2003", "2003"),
+                Pair("2002", "2002"),
+                Pair("2001", "2001"),
+                Pair("2000", "2000"),
+                Pair("1999", "1999"),
+                Pair("1998", "1998"),
+                Pair("1997", "1997"),
+                Pair("1996", "1996"),
+                Pair("1995", "1995"),
+                Pair("1994", "1994"),
+                Pair("1993", "1993"),
+                Pair("1992", "1992"),
+                Pair("1991", "1991"),
+                Pair("1990", "1990"),
+                Pair("1989", "1989"),
+                Pair("1988", "1988"),
+                Pair("1987", "1987"),
+                Pair("1986", "1986"),
+                Pair("1985", "1985"),
+                Pair("1984", "1984"),
+                Pair("1983", "1983"),
+                Pair("1982", "1982"),
+            ),
+        )
 
-    private class GenreFilter : UriPartFilter(
-        "Genéros",
-        arrayOf(
-            Pair("Seleccionar", "false"),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Carreras", "carreras"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Comedia", "comedia"),
-            Pair("Cyberpunk", "cyberpunk"),
-            Pair("Deportes", "deportes"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Escolares", "escolares"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Gore", "gore"),
-            Pair("Harem", "harem"),
-            Pair("Horror", "horror"),
-            Pair("Josei", "josei"),
-            Pair("Lucha", "lucha"),
-            Pair("Magia", "magia"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Música", "musica"),
-            Pair("Parodias", "parodias"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Recuerdos de la vida", "recuerdos-de-la-vida"),
-            Pair("Seinen", "seinen"),
-            Pair("Shojo", "shojo"),
-            Pair("Shonen", "shonen"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-            Pair("Latino", "latino"),
-            Pair("Espacial", "espacial"),
-            Pair("Histórico", "historico"),
-            Pair("Samurai", "samurai"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Demonios", "demonios"),
-            Pair("Romance", "romance"),
-            Pair("Dementia", "dementia"),
-            Pair("Policía", "policia"),
-            Pair("Castellano", "castellano"),
-            Pair("Historia paralela", "historia-paralela"),
-            Pair("Aenime", "aenime"),
-            Pair("Donghua", "donghua"),
-            Pair("Blu-ray", "blu-ray"),
-            Pair("Monogatari", "monogatari"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genéros",
+            arrayOf(
+                Pair("Seleccionar", "false"),
+                Pair("Acción", "accion"),
+                Pair("Aventura", "aventura"),
+                Pair("Carreras", "carreras"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"),
+                Pair("Cyberpunk", "cyberpunk"),
+                Pair("Deportes", "deportes"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Escolares", "escolares"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Gore", "gore"),
+                Pair("Harem", "harem"),
+                Pair("Horror", "horror"),
+                Pair("Josei", "josei"),
+                Pair("Lucha", "lucha"),
+                Pair("Magia", "magia"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Música", "musica"),
+                Pair("Parodias", "parodias"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Recuerdos de la vida", "recuerdos-de-la-vida"),
+                Pair("Seinen", "seinen"),
+                Pair("Shojo", "shojo"),
+                Pair("Shonen", "shonen"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+                Pair("Latino", "latino"),
+                Pair("Espacial", "espacial"),
+                Pair("Histórico", "historico"),
+                Pair("Samurai", "samurai"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Demonios", "demonios"),
+                Pair("Romance", "romance"),
+                Pair("Dementia", "dementia"),
+                Pair("Policía", "policia"),
+                Pair("Castellano", "castellano"),
+                Pair("Historia paralela", "historia-paralela"),
+                Pair("Aenime", "aenime"),
+                Pair("Donghua", "donghua"),
+                Pair("Blu-ray", "blu-ray"),
+                Pair("Monogatari", "monogatari"),
+            ),
+        )
 
-    private class LetterFilter : UriPartFilter(
-        "Letra",
-        arrayOf(
-            Pair("Seleccionar", "false"),
-            Pair("0-9", "09"),
-            Pair("A", "A"),
-            Pair("B", "B"),
-            Pair("C", "C"),
-            Pair("D", "D"),
-            Pair("E", "E"),
-            Pair("F", "F"),
-            Pair("G", "G"),
-            Pair("H", "H"),
-            Pair("I", "I"),
-            Pair("J", "J"),
-            Pair("K", "K"),
-            Pair("L", "L"),
-            Pair("M", "M"),
-            Pair("N", "N"),
-            Pair("O", "O"),
-            Pair("P", "P"),
-            Pair("Q", "Q"),
-            Pair("R", "R"),
-            Pair("S", "S"),
-            Pair("T", "T"),
-            Pair("U", "U"),
-            Pair("V", "V"),
-            Pair("W", "W"),
-            Pair("X", "X"),
-            Pair("Y", "Y"),
-            Pair("Z", "Z"),
-        ),
-    )
+    private class LetterFilter :
+        UriPartFilter(
+            "Letra",
+            arrayOf(
+                Pair("Seleccionar", "false"),
+                Pair("0-9", "09"),
+                Pair("A", "A"),
+                Pair("B", "B"),
+                Pair("C", "C"),
+                Pair("D", "D"),
+                Pair("E", "E"),
+                Pair("F", "F"),
+                Pair("G", "G"),
+                Pair("H", "H"),
+                Pair("I", "I"),
+                Pair("J", "J"),
+                Pair("K", "K"),
+                Pair("L", "L"),
+                Pair("M", "M"),
+                Pair("N", "N"),
+                Pair("O", "O"),
+                Pair("P", "P"),
+                Pair("Q", "Q"),
+                Pair("R", "R"),
+                Pair("S", "S"),
+                Pair("T", "T"),
+                Pair("U", "U"),
+                Pair("V", "V"),
+                Pair("W", "W"),
+                Pair("X", "X"),
+                Pair("Y", "Y"),
+                Pair("Z", "Z"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -291,28 +296,40 @@ class Latanime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     // ============================ Video Links =============================
 
     override fun videoListParse(response: Response): List<Video> {
-        val videoList = mutableListOf<Video>()
         val document = response.asJsoup()
-        document.select(videoListSelector()).forEach { videoElement ->
-            val serverTitle = videoElement.ownText().trim()
-            val url = String(Base64.decode(videoElement.attr("data-player"), Base64.DEFAULT))
-            val prefix = "$serverTitle - "
-            val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() } }?.first
-            when (matched) {
-                "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
-                "okru" -> okruExtractor.videosFromUrl(url, prefix)
-                "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-                "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
-                "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
-                "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-                "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = prefix)
-                else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-            }.also(videoList::addAll)
-        }
-        return videoList
+        return document.select(videoListSelector())
+            .mapNotNull { videoElement ->
+                val serverTitle = videoElement.ownText()
+                val url = runCatching {
+                    String(Base64.decode(videoElement.attr("data-player"), Base64.DEFAULT))
+                }.getOrNull() ?: return@mapNotNull null
+                val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverTitle.lowercase() } }?.first
+                Triple(matched, serverTitle, url)
+            }
+            .partition { it.first != null }
+            .let { (matched, unmatched) ->
+                val extractors = matched.parallelCatchingFlatMapBlocking { (matched, serverTitle, url) ->
+                    val prefix = "$serverTitle - "
+                    when (matched) {
+                        "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+                        "okru" -> okruExtractor.videosFromUrl(url, prefix)
+                        "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+                        "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+                        "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+                        "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
+                        "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+                        "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+                        "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+                        "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = prefix)
+                        else -> emptyList()
+                    }
+                }
+                val universal = unmatched.catchingFlatMapBlocking { (_, serverTitle, url) ->
+                    val prefix = "$serverTitle - "
+                    universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+                }
+                extractors + universal
+            }
     }
 
     private val conventions = listOf(

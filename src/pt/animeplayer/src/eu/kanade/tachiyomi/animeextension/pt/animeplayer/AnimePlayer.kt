@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeplayer
 
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
@@ -12,11 +12,12 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimePlayer : DooPlay(
-    "pt-BR",
-    "AnimePlayer",
-    "https://animeplayer.com.br",
-) {
+class AnimePlayer :
+    DooPlay(
+        "pt-BR",
+        "AnimePlayer",
+        "https://animeplayer.com.br",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "div#archive-content article div.poster"
@@ -95,17 +96,16 @@ class AnimePlayer : DooPlay(
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private fun getVideosFromURL(url: String, quality: String): List<Video> {
-        return when {
-            "cdn.animeson.com.br" in url -> {
-                listOf(
-                    Video(url, quality, url, headers),
-                )
-            }
-
-            "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> emptyList()
+    private fun getVideosFromURL(url: String, quality: String): List<Video> = when {
+        "cdn.animeson.com.br" in url -> {
+            listOf(
+                Video(url, quality, url, headers),
+            )
         }
+
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+
+        else -> emptyList()
     }
 
     // ============================== Filters ===============================

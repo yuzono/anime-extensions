@@ -4,14 +4,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -56,7 +55,7 @@ class CdaPlExtractor(private val client: OkHttpClient) {
                             {}
                         ]
                     }
-                """.trimIndent().toRequestBody("application/json".toMediaType())
+                """.trimIndent().toJsonRequestBody()
                 val postHeaders = Headers.headersOf(
                     "Content-Type",
                     "application/json",

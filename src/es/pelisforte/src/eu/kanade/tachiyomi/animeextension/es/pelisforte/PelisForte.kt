@@ -2,6 +2,20 @@ package eu.kanade.tachiyomi.animeextension.es.pelisforte
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.fastreamextractor.FastreamExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,33 +24,23 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.fastreamextractor.FastreamExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
+open class PelisForte :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "PelisForte"
 
-    override val baseUrl = "https://www1.pelisforte.se"
+    override val baseUrl = "https://www2.pelisforte.se"
 
     override val lang = "es"
 
@@ -79,16 +83,14 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, nextPage)
     }
 
-    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? {
-        return if (hasAttr("srcset")) {
-            try {
-                fetchUrls(attr("abs:srcset")).maxOrNull()
-            } catch (_: Exception) {
-                attr("abs:src")
-            }
-        } else {
+    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? = if (hasAttr("srcset")) {
+        try {
+            fetchUrls(attr("abs:srcset")).maxOrNull()
+        } catch (_: Exception) {
             attr("abs:src")
         }
+    } else {
+        attr("abs:src")
     }
 
     override fun latestUpdatesRequest(page: Int) = popularAnimeRequest(page)
@@ -118,7 +120,7 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
             status = SAnime.UNKNOWN
         }
 
-        document.select(".cast-lst li").map {
+        document.select(".cast-lst li").forEach {
             if (it.select("span").text().contains("Director", true)) {
                 animeDetails.author = it.selectFirst("p > a")?.text()
             }
@@ -129,29 +131,27 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
         return animeDetails
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                setUrlWithoutDomain(response.request.url.toString())
-                name = "Película"
-                episode_number = 1F
-            },
-        )
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            setUrlWithoutDomain(response.request.url.toString())
+            name = "Película"
+            episode_number = 1F
+        },
+    )
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select(".video-player iframe").parallelCatchingFlatMapBlocking {
-            val id = it.parent()?.attr("id")
+        return document.select(".video-player iframe").parallelCatchingFlatMapBlocking { iframe ->
+            val id = iframe.parent()?.attr("id")
             val idTab = document.selectFirst("[href=\"#$id\"]")?.closest(".lrt")?.attr("id")
             val lang = document.select("[tab=$idTab]").text()
-            val src = it.attr("src").ifEmpty { it.attr("data-src") }
+            val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
             val key = src.substringAfter("/?h=")
             val player = "https://${src.toHttpUrl().host}/r.php?h=$key"
 
@@ -164,9 +164,9 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
 
             val locationsDdh = client.newCall(
                 GET(player, headers = headers.newBuilder().add("referer", src).build()),
-            ).execute().networkResponse.toString()
+            ).awaitSuccess().use { it.networkResponse.toString() }
 
-            fetchUrls(locationsDdh).flatMap { serverVideoResolver(it, prefix) }
+            fetchUrls(locationsDdh).parallelCatchingFlatMap { serverVideoResolver(it, prefix) }
         }
     }
 
@@ -186,31 +186,41 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
-        return runCatching {
-            when {
-                arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
-                arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
-                arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-                arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
-                arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-                arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
-                    streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
-                }
-                arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
-                    val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
-                    doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
-                }
-                arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
-                arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-                arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-                arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
-                arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
-                arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
-                arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                else -> emptyList()
-            }
-        }.getOrNull() ?: emptyList()
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = when {
+        arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
+
+        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
+
+        arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+
+        arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
+
+        arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
+
+        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
+            streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+        }
+
+        arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
+            val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
+            doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
+        }
+
+        arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
+
+        arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+        arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
+
+        arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+
+        arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+        arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -232,34 +242,34 @@ open class PelisForte : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("Seleccionar", ""),
-            Pair("Acción", "peliculas/accion-p01"),
-            Pair("Animación", "peliculas/animacion-p04"),
-            Pair("Aventura", "peliculas/aventura"),
-            Pair("Bélicas", "peliculas/belica"),
-            Pair("Ciencia ficción", "peliculas/ciencia-ficcion"),
-            Pair("Comedia", "peliculas/comedia"),
-            Pair("Crimen", "peliculas/crimen"),
-            Pair("Documentales", "peliculas/documental"),
-            Pair("Drama", "peliculas/drama"),
-            Pair("Familia", "peliculas/familia-p01"),
-            Pair("Fantasía", "peliculas/fantasia-p01"),
-            Pair("Historia", "peliculas/historia"),
-            Pair("Misterio", "peliculas/misterio"),
-            Pair("Música", "peliculas/musica"),
-            Pair("Navidad", "peliculas/navidad"),
-            Pair("Romance", "peliculas/romance"),
-            Pair("Suspenso", "peliculas/suspense"),
-            Pair("Terror", "peliculas/terror"),
-            Pair("Western", "peliculas/western"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("Seleccionar", ""),
+                Pair("Acción", "peliculas/accion-p01"),
+                Pair("Animación", "peliculas/animacion-p04"),
+                Pair("Aventura", "peliculas/aventura"),
+                Pair("Bélicas", "peliculas/belica"),
+                Pair("Ciencia ficción", "peliculas/ciencia-ficcion"),
+                Pair("Comedia", "peliculas/comedia"),
+                Pair("Crimen", "peliculas/crimen"),
+                Pair("Documentales", "peliculas/documental"),
+                Pair("Drama", "peliculas/drama"),
+                Pair("Familia", "peliculas/familia-p01"),
+                Pair("Fantasía", "peliculas/fantasia-p01"),
+                Pair("Historia", "peliculas/historia"),
+                Pair("Misterio", "peliculas/misterio"),
+                Pair("Música", "peliculas/musica"),
+                Pair("Navidad", "peliculas/navidad"),
+                Pair("Romance", "peliculas/romance"),
+                Pair("Suspenso", "peliculas/suspense"),
+                Pair("Terror", "peliculas/terror"),
+                Pair("Western", "peliculas/western"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

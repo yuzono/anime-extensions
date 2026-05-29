@@ -2,6 +2,14 @@ package eu.kanade.tachiyomi.animeextension.es.metroseries
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.fastreamextractor.FastreamExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,24 +17,18 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.fastreamextractor.FastreamExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class MetroSeries : ConfigurableAnimeSource, AnimeHttpSource() {
+class MetroSeries :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MetroSeries"
 
@@ -97,12 +99,10 @@ class MetroSeries : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getImageUrl(element: Element): String? {
-        return when {
-            element.hasAttr("data-src") -> element.attr("abs:data-src")
-            element.hasAttr("src") -> element.attr("abs:src")
-            else -> null
-        }
+    private fun getImageUrl(element: Element): String? = when {
+        element.hasAttr("data-src") -> element.attr("abs:data-src")
+        element.hasAttr("src") -> element.attr("abs:src")
+        else -> null
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -130,39 +130,39 @@ class MetroSeries : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getDetailSeason(element: Element, referer: String): List<SEpisode> {
-        return try {
-            val post = element.attr("data-post")
-            val season = element.attr("data-season")
-            val formBody = FormBody.Builder()
-                .add("action", "action_select_season")
-                .add("season", season)
-                .add("post", post)
-                .build()
+    private fun getDetailSeason(element: Element, referer: String): List<SEpisode> = try {
+        val post = element.attr("data-post")
+        val season = element.attr("data-season")
+        val formBody = FormBody.Builder()
+            .add("action", "action_select_season")
+            .add("season", season)
+            .add("post", post)
+            .build()
 
-            val request = Request.Builder()
-                .url("$baseUrl/wp-admin/admin-ajax.php")
-                .post(formBody)
-                .header("Origin", baseUrl)
-                .header("Referer", referer)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .build()
-            val detail = client.newCall(request).execute().asJsoup()
+        val request = Request.Builder()
+            .url("$baseUrl/wp-admin/admin-ajax.php")
+            .post(formBody)
+            .header("Origin", baseUrl)
+            .header("Referer", referer)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
+        val detail = client.newCall(request).execute().asJsoup()
 
-            detail.select(".post").reversed().mapIndexed { idx, it ->
-                val epNumber = try {
-                    it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
-                } catch (_: Exception) { "${idx + 1}" }
-
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(it.select("a").attr("abs:href"))
-                    name = "T$season - Episodio $epNumber"
-                    episode_number = epNumber.toFloat()
-                }
+        detail.select(".post").reversed().mapIndexed { idx, it ->
+            val epNumber = try {
+                it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
+            } catch (_: Exception) {
+                "${idx + 1}"
             }
-        } catch (_: Exception) {
-            emptyList()
+
+            SEpisode.create().apply {
+                setUrlWithoutDomain(it.select("a").attr("abs:href"))
+                name = "T$season - Episodio $epNumber"
+                episode_number = epNumber.toFloat()
+            }
         }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     override fun videoListParse(response: Response): List<Video> {

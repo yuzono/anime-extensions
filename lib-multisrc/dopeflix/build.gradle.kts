@@ -1,11 +1,11 @@
+import keiyoushi.gradle.extensions.baseVersionCode
+
 plugins {
-    id("lib-multisrc")
+    alias(kei.plugins.multisrc)
 }
 
-baseVersionCode = 20
+baseVersionCode = 23
 
 dependencies {
-    api(project(":lib:dood-extractor"))
-    api(project(":lib:cryptoaes"))
-    api(project(":lib:playlist-utils"))
+    api(project(":lib:dopeflixextractor"))
 }

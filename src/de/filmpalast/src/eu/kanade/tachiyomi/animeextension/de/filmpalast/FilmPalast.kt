@@ -3,26 +3,26 @@ package eu.kanade.tachiyomi.animeextension.de.filmpalast
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.EvoloadExtractor
-import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.StreamHideVidExtractor
-import eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors.UpstreamExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class FilmPalast :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "FilmPalast"
 
@@ -84,9 +84,6 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 url.contains("voe") && hosterSelection.contains("voe") ->
                     VoeExtractor(client, headers).videosFromUrl(url)
 
-                url.contains("upstream") && hosterSelection.contains("up") ->
-                    UpstreamExtractor(client).videoFromUrl(url)
-
                 url.contains("streamtape") && hosterSelection.contains("stape") -> {
                     runCatching {
                         val stapeHeaders = Headers.headersOf(
@@ -123,10 +120,6 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         }
                     }
                 }
-                url.contains("hide") && hosterSelection.contains("hide") ->
-                    StreamHideVidExtractor(client).videosFromUrl(url, "StreamHide")
-                url.contains("streamvid") && hosterSelection.contains("vid") ->
-                    StreamHideVidExtractor(client).videosFromUrl(url, "StreamVid")
 
                 "wolfstream" in url && hosterSelection.contains("wolf") -> {
                     client.newCall(GET(url, headers)).execute()
@@ -138,6 +131,7 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             listOf(Video(videoUrl, "WolfStream", videoUrl, headers = headers))
                         }
                 }
+
                 else -> null
             }
         }.flatten()
@@ -248,18 +242,12 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             "Voe",
             "Streamtape",
             "Evoload",
-            "Upstream",
-            "StreamHide",
-            "StreamVid",
             "WolfStream",
         )
         private val PREF_HOSTER_VALUES = arrayOf(
             "https://voe.sx",
             "https://streamtape.com",
             "https://evoload.io",
-            "https://upstream.to",
-            "hide.com",
-            "streamvid.net",
             "https://wolfstream",
         )
 
@@ -270,9 +258,6 @@ class FilmPalast : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             "voe",
             "stape",
             "evo",
-            "up",
-            "hide",
-            "vid",
             "wolf",
         )
         private val PREF_SELECTION_DEFAULT = PREF_SELECTION_VALUES.toSet()

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.pt.animeq
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -10,19 +11,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeQ :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeQ"
 
@@ -66,14 +68,24 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
+            return client.newCall(GET("$baseUrl/$path"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -123,12 +135,10 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-            .reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = getRealDoc(response.asJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
+        .reversed()
 
     override fun episodeListSelector() = "#lAnimes a"
 
@@ -147,8 +157,8 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val document = response.asJsoup()
 
         return document.select("div.videoBox div.aba")
-            .parallelCatchingFlatMapBlocking {
-                val format = document.selectFirst("a[href=#" + it.attr("id") + "]")?.text()
+            .parallelCatchingFlatMapBlocking { div ->
+                val format = document.selectFirst("a[href=#" + div.attr("id") + "]")?.text()
                     ?: "default"
 
                 val quality = when (format) {
@@ -157,21 +167,21 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                     "FHD" -> "1080p"
                     else -> format
                 }
-                val iframeSrc = it.selectFirst("iframe")?.tryGetAttr("data-litespeed-src", "src")
+                val iframeSrc = div.selectFirst("iframe")?.tryGetAttr("data-litespeed-src", "src")
                 if (!iframeSrc.isNullOrBlank()) {
                     return@parallelCatchingFlatMapBlocking getVideosFromURL(iframeSrc, quality)
                 }
-                it.select("script").mapNotNull {
-                    var javascript = it.attr("src")
-                        ?.substringAfter(";base64,")
-                        ?.substringBefore('"')
-                        ?.let { String(Base64.decode(it, Base64.DEFAULT)) }
+                div.select("script").mapNotNull { script ->
+                    var javascript = script.attr("src")
+                        .substringAfter(";base64,")
+                        .substringBefore('"')
+                        .let { String(Base64.decode(it, Base64.DEFAULT)) }
 
-                    if (javascript.isNullOrBlank()) {
-                        javascript = it.data()
+                    if (javascript.isBlank()) {
+                        javascript = script.data()
                     }
 
-                    if (javascript.isNullOrBlank() || "file:" !in javascript) {
+                    if (javascript.isBlank() || "file:" !in javascript) {
                         return@mapNotNull null
                     }
 
@@ -183,24 +193,16 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private fun getVideosFromURL(url: String, quality: String?): List<Video> {
-        return when {
-            "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-            else -> emptyList()
-        }
+    private fun getVideosFromURL(url: String, quality: String?): List<Video> = when {
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> emptyList()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -242,27 +244,23 @@ class AnimeQ : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return document
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when {
-            statusString?.trim()?.lowercase() == "em lançamento" -> SAnime.ONGOING
-            statusString?.trim()?.lowercase() == "em andamento" -> SAnime.ONGOING
-            statusString?.trim()?.let { REGEX_NUMBER.matches(it) } == true -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when {
+        statusString?.trim()?.lowercase() == "em lançamento" -> SAnime.ONGOING
+        statusString?.trim()?.lowercase() == "em andamento" -> SAnime.ONGOING
+        statusString?.trim()?.let { REGEX_NUMBER.matches(it) } == true -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("div.boxAnimeSobreLinha:has(b:contains($key))")?.run {
-            text()
-                .substringAfter(":")
-                .trim()
-                .takeUnless { it.isBlank() || it == "???" }
-        }
+    private fun Element.getInfo(key: String): String? = selectFirst("div.boxAnimeSobreLinha:has(b:contains($key))")?.run {
+        text()
+            .substringAfter(":")
+            .trim()
+            .takeUnless { it.isBlank() || it == "???" }
     }
 
     private fun Element.tryGetAttr(vararg attributeKeys: String): String? {
-        val attributeKey = attributeKeys.first { hasAttr(it) }
-        return attributeKey?.let { attr(attributeKey) }
+        val attributeKey = attributeKeys.firstOrNull { hasAttr(it) }
+        return attributeKey?.let { attr(it) }
     }
 
     companion object {

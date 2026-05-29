@@ -17,10 +17,8 @@ object ZoroThemeFilters {
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return this.filterIsInstance<R>().joinToString("") {
-            (it as QueryPartFilter).toQueryPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
+        (it as QueryPartFilter).toQueryPart()
     }
 
     class TypeFilter : QueryPartFilter("Type", ZoroThemeFiltersData.TYPES)
@@ -39,10 +37,11 @@ object ZoroThemeFilters {
     class EndMonthFilter : QueryPartFilter("End month", ZoroThemeFiltersData.MONTHS)
     class EndDayFilter : QueryPartFilter("End day", ZoroThemeFiltersData.DAYS)
 
-    class GenresFilter : CheckBoxFilterList(
-        "Genres",
-        ZoroThemeFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Genres",
+            ZoroThemeFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TypeFilter(),
@@ -90,7 +89,9 @@ object ZoroThemeFilters {
             .state.mapNotNull { format ->
                 if (format.state) {
                     ZoroThemeFiltersData.GENRES.find { it.first == format.name }!!.second
-                } else { null }
+                } else {
+                    null
+                }
             }.joinToString(",")
 
         return FilterSearchParams(

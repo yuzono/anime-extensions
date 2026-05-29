@@ -33,12 +33,10 @@ internal object RouVideoDto {
                 val tagsOF: List<TagItem>?, // OnlyFans, only in tag browse
                 val hotSearches: List<String>?, // only in Search
             ) {
-                fun toAnimePage(): AnimesPage {
-                    return AnimesPage(
-                        videos.map { video -> video.toSAnime() },
-                        pageNum < totalPage,
-                    )
-                }
+                fun toAnimePage(): AnimesPage = AnimesPage(
+                    videos.map { video -> video.toSAnime() },
+                    pageNum < totalPage,
+                )
             }
         }
     }
@@ -63,65 +61,61 @@ internal object RouVideoDto {
                 val hotSelfie: List<Video>,
                 val hot91: List<Video>,
             ) {
-                fun toAnimePage(sort: String?): AnimesPage {
-                    return AnimesPage(
-                        listOf(
-                            latestVideos,
-                            dailyHotCNAV,
-                            dailyHotSelfie,
-                            dailyHot91,
-                            dailyOnlyFans,
-                            dailyJV,
-                            hotCNAV,
-                            hotSelfie,
-                            hot91,
-                        ).flatten()
-                            .sortedWith { vid1, vid2 ->
-                                when (sort) {
-                                    SORT_VIEW_KEY -> {
-                                        if (vid1.viewCount > vid2.viewCount) {
-                                            -1
-                                        } else if (vid1.viewCount < vid2.viewCount) {
-                                            1
-                                        } else {
-                                            vid2.createdAt.compareTo(vid1.createdAt)
-                                        }
+                fun toAnimePage(sort: String?): AnimesPage = AnimesPage(
+                    listOf(
+                        latestVideos,
+                        dailyHotCNAV,
+                        dailyHotSelfie,
+                        dailyHot91,
+                        dailyOnlyFans,
+                        dailyJV,
+                        hotCNAV,
+                        hotSelfie,
+                        hot91,
+                    ).flatten()
+                        .sortedWith { vid1, vid2 ->
+                            when (sort) {
+                                SORT_VIEW_KEY -> {
+                                    if (vid1.viewCount > vid2.viewCount) {
+                                        -1
+                                    } else if (vid1.viewCount < vid2.viewCount) {
+                                        1
+                                    } else {
+                                        vid2.createdAt.compareTo(vid1.createdAt)
                                     }
-
-                                    SORT_LIKE_KEY -> {
-                                        if (vid1.likeCount == null && vid2.likeCount != null) {
-                                            1
-                                        } else if (vid1.likeCount != null && vid2.likeCount == null) {
-                                            -1
-                                        } else if (vid1.likeCount != null && vid2.likeCount != null) {
-                                            if (vid1.likeCount > vid2.likeCount) {
-                                                -1
-                                            } else {
-                                                1
-                                            }
-                                        } else {
-                                            vid2.createdAt.compareTo(vid1.createdAt)
-                                        }
-                                    }
-
-                                    else -> vid2.createdAt.compareTo(vid1.createdAt)
                                 }
+
+                                SORT_LIKE_KEY -> {
+                                    if (vid1.likeCount == null && vid2.likeCount != null) {
+                                        1
+                                    } else if (vid1.likeCount != null && vid2.likeCount == null) {
+                                        -1
+                                    } else if (vid1.likeCount != null && vid2.likeCount != null) {
+                                        if (vid1.likeCount > vid2.likeCount) {
+                                            -1
+                                        } else {
+                                            1
+                                        }
+                                    } else {
+                                        vid2.createdAt.compareTo(vid1.createdAt)
+                                    }
+                                }
+
+                                else -> vid2.createdAt.compareTo(vid1.createdAt)
                             }
-                            .associateBy { it.id }
-                            .map { (_, video) -> video.toSAnime() },
-                        false,
-                    )
-                }
+                        }
+                        .associateBy { it.id }
+                        .map { (_, video) -> video.toSAnime() },
+                    false,
+                )
             }
         }
     }
 
-    fun List<Video>.toAnimePage(): AnimesPage {
-        return AnimesPage(
-            map { video -> video.toSAnime() },
-            false,
-        )
-    }
+    fun List<Video>.toAnimePage(): AnimesPage = AnimesPage(
+        map { video -> video.toSAnime() },
+        false,
+    )
 
     @Serializable
     data class VideoDetails(
@@ -214,16 +208,14 @@ internal object RouVideoDto {
                 val v91: List<TagItem>,
                 val onlyfans: List<TagItem>,
             ) {
-                fun toTagList(): Tags {
-                    return listOf(
-                        gcAV,
-                        madouAV,
-                        v91,
-                        onlyfans,
-                    ).flatten()
-                        .map { Pair(it.name, it.name) }
-                        .toTypedArray()
-                }
+                fun toTagList(): Tags = listOf(
+                    gcAV,
+                    madouAV,
+                    v91,
+                    onlyfans,
+                ).flatten()
+                    .map { Pair(it.name, it.name) }
+                    .toTypedArray()
             }
         }
     }
@@ -261,7 +253,5 @@ internal object RouVideoDto {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
     }
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 }

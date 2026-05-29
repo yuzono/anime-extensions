@@ -2,6 +2,8 @@ package eu.kanade.tachiyomi.animeextension.ar.animeblkom
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -9,17 +11,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBlkom : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBlkom :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "أنمي بالكوم"
 
@@ -107,51 +112,51 @@ class AnimeBlkom : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return document.select(episodeListSelector()).map(::episodeFromElement).reversed()
     }
 
-    private fun oneEpisodeParse(document: Document): List<SEpisode> {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(document.location())
-            episode_number = 1F
-            name = document.selectFirst("div.name.col-xs-12 span h1")!!.text()
-        }.let(::listOf)
-    }
+    private fun oneEpisodeParse(document: Document): List<SEpisode> = SEpisode.create().apply {
+        setUrlWithoutDomain(document.location())
+        episode_number = 1F
+        name = document.selectFirst("div.name.col-xs-12 span h1")!!.text()
+    }.let(::listOf)
 
     override fun episodeListSelector() = "ul.episodes-links li a"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
 
-            val eptitle = element.selectFirst("span:nth-child(3)")!!.text()
-            val epNum = eptitle.filter { it.isDigit() }
-            episode_number = when {
-                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                else -> 1F
-            }
-            name = eptitle + " :" + element.selectFirst("span:nth-child(1)")!!.text()
+        val eptitle = element.selectFirst("span:nth-child(3)")!!.text()
+        val epNum = eptitle.filter { it.isDigit() }
+        episode_number = when {
+            epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+            else -> 1F
         }
+        name = eptitle + " :" + element.selectFirst("span:nth-child(1)")!!.text()
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("span.server a").flatMap {
-            runCatching { extractVideos(it) }.getOrElse { emptyList() }
+        return document.select("span.server a").parallelCatchingFlatMapBlocking {
+            extractVideos(it)
         }
     }
 
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    private fun extractVideos(element: Element): List<Video> {
+    private suspend fun extractVideos(element: Element): List<Video> {
         val url = element.attr("data-src").replace("http://", "https://")
         return when {
             ".vid4up" in url || "Blkom" in element.text() -> {
-                val videoDoc = client.newCall(GET(url, headers)).execute()
-                    .asJsoup()
+                val videoDoc = client.newCall(GET(url, headers))
+                    .awaitSuccess()
+                    .useAsJsoup()
                 videoDoc.select(videoListSelector()).map(::videoFromElement)
             }
+
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             else -> emptyList()
         }
     }

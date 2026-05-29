@@ -1,13 +1,13 @@
 ext {
     extName = 'Jkhentai'
     extClass = '.Jkhentai'
-    extVersionCode = 10
+    extVersionCode = 11
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:yourupload-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:streamtapeextractor'))
 }

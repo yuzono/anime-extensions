@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <activity
-            android:name=".pt.animesotaku.AnimesOtakuUrlActivity"
+            android:name=".pt.animesotaku.AnimeCoreUrlActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
@@ -13,7 +13,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="www.animesotaku.cc"
+                    android:host="animecore.to"
                     android:pathPattern="/anime/..*"
                     android:scheme="https" />
             </intent-filter>

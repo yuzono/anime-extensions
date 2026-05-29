@@ -6,22 +6,22 @@ import eu.kanade.tachiyomi.animeextension.pt.animesbr.extractors.FourNimesExtrac
 import eu.kanade.tachiyomi.animeextension.pt.animesbr.extractors.RuplayExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.vidmolyextractor.VidMolyExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesBr : DooPlay(
-    "pt-BR",
-    "Animes BR",
-    "https://animesbr.tv",
-) {
+class AnimesBr :
+    DooPlay(
+        "pt-BR",
+        "Animes BR",
+        "https://animesbr.tv",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"
@@ -38,12 +38,10 @@ class AnimesBr : DooPlay(
     // =========================== Anime Details ============================
     override val additionalInfoSelector = "div.wp-content"
 
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector p")
-            .first { !it.text().contains("Todos os Episódios") }
-            ?.let { it.text() + "\n" }
-            ?: ""
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector p")
+        .first { !it.text().contains("Todos os Episódios") }
+        ?.let { it.text() + "\n" }
+        ?: ""
 
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
@@ -84,7 +82,6 @@ class AnimesBr : DooPlay(
 
     private val fourNimesExtractor by lazy { FourNimesExtractor(client) }
     private val ruplayExtractor by lazy { RuplayExtractor(client) }
-    private val vidMolyExtractor by lazy { VidMolyExtractor(client) }
 
     private fun getPlayerVideos(player: Element): List<Video> {
         val name = player.selectFirst("span.title")!!.text()
@@ -101,9 +98,7 @@ class AnimesBr : DooPlay(
         return when {
             "4nimes.com" in url -> fourNimesExtractor.videosFromUrl(url, "$name - ")
             "4youmovies" in url -> fourNimesExtractor.videosFromUrl(url, "$name - ")
-            "vidmoly" in url -> vidMolyExtractor.videosFromUrl(url, "$name - ")
             "/embed/" in url -> ruplayExtractor.videosFromUrl(url, "$name - ")
-
             else -> emptyList()
         }
     }

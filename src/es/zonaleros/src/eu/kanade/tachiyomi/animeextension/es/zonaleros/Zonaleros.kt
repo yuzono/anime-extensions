@@ -1,8 +1,17 @@
 package eu.kanade.tachiyomi.animeextension.es.zonaleros
 
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -10,25 +19,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
+class Zonaleros :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Zonaleros"
 
@@ -75,9 +79,9 @@ class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
                 else -> SAnime.UNKNOWN
             }
             artist = document.selectFirst(".ListActors li a")?.text()
-            document.select(".TxtMAY").map {
-                when {
-                    it.text().contains("PRODUCTORA") || it.text().contains("CREADOR") -> author = it.nextElementSibling()?.text()
+            document.select(".TxtMAY").forEach {
+                if (it.text().contains("PRODUCTORA") || it.text().contains("CREADOR")) {
+                    author = it.nextElementSibling()?.text()
                 }
             }
         }
@@ -170,29 +174,24 @@ class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
                 .header("x-requested-with", "XMLHttpRequest")
                 .build()
 
-            client.newCall(request).execute().asJsoup()
+            client.newCall(request).execute().useAsJsoup()
         }
 
         val scriptServerList = serverDocument.selectFirst("script:containsData(var video)")?.data() ?: return emptyList()
 
-        val videoList = mutableListOf<Video>()
-        fetchUrls(scriptServerList).filter { it.contains("anomizador", true) }.forEach {
-            try {
-                val realUrl = client.newCall(GET(it)).execute()
-                    .networkResponse.toString()
+        return fetchUrls(scriptServerList).filter { it.contains("anomizador", true) }
+            .parallelCatchingFlatMapBlocking {
+                val realUrl = client.newCall(GET(it)).awaitSuccess()
+                    .use { response -> response.networkResponse.toString() }
                     .substringAfter("url=")
                     .substringBefore("}")
-                serverVideoResolver(realUrl).also(videoList::addAll)
-            } catch (e: Exception) {
-                Log.i("bruh e", e.toString())
+                serverVideoResolver(realUrl)
             }
-        }
-        return videoList
     }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -209,7 +208,7 @@ class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
@@ -239,14 +238,12 @@ class Zonaleros : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> ""
-        }
+    private fun Element.getImageUrl(): String? = when {
+        isValidUrl("data-src") -> attr("abs:data-src")
+        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
+        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
+        isValidUrl("src") -> attr("abs:src")
+        else -> ""
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {

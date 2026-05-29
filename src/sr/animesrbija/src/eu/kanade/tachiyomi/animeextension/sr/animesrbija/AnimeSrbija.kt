@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.sr.animesrbija
 
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.AnimeDetailsDto
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.EpisodeVideo
 import eu.kanade.tachiyomi.animeextension.sr.animesrbija.dto.EpisodesDto
@@ -13,12 +14,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -72,8 +72,10 @@ class AnimeSrbija : AnimeHttpSource() {
             when {
                 "filemoon" in trimmedUrl ->
                     FilemoonExtractor(client).videosFromUrl(trimmedUrl)
+
                 ".m3u8" in trimmedUrl ->
                     listOf(Video(trimmedUrl, "Internal Player", trimmedUrl))
+
                 else -> emptyList()
             }
         }.getOrElse { emptyList() }
@@ -123,14 +125,24 @@ class AnimeSrbija : AnimeHttpSource() {
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
+            return client.newCall(GET("$baseUrl/anime/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -160,12 +172,10 @@ class AnimeSrbija : AnimeHttpSource() {
         return json.decodeFromString<PagePropsDto<T>>(nextData).data
     }
 
-    private fun parseAnime(item: SearchAnimeDto): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain("/anime/${item.slug}")
-            thumbnail_url = baseUrl + item.imgPath
-            title = item.title
-        }
+    private fun parseAnime(item: SearchAnimeDto): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain("/anime/${item.slug}")
+        thumbnail_url = baseUrl + item.imgPath
+        title = item.title
     }
 
     companion object {

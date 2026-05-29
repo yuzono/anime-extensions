@@ -13,7 +13,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -22,11 +23,12 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class TRAnimeCI : AnimeStream(
-    "tr",
-    "TRAnimeCI",
-    "https://tranimaci.com",
-) {
+class TRAnimeCI :
+    AnimeStream(
+        "tr",
+        "TRAnimeCI",
+        "https://tranimaci.com",
+    ) {
     override val client by lazy {
         network.client.newBuilder()
             .addInterceptor(ShittyProtectionInterceptor(network.client))
@@ -53,11 +55,10 @@ class TRAnimeCI : AnimeStream(
 
     override fun latestUpdatesSelector() = "div.releases:contains(Son Güncellenenler) ~ div.listupd a.tip"
 
-    override fun latestUpdatesFromElement(element: Element) =
-        searchAnimeFromElement(element).apply {
-            // Convert episode url to anime url
-            url = "/series$url".replace("/video", "").substringBefore("-bolum").substringBeforeLast("-")
-        }
+    override fun latestUpdatesFromElement(element: Element) = searchAnimeFromElement(element).apply {
+        // Convert episode url to anime url
+        url = "/series$url".replace("/video", "").substringBefore("-bolum").substringBeforeLast("-")
+    }
 
     override fun latestUpdatesNextPageSelector() = "div.hpage > a:last-child[href]"
 
@@ -82,19 +83,17 @@ class TRAnimeCI : AnimeStream(
     // ============================== Filters ===============================
     override val filtersSelector = "div.filter.dropdown > ul"
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                GenresFilter("Tür"),
-                AnimeFilter.Separator(),
-                CountryFilter("Ülke"),
-                SeasonFilter("Mevsim"),
-                TypeFilter("Tip"),
-                StudioFilter("Studio"),
-            )
-        } else {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        }
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+        AnimeFilterList(
+            GenresFilter("Tür"),
+            AnimeFilter.Separator(),
+            CountryFilter("Ülke"),
+            SeasonFilter("Mevsim"),
+            TypeFilter("Tip"),
+            StudioFilter("Studio"),
+        )
+    } else {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
     }
 
     // =========================== Anime Details ============================
@@ -102,12 +101,10 @@ class TRAnimeCI : AnimeStream(
     override val animeStatusText = "Durum"
     override val animeTitleSelector = ".entry-title"
 
-    override fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()?.lowercase()) {
-            "tamamlandı" -> SAnime.COMPLETED
-            "devam ediyor" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    override fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase()) {
+        "tamamlandı" -> SAnime.COMPLETED
+        "devam ediyor" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -123,12 +120,12 @@ class TRAnimeCI : AnimeStream(
         name = "Bölüm $epNum"
         episode_number = epNum.toFloat()
 
-        date_upload = element.selectFirst(".epl-date")?.text().toDate()
+        date_upload = element.selectFirst(".epl-date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val script = doc.selectFirst("script:containsData(let video_source)")!!.data()
         return script.substringAfter("[").substringBefore("]")
             .split("{")

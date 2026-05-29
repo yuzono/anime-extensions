@@ -75,9 +75,8 @@ data class SearchResponse(
 )
 
 object MalSerializer : JsonTransformingSerializer<MalData>(MalData.serializer()) {
-    override fun transformDeserialize(element: JsonElement): JsonElement =
-        when (element) {
-            is JsonPrimitive -> JsonObject(emptyMap())
-            else -> element
-        }
+    override fun transformDeserialize(element: JsonElement): JsonElement = when (element) {
+        is JsonPrimitive -> JsonObject(emptyMap())
+        else -> element
+    }
 }

@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
@@ -22,7 +22,8 @@ import uy.kohesive.injekt.injectLazy
 class AnimeWorldIndia(
     final override val lang: String,
     private val language: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeWorld India"
 
@@ -85,7 +86,9 @@ class AnimeWorldIndia(
     private fun parseStatus(document: Document): Int {
         return when (document.selectFirst("$selector a:not(:contains(Ep))")?.text()) {
             null -> SAnime.UNKNOWN
+
             "Movie" -> SAnime.COMPLETED
+
             else -> {
                 val epParts = document.selectFirst("$selector a:not(:contains(TV))")
                     ?.text()
@@ -145,6 +148,7 @@ class AnimeWorldIndia(
 
                 val episodeName = when {
                     isMovie -> "Movie"
+
                     else -> buildString {
                         if (seasonName.isNotBlank()) append("$seasonName - ")
                         append("Episode $epNum")

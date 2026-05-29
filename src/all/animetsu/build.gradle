@@ -1,0 +1,12 @@
+ext {
+    extName = 'Animetsu'
+    extClass = '.Animetsu'
+    extVersionCode = 4
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+}

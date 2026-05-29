@@ -12,17 +12,15 @@ object AnimelibFilters {
 
     private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.parseTriFilter(options: Array<Pair<String, String>>): IncludeExcludeParams {
-        return (getFirst<R>() as TriStateFilterList).state
-            .filterNot { it.isIgnored() }
-            .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
-            .groupBy { it.first }
-            .let { dict ->
-                val included = dict[AnimeFilter.TriState.STATE_INCLUDE]?.map { it.second }.orEmpty()
-                val excluded = dict[AnimeFilter.TriState.STATE_EXCLUDE]?.map { it.second }.orEmpty()
-                IncludeExcludeParams(included, excluded)
-            }
-    }
+    private inline fun <reified R> AnimeFilterList.parseTriFilter(options: Array<Pair<String, String>>): IncludeExcludeParams = (getFirst<R>() as TriStateFilterList).state
+        .filterNot { it.isIgnored() }
+        .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
+        .groupBy { it.first }
+        .let { dict ->
+            val included = dict[AnimeFilter.TriState.STATE_INCLUDE]?.map { it.second }.orEmpty()
+            val excluded = dict[AnimeFilter.TriState.STATE_EXCLUDE]?.map { it.second }.orEmpty()
+            IncludeExcludeParams(included, excluded)
+        }
 
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
     class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
@@ -31,19 +29,18 @@ object AnimelibFilters {
     class PegiFilter : CheckBoxFilterList("Возрастной рейтинг", AnimelibFiltersData.PEGI.map { CheckBoxVal(it.first) })
     class OngoingFilter : CheckBoxFilterList("Статус тайтла", AnimelibFiltersData.ONGOING_STATUS.map { CheckBoxVal(it.first) })
 
-    private inline fun <reified R> AnimeFilterList.parseCheckbox(options: Array<Pair<String, String>>): List<String> {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .asSequence()
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .toList()
-    }
+    private inline fun <reified R> AnimeFilterList.parseCheckbox(options: Array<Pair<String, String>>): List<String> = (getFirst<R>() as CheckBoxFilterList).state
+        .asSequence()
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .toList()
 
-    class SortFilter : AnimeFilter.Sort(
-        "Сортировать по",
-        AnimelibFiltersData.ORDERS.map { it.first }.toTypedArray(),
-        Selection(0, false),
-    )
+    class SortFilter :
+        AnimeFilter.Sort(
+            "Сортировать по",
+            AnimelibFiltersData.ORDERS.map { it.first }.toTypedArray(),
+            Selection(0, false),
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         GenresFilter(),

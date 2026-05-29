@@ -4,7 +4,6 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.CloseloadExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.RapidrameExtractor
-import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.VidmolyExtractor
 import eu.kanade.tachiyomi.animeextension.tr.hdfilmcehennemi.extractors.XBetExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -15,14 +14,15 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.Response
@@ -32,7 +32,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class HDFilmCehennemi :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val name = "HDFilmCehennemi"
 
     override val baseUrl = "https://www.hdfilmcehennemi.nl"
@@ -50,8 +52,7 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/load/page/$page/mostLiked/", apiHeaders)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/load/page/$page/mostLiked/", apiHeaders)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<ApiResponse>()
@@ -91,13 +92,25 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    ): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.firstOrNull()?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -109,30 +122,29 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(listOf(details), false)
     }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        when {
-            query.isNotBlank() -> {
-                val body = FormBody.Builder().add("query", query).build()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = when {
+        query.isNotBlank() -> {
+            val body = FormBody.Builder().add("query", query).build()
 
-                POST("$baseUrl/search", apiHeaders, body)
-            }
-
-            else -> {
-                val params = HDFilmCehennemiFilters.getSearchParameters(filters)
-
-                val form = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("kesfet[type]", params.type)
-                    .addFormDataPart("kesfet[genres]", params.genres)
-                    .addFormDataPart("kesfet[years]", params.years)
-                    .addFormDataPart("kesfet[imdb]", params.imdbScore)
-                    .addFormDataPart("kesfet[orderBy]", params.order)
-                    .addFormDataPart("page", page.toString())
-                    .build()
-
-                POST("$baseUrl/movies/load/", headers, form)
-            }
+            POST("$baseUrl/search", apiHeaders, body)
         }
+
+        else -> {
+            val params = HDFilmCehennemiFilters.getSearchParameters(filters)
+
+            val form = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("kesfet[type]", params.type)
+                .addFormDataPart("kesfet[genres]", params.genres)
+                .addFormDataPart("kesfet[years]", params.years)
+                .addFormDataPart("kesfet[imdb]", params.imdbScore)
+                .addFormDataPart("kesfet[orderBy]", params.order)
+                .addFormDataPart("page", page.toString())
+                .build()
+
+            POST("$baseUrl/movies/load/", headers, form)
+        }
+    }
 
     @Serializable
     data class SearchResponse(
@@ -173,12 +185,14 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = when {
-            document.location().contains("/dizi/") -> SAnime.UNKNOWN // serie
+            document.location().contains("/dizi/") -> SAnime.UNKNOWN
+
+            // serie
             else -> SAnime.COMPLETED // movie
         }
 
@@ -216,8 +230,7 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         )
     }
 
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).sortedByDescending { it.episode_number }
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).sortedByDescending { it.episode_number }
 
     override fun episodeListSelector() = "div.seasons-tabs-wrapper > div.seasons-tab-content > a"
 
@@ -236,7 +249,6 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     // ============================ Video Links =============================
-    private val vidmolyExtractor by lazy { VidmolyExtractor(client, headers) }
     private val closeloadExtractor by lazy { CloseloadExtractor(client, headers) }
     private val rapidrameExtractor by lazy { RapidrameExtractor(client, headers) }
     private val xbetExtractor by lazy { XBetExtractor(client, headers) }
@@ -255,21 +267,22 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     private suspend fun extractVideos(info: Triple<String, String, String>): List<Video> {
         val name = "[${info.first}] ${info.second}"
-        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).await()
-            .body.string()
+        val url = client.newCall(GET("$baseUrl/video/${info.third}/", apiHeaders)).awaitSuccess()
+            .bodyString()
             .substringAfter("src=")
             .substringBefore(' ')
             .trim('\\', '"', '\'', ' ')
             .replace("\\/", "/")
-        println(url)
         return when {
             url.contains("/rplayer") -> rapidrameExtractor.videosFromUrl(url, name)
+
             name.contains("close") || url.contains("rapidrame") -> closeloadExtractor.videosFromUrl(
                 url,
                 name,
             )
-            name.contains("vidmoly") -> vidmolyExtractor.videosFromUrl(url, name)
+
             url.contains("trstx.org") -> xbetExtractor.videosFromUrl(url)
+
             else -> emptyList()
         }
     }
@@ -289,13 +302,6 @@ class HDFilmCehennemi : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

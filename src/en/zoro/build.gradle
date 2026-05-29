@@ -1,14 +1,14 @@
 ext {
-    extName = 'HiAnime'
+    extName = 'HiAnime (Dead)'
     extClass = '.HiAnime'
     themePkg = 'zorotheme'
     baseUrl = 'https://hianime.to'
-    overrideVersionCode = 62
+    overrideVersionCode = 65
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    api(project(":lib:megacloud-extractor"))
-    api(project(":lib:streamtape-extractor"))
+    api(project(":lib:megacloudextractor"))
+    api(project(":lib:streamtapeextractor"))
 }

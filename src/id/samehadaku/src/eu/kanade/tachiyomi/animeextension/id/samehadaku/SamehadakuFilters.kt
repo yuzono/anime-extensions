@@ -14,44 +14,37 @@ object SamehadakuFilters {
         fun toQueryPart(name: String) = "&$name=${vals[state].second}"
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(name: String): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
-            }.joinToString("&$name[]=").let {
-                if (it.isBlank()) {
-                    ""
-                } else {
-                    "&$name[]=$it"
-                }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }.joinToString("&$name[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&$name[]=$it"
+            }
+        }
 
-    class GenreFilter : CheckBoxFilterList(
-        "Genre",
-        FiltersData.GENRE.map { CheckBoxVal(it.first, false) },
-    )
+    class GenreFilter :
+        CheckBoxFilterList(
+            "Genre",
+            FiltersData.GENRE.map { CheckBoxVal(it.first, false) },
+        )
 
     class TypeFilter : QueryPartFilter("Type", FiltersData.TYPE)
 
@@ -107,79 +100,26 @@ object SamehadakuFilters {
         )
 
         val GENRE = arrayOf(
-            Pair("Action", "action"),
-            Pair("Adult Cast", "adult-cast"),
-            Pair("Adventure", "adventure"),
-            Pair("Boys Love", "boys-love"),
-            Pair("Childcare", "childcare"),
-            Pair("Comedy", "comedy"),
-            Pair("Delinquents", "delinquents"),
-            Pair("Dementia", "dementia"),
-            Pair("Demons", "demons"),
-            Pair("Detective", "detective"),
-            Pair("Drama", "drama"),
-            Pair("ecch", "ecch"),
-            Pair("Ecchi", "ecchi"),
             Pair("Fantasy", "fantasy"),
-            Pair("Gag Humor", "gag-humor"),
-            Pair("Game", "game"),
-            Pair("Gore", "gore"),
-            Pair("Gourmet", "gourmet"),
-            Pair("Harem", "harem"),
-            Pair("High Stakes Game", "high-stakes-game"),
-            Pair("Historical", "historical"),
-            Pair("Horror", "horror"),
-            Pair("Isekai", "isekai"),
-            Pair("Iyashikei", "iyashikei"),
-            Pair("Kids", "kids"),
-            Pair("Magic", "magic"),
-            Pair("Martial Arts", "martial-arts"),
-            Pair("Mecha", "mecha"),
-            Pair("Medical", "medical"),
-            Pair("Military", "military"),
-            Pair("Music", "music"),
-            Pair("Mystery", "mystery"),
-            Pair("Mythology", "mythology"),
-            Pair("Organized Crime", "organized-crime"),
-            Pair("Otaku Culture", "otaku-culture"),
-            Pair("Parody", "parody"),
-            Pair("Performing Arts", "performing-arts"),
-            Pair("pilihan", "pilihan"),
-            Pair("Police", "police"),
-            Pair("poling", "poling"),
-            Pair("Psychological", "psychological"),
-            Pair("Rame", "recomendation"),
-            Pair("Reincarnation", "reincarnation"),
-            Pair("Romance", "romance"),
-            Pair("Romantic Subtext", "romantic-subtext"),
-            Pair("Romantic1", "romantic1"),
-            Pair("Samurai", "samurai"),
+            Pair("Action", "action"),
+            Pair("Adventure", "adventure"),
+            Pair("Comedy", "comedy"),
+            Pair("Shounen", "shounen"),
             Pair("School", "school"),
+            Pair("Romance", "romance"),
+            Pair("Drama", "drama"),
+            Pair("Supernatural", "supernatural"),
+            Pair("Isekai", "isekai"),
             Pair("Sci-Fi", "sci-fi"),
             Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo Ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Showbiz", "showbiz"),
-            Pair("Slice of Life", "slice-of-life"),
-            Pair("Space", "space"),
-            Pair("Sports", "sports"),
-            Pair("Spring 2023", "spring-2023"),
-            Pair("Strategy Game", "strategy-game"),
-            Pair("Subtext", "subtext"),
+            Pair("Reincarnation", "reincarnation"),
+            Pair("Historical", "historical"),
+            Pair("Mystery", "mystery"),
             Pair("Super Power", "super-power"),
-            Pair("Supernatural", "supernatural"),
-            Pair("Survival", "survival"),
-            Pair("Suspense", "suspense"),
-            Pair("Team Sports", "team-sports"),
-            Pair("Thriller", "thriller"),
-            Pair("Time Travel", "time-travel"),
-            Pair("Vampire", "vampire"),
-            Pair("Video Game", "video-game"),
-            Pair("vidiogame", "vidiogame"),
-            Pair("Visual Arts", "visual-arts"),
-            Pair("Work Life", "work-life"),
-            Pair("Workplace", "workplace"),
+            Pair("Harem", "harem"),
+            Pair("Slice of Life", "slice-of-life"),
+            Pair("Ecchi", "ecchi"),
+            Pair("Sports", "sports"),
         )
     }
 }

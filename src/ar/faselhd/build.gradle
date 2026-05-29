@@ -1,11 +1,12 @@
 ext {
     extName = 'FASELHD'
     extClass = '.FASELHD'
-    extVersionCode = 23
+    extVersionCode = 27
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:synchrony"))
 }

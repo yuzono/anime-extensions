@@ -1,12 +1,12 @@
 ext {
     extName = 'NimeGami'
     extClass = '.NimeGami'
-    extVersionCode = 3
+    extVersionCode = 7
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(libs.jsunpacker)
+    implementation(project(":lib:unpacker"))
     implementation(project(":lib:synchrony"))
 }

@@ -3,13 +3,13 @@ ext {
     extClass = '.PinoyMoviePedia'
     themePkg = 'dooplay'
     baseUrl = 'https://pinoymoviepedia.ru'
-    overrideVersionCode = 3
+    overrideVersionCode = 6
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:mixdrop-extractor'))
-    implementation(project(':lib:dood-extractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:doodextractor'))
 }

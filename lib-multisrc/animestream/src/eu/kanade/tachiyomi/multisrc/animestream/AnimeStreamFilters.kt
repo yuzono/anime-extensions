@@ -15,29 +15,22 @@ object AnimeStreamFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
         name: String,
-    ): String {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .filter(String::isNotBlank)
-            .joinToString("&") { "$name[]=$it" }
-    }
+    ): String = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .filter(String::isNotBlank)
+        .joinToString("&") { "$name[]=$it" }
 
     internal class GenresFilter(name: String) : CheckBoxFilterList(name, GENRES_LIST)
     internal class SeasonFilter(name: String) : CheckBoxFilterList(name, SEASON_LIST)
@@ -76,13 +69,14 @@ object AnimeStreamFilters {
 
     fun filterInitialized() = ::filterElements.isInitialized
 
-    fun getPairListByIndex(index: Int) = filterElements.get(index)
-        .select("li")
-        .map { element ->
-            val key = element.selectFirst("label")!!.text()
-            val value = element.selectFirst("input")!!.attr("value")
+    fun getPairListByIndex(index: Int) = filterElements.getOrNull(index)
+        ?.select("li")
+        ?.mapNotNull { element ->
+            val key = element.selectFirst("label")?.text() ?: return@mapNotNull null
+            val value = element.selectFirst("input")?.attr("value") ?: return@mapNotNull null
             Pair(key, value)
-        }.toTypedArray()
+        }?.toTypedArray()
+        ?: arrayOf("" to "")
 
     private val GENRES_LIST by lazy { getPairListByIndex(0) }
     private val SEASON_LIST by lazy { getPairListByIndex(1) }

@@ -3,12 +3,14 @@ ext {
     extClass = '.DonghuaStream'
     themePkg = 'animestream'
     baseUrl = 'https://donghuastream.org'
-    overrideVersionCode = 14
+    overrideVersionCode = 20
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(':lib:playlist-utils'))
+    implementation(project(':lib:dailymotionextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:rumbleextractor'))
+    implementation(project(':lib:streamplayextractor'))
 }

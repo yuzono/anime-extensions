@@ -2,6 +2,15 @@ package eu.kanade.tachiyomi.animeextension.pl.docchi
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.cdaextractor.CdaExtractor
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.luluextractor.LuluExtractor
+import aniyomi.lib.lycorisextractor.LycorisExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,25 +18,18 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.cdaextractor.CdaPlExtractor
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.luluextractor.LuluExtractor
-import eu.kanade.tachiyomi.lib.lycorisextractor.LycorisCafeExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.sibnetextractor.SibnetExtractor
-import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
+class Docchi :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Docchi"
 
@@ -45,8 +47,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}")
+    override fun popularAnimeRequest(page: Int) = GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val animeArray: List<ApiList> = json.decodeFromString(response.body.string())
@@ -64,15 +65,13 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}&sort=DESC")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseApiUrl/v1/series/list?limit=20&before=${(page - 1) * 20}&sort=DESC")
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseApiUrl/v1/series/related/$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseApiUrl/v1/series/related/$query")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val animeArray: List<ApiSearch> = json.decodeFromString(response.body.string())
@@ -87,8 +86,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
     }
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request =
-        GET("$baseApiUrl/v1/episodes/count/${anime.url.substringAfterLast("/")}")
+    override fun episodeListRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/episodes/count/${anime.url.substringAfterLast("/")}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodeList: List<EpisodeList> = json.decodeFromString(response.body.string())
@@ -104,8 +102,7 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request =
-        GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
 
     override fun animeDetailsParse(response: Response): SAnime {
         val animeDetail: ApiDetail = json.decodeFromString(response.body.string())
@@ -126,12 +123,12 @@ class Docchi : ConfigurableAnimeSource, AnimeHttpSource() {
     )
 
     private val vkExtractor by lazy { VkExtractor(client, headers) }
-    private val cdaExtractor by lazy { CdaPlExtractor(client) }
+    private val cdaExtractor by lazy { CdaExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
-    private val lycorisExtractor by lazy { LycorisCafeExtractor(client) }
+    private val lycorisExtractor by lazy { LycorisExtractor(client) }
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val googledriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
 

@@ -10,14 +10,12 @@ import kotlinx.serialization.json.Json
 
 private const val PREF_KEY_FILTER_CONFIG_PREFIX = "STORED_SEARCH_CONFIG"
 
-open class PathFilter(name: String, private val beans: Array<out SearchBean>) :
-    AnimeFilter.Select<String>(name, beans.map { it.name }.toTypedArray()) {
+open class PathFilter(name: String, private val beans: Array<out SearchBean>) : AnimeFilter.Select<String>(name, beans.map { it.name }.toTypedArray()) {
     val selected
         get() = beans[state]
 }
 
-class GroupFilter(name: String, filters: List<PathFilter>) :
-    AnimeFilter.Group<PathFilter>(name, filters)
+class GroupFilter(name: String, filters: List<PathFilter>) : AnimeFilter.Group<PathFilter>(name, filters)
 
 internal enum class FilterType(val title: String) {
     TYPE("类型"),
@@ -45,9 +43,7 @@ data class SearchType(
     override fun toPath() = "/id/$id"
 }
 
-internal fun SearchType.toFilter(): PathFilter {
-    return PathFilter(name, arrayOf(this))
-}
+internal fun SearchType.toFilter(): PathFilter = PathFilter(name, arrayOf(this))
 
 @Serializable
 data class SearchSort(
@@ -59,26 +55,22 @@ data class SearchSort(
 }
 
 @Serializable
-data class SearchYear(override val name: String, override val ignore: Boolean = false) :
-    SearchBean {
+data class SearchYear(override val name: String, override val ignore: Boolean = false) : SearchBean {
     override fun toPath() = "/year/$name"
 }
 
 @Serializable
-data class SearchLang(override val name: String, override val ignore: Boolean = false) :
-    SearchBean {
+data class SearchLang(override val name: String, override val ignore: Boolean = false) : SearchBean {
     override fun toPath() = "/lang/$name"
 }
 
 @Serializable
-data class SearchClass(override val name: String, override val ignore: Boolean = false) :
-    SearchBean {
+data class SearchClass(override val name: String, override val ignore: Boolean = false) : SearchBean {
     override fun toPath() = "/class/$name"
 }
 
 @Serializable
-data class SearchRegion(override val name: String, override val ignore: Boolean = false) :
-    SearchBean {
+data class SearchRegion(override val name: String, override val ignore: Boolean = false) : SearchBean {
     override fun toPath() = "/area/$name"
 }
 
@@ -90,13 +82,10 @@ data class SearchFilterConfig(
     val lang: List<SearchLang> = emptyList(),
     val region: List<SearchRegion> = emptyList(),
 ) {
-    fun isEmpty() =
-        type.isEmpty() && category.isEmpty() && year.isEmpty() && lang.isEmpty() && region.isEmpty()
+    fun isEmpty() = type.isEmpty() && category.isEmpty() && year.isEmpty() && lang.isEmpty() && region.isEmpty()
 }
 
-private inline fun <reified T> c(): Class<T> {
-    return T::class.java
-}
+private inline fun <reified T> c(): Class<T> = T::class.java
 
 private val searchPriority = arrayOf(
     c<SearchRegion>(),
@@ -107,14 +96,12 @@ private val searchPriority = arrayOf(
     c<SearchYear>(),
 )
 
-internal fun Iterable<SearchBean>.toPath(): String {
-    return this.asSequence().filterNot { it.ignore }
-        .groupBy { it::class.java }.flatMap { it.value.subList(it.value.size - 1, it.value.size) }
-        .sortedBy {
-            searchPriority.indexOf(it::class.java)
-        }
-        .joinToString(separator = "") { it.toPath() }.removePrefix("/")
-}
+internal fun Iterable<SearchBean>.toPath(): String = this.asSequence().filterNot { it.ignore }
+    .groupBy { it::class.java }.flatMap { it.value.subList(it.value.size - 1, it.value.size) }
+    .sortedBy {
+        searchPriority.indexOf(it::class.java)
+    }
+    .joinToString(separator = "") { it.toPath() }.removePrefix("/")
 
 private val defaultLangList =
     listOf(
@@ -177,17 +164,13 @@ private val defaultSearchFilterConfig = mapOf(
     ),
 )
 
-private fun findDefaultSearchFilterConfig(majorTypeId: String): SearchFilterConfig {
-    return defaultSearchFilterConfig.getOrElse(majorTypeId) {
-        SearchFilterConfig(
-            listOf(typeAll),
-        )
-    }
+private fun findDefaultSearchFilterConfig(majorTypeId: String): SearchFilterConfig = defaultSearchFilterConfig.getOrElse(majorTypeId) {
+    SearchFilterConfig(
+        listOf(typeAll),
+    )
 }
 
-private fun genFilterConfigKey(majorTypeId: String): String {
-    return PREF_KEY_FILTER_CONFIG_PREFIX + "_$majorTypeId"
-}
+private fun genFilterConfigKey(majorTypeId: String): String = PREF_KEY_FILTER_CONFIG_PREFIX + "_$majorTypeId"
 
 internal val defaultMajorSearchTypeSet = arrayOf(
     SearchType("动漫", 5),

@@ -2,7 +2,10 @@ package eu.kanade.tachiyomi.animeextension.es.mundodonghua
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.animeextension.es.mundodonghua.extractors.JsUnpacker
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,20 +13,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.lib.autoUnpacker
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class MundoDonghua :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MundoDonghua"
 
@@ -49,10 +52,9 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element) =
-        popularAnimeFromElement(element).apply {
-            url = url.replace("/ver/", "/donghua/").substringBeforeLast("/")
-        }
+    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element).apply {
+        url = url.replace("/ver/", "/donghua/").substringBeforeLast("/")
+    }
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/lista-episodios/$page")
 
@@ -80,13 +82,9 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episode
     }
 
-    private fun getAndUnpack(string: String): Sequence<String> {
-        return JsUnpacker.unpack(string)
-    }
-
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -98,17 +96,17 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 val packedRegex = Regex("eval\\(function\\(p,a,c,k,e,.*\\)\\)")
                 packedRegex.findAll(script.data()).map {
                     it.value
-                }.toList().map {
-                    val unpack = getAndUnpack(it).first()
+                }.toList().forEach {
+                    val unpack = autoUnpacker(it) ?: return@forEach
                     if (unpack.contains("amagi_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 VoeExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
                             } catch (_: Exception) {}
                         }
                     }
                     if (unpack.contains("fmoon_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 val newHeaders = headers.newBuilder()
                                     .add("authority", url.toHttpUrl().host)
@@ -129,7 +127,9 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                                 .add("accept", "*/*")
                                 .build()
 
-                            val slugPlayer = client.newCall(GET("$baseUrl/api_donghua.php?slug=$slug", headers = newHeaders)).execute().asJsoup().body().toString().substringAfter("\"url\":\"").substringBefore("\"")
+                            val slugPlayer = client.newCall(GET("$baseUrl/api_donghua.php?slug=$slug", headers = newHeaders))
+                                .execute().bodyString()
+                                .substringAfter("\"url\":\"").substringBefore("\"")
 
                             val videoHeaders = headers.newBuilder()
                                 .add("authority", "www.mdplayer.xyz")
@@ -137,13 +137,14 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                                 .build()
 
                             val videoId = client.newCall(GET("https://www.mdplayer.xyz/nemonicplayer/dmplayer.php?key=$slugPlayer", headers = videoHeaders))
-                                .execute().asJsoup().body().toString().substringAfter("video-id=\"").substringBefore("\"")
+                                .execute().bodyString()
+                                .substringAfter("video-id=\"").substringBefore("\"")
 
                             DailymotionExtractor(client, headers).videosFromUrl("https://www.dailymotion.com/embed/video/$videoId", prefix = "Dailymotion:").let { videoList.addAll(it) }
                         } catch (_: Exception) {}
                     }
                     if (unpack.contains("asura_tab")) {
-                        fetchUrls(unpack).map { url ->
+                        fetchUrls(unpack).forEach { url ->
                             try {
                                 if (url.contains("redirector")) {
                                     val newHeaders = headers.newBuilder()
@@ -204,72 +205,68 @@ class MundoDonghua : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Acción", "Acción"),
-            Pair("Artes Marciales", "Artes Marciales"),
-            Pair("Aventura", "Aventura"),
-            Pair("Ciencia Ficción", "Ciencia Ficción"),
-            Pair("Comedia", "Comedia"),
-            Pair("Comida", "Comida"),
-            Pair("Cultivación", "Cultivación"),
-            Pair("Demonios", "Demonios"),
-            Pair("Deportes", "Deportes"),
-            Pair("Drama", "Drama"),
-            Pair("Ecchi", "Ecchi"),
-            Pair("Escolar", "Escolar"),
-            Pair("Fantasía", "Fantasía"),
-            Pair("Harem", "Harem"),
-            Pair("Harem Inverso", "Harem Inverso"),
-            Pair("Historico", "Historico"),
-            Pair("Idols", "Idols"),
-            Pair("Juegos", "Juegos"),
-            Pair("Lucha", "Lucha"),
-            Pair("Magia", "Magia"),
-            Pair("Mechas", "Mechas"),
-            Pair("Militar", "Militar"),
-            Pair("Misterio", "Misterio"),
-            Pair("Música", "Música"),
-            Pair("Por Definir", "Por Definir"),
-            Pair("Psicológico", "Psicológico"),
-            Pair("Reencarnación", "Reencarnación"),
-            Pair("Romance", "Romance"),
-            Pair("Seinen", "Seinen"),
-            Pair("Shojo", "Shojo"),
-            Pair("Shonen", "Shonen"),
-            Pair("Sobrenatural", "Sobrenatural"),
-            Pair("Sucesos de la Vida", "Sucesos de la Vida"),
-            Pair("Superpoderes", "Superpoderes"),
-            Pair("Suspenso", "Suspenso"),
-            Pair("Terror", "Terror"),
-            Pair("Vampiros", "Vampiros"),
-            Pair("Viaje a Otro Mundo", "Viaje a Otro Mundo"),
-            Pair("Videojuegos", "Videojuegos"),
-            Pair("Zombis", "Zombis"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Acción", "Acción"),
+                Pair("Artes Marciales", "Artes Marciales"),
+                Pair("Aventura", "Aventura"),
+                Pair("Ciencia Ficción", "Ciencia Ficción"),
+                Pair("Comedia", "Comedia"),
+                Pair("Comida", "Comida"),
+                Pair("Cultivación", "Cultivación"),
+                Pair("Demonios", "Demonios"),
+                Pair("Deportes", "Deportes"),
+                Pair("Drama", "Drama"),
+                Pair("Ecchi", "Ecchi"),
+                Pair("Escolar", "Escolar"),
+                Pair("Fantasía", "Fantasía"),
+                Pair("Harem", "Harem"),
+                Pair("Harem Inverso", "Harem Inverso"),
+                Pair("Historico", "Historico"),
+                Pair("Idols", "Idols"),
+                Pair("Juegos", "Juegos"),
+                Pair("Lucha", "Lucha"),
+                Pair("Magia", "Magia"),
+                Pair("Mechas", "Mechas"),
+                Pair("Militar", "Militar"),
+                Pair("Misterio", "Misterio"),
+                Pair("Música", "Música"),
+                Pair("Por Definir", "Por Definir"),
+                Pair("Psicológico", "Psicológico"),
+                Pair("Reencarnación", "Reencarnación"),
+                Pair("Romance", "Romance"),
+                Pair("Seinen", "Seinen"),
+                Pair("Shojo", "Shojo"),
+                Pair("Shonen", "Shonen"),
+                Pair("Sobrenatural", "Sobrenatural"),
+                Pair("Sucesos de la Vida", "Sucesos de la Vida"),
+                Pair("Superpoderes", "Superpoderes"),
+                Pair("Suspenso", "Suspenso"),
+                Pair("Terror", "Terror"),
+                Pair("Vampiros", "Vampiros"),
+                Pair("Viaje a Otro Mundo", "Viaje a Otro Mundo"),
+                Pair("Videojuegos", "Videojuegos"),
+                Pair("Zombis", "Zombis"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return popularAnimeFromElement(element)
-    }
+    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
     override fun searchAnimeSelector(): String = popularAnimeSelector()
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("En Emisión") -> SAnime.ONGOING
-            statusString.contains("Finalizada") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("En Emisión") -> SAnime.ONGOING
+        statusString.contains("Finalizada") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

@@ -31,7 +31,8 @@ class RedirectorBypasser(private val client: OkHttpClient, private val headers: 
         val headers = headers.newBuilder().set("referer", lastDoc.location()).build()
 
         val doc = runBlocking(Dispatchers.IO) {
-            MUTEX.withLock { // Mutex to prevent overwriting cookies from parallel requests
+            MUTEX.withLock {
+                // Mutex to prevent overwriting cookies from parallel requests
                 client.cookieJar.saveFromResponse(httpUrl, listOf(cookie))
                 client.newCall(GET(nextUrl, headers)).execute().asJsoup()
             }

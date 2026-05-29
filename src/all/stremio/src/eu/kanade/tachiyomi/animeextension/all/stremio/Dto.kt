@@ -6,13 +6,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import extensions.utils.tryParse
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.apache.commons.text.StringSubstitutor
-import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -43,6 +42,7 @@ data class MetaDto(
     val type: String,
     val name: String,
     val poster: String? = null,
+    val background: String? = null,
 
     // Details
     val description: String? = null,
@@ -61,6 +61,7 @@ data class MetaDto(
         title = name
         url = "$type-$id"
         thumbnail_url = poster
+        // background_url = background ?: poster
 
         genre = genres?.joinToString()
         author = director?.take(5)?.joinToString()
@@ -107,14 +108,13 @@ data class LibraryItemDto(
         thumbnail_url = poster
     }
 
-    fun watched(): Boolean {
-        return state.timesWatched > 0
-    }
+    fun watched(): Boolean = state.timesWatched > 0
 }
 
 @Serializable
 data class VideoDto(
     val id: String,
+    val title: String? = null,
     val name: String? = null,
     val episode: Int? = null,
     val released: String? = null,
@@ -122,6 +122,7 @@ data class VideoDto(
     val season: Int? = null,
     val description: String? = null,
     val overview: String? = null,
+    val thumbnail: String? = null,
 ) {
     fun toSEpisode(
         episodeTemplate: String,
@@ -129,16 +130,18 @@ data class VideoDto(
         type: String,
     ): SEpisode = SEpisode.create().apply {
         val values = mapOf(
-            "name" to (this@VideoDto.name ?: ""),
+            "name" to (this@VideoDto.title?.takeNotBlank() ?: this@VideoDto.name ?: ""),
             "episodeNumber" to (this@VideoDto.episode ?: 1),
             "seasonNumber" to (this@VideoDto.season ?: 1),
-            "description" to (this@VideoDto.description ?: this@VideoDto.overview ?: ""),
+            "description" to (this@VideoDto.overview?.takeNotBlank() ?: this@VideoDto.description ?: ""),
         )
         val sub = StringSubstitutor(values, "{", "}")
 
         url = "$type-$id"
         name = sub.replace(episodeTemplate).trim()
-        scanlator = sub.replace(scanlatorTemplate).trim().takeIf { it.isNotBlank() }
+        scanlator = sub.replace(scanlatorTemplate).trim().takeNotBlank()
+        // summary = overview?.takeNotBlank() ?: description
+        // preview_url = thumbnail
         episode_number = episode?.toFloat() ?: 1F
         date_upload = DATE_FORMAT.tryParse(released)
     }
@@ -214,7 +217,7 @@ data class StreamDto(
                     append("magnet:?xt=urn:btih:$infoHash")
 
                     sources?.forEach { tracker ->
-                        append("&tr=${URLEncoder.encode(tracker, "UTF-8")}")
+                        append("&tr=${tracker.urlEncode()}")
                     }
 
                     if (fileIdx?.equals(-1)?.not() == true) {

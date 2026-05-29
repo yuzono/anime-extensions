@@ -14,15 +14,18 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeFire :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime Fire"
 
@@ -56,6 +59,7 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         // get anime url from episode url
         when (url.substringAfterLast("/").toIntOrNull()) {
             null -> setUrlWithoutDomain(url)
+
             else -> {
                 val substr = url.substringBeforeLast("/")
                 setUrlWithoutDomain("$substr-todos-os-episodios")
@@ -70,14 +74,24 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/animes/$id"))
+            return client.newCall(GET("$baseUrl/animes/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -177,17 +191,13 @@ class AnimeFire : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun getFilterList(): AnimeFilterList = AFFilters.FILTER_LIST
 
     // ============================= Utilities ==============================
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Completo" -> SAnime.COMPLETED
-            "Em lançamento" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "Completo" -> SAnime.COMPLETED
+        "Em lançamento" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(key: String): String? {
-        return selectFirst("div.animeInfo:contains($key) span")?.text()
-    }
+    private fun Element.getInfo(key: String): String? = selectFirst("div.animeInfo:contains($key) span")?.text()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

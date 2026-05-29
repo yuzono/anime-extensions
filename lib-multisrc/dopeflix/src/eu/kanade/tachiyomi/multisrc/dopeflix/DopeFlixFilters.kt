@@ -2,11 +2,12 @@ package eu.kanade.tachiyomi.multisrc.dopeflix
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import java.util.Calendar
 
 object DopeFlixFilters {
     open class QueryPartFilter(
         displayName: String,
-        val vals: Array<Pair<String, String>>,
+        private val vals: List<Pair<String, String>>,
     ) : AnimeFilter.Select<String>(
         displayName,
         vals.map { it.first }.toTypedArray(),
@@ -18,43 +19,39 @@ object DopeFlixFilters {
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String {
-        return (getFirst<R>() as CheckBoxFilterList).state
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .joinToString("-") { it.ifBlank { "all" } }
-    }
+    ): String = (getFirst<R>() as CheckBoxFilterList).state
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .joinToString("-") { it.ifBlank { "all" } }
 
     class TypeFilter : QueryPartFilter("Type", DopeFlixFiltersData.TYPES)
     class QualityFilter : QueryPartFilter("Quality", DopeFlixFiltersData.QUALITIES)
     class ReleaseYearFilter : QueryPartFilter("Released at", DopeFlixFiltersData.YEARS)
 
-    class GenresFilter : CheckBoxFilterList(
-        "Genres",
-        DopeFlixFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-    )
-    class CountriesFilter : CheckBoxFilterList(
-        "Countries",
-        DopeFlixFiltersData.COUNTRIES.map { CheckBoxVal(it.first, false) },
-    )
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Genres",
+            DopeFlixFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
+    class CountriesFilter :
+        CheckBoxFilterList(
+            "Countries",
+            DopeFlixFiltersData.COUNTRIES.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TypeFilter(),
-        QualityFilter(),
-        ReleaseYearFilter(),
+        CountriesFilter(),
         AnimeFilter.Separator(),
         GenresFilter(),
-        CountriesFilter(),
+        QualityFilter(),
+        ReleaseYearFilter(),
     )
 
     data class FilterSearchParams(
@@ -80,30 +77,26 @@ object DopeFlixFilters {
     private object DopeFlixFiltersData {
         val ALL = Pair("All", "all")
 
-        val TYPES = arrayOf(
+        val TYPES = listOf(
             ALL,
             Pair("Movies", "movies"),
             Pair("TV Shows", "tv"),
         )
 
-        val QUALITIES = arrayOf(
+        val QUALITIES = listOf(
             ALL,
             Pair("HD", "HD"),
             Pair("SD", "SD"),
             Pair("CAM", "CAM"),
         )
 
-        val YEARS = arrayOf(
-            ALL,
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020"),
-            Pair("2019", "2019"),
-            Pair("2018", "2018"),
-            Pair("Older", "older-2018"),
-        )
+        val YEARS = buildList {
+            add(ALL)
+            (Calendar.getInstance().get(Calendar.YEAR) downTo 2021).forEach { year ->
+                add(year.toString() to year.toString())
+            }
+            add("Older" to "older-2021")
+        }
 
         val GENRES = arrayOf(
             Pair("Action", "10"),

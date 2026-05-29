@@ -3,26 +3,27 @@ package eu.kanade.tachiyomi.animeextension.de.cinemathek
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Cinemathek : DooPlay(
-    "de",
-    "Cinemathek",
-    "https://cinemathek.net",
-) {
+class Cinemathek :
+    DooPlay(
+        "de",
+        "Cinemathek",
+        "https://cinemathek.net",
+    ) {
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.movies div.poster"
 
@@ -38,10 +39,8 @@ class Cinemathek : DooPlay(
     override val additionalInfoItems = listOf("Original", "Start", "Staffeln", "letzte", "Episoden")
 
     // Dont get the text from the <span> tag
-    override fun Document.getDescription(): String {
-        return selectFirst(".wp-content > p")!!
-            .ownText() + "\n"
-    }
+    override fun Document.getDescription(): String = selectFirst(".wp-content > p")!!
+        .ownText() + "\n"
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -72,27 +71,29 @@ class Cinemathek : DooPlay(
     private val streamtapeExtractor by lazy { StreamTapeExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
-    private fun getPlayerVideos(url: String, hosterSelection: Set<String>): List<Video> {
-        return when {
-            url.contains("https://streamlare.com") && hosterSelection.contains("slare") -> {
-                streamlareExtractor.videosFromUrl(url)
-            }
+    private fun getPlayerVideos(url: String, hosterSelection: Set<String>): List<Video> = when {
+        url.contains("https://streamlare.com") && hosterSelection.contains("slare") -> {
+            streamlareExtractor.videosFromUrl(url)
+        }
 
-            url.contains("https://filemoon") && hosterSelection.contains("fmoon") -> {
-                filemoonExtractor.videosFromUrl(url)
-            }
-            (url.contains("ds2play") || url.contains("https://doo")) && hosterSelection.contains("dood") -> {
-                doodExtractor.videosFromUrl(url)
-            }
-            url.contains("streamtape") && hosterSelection.contains("stape") -> {
-                streamtapeExtractor.videosFromUrl(url)
-            }
-            (url.contains("filelions") || url.contains("streamwish")) && hosterSelection.contains("swish") -> {
-                streamwishExtractor.videosFromUrl(url)
-            }
-            else -> null
-        }.orEmpty()
-    }
+        url.contains("https://filemoon") && hosterSelection.contains("fmoon") -> {
+            filemoonExtractor.videosFromUrl(url)
+        }
+
+        (url.contains("ds2play") || url.contains("https://doo")) && hosterSelection.contains("dood") -> {
+            doodExtractor.videosFromUrl(url)
+        }
+
+        url.contains("streamtape") && hosterSelection.contains("stape") -> {
+            streamtapeExtractor.videosFromUrl(url)
+        }
+
+        (url.contains("filelions") || url.contains("streamwish")) && hosterSelection.contains("swish") -> {
+            streamwishExtractor.videosFromUrl(url)
+        }
+
+        else -> null
+    }.orEmpty()
 
     // ============================== Settings ==============================
     @Suppress("UNCHECKED_CAST")

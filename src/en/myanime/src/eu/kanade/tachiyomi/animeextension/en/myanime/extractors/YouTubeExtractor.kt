@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -14,9 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import okhttp3.Headers
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 import uy.kohesive.injekt.injectLazy
 import java.text.CharacterIterator
 import java.text.StringCharacterIterator
@@ -69,7 +68,7 @@ class YouTubeExtractor(private val client: OkHttpClient) {
                "contentCheckOk":true,
                "racyCheckOk":true
             }
-        """.trimIndent().toRequestBody("application/json".toMediaType())
+        """.trimIndent().toJsonRequestBody()
 
         val headers = Headers.headersOf(
             "X-YouTube-Client-Name", "3",

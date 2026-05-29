@@ -1,22 +1,23 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesdrive
 
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesDrive : DooPlay(
-    "pt-BR",
-    "Animes Drive",
-    "https://animesdrive.blog",
-) {
+class AnimesDrive :
+    DooPlay(
+        "pt-BR",
+        "Animes Drive",
+        "https://animesdrive.blog",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/anime", headers)
@@ -29,19 +30,15 @@ class AnimesDrive : DooPlay(
     // =========================== Anime Details ============================
     override val additionalInfoSelector = "div.wp-content"
 
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector p")
-            .first { !it.text().contains("Título Alternativo") }
-            ?.let { it.text() + "\n" }
-            ?: ""
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector p")
+        .first { !it.text().contains("Título Alternativo") }
+        ?.let { it.text() + "\n" }
+        ?: ""
 
-    fun Document.getAlternativeTitle(): String {
-        return select("$additionalInfoSelector p")
-            .first { it.text().contains("Título Alternativo") }
-            ?.let { it.text() + "\n" }
-            ?: ""
-    }
+    fun Document.getAlternativeTitle(): String = select("$additionalInfoSelector p")
+        .first { it.text().contains("Título Alternativo") }
+        ?.let { it.text() + "\n" }
+        ?: ""
 
     override fun animeDetailsParse(document: Document): SAnime {
         val doc = getRealAnimeDoc(document)
@@ -100,6 +97,7 @@ class AnimesDrive : DooPlay(
 
         return when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+
             "jwplayer?source=" in url -> {
                 val videoUrl = url.toHttpUrl().queryParameter("source") ?: return emptyList()
 

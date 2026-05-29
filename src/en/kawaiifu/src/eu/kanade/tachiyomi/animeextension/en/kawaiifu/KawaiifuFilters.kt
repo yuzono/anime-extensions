@@ -18,38 +18,33 @@ object KawaiifuFilters {
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (this.getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return this.filterIsInstance<R>().first()
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String {
-        return (this.getFirst<R>() as CheckBoxFilterList).state
-            .mapNotNull { checkbox ->
-                if (checkbox.state) {
-                    options.find { it.first == checkbox.name }!!.second
-                } else {
-                    null
-                }
-            }.joinToString("&tag-get[]=").let {
-                if (it.isBlank()) {
-                    ""
-                } else {
-                    "&tag-get[]=$it"
-                }
+    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+        .mapNotNull { checkbox ->
+            if (checkbox.state) {
+                options.find { it.first == checkbox.name }!!.second
+            } else {
+                null
             }
-    }
+        }.joinToString("&tag-get[]=").let {
+            if (it.isBlank()) {
+                ""
+            } else {
+                "&tag-get[]=$it"
+            }
+        }
 
     class CategoryFilter : QueryPartFilter("Category", KawaiifuFiltersData.CATEGORIES)
-    class TagsFilter : CheckBoxFilterList(
-        "Tags",
-        KawaiifuFiltersData.TAGS.map { CheckBoxVal(it.first, false) },
-    )
+    class TagsFilter :
+        CheckBoxFilterList(
+            "Tags",
+            KawaiifuFiltersData.TAGS.map { CheckBoxVal(it.first, false) },
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TagsFilter(),

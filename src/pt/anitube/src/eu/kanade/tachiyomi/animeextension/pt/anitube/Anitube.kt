@@ -16,8 +16,9 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -25,7 +26,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Anitube :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anitube"
 
@@ -64,9 +67,8 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
      *
      * I hate the antichrist.
      */
-    override fun popularAnimeNextPageSelector() =
-        "div.pagination > a.current:not(:nth-last-child(2)) + a, " +
-            "div.pagination:not(:has(.current)):not(:has(a:first-child + a + a:last-child)) > a:last-child"
+    override fun popularAnimeNextPageSelector() = "div.pagination > a.current:not(:nth-last-child(2)) + a, " +
+        "div.pagination:not(:has(.current)):not(:has(a:first-child + a + a:last-child)) > a:last-child"
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/?page=$page", headers)
@@ -83,14 +85,26 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         query: String,
         filters: AnimeFilterList,
     ): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            if (url.pathSegments.size < 2) {
+                throw Exception("Unsupported url")
+            }
+            val path = "${url.pathSegments[0]}/${url.pathSegments[1]}"
+            return getSearchAnime(page, "${PREFIX_SEARCH}$path", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
+            return client.newCall(GET("$baseUrl/$path"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -113,6 +127,7 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             val char = params.initialChar
             when {
                 season.isNotBlank() -> "$baseUrl/temporada/$season/$year"
+
                 genre.isNotBlank() ->
                     "$baseUrl/genero/$genre/page/$page/${
                         char.replace(
@@ -196,7 +211,7 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
         val links = mutableListOf(document.location())
 
-        if (preferences.getBoolean(PREF_FILE4GO_KEY, PREF_FILE4GO_DEFAULT)!!) {
+        if (preferences.getBoolean(PREF_FILE4GO_KEY, PREF_FILE4GO_DEFAULT)) {
             document.selectFirst("div.abaItemDown > a")?.attr("href")?.let {
                 links.add(it)
             }
@@ -273,12 +288,10 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             } ?: document
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Completo" -> SAnime.COMPLETED
-            "Em Progresso" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+        "Completo" -> SAnime.COMPLETED
+        "Em Progresso" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
     private fun Element.getInfo(key: String): String? {
@@ -302,11 +315,9 @@ class Anitube : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         ).reversed()
     }
 
-    private fun String.toDate(): Long {
-        return runCatching {
-            DATE_FORMATTER.parse(this)?.time
-        }.getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching {
+        DATE_FORMATTER.parse(this)?.time
+    }.getOrNull() ?: 0L
 
     companion object {
         const val PREFIX_SEARCH = "id:"

@@ -1,14 +1,14 @@
 ext {
     extName = 'Anime-Loads'
     extClass = '.AnimeLoads'
-    extVersionCode = 23
+    extVersionCode = 25
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:voe-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:dood-extractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:doodextractor'))
 }

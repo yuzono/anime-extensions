@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.multisrc.animestream
 
+import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -21,12 +21,14 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.SubFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.TypeFilter
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -40,7 +42,8 @@ abstract class AnimeStream(
     override val lang: String,
     override val name: String,
     override val baseUrl: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
@@ -56,11 +59,19 @@ abstract class AnimeStream(
         "pt-BR" -> "Qualidade preferida"
         else -> "Preferred quality"
     }
-    protected open val prefQualityValues = arrayOf("1080p", "720p", "480p", "360p")
-    protected open val prefQualityEntries = prefQualityValues
+    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p")
+    protected open val prefQualityEntries: List<String>
+        get() = prefQualityValues
 
-    protected open val videoSortPrefKey = prefQualityKey
-    protected open val videoSortPrefDefault = prefQualityDefault
+    protected open val videoSortPrefKey: String
+        get() = prefQualityKey
+    protected open val videoSortPrefDefault: String
+        get() = prefQualityDefault
+
+    protected open val SharedPreferences.qualityPref: String
+        get() = getString(prefQualityKey, prefQualityDefault) ?: prefQualityDefault
+    protected open val SharedPreferences.videoSortPref: String
+        get() = getString(videoSortPrefKey, videoSortPrefDefault) ?: videoSortPrefDefault
 
     protected open val dateFormatter by lazy {
         val locale = when (lang) {
@@ -102,18 +113,28 @@ abstract class AnimeStream(
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val path = url.pathSegments.takeIf { it.isNotEmpty() }?.joinToString("/")
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$path", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val path = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/$path"))
+            return client.newCall(GET("$baseUrl/$path"))
                 .awaitSuccess()
                 .use(::searchAnimeByPathParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     protected open fun searchAnimeByPathParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -138,12 +159,10 @@ abstract class AnimeStream(
 
     override fun searchAnimeSelector() = "div.listupd article a.tip"
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.attr("abs:href"))
-            title = element.selectFirst("div.tt, div.ttl")!!.ownText()
-            thumbnail_url = element.selectFirst("img")?.getImageUrl()
-        }
+    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.attr("abs:href"))
+        title = element.selectFirst("div.tt, div.ttl")!!.ownText()
+        thumbnail_url = element.selectFirst("img")?.getImageUrl()
     }
 
     override fun searchAnimeNextPageSelector(): String? = "div.pagination a.next, div.hpage > a.r"
@@ -157,13 +176,14 @@ abstract class AnimeStream(
 
     protected open val filtersSelector = "span.sec1 > div.filter > ul"
 
-    private fun fetchFilterList() {
+    protected open suspend fun fetchFilterList() {
         if (fetchFilters && !AnimeStreamFilters.filterInitialized()) {
-            AnimeStreamFilters.filterElements = runBlocking {
-                withContext(Dispatchers.IO) {
-                    client.newCall(GET(animeListUrl)).execute()
-                        .asJsoup()
-                        .select(filtersSelector)
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    AnimeStreamFilters.filterElements =
+                        client.newCall(GET(animeListUrl)).awaitSuccess()
+                            .useAsJsoup()
+                            .select(filtersSelector)
                 }
             }
         }
@@ -211,23 +231,21 @@ abstract class AnimeStream(
         else -> "Order"
     }
 
-    override fun getFilterList(): AnimeFilterList {
-        return if (fetchFilters && AnimeStreamFilters.filterInitialized()) {
-            AnimeFilterList(
-                GenresFilter(genresFilterText),
-                SeasonFilter(seasonsFilterText),
-                StudioFilter(studioFilterText),
-                AnimeFilter.Separator(),
-                StatusFilter(statusFilterText),
-                TypeFilter(typeFilterText),
-                SubFilter(subFilterText),
-                OrderFilter(orderFilterText),
-            )
-        } else if (fetchFilters) {
-            AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
-        } else {
-            AnimeFilterList()
-        }
+    override fun getFilterList(): AnimeFilterList = if (fetchFilters && AnimeStreamFilters.filterInitialized() && AnimeStreamFilters.filterElements.isNotEmpty()) {
+        AnimeFilterList(
+            GenresFilter(genresFilterText),
+            SeasonFilter(seasonsFilterText),
+            StudioFilter(studioFilterText),
+            AnimeFilter.Separator(),
+            StatusFilter(statusFilterText),
+            TypeFilter(typeFilterText),
+            SubFilter(subFilterText),
+            OrderFilter(orderFilterText),
+        )
+    } else if (fetchFilters) {
+        AnimeFilterList(AnimeFilter.Header(filtersMissingWarning))
+    } else {
+        AnimeFilterList()
     }
 
     // =========================== Anime Details ============================
@@ -251,41 +269,38 @@ abstract class AnimeStream(
         else -> "Alternative name(s): "
     }
 
-    protected open fun getAnimeDescription(document: Document) =
-        document.selectFirst(animeDescriptionSelector)?.text()
+    protected open fun getAnimeDescription(document: Document) = document.selectFirst(animeDescriptionSelector)?.text()
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(document.location())
-            title = document.selectFirst(animeTitleSelector)!!.text()
-            thumbnail_url = document.selectFirst(animeThumbnailSelector)?.getImageUrl()
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(document.location())
+        title = document.selectFirst(animeTitleSelector)!!.text()
+        thumbnail_url = document.selectFirst(animeThumbnailSelector)?.getImageUrl()
 
-            val infos = document.selectFirst(animeDetailsSelector)!!
-            genre = infos.select(animeGenresSelector).eachText().joinToString()
+        val infos = document.selectFirst(animeDetailsSelector)!!
+        genre = infos.select(animeGenresSelector).eachText().joinToString()
 
-            status = parseStatus(infos.getInfo(animeStatusText))
-            artist = infos.getInfo(animeArtistText)
-            author = infos.getInfo(animeAuthorText)
+        status = parseStatus(infos.getInfo(animeStatusText))
+        artist = infos.getInfo(animeArtistText)
+        author = infos.getInfo(animeAuthorText)
 
-            description = buildString {
-                getAnimeDescription(document)?.also {
-                    append("$it\n\n")
-                }
+        description = buildString {
+            getAnimeDescription(document)?.also {
+                append("$it\n\n")
+            }
 
-                document.selectFirst(animeAltNameSelector)?.text()
-                    ?.takeIf(String::isNotBlank)
-                    ?.also { append("$animeAltNamePrefix$it\n") }
+            document.selectFirst(animeAltNameSelector)?.text()
+                ?.takeIf(String::isNotBlank)
+                ?.also { append("$animeAltNamePrefix$it\n") }
 
-                infos.select(animeAdditionalInfoSelector).eachText().forEach {
-                    append("$it\n")
-                }
+            infos.select(animeAdditionalInfoSelector).eachText().forEach {
+                append("$it\n")
             }
         }
     }
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         return doc.select(episodeListSelector()).map(::episodeFromElement)
     }
 
@@ -299,23 +314,23 @@ abstract class AnimeStream(
     @Suppress("unused_parameter")
     protected open fun getEpisodeName(element: Element, epNum: String) = "$episodePrefix $epNum"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("href"))
-            element.selectFirst(".epl-num")!!.text().let {
-                name = getEpisodeName(element, it)
-                episode_number = it.substringBefore(" ").toFloatOrNull() ?: 0F
-            }
-            element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
-            date_upload = element.selectFirst(".epl-date")?.text().toDate()
+    protected open fun getEpisodeNumber(epNum: String) = epNum.substringBefore(" ").toFloatOrNull() ?: 0F
+
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        element.selectFirst(".epl-num")!!.text().let {
+            name = getEpisodeName(element, it)
+            episode_number = getEpisodeNumber(it)
         }
+        element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
+        date_upload = element.selectFirst(".epl-date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
     override fun videoListSelector() = "select.mirror > option[data-index], ul.mirror a[data-em]"
 
     override fun videoListParse(response: Response): List<Video> {
-        val items = response.asJsoup().select(videoListSelector())
+        val items = response.useAsJsoup().select(videoListSelector())
         return items.parallelCatchingFlatMapBlocking { element ->
             val name = element.text()
             val url = getHosterUrl(element)
@@ -323,7 +338,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getHosterUrl(element: Element): String {
+    protected open suspend fun getHosterUrl(element: Element): String {
         val encodedData = when (element.tagName()) {
             "option" -> element.attr("value")
             "a" -> element.attr("data-em")
@@ -334,16 +349,16 @@ abstract class AnimeStream(
     }
 
     // Taken from LuciferDonghua
-    protected open fun getHosterUrl(encodedData: String): String {
+    protected open suspend fun getHosterUrl(encodedData: String): String {
         val doc = if (encodedData.toHttpUrlOrNull() == null) {
             Base64.decode(encodedData, Base64.DEFAULT)
                 .let(::String) // bytearray -> string
                 .let(Jsoup::parse) // string -> document
         } else {
-            client.newCall(GET(encodedData, headers)).execute().asJsoup()
+            client.newCall(GET(encodedData, headers)).awaitSuccess().useAsJsoup()
         }
 
-        return doc.selectFirst("iframe[src~=.]")?.safeUrl()
+        return doc.selectFirst("#embed_holder iframe[src~=.]")?.safeUrl()
             ?: doc.selectFirst("meta[content~=.][itemprop=embedUrl]")!!.safeUrl("content")
     }
 
@@ -356,7 +371,7 @@ abstract class AnimeStream(
         }
     }
 
-    protected open fun getVideoList(url: String, name: String): List<Video> {
+    protected open suspend fun getVideoList(url: String, name: String): List<Video> {
         Log.i(name, "getVideoList -> URL => $url || Name => $name")
         return emptyList()
     }
@@ -367,65 +382,43 @@ abstract class AnimeStream(
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = prefQualityKey
-            title = prefQualityTitle
-            entries = prefQualityEntries
-            entryValues = prefQualityValues
-            setDefaultValue(prefQualityDefault)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = prefQualityKey,
+            title = prefQualityTitle,
+            entries = prefQualityEntries,
+            entryValues = prefQualityValues,
+            default = prefQualityDefault,
+            summary = "%s",
+        )
     }
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
+        val quality = preferences.videoSortPref
         return sortedWith(
             compareBy { it.quality.contains(quality, true) },
         ).reversed()
     }
 
-    protected open fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()?.lowercase()) {
-            "completed", "completo" -> SAnime.COMPLETED
-            "ongoing", "lançamento" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
+    protected open fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase()) {
+        "completed", "completo" -> SAnime.COMPLETED
+        "ongoing", "lançamento" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
+    }
+
+    protected open fun Element.getInfo(text: String): String? = selectFirst("span:contains($text)")
+        ?.run {
+            selectFirst("a")?.text() ?: ownText()
         }
-    }
-
-    protected open fun Element.getInfo(text: String): String? {
-        return selectFirst("span:contains($text)")
-            ?.run {
-                selectFirst("a")?.text() ?: ownText()
-            }
-    }
-
-    protected open fun String?.toDate(): Long {
-        return this?.let {
-            runCatching {
-                dateFormatter.parse(trim())?.time
-            }.getOrNull()
-        } ?: 0L
-    }
 
     /**
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
      */
-    protected open fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }.substringBefore("?resize")
-    }
+    protected open fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }.substringBefore("?resize")
 }

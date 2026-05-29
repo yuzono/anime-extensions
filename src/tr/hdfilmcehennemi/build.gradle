@@ -1,13 +1,13 @@
 ext {
     extName = 'HDFilmCehennemi'
     extClass = '.HDFilmCehennemi'
-    extVersionCode = 26
+    extVersionCode = 32
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:unpacker"))
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
 }

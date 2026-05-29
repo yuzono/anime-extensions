@@ -1,5 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.pt.doramogo
 
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.doramogo.extractors.DoramogoExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -7,14 +11,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.googledriveextractor.GoogleDriveExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -60,14 +60,24 @@ class Doramogo : ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/dorama/$id"))
+            return client.newCall(GET("$baseUrl/dorama/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -109,9 +119,7 @@ class Doramogo : ParsedAnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return super.episodeListParse(response).reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
 
     override fun episodeListSelector() = "li.episode--content"
 
@@ -131,7 +139,7 @@ class Doramogo : ParsedAnimeHttpSource() {
             it.attr("src")
         }
 
-        return urls.parallelCatchingFlatMapBlocking { getVideosFromURL(it) }
+        return urls.catchingFlatMapBlocking { getVideosFromURL(it) }
     }
 
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
@@ -139,61 +147,55 @@ class Doramogo : ParsedAnimeHttpSource() {
     private val gdriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private fun getVideosFromURL(url: String): List<Video> {
-        return when {
-            "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url)
-            "ok.ru" in url -> okruExtractor.videosFromUrl(url)
 
-            "drive.google.com" in url -> {
-                val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
-                gdriveExtractor.videosFromUrl(id, "GDrive")
-            }
+    private suspend fun getVideosFromURL(url: String): List<Video> = when {
+        "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url)
 
-            "embedrise.com" in url -> {
-                val m3u8Url = client.newCall(GET(url)).execute()
-                    .asJsoup()
-                    .selectFirst("video source")?.attr("src") ?: return emptyList()
-                playlistUtils.extractFromHls(
-                    m3u8Url,
-                    referer = url,
-                    videoNameGen = { "Embedrise - $it" },
-                )
-            }
+        "ok.ru" in url -> okruExtractor.videosFromUrl(url)
 
-            "streamable.com" in url -> {
-                val mp4Url = client.newCall(GET(url)).execute()
-                    .asJsoup()
-                    .selectFirst("video")
-                    ?.attr("src")
-                    ?.let {
-                        if (it.startsWith("//")) {
-                            return@let "https:$it"
-                        }
-                        it
-                    }
-                    ?: return emptyList()
-                listOf(
-                    Video(mp4Url, "Streamable", mp4Url, headers),
-                )
-            }
-
-            "/player/" in url -> doramogoExtractor.videosFromUrl(url)
-
-            else -> emptyList()
+        "drive.google.com" in url -> {
+            val id = Regex("[\\w-]{28,}").find(url)?.groupValues?.get(0) ?: return emptyList()
+            gdriveExtractor.videosFromUrl(id, "GDrive")
         }
+
+        "embedrise.com" in url -> {
+            val m3u8Url = client.newCall(GET(url)).execute()
+                .asJsoup()
+                .selectFirst("video source")?.attr("src") ?: return emptyList()
+            playlistUtils.extractFromHls(
+                m3u8Url,
+                referer = url,
+                videoNameGen = { "Embedrise - $it" },
+            )
+        }
+
+        "streamable.com" in url -> {
+            val mp4Url = client.newCall(GET(url)).execute()
+                .asJsoup()
+                .selectFirst("video")
+                ?.attr("src")
+                ?.let {
+                    if (it.startsWith("//")) {
+                        return@let "https:$it"
+                    }
+                    it
+                }
+                ?: return emptyList()
+            listOf(
+                Video(mp4Url, "Streamable", mp4Url, headers),
+            )
+        }
+
+        "/player/" in url -> doramogoExtractor.videosFromUrl(url)
+
+        else -> emptyList()
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 

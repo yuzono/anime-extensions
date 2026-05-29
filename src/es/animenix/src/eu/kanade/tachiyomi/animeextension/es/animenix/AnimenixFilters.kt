@@ -16,14 +16,10 @@ object AnimenixFilters {
         fun toUriPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asUriPart(): String {
-        return getFirst<R>().let {
-            (it as UriPartFilter).toUriPart()
-        }
+    private inline fun <reified R> AnimeFilterList.asUriPart(): String = getFirst<R>().let {
+        (it as UriPartFilter).toUriPart()
     }
 
     class InvertedResultsFilter : AnimeFilter.CheckBox("Invertir resultados", false)
@@ -33,17 +29,16 @@ object AnimenixFilters {
     class GenreFilter : UriPartFilter("Generos", AnimesOnlineNinjaData.GENRES)
     class YearFilter : UriPartFilter("Año", AnimesOnlineNinjaData.YEARS)
 
-    class OtherOptionsGroup : AnimeFilter.Group<UriPartFilter>(
-        "Otros filtros",
-        listOf(
-            GenreFilter(),
-            YearFilter(),
-        ),
-    )
+    class OtherOptionsGroup :
+        AnimeFilter.Group<UriPartFilter>(
+            "Otros filtros",
+            listOf(
+                GenreFilter(),
+                YearFilter(),
+            ),
+        )
 
-    private inline fun <reified R> AnimeFilter.Group<UriPartFilter>.getItemUri(): String {
-        return state.first { it is R }.toUriPart()
-    }
+    private inline fun <reified R> AnimeFilter.Group<UriPartFilter>.getItemUri(): String = state.first { it is R }.toUriPart()
 
     val FILTER_LIST get() = AnimeFilterList(
         InvertedResultsFilter(),

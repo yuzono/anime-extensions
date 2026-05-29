@@ -2,6 +2,11 @@ package eu.kanade.tachiyomi.animeextension.es.asialiveaction
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -9,22 +14,21 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Calendar
 
-class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AsiaLiveAction :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AsiaLiveAction"
 
@@ -90,27 +94,25 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun episodeListSelector() = "#ep-list div.TPTblCn span a, #ep-list div.TPTblCn .accordion"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return if (element.attr("class").contains("accordion")) {
-            val epNum = getNumberFromEpsString(element.select("label span").text())
-            SEpisode.create().apply {
-                name = element.select("label span").text().trim()
-                episode_number = when {
-                    epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                    else -> 1F
-                }
-                setUrlWithoutDomain(element.selectFirst("ul li a")?.attr("abs:href")!!)
+    override fun episodeFromElement(element: Element): SEpisode = if (element.attr("class").contains("accordion")) {
+        val epNum = getNumberFromEpsString(element.select("label span").text())
+        SEpisode.create().apply {
+            name = element.select("label span").text().trim()
+            episode_number = when {
+                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+                else -> 1F
             }
-        } else {
-            val epNum = getNumberFromEpsString(element.select("div.flex-grow-1 p").text())
-            SEpisode.create().apply {
-                setUrlWithoutDomain(element.attr("abs:href"))
-                episode_number = when {
-                    epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                    else -> 1F
-                }
-                name = element.select("div.flex-grow-1 p").text().trim()
+            setUrlWithoutDomain(element.selectFirst("ul li a")?.attr("abs:href")!!)
+        }
+    } else {
+        val epNum = getNumberFromEpsString(element.select("div.flex-grow-1 p").text())
+        SEpisode.create().apply {
+            setUrlWithoutDomain(element.attr("abs:href"))
+            episode_number = when {
+                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
+                else -> 1F
             }
+            name = element.select("div.flex-grow-1 p").text().trim()
         }
     }
 
@@ -118,7 +120,7 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -137,33 +139,38 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    private fun serverVideoResolver(url: String): List<Video> {
-        return when {
-            arrayOf("vk").any(url) -> vkExtractor.videosFromUrl(url)
-            arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
-            arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-            arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-            arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
-            arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
-            !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
-                val body = client.newCall(GET(url)).execute().asJsoup()
-                return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
-                    val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
-                        .substringAfter("shareId = \"").substringBefore("\"")
-                    val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
-                        .execute().asJsoup()
-                    val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
-                    val amazonApi =
-                        client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
-                            .execute().asJsoup()
-                    val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-                    listOf(Video(videoUrl, "Amazon", videoUrl))
-                } else {
-                    emptyList()
-                }
+    private suspend fun serverVideoResolver(url: String): List<Video> = when {
+        arrayOf("vk").any(url) -> vkExtractor.videosFromUrl(url)
+
+        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url)
+
+        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+
+        arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+
+        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url)
+
+        arrayOf("filelions", "lion", "fviplions").any(url) -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
+        !url.contains("disable") && (arrayOf("amazon", "amz").any(url)) -> {
+            val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+            return if (body.select("script:containsData(var shareId)").toString().isNotBlank()) {
+                val shareId = body.selectFirst("script:containsData(var shareId)")!!.data()
+                    .substringAfter("shareId = \"").substringBefore("\"")
+                val amazonApiJson = client.newCall(GET("https://www.amazon.com/drive/v1/shares/$shareId?resourceVersion=V2&ContentType=JSON&asset=ALL"))
+                    .awaitSuccess().useAsJsoup()
+                val epId = amazonApiJson.toString().substringAfter("\"id\":\"").substringBefore("\"")
+                val amazonApi =
+                    client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
+                        .awaitSuccess().useAsJsoup()
+                val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
+                listOf(Video(videoUrl, "Amazon", videoUrl))
+            } else {
+                emptyList()
             }
-            else -> emptyList()
         }
+
+        else -> emptyList()
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -200,35 +207,35 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", "all"),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Comedia", "comedia"),
-            Pair("Drama", "drama"),
-            Pair("Deporte", "deporte"),
-            Pair("Erótico", "erotico"),
-            Pair("Escolar", "escolar"),
-            Pair("Extraterrestres", "extraterrestres"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Histórico", "historico"),
-            Pair("Horror", "horror"),
-            Pair("Lucha", "lucha"),
-            Pair("Misterio", "misterio"),
-            Pair("Música", "musica"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Romance", "romance"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Yaoi / BL", "yaoi-bl"),
-            Pair("Yuri / GL", "yuri-gl"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", "all"),
+                Pair("Acción", "accion"),
+                Pair("Aventura", "aventura"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"),
+                Pair("Drama", "drama"),
+                Pair("Deporte", "deporte"),
+                Pair("Erótico", "erotico"),
+                Pair("Escolar", "escolar"),
+                Pair("Extraterrestres", "extraterrestres"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Histórico", "historico"),
+                Pair("Horror", "horror"),
+                Pair("Lucha", "lucha"),
+                Pair("Misterio", "misterio"),
+                Pair("Música", "musica"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Romance", "romance"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Yaoi / BL", "yaoi-bl"),
+                Pair("Yuri / GL", "yuri-gl"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -251,7 +258,7 @@ class AsiaLiveAction : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private fun String?.getHdImg(): String? {
         if (this.isNullOrEmpty() || !this.contains("tmdb")) return this
 
-        val pattern = """(https:\/\/image\.tmdb\.org\/t\/p\/)([\w_]+)(\/[^\s]*)""".toRegex()
+        val pattern = """(https://image\.tmdb\.org/t/p/)([\w_]+)(/\S*)""".toRegex()
         return pattern.replace(this) { matchResult ->
             "${matchResult.groupValues[1]}w500${matchResult.groupValues[3]}"
         }

@@ -1,22 +1,32 @@
 package eu.kanade.tachiyomi.multisrc.dopeflix
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dopeflixextractor.DopeFlixExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.multisrc.dopeflix.dto.VideoDto
-import eu.kanade.tachiyomi.multisrc.dopeflix.extractors.DopeFlixExtractor
+import eu.kanade.tachiyomi.multisrc.dopeflix.dto.SourcesResponse
+import eu.kanade.tachiyomi.multisrc.dopeflix.dto.VideoData
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelFlatMap
+import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parseAs
+import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -24,346 +34,562 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.time.Duration.Companion.hours
 
 abstract class DopeFlix(
     override val name: String,
     override val lang: String,
-    private val domainArray: Array<String>,
-    private val defaultDomain: String,
-) : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+    private val megaCloudApi: String,
+    private val domainList: List<String>,
+    private val defaultDomain: String = "https://${domainList.first()}",
+    private val hosterNames: List<String> = listOf(
+        "UpCloud",
+        "MegaCloud",
+        "Vidcloud",
+        "AKCloud",
+    ),
+    private val preferredHoster: String = hosterNames.first(),
+    override val supportsLatest: Boolean = true,
+) : ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
-    override val baseUrl by lazy {
-        "https://" + preferences.getString(PREF_DOMAIN_KEY, defaultDomain)!!
+    protected open val preferences by getPreferencesLazy {
+        clearOldPrefs()
     }
 
-    override val supportsLatest = true
+    override var baseUrl by LazyMutable { preferences.domainUrl }
 
-    private val preferences by getPreferencesLazy()
+    protected open var docHeaders by LazyMutable {
+        newHeaders()
+    }
 
-    override fun headersBuilder() = super.headersBuilder().add("Referer", "$baseUrl/")
+    protected open fun newHeaders(): Headers = headers.newBuilder().apply {
+        add(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        )
+        add("Host", baseUrl.toHttpUrl().host)
+        add("Referer", "$baseUrl/")
+    }.build()
+
+    protected open fun apiHeaders(referer: String = "$baseUrl/"): Headers = headers.newBuilder().apply {
+        add("Accept", "*/*")
+        add("Host", baseUrl.toHttpUrl().host)
+        add("Referer", referer)
+        add("X-Requested-With", "XMLHttpRequest")
+    }.build()
+
+    protected open val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
 
     // ============================== Popular ===============================
-    override fun popularAnimeSelector(): String = "div.film_list-wrap div.flw-item div.film-poster"
 
-    override fun popularAnimeRequest(page: Int): Request {
-        val type = preferences.getString(PREF_POPULAR_KEY, PREF_POPULAR_DEFAULT)!!
-        return GET("$baseUrl/$type?page=$page")
+    protected open val filmSelector by lazy { "div.flw-item" }
+
+    protected open fun sectionSelector(type: String) = "section.block_area:has(h2.cat-heading:contains($type)) $filmSelector"
+
+    override fun popularAnimeSelector() = if (preferences.prefPopularType == Types.Movies.value) {
+        sectionSelector("Movies")
+    } else {
+        sectionSelector("TV Shows")
+    }
+
+    protected fun trendingSelector() = if (preferences.prefPopularType == Types.Movies.value) {
+        "#trending-movies $filmSelector"
+    } else {
+        "#trending-tv $filmSelector"
+    }
+
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.newCall(popularAnimeRequest(page))
+        .awaitSuccess().use { response ->
+            popularAnimeParse(response).let { animePage ->
+                if (page == 1) {
+                    AnimesPage(
+                        animes = animePage.animes,
+                        hasNextPage = true,
+                    )
+                } else {
+                    animePage
+                }
+            }
+        }
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val url = response.request.url.toString()
+        val selector = if (url.removeSuffix("/").endsWith("/home")) {
+            trendingSelector()
+        } else {
+            popularAnimeSelector()
+        }
+
+        val document = response.asJsoup()
+        val animes = document.select(selector).map { popularAnimeFromElement(it) }
+
+        return AnimesPage(animes, hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null)
+    }
+
+    override fun popularAnimeRequest(page: Int): Request = when (page) {
+        // Trending
+        1 -> GET("$baseUrl/home", docHeaders, cacheControl)
+
+        // Popular
+        else -> if (preferences.prefPopularType == Types.Movies.value) {
+            GET("$baseUrl/movie?page=${page - 1}", docHeaders, cacheControl)
+        } else {
+            GET("$baseUrl/tv-show?page=${page - 1}", docHeaders, cacheControl)
+        }
     }
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        val ahref = element.selectFirst("a")!!
-        setUrlWithoutDomain(ahref.attr("href"))
-        title = ahref.attr("title")
-        thumbnail_url = element.selectFirst("img")!!.attr("data-src")
+        element.selectFirst("a")?.let { a ->
+            val url = a.attr("href")
+                .removeSuffix("/")
+                .let {
+                    it.substringBeforeLast("/") + "/watch-" + it.substringAfterLast("-")
+                }
+            setUrlWithoutDomain(url)
+            title = a.attr("title")
+        }
+        thumbnail_url = element.selectFirst("img")?.attr("data-src")
     }
 
     override fun popularAnimeNextPageSelector() = "ul.pagination li.page-item a[title=next]"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesNextPageSelector(): String? = null
 
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home/")
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.newCall(latestUpdatesRequest(page))
+        .awaitSuccess().use { response ->
+            latestUpdatesParse(response, page)
+        }
 
-    override fun latestUpdatesSelector(): String {
-        val sectionLabel = preferences.getString(PREF_LATEST_KEY, PREF_LATEST_DEFAULT)!!
-        return "section.block_area:has(h2.cat-heading:contains($sectionLabel)) div.film-poster"
+    protected fun latestUpdatesParse(response: Response, page: Int): AnimesPage {
+        val selector = if (page == 1) {
+            if (preferences.prefLatestPriority == Types.TvShows.value) {
+                sectionSelector("TV Shows")
+            } else {
+                sectionSelector("Movies")
+            }
+        } else {
+            if (preferences.prefLatestPriority == Types.TvShows.value) {
+                sectionSelector("Movies")
+            } else {
+                sectionSelector("TV Shows")
+            }
+        }
+
+        val document = response.asJsoup()
+        val animes = document.select(selector).map { popularAnimeFromElement(it) }
+
+        return AnimesPage(animes, hasNextPage = page == 1)
     }
 
+    /* Both latest Movies & TV Shows are on same home page */
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home/", docHeaders, cacheControl)
+
+    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
+    override fun latestUpdatesSelector() = throw UnsupportedOperationException()
+    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
+
     // =============================== Search ===============================
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
-
-    override fun searchAnimeSelector() = popularAnimeSelector()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = DopeFlixFilters.getSearchParameters(filters)
 
-        val url = if (query.isNotBlank()) {
-            val fixedQuery = query.replace(" ", "-")
-            "$baseUrl/search/$fixedQuery?page=$page"
-        } else {
-            "$baseUrl/filter".toHttpUrl().newBuilder()
-                .addQueryParameter("page", page.toString())
-                .addQueryParameter("type", params.type)
-                .addQueryParameter("quality", params.quality)
-                .addQueryParameter("release_year", params.releaseYear)
-                .addIfNotBlank("genre", params.genres)
-                .addIfNotBlank("country", params.countries)
-                .build()
-                .toString()
-        }
+        val endpoint = if (query.isEmpty()) "filter" else "search"
 
-        return GET(url, headers)
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment(endpoint)
+            if (query.isNotBlank()) {
+                addPathSegment(query.replace(" ", "-"))
+            } else {
+                addQueryParameter("type", params.type)
+                addQueryParameter("quality", params.quality)
+                addQueryParameter("release_year", params.releaseYear)
+                addIfNotBlank("genre", params.genres)
+                addIfNotBlank("country", params.countries)
+            }
+            addQueryParameter("page", page.toString())
+        }.build()
+
+        return GET(url, docHeaders, cacheControl)
     }
+
+    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+
+    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+
+    override fun searchAnimeSelector() = filmSelector
+
+    override fun relatedAnimeListSelector() = filmSelector
+
+    // ============================== Filters ===============================
 
     override fun getFilterList() = DopeFlixFilters.FILTER_LIST
 
     // =========================== Anime Details ============================
+
+    protected open val detailInfoSelector by lazy { "div.detail_page-infor" }
+
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        thumbnail_url = document.selectFirst("img.film-poster-img")!!.attr("src")
-        title = document.selectFirst("img.film-poster-img")!!.attr("title")
-        genre = document.select("div.row-line:contains(Genre) a").eachText().joinToString()
-        description = document.selectFirst("div.detail_page-watch div.description")!!
-            .text().replace("Overview:", "")
-        author = document.select("div.row-line:contains(Production) a").eachText().joinToString()
-        status = parseStatus(document.selectFirst("li.status span.value")?.text())
+        document.selectFirst(detailInfoSelector)?.run {
+            thumbnail_url = selectFirst("div.film-poster img")?.attr("src")
+            author = getInfo(tag = "Production:", isList = true)
+            genre = getInfo("Genre:", isList = true)
+
+            val url = document.location()
+            val type = if (url.contains("/tv/")) {
+                status = SAnime.ONGOING
+                update_strategy = AnimeUpdateStrategy.ALWAYS_UPDATE
+                "TV Shows"
+            } else {
+                status = SAnime.COMPLETED
+                update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
+                "Movies"
+            }
+
+            description = buildString {
+                selectFirst(".description")
+                    ?.let { append("${it.text().removePrefix("Overview:").trim()}\n\n") }
+                append("**Type:** $type")
+                getInfo("Country:", true, isList = true)?.let(::append)
+                getInfo("Casts:", true, isList = true)?.let(::append)
+                getInfo("Released:", true)?.let(::append)
+                getInfo("Duration:", true)?.let(::append)
+
+                getIMDBRating()?.let { append("\n**IMDB:** $it") }
+                document.getTrailer()?.let { append("\n\n$it") }
+                document.getCover()?.let { append("\n\n![Cover]($it)") }
+            }
+        }
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString?.trim()) {
-            "Ongoing" -> SAnime.ONGOING
-            else -> SAnime.COMPLETED
+    protected open fun Document.getTrailer(): String? = selectFirst("#iframe-trailer")?.let {
+        val trailerUrl = it.attr("data-src")
+        "[Trailer]($trailerUrl)"
+    }
+
+    protected open fun Element.getIMDBRating(): Float? = selectFirst("span:contains(IMDB)")?.text()
+        ?.substringAfter("IMDB:")?.trim()?.toFloatOrNull()
+
+    protected open val coverUrlRegex by lazy { """background-image:\s*url\(["']?([^"')]+)["']?\)""".toRegex() }
+    protected open val coverSelector by lazy { "div.cover_follow" }
+
+    protected open fun Document.getCover(): String? = selectFirst(coverSelector)?.let {
+        val style = it.attr("style")
+        coverUrlRegex.find(style)?.groupValues?.getOrNull(1)
+    }
+
+    protected open fun Element.getInfo(
+        tag: String,
+        includeTag: Boolean = false,
+        isList: Boolean = false,
+    ): String? {
+        val value = if (isList) {
+            select("div.row-line:contains($tag) > a").eachText().joinToString().ifBlank { null }
+        } else {
+            selectFirst("div.row-line:contains($tag)")
+                ?.ownText()?.ifBlank { null }
         }
+        return if (includeTag && value != null) "\n**$tag** $value" else value
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = throw UnsupportedOperationException()
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        val infoElement = document.selectFirst("div.detail_page-watch")!!
-        val id = infoElement.attr("data-id")
-        val dataType = infoElement.attr("data-type") // Tv = 2 or movie = 1
-        return if (dataType == "2") {
-            val seasonUrl = "$baseUrl/ajax/v2/tv/seasons/$id"
-            val seasonsHtml = client.newCall(
-                GET(
-                    seasonUrl,
-                    headers = Headers.headersOf("Referer", document.location()),
-                ),
-            ).execute().asJsoup()
-            seasonsHtml
-                .select("a.dropdown-item.ss-item")
-                .flatMap(::parseEpisodesFromSeries)
-                .reversed()
-        } else {
-            val movieUrl = "$baseUrl/ajax/movie/episodes/$id"
-            SEpisode.create().apply {
-                name = document.selectFirst("h2.heading-name")!!.text()
-                episode_number = 1F
-                setUrlWithoutDomain(movieUrl)
-            }.let(::listOf)
-        }
-    }
+    override fun episodeListSelector() = ".eps-item"
 
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
-
-    private fun parseEpisodesFromSeries(element: Element): List<SEpisode> {
-        val seasonId = element.attr("data-id")
-        val seasonName = element.text()
-        val episodesUrl = "$baseUrl/ajax/v2/season/episodes/$seasonId"
-        val episodesHtml = client.newCall(GET(episodesUrl)).execute()
-            .asJsoup()
-        val episodeElements = episodesHtml.select("div.eps-item")
-        return episodeElements.map { episodeFromElement(it, seasonName) }
-    }
-
-    private fun episodeFromElement(element: Element, seasonName: String) = SEpisode.create().apply {
-        val episodeId = element.attr("data-id")
-        val epNum = element.selectFirst("div.episode-number")!!.text()
-        val epName = element.selectFirst("h3.film-name a")!!.text()
-        name = "$seasonName $epNum $epName"
-        episode_number = "${seasonName.getNumber()}.${epNum.getNumber().padStart(3, '0')}".toFloatOrNull() ?: 1F
-        setUrlWithoutDomain("$baseUrl/ajax/v2/episode/servers/$episodeId")
-    }
-
-    private fun String.getNumber() = filter(Char::isDigit)
-
-    // ============================ Video Links =============================
-    private val extractor by lazy { DopeFlixExtractor(client) }
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-
-    override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
-        val episodeReferer = Headers.headersOf("Referer", response.request.header("referer")!!)
-        return doc.select("ul.fss-list a.btn-play")
-            .parallelCatchingFlatMapBlocking { server ->
-                val name = server.selectFirst("span")!!.text()
-                val id = server.attr("data-id")
-                val url = "$baseUrl/ajax/sources/$id"
-                val reqBody = client.newCall(GET(url, episodeReferer)).execute()
-                    .body.string()
-                val sourceUrl = reqBody.substringAfter("\"link\":\"")
-                    .substringBefore("\"")
-                when {
-                    "DoodStream" in name ->
-                        DoodExtractor(client).videoFromUrl(sourceUrl)
-                            ?.let(::listOf)
-                    "Vidcloud" in name || "UpCloud" in name -> {
-                        val video = extractor.getVideoDto(sourceUrl)
-                        getVideosFromServer(video, name)
-                    }
-                    else -> null
-                }.orEmpty()
-            }
-    }
-
-    private fun getVideosFromServer(video: VideoDto, name: String): List<Video> {
-        val masterUrl = video.sources.first().file
-        val subs = video.tracks
-            ?.filter { it.kind == "captions" }
-            ?.mapNotNull { Track(it.file, it.label) }
-            ?.let(::subLangOrder)
-            ?: emptyList<Track>()
-        if (masterUrl.contains("playlist.m3u8")) {
-            return playlistUtils.extractFromHls(
-                masterUrl,
-                videoNameGen = { "$name - $it" },
-                subtitleList = subs,
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val id = anime.url.substringAfterLast("-")
+        if (anime.url.startsWith("/movie/")) {
+            return listOf(
+                SEpisode.create().apply {
+                    name = "Movie"
+                    setUrlWithoutDomain("/ajax/episode/list/$id")
+                    episode_number = 1F
+                },
             )
         }
 
-        return listOf(
-            Video(masterUrl, "$name - Default", masterUrl, subtitleTracks = subs),
-        )
+        val seasonRequest = GET("$baseUrl/ajax/season/list/$id", apiHeaders(baseUrl + anime.url))
+        return client.newCall(seasonRequest).awaitSuccess().use { response ->
+            response.asJsoup().select(".ss-item")
+                .parallelFlatMap(::seasonFromElement).reversed()
+        }
     }
 
-    override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-
-        return sortedWith(
-            compareBy(
-                { it.quality.contains(quality) }, // preferred quality first
-                // then group by quality
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-            ),
-        ).reversed()
+    protected open suspend fun seasonFromElement(element: Element): List<SEpisode> = runCatching {
+        val season = element.elementSiblingIndex() + 1
+        val seasonId = element.attr("data-id")
+        client.newCall(GET("$baseUrl/ajax/season/episodes/$seasonId", apiHeaders()))
+            .awaitSuccess().use { response ->
+                response.asJsoup().select(episodeListSelector()).map {
+                    it.attr("data-season", "%02d".format(season)).let(::episodeFromElement)
+                }
+            }
+    }.getOrElse {
+        emptyList()
     }
 
-    private fun subLangOrder(tracks: List<Track>): List<Track> {
-        val language = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
-        return tracks.sortedWith(
-            compareBy { it.lang.contains(language) },
-        ).reversed()
+    protected open val episodeRegex by lazy { """Episode (\d+)""".toRegex() }
+
+    override fun episodeFromElement(element: Element) = SEpisode.create().apply {
+        if (element.hasClass("link-item")) {
+            val linkId = element.attr("data-linkid")
+                .ifEmpty { element.attr("data-id") }
+            setUrlWithoutDomain("/ajax/episode/sources/$linkId")
+        } else {
+            setUrlWithoutDomain("/ajax/episode/servers/" + element.attr("data-id"))
+        }
+
+        val ssNum = element.attr("data-season").ifEmpty { "0" }
+        val title = element.attr("title").ifEmpty { element.text() }
+        val epNum = episodeRegex.find(title)?.run { "%04d".format(groupValues[1].toInt()) } ?: "0"
+
+        episode_number = "$ssNum.$epNum".toFloat()
+        name = when {
+            episode_number != 0.0F -> "S$ssNum E$epNum: ${title.substringAfter(": ")}"
+            else -> title
+        }
     }
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
+    // ============================ Video Links =============================
+
+    override fun videoListSelector() = "a.link-item"
+
+    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl${episode.url}", apiHeaders("$baseUrl${episode.url}"))
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        client.newCall(videoListRequest(episode)).awaitSuccess().use { response ->
+
+            val hosterSelection = preferences.hostToggle
+
+            val serversDoc = response.asJsoup()
+
+            val embedLinks = serversDoc.select(videoListSelector()).parallelMapNotNull { elm ->
+                val id = elm.attr("data-linkid")
+                    .ifEmpty { elm.attr("data-id") }
+                val name = elm.select("span").text()
+
+                if (hosterSelection.none { it.equals(name, true) }) return@parallelMapNotNull null
+
+                val link = client.newCall(
+                    GET("$baseUrl/ajax/episode/sources/$id", apiHeaders("$baseUrl${episode.url}")),
+                ).await().parseAs<SourcesResponse>().link
+                    ?: return@parallelMapNotNull null
+
+                VideoData(link, name)
+            }
+
+            return embedLinks.parallelCatchingFlatMap(::extractVideo)
+                .map { video ->
+                    Video(
+                        url = video.url,
+                        quality = video.quality,
+                        videoUrl = video.videoUrl,
+                        headers = video.headers,
+                        subtitleTracks = subLangOrder(video.subtitleTracks),
+                        audioTracks = subLangOrder(video.audioTracks),
+                    )
+                }
+        }
+    }
+
+    protected open val dopeFlixExtractor by LazyMutable { DopeFlixExtractor(client, headers, megaCloudApi) }
+
+    protected open fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+        "UpCloud", "MegaCloud", "Vidcloud", "AKCloud" -> dopeFlixExtractor.getVideosFromUrl(server.link, server.name)
+        else -> emptyList()
+    }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
+    override fun List<Video>.sort(): List<Video> {
+        val quality = preferences.prefQuality
+        val server = preferences.prefServer
+        val qualitiesList = PREF_QUALITY_LIST.reversed()
+
+        return sortedWith(
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
+                .thenByDescending { it.quality.contains(server, true) },
+        )
+    }
+
+    protected open fun subLangOrder(tracks: List<Track>): List<Track> {
+        val language = preferences.prefSubtitle
+        return tracks.sortedWith(
+            compareByDescending { it.lang.contains(language) },
+        )
+    }
+
     // ============================== Settings ==============================
+
+    protected open var SharedPreferences.domainUrl
+        by LazyMutable { preferences.getString(PREF_DOMAIN_KEY, defaultDomain)!! }
+
+    protected open var SharedPreferences.prefPopularType
+        by LazyMutable { preferences.getString(PREF_POPULAR_TYPE_KEY, PREF_POPULAR_TYPE_DEFAULT.value)!! }
+
+    protected open var SharedPreferences.prefLatestPriority
+        by LazyMutable { preferences.getString(PREF_LATEST_PRIORITY_KEY, PREF_LATEST_PRIORITY_DEFAULT.value)!! }
+
+    protected open var SharedPreferences.prefQuality
+        by LazyMutable { preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!! }
+
+    protected open var SharedPreferences.prefSubtitle
+        by LazyMutable { preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!! }
+
+    protected open var SharedPreferences.prefServer
+        by LazyMutable { preferences.getString(PREF_SERVER_KEY, preferredHoster)!! }
+
+    protected open var SharedPreferences.hostToggle: MutableSet<String>
+        by LazyMutable { preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!! }
+
+    protected open fun SharedPreferences.clearOldPrefs(): SharedPreferences {
+        val domain = getString(PREF_DOMAIN_KEY, defaultDomain)!!.removePrefix("https://")
+        val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
+
+        val invalidDomain = domain !in domainList
+        val invalidHosters = hostToggle.any { it !in hosterNames }
+
+        if (invalidDomain || invalidHosters) {
+            edit().also { editor ->
+                if (invalidDomain) {
+                    editor.putString(PREF_DOMAIN_KEY, defaultDomain)
+                }
+                if (invalidHosters) {
+                    editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
+                    editor.putString(PREF_SERVER_KEY, preferredHoster)
+                }
+            }.apply()
+        }
+        return this
+    }
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            entries = domainArray
-            entryValues = domainArray
-            setDefaultValue(defaultDomain)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_DOMAIN_KEY,
+            title = PREF_DOMAIN_TITLE,
+            entries = domainList,
+            entryValues = domainList.map { "https://$it" },
+            default = defaultDomain,
+            summary = "%s",
+        ) {
+            baseUrl = it
+            preferences.domainUrl = it
+            docHeaders = newHeaders()
+        }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_POPULAR_TYPE_KEY,
+            title = PREF_POPULAR_TYPE_TITLE,
+            entries = PREF_TYPE_ENTRIES,
+            entryValues = PREF_TYPE_ENTRIES,
+            default = PREF_POPULAR_TYPE_DEFAULT.value,
+            summary = "%s",
+        ) {
+            preferences.prefPopularType = it
+        }
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_LIST
-            entryValues = PREF_QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_LATEST_PRIORITY_KEY,
+            title = PREF_LATEST_PRIORITY_TITLE,
+            entries = PREF_TYPE_ENTRIES,
+            entryValues = PREF_TYPE_ENTRIES,
+            default = PREF_LATEST_PRIORITY_DEFAULT.value,
+            summary = "%s",
+        ) {
+            preferences.prefLatestPriority = it
+        }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_LIST,
+            entryValues = PREF_QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        ) {
+            preferences.prefQuality = it
+        }
 
-        ListPreference(screen.context).apply {
-            key = PREF_SUB_KEY
-            title = PREF_SUB_TITLE
-            entries = PREF_SUB_LANGUAGES
-            entryValues = PREF_SUB_LANGUAGES
-            setDefaultValue(PREF_SUB_DEFAULT)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_SUB_KEY,
+            title = PREF_SUB_TITLE,
+            entries = PREF_SUB_LANGUAGES,
+            entryValues = PREF_SUB_LANGUAGES,
+            default = PREF_SUB_DEFAULT,
+            summary = "%s",
+        ) {
+            preferences.prefSubtitle = it
+        }
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred Server",
+            entries = hosterNames,
+            entryValues = hosterNames,
+            default = hosterNames.first(),
+            summary = "%s",
+        ) {
+            preferences.prefServer = it
+        }
 
-        ListPreference(screen.context).apply {
-            key = PREF_LATEST_KEY
-            title = PREF_LATEST_TITLE
-            entries = PREF_LATEST_PAGES
-            entryValues = PREF_LATEST_PAGES
-            setDefaultValue(PREF_LATEST_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = PREF_POPULAR_KEY
-            title = PREF_POPULAR_TITLE
-            entries = PREF_POPULAR_ENTRIES
-            entryValues = PREF_POPULAR_VALUES
-            setDefaultValue(PREF_POPULAR_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addSetPreference(
+            key = PREF_HOSTER_KEY,
+            title = "Enable/Disable Hosts",
+            summary = "Select which video hosts to show in the episode list",
+            entries = hosterNames,
+            entryValues = hosterNames,
+            default = hosterNames.toSet(),
+        ) {
+            preferences.hostToggle = it.toMutableSet()
+        }
     }
 
     // ============================= Utilities ==============================
-    private fun HttpUrl.Builder.addIfNotBlank(query: String, value: String): HttpUrl.Builder {
+    protected open fun HttpUrl.Builder.addIfNotBlank(query: String, value: String): HttpUrl.Builder {
         if (value.isNotBlank()) {
             addQueryParameter(query, value)
         }
         return this
     }
 
+    enum class Types(val value: String) {
+        Movies("Movies"),
+        TvShows("Tv Shows"),
+    }
+
     companion object {
-        private const val PREF_DOMAIN_KEY = "preferred_domain_new"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
+        protected const val PREF_DOMAIN_KEY = "preferred_domain"
+        protected const val PREF_DOMAIN_TITLE = "Preferred domain"
 
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Preferred quality"
-        private const val PREF_QUALITY_DEFAULT = "1080p"
-        private val PREF_QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")
+        protected const val PREF_POPULAR_TYPE_KEY = "preferred_popular_type"
+        protected const val PREF_POPULAR_TYPE_TITLE = "Popular type"
+        protected const val PREF_LATEST_PRIORITY_KEY = "preferred_latest_priority"
+        protected const val PREF_LATEST_PRIORITY_TITLE = "Latest priority"
+        protected val PREF_TYPE_ENTRIES = Types.entries.map { it.value }
+        protected val PREF_POPULAR_TYPE_DEFAULT = Types.Movies
+        protected val PREF_LATEST_PRIORITY_DEFAULT = Types.TvShows
 
-        private const val PREF_SUB_KEY = "preferred_subLang"
-        private const val PREF_SUB_TITLE = "Preferred sub language"
-        private const val PREF_SUB_DEFAULT = "English"
-        private val PREF_SUB_LANGUAGES = arrayOf(
+        protected const val PREF_QUALITY_KEY = "preferred_quality"
+        protected const val PREF_QUALITY_TITLE = "Preferred quality"
+        protected val PREF_QUALITY_LIST = listOf("1080p", "720p", "480p", "360p")
+        protected val PREF_QUALITY_DEFAULT = PREF_QUALITY_LIST.first()
+
+        protected const val PREF_SUB_KEY = "preferred_subLang"
+        protected const val PREF_SUB_TITLE = "Preferred sub language"
+        protected const val PREF_SUB_DEFAULT = "English"
+        protected val PREF_SUB_LANGUAGES = listOf(
             "Arabic", "English", "French", "German", "Hungarian",
             "Italian", "Japanese", "Portuguese", "Romanian", "Russian",
             "Spanish",
         )
 
-        private const val PREF_LATEST_KEY = "preferred_latest_page"
-        private const val PREF_LATEST_TITLE = "Preferred latest page"
-        private const val PREF_LATEST_DEFAULT = "Movies"
-        private val PREF_LATEST_PAGES = arrayOf("Movies", "TV Shows")
+        protected const val PREF_SERVER_KEY = "preferred_server"
 
-        private const val PREF_POPULAR_KEY = "preferred_popular_page_new"
-        private const val PREF_POPULAR_TITLE = "Preferred popular page"
-        private const val PREF_POPULAR_DEFAULT = "movie"
-        private val PREF_POPULAR_ENTRIES = PREF_LATEST_PAGES
-        private val PREF_POPULAR_VALUES = arrayOf("movie", "tv-show")
+        protected const val PREF_HOSTER_KEY = "hoster_selection"
     }
 }
