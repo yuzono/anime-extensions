@@ -454,7 +454,7 @@ abstract class AnikotoTheme(
     }
 
     private suspend fun fetchMapperServers(episode: SEpisode): List<VideoData> {
-        val mapperBase = mapperUrl ?: return emptyList()
+        val mapperBase = mapperUrl
 
         val epUrlStr = episode.url
         val malId = epUrlStr.substringAfter("&mal=", "").substringBefore("&").takeIf { it.isNotBlank() } ?: return emptyList()

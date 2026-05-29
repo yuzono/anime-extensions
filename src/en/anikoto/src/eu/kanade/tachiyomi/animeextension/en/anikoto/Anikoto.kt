@@ -35,7 +35,7 @@ class Anikoto :
         return document.select("div.servers > div.type").flatMap { typeElem ->
             val typeLabel = resolveTypeLabel(typeElem)
 
-            if (!isTypeEnabled(typeLabel, typeSelection)) return@flatMap emptyList<VideoData>()
+            if (!isTypeEnabled(typeLabel, typeSelection)) return@flatMap emptyList()
 
             typeElem.select("li").mapNotNull { serverElem ->
                 if (serverElem.hasClass("download-icon")) return@mapNotNull null
