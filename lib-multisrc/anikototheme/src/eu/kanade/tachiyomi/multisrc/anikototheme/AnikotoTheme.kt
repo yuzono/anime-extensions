@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.multisrc.anikototheme
 import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
-import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -92,6 +91,12 @@ abstract class AnikotoTheme(
 
     private val utils by lazy { AnikotoUtils() }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
+    private val excludedHosts: Set<String> by preferences.delegate(PREF_HOSTER_EXCLUDE_KEY, emptySet())
+    private val excludedTypes: Set<String> by preferences.delegate(PREF_TYPE_EXCLUDE_KEY, emptySet())
+
+    protected val hostToggle: Set<String> get() = hosterNames.toSet() - excludedHosts
+    protected val typeToggle: Set<String> get() = PREF_TYPE_ENTRIES.toSet() - excludedTypes
 
     // ============================ Headers & Client =========================
 
@@ -828,13 +833,27 @@ abstract class AnikotoTheme(
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = (getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl).removePrefix("https://")
-        val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet()) ?: hosterNames.toSet()
 
         val invalidDomain = domain !in domainEntries
-        val invalidHosters = hostToggle.any { it !in hosterNames }
 
-        val savedTypes = getStringSet(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES) ?: DEFAULT_TYPES
-        val invalidTypes = savedTypes.any { it !in PREF_TYPE_ENTRIES }
+        val oldHosterSelection = getStringSet("hoster_selection", null)
+        if (oldHosterSelection != null) {
+            val newExclusion = hosterNames.toSet() - oldHosterSelection.filter { it in hosterNames }.toSet()
+            edit().putStringSet(PREF_HOSTER_EXCLUDE_KEY, newExclusion).remove("hoster_selection").apply()
+        }
+        val currentExcludedHosts = getStringSet(PREF_HOSTER_EXCLUDE_KEY, emptySet()) ?: emptySet()
+        val invalidHosters = currentExcludedHosts.any { it !in hosterNames }
+
+        val oldTypeSelection = getStringSet("type_selection", null)
+        if (oldTypeSelection != null) {
+            val validOldTypes = oldTypeSelection.filter { it in PREF_TYPE_ENTRIES || it == "H-Sub" }.map {
+                if (it == "H-Sub") "HSub" else it
+            }.toSet()
+            val newExclusion = PREF_TYPE_ENTRIES.toSet() - validOldTypes
+            edit().putStringSet(PREF_TYPE_EXCLUDE_KEY, newExclusion).remove("type_selection").apply()
+        }
+        val currentExcludedTypes = getStringSet(PREF_TYPE_EXCLUDE_KEY, emptySet()) ?: emptySet()
+        val invalidTypes = currentExcludedTypes.any { it !in PREF_TYPE_ENTRIES }
 
         val savedPrefType = getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT) ?: PREF_TYPE_DEFAULT
         val invalidPrefType = savedPrefType !in PREF_TYPE_ENTRIES
@@ -842,24 +861,12 @@ abstract class AnikotoTheme(
         if (invalidDomain || invalidHosters || invalidTypes || invalidPrefType) {
             edit().also { editor ->
                 if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
-                if (invalidHosters) {
-                    editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
-                    editor.putString(PREF_SERVER_KEY, hosterNames.first())
-                }
-                if (invalidTypes) editor.putStringSet(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES)
+                if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, currentExcludedHosts.filter { it in hosterNames }.toSet())
+                if (invalidTypes) editor.putStringSet(PREF_TYPE_EXCLUDE_KEY, currentExcludedTypes.filter { it in PREF_TYPE_ENTRIES }.toSet())
                 if (invalidPrefType) editor.putString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
             }.apply()
         }
         return this
-    }
-
-    private fun getHosters(): Set<String> {
-        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet()) ?: hosterNames.toSet()
-        if (hosterSelection.any { it !in hosterNames }) {
-            preferences.edit().putStringSet(PREF_HOSTER_KEY, hosterNames.toSet()).apply()
-            return hosterNames.toSet()
-        }
-        return hosterSelection
     }
 
     protected fun useEnglish() = getTitleLang == "English"
@@ -868,17 +875,9 @@ abstract class AnikotoTheme(
     protected val prefQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.first())
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
-    protected val hostToggle: Set<String> by preferences.delegate(PREF_HOSTER_KEY, hosterNames.toSet())
-    protected val typeToggle: Set<String> by preferences.delegate(PREF_TYPE_TOGGLE_KEY, DEFAULT_TYPES)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        try {
-            getHosters()
-        } catch (e: Exception) {
-            Toast.makeText(screen.context, e.toString(), Toast.LENGTH_LONG).show()
-        }
-
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
             title = "Preferred Domain"
@@ -952,42 +951,30 @@ abstract class AnikotoTheme(
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
-            key = PREF_HOSTER_KEY
-            title = "Enable/Disable Servers"
-            summary = "Select which servers to use"
+            key = PREF_HOSTER_EXCLUDE_KEY
+            title = "Exclude Servers"
+            summary = "Choose which servers you want to exclude"
             entries = hosterDisplayNames.toTypedArray()
             entryValues = hosterNames.toTypedArray()
-            setDefaultValue(hosterNames.toSet())
+            setDefaultValue(emptySet<String>())
             setOnPreferenceChangeListener { _, newValue ->
                 @Suppress("UNCHECKED_CAST")
-                val newSet = newValue as Set<String>
-                if (newSet.isEmpty()) {
-                    Toast.makeText(screen.context, "Must select at least one server", Toast.LENGTH_LONG).show()
-                    false
-                } else {
-                    preferences.edit().putStringSet(key, newSet).apply()
-                    true
-                }
+                preferences.edit().putStringSet(key, newValue as Set<String>).apply()
+                true
             }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
-            key = PREF_TYPE_TOGGLE_KEY
-            title = "Enable/Disable Types"
-            summary = "Select which video types to show"
+            key = PREF_TYPE_EXCLUDE_KEY
+            title = "Exclude Types"
+            summary = "Choose which video types you want to exclude"
             entries = PREF_TYPE_DISPLAY_ENTRIES
             entryValues = PREF_TYPE_ENTRIES
-            setDefaultValue(DEFAULT_TYPES)
+            setDefaultValue(emptySet<String>())
             setOnPreferenceChangeListener { _, newValue ->
                 @Suppress("UNCHECKED_CAST")
-                val newSet = newValue as Set<String>
-                if (newSet.isEmpty()) {
-                    Toast.makeText(screen.context, "Must select at least one type", Toast.LENGTH_LONG).show()
-                    false
-                } else {
-                    preferences.edit().putStringSet(key, newSet).apply()
-                    true
-                }
+                preferences.edit().putStringSet(key, newValue as Set<String>).apply()
+                true
             }
         }.also(screen::addPreference)
     }
@@ -1009,13 +996,12 @@ abstract class AnikotoTheme(
         private val PREF_QUALITY_DISPLAY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
         private val PREF_QUALITY_DEFAULT = PREF_QUALITY_ENTRIES[0]
 
-        private const val PREF_HOSTER_KEY = "hoster_selection"
+        private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private const val PREF_SERVER_KEY = "preferred_server"
 
-        private const val PREF_TYPE_TOGGLE_KEY = "type_selection"
+        private const val PREF_TYPE_EXCLUDE_KEY = "type_exclusion"
         private val PREF_TYPE_ENTRIES = arrayOf("Sub", "S-Sub", "HSub", "Dub", "A-Dub")
         private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Soft Sub", "Hard Sub", "Dub", "Alternate Dub")
-        private val DEFAULT_TYPES = PREF_TYPE_ENTRIES.toSet()
 
         private const val PREF_TYPE_KEY = "preferred_language"
         private const val PREF_TYPE_DEFAULT = "Sub"
