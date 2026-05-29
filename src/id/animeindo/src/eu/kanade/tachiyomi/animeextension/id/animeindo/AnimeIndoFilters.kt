@@ -47,7 +47,7 @@ object AnimeIndoFilters {
             val value = element.selectFirst("input")!!.attr("value")
             Pair(key, value)
         }?.toTypedArray()
-        ?: emptyArray()
+        ?: arrayOf("" to "")
 
     private val ORDER_LIST by lazy {
         getPairListByIndex(0)
