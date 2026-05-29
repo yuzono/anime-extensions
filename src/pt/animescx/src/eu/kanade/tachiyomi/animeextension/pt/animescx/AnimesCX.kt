@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArrayBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.putJsonArray
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -62,7 +63,7 @@ class AnimesCX :
         thumbnail_url = element.selectFirst("img")?.absUrl("src")
     }
 
-    override fun popularAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun popularAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/doramas-em-lancamento/page/$page", headers)
@@ -73,16 +74,28 @@ class AnimesCX :
 
     override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val path = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$path", headers))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val path = url.pathSegments.takeIf { it.isNotEmpty() }?.joinToString("/")
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$path", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val path = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$path", headers))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {

@@ -62,13 +62,29 @@ class Goyabu :
     override fun latestUpdatesNextPageSelector(): String? = null
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
-        val path = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$path"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val searchQuery = if (url.pathSegments.size > 1) {
+                "${url.pathSegments[0]}/${url.pathSegments[1]}"
+            } else {
+                url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                    ?: throw Exception("Unsupported url")
+            }
+            return getSearchAnime(page, "${PREFIX_SEARCH}$searchQuery", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val path = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$path"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -103,7 +119,7 @@ class Goyabu :
             title = doc.selectFirst("div.animeInfos h1")!!.text()
             thumbnail_url = doc.selectFirst("div.animecapa img")?.attr("src")
             description = doc.selectFirst("div.sinopse")?.text()
-            genre = doc.select("ul.genres li").eachText()?.joinToString(", ")
+            genre = doc.select("ul.genres li").eachText().joinToString(", ")
         }
     }
 

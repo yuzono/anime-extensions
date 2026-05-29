@@ -155,6 +155,18 @@ class RouVideo(
     // =============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val type = url.pathSegments.getOrNull(0)
+                ?: throw Exception("Unsupported url")
+            val item = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$type:$item", filters)
+        }
+
         // Handle direct ID search (no need for tag/hot search fetching)
         if (query.startsWith(PREFIX_ID)) {
             val id = query.removePrefix(PREFIX_ID)
