@@ -691,9 +691,9 @@ abstract class AnikotoTheme(
         val producers = document.select("div:contains(Producers) > span > a").joinToString(", ") { it.text().trim() }
 
         when {
-            studios.isNotBlank() && producers.isNotBlank() -> appendLine("Studio: $studios (Producers: $producers)").appendLine()
-            studios.isNotBlank() -> appendLine("Studio: $studios").appendLine()
-            producers.isNotBlank() -> appendLine("Producers: $producers").appendLine()
+            studios.isNotBlank() && producers.isNotBlank() -> appendLine("**Studio:** $studios (**Producers:** $producers)").appendLine()
+            studios.isNotBlank() -> appendLine("**Studio:** $studios").appendLine()
+            producers.isNotBlank() -> appendLine("**Producers:** $producers").appendLine()
         }
 
         val altNames = mutableListOf<String>()
@@ -701,7 +701,7 @@ abstract class AnikotoTheme(
         document.selectFirst(aliasContainerSelector)?.text()?.takeIf { it.isNotBlank() }?.let { namesText ->
             altNames.addAll(namesText.split(";").map { it.trim() }.filter { it.isNotBlank() && it != jpTitle && it != enTitle })
         }
-        if (altNames.isNotEmpty()) appendLine("Other name(s): ${altNames.joinToString(", ")}").appendLine()
+        if (altNames.isNotEmpty()) appendLine("**Other name(s):** ${altNames.joinToString(", ")}").appendLine()
 
         if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotBlank()) append(fancyScore)
     }.trim()
