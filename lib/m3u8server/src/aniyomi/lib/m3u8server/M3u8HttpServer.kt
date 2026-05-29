@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
@@ -15,23 +16,23 @@ import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.net.URI
 import java.net.URLEncoder
-import kotlin.text.Charsets
 
 /**
  * Real HTTP server for M3U8 processing using NanoHTTPD
  * Compatible with Android and provides actual HTTP endpoints
  */
 class M3u8HttpServer(
+    private val client: OkHttpClient,
     port: Int = 0, // 0 means random port
-    private val client: OkHttpClient = OkHttpClient(),
 ) : NanoHTTPD(port) {
 
     val port: Int
         get() = super.getListeningPort()
 
     private val tag by lazy { javaClass.simpleName }
+
+    @Volatile
     private var isRunning = false
 
     override fun start() {
@@ -283,12 +284,7 @@ class M3u8HttpServer(
         var segmentCount = 0
 
         // Determine base URL from the original URL
-        val baseUrl = try {
-            URI(originalUrl).resolve(".").toString()
-        } catch (e: Exception) {
-            Log.e(tag, "Invalid base URL from original URL '$originalUrl': ${e.message}")
-            ""
-        }
+        val baseHttpUrl = originalUrl.toHttpUrlOrNull()
 
         for (line in lines) {
             when {
@@ -298,16 +294,7 @@ class M3u8HttpServer(
                 }
                 line.isNotBlank() && !line.startsWith("#") -> {
                     // This is a segment URL, resolve against base URL
-                    val resolvedUrl = if (baseUrl.isNotBlank()) {
-                        try {
-                            URI(baseUrl).resolve(line).toString()
-                        } catch (e: Exception) {
-                            Log.e(tag, "Error resolving URL '$line' against base URL '$baseUrl': ${e.message}")
-                            line // Fallback to original line on error
-                        }
-                    } else {
-                        line // No base URL, use original line
-                    }
+                    val resolvedUrl = baseHttpUrl?.resolve(line)?.toString() ?: line
                     val encodedUrl = URLEncoder.encode(resolvedUrl, Charsets.UTF_8.name())
                     val localUrl = "http://localhost:$serverPort/segment?url=$encodedUrl"
                     modifiedLines.add(localUrl)

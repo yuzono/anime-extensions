@@ -49,7 +49,7 @@ Health check endpoint.
 
 ## Integration
 
-The library provides `M3u8Integration` class for easy integration:
+The library provides the `M3u8Integration` class for easy integration:
 
 ```kotlin
 // Initialize integration

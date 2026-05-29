@@ -9,11 +9,11 @@ object AutoDetector {
     private val JPEG_HEADER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
     private val PNG_HEADER = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte())
     private val GIF_HEADER = byteArrayOf(0x47.toByte(), 0x49.toByte(), 0x46.toByte())
-    private val MPEG_TS_SYNC = 0x47.toByte()
+    private const val MPEG_TS_SYNC = 0x47.toByte()
     private val MP4_FTYP = byteArrayOf(0x66.toByte(), 0x74.toByte(), 0x79.toByte(), 0x70.toByte()) // "ftyp"
     private val AVI_RIFF = byteArrayOf(0x52.toByte(), 0x49.toByte(), 0x46.toByte(), 0x46.toByte()) // "RIFF"
     private val AVI_AVI = byteArrayOf(0x41.toByte(), 0x56.toByte(), 0x49.toByte(), 0x20.toByte()) // "AVI "
-    private val MPEG_TS_PACKET_SIZE = 188
+    private const val MPEG_TS_PACKET_SIZE = 188
 
     /**
      * Automatically detects how many bytes to skip at the beginning of the file
@@ -95,7 +95,7 @@ object AutoDetector {
     private fun detectDisguise(data: ByteArray): Int {
         // Look for MP4 "ftyp" box
         val ftypOffset = findPattern(data, MP4_FTYP)
-        if (ftypOffset > 0) {
+        if (ftypOffset >= 4) {
             return ftypOffset - 4 // "ftyp" is preceded by 4 bytes of size
         }
 
@@ -118,8 +118,8 @@ object AutoDetector {
      * Checks if it's already a valid video format
      */
     private fun isVideoFormat(data: ByteArray): Boolean = isMpegTsValid(data) ||
-        findPattern(data, MP4_FTYP) > 0 ||
-        findPattern(data, AVI_RIFF) > 0
+        findPattern(data, MP4_FTYP) >= 0 ||
+        findPattern(data, AVI_RIFF) >= 0
 
     /**
      * Finds a specific pattern in the data

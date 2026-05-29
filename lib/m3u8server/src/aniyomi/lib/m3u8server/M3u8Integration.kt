@@ -8,8 +8,8 @@ import okhttp3.OkHttpClient
  * M3U8 Server integration with Q1N extension
  */
 class M3u8Integration(
-    private val client: OkHttpClient,
-    private val serverManager: M3u8ServerManager = M3u8ServerManager(),
+    client: OkHttpClient,
+    private val serverManager: M3u8ServerManager = M3u8ServerManager(client),
 ) {
 
     private val tag by lazy { javaClass.simpleName }

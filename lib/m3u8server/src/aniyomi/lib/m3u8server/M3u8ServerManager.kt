@@ -1,11 +1,14 @@
 package aniyomi.lib.m3u8server
 
 import android.util.Log
+import okhttp3.OkHttpClient
 
 /**
  * M3U8 Server manager to facilitate usage
  */
-class M3u8ServerManager {
+class M3u8ServerManager(
+    private val client: OkHttpClient,
+) {
     private val tag by lazy { javaClass.simpleName }
     private var server: M3u8HttpServer? = null
 
@@ -13,6 +16,7 @@ class M3u8ServerManager {
      * Starts the M3U8 server on the specified port
      * @param port Port where the server will run (0 for random port, default: 0)
      */
+    @Synchronized
     fun startServer(port: Int = 0) {
         if (server != null) {
             Log.d(tag, "Server is already running")
@@ -20,7 +24,7 @@ class M3u8ServerManager {
         }
 
         try {
-            server = M3u8HttpServer(port)
+            server = M3u8HttpServer(client, port)
             server?.start()
             Log.d(tag, "Server started on port: ${server?.port}")
         } catch (e: Exception) {
@@ -33,6 +37,7 @@ class M3u8ServerManager {
     /**
      * Stops the M3U8 server
      */
+    @Synchronized
     fun stopServer() {
         server?.stop()
         server = null
