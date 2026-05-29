@@ -104,21 +104,23 @@ class AsyaAnimeleri :
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
 
-    override suspend fun getVideoList(url: String, name: String): List<Video> = when (name.lowercase().trim()) {
-        "vk" -> vkExtractor.videosFromUrl(url)
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
+        return when (name.lowercase().trim()) {
+            "vk" -> vkExtractor.videosFromUrl(url)
 
-        "ok.ru" -> okruExtractor.videosFromUrl(url)
+            "ok.ru" -> okruExtractor.videosFromUrl(url)
 
-        "sibnet" -> sibnetExtractor.videosFromUrl(url)
+            "sibnet" -> sibnetExtractor.videosFromUrl(url)
 
-        "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
+            "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
 
-        "gdrive" -> {
-            val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
-            gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
+            "gdrive" -> {
+                val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
+                gdrivePlayerExtractor.videosFromUrl(newUrl, "Gdrive", headers)
+            }
+
+            else -> emptyList()
         }
-
-        else -> emptyList()
     }
 
     // ============================= Utilities ==============================

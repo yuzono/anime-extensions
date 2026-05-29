@@ -175,16 +175,16 @@ abstract class AnimeStream(
 
     protected open val filtersSelector = "span.sec1 > div.filter > ul"
 
-    private suspend fun fetchFilterList() {
+    protected open suspend fun fetchFilterList() {
         if (fetchFilters && !AnimeStreamFilters.filterInitialized()) {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    client.newCall(GET(animeListUrl)).awaitSuccess()
-                        .useAsJsoup()
-                        .select(filtersSelector)
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    AnimeStreamFilters.filterElements =
+                        client.newCall(GET(animeListUrl)).awaitSuccess()
+                            .useAsJsoup()
+                            .select(filtersSelector)
                 }
-            }.getOrNull()
-                ?.let { AnimeStreamFilters.filterElements = it }
+            }
         }
     }
 

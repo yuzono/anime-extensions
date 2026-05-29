@@ -75,6 +75,8 @@ class AnimeYTES :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        super.setupPreferenceScreen(screen) // Quality preferences
+
         screen.addListPreference(
             key = PREF_SERVER_KEY,
             title = "Preferred server",
