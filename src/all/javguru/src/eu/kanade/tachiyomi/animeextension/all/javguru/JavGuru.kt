@@ -119,6 +119,15 @@ class JavGuru :
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_ID$id", filters)
+        }
         if (query.startsWith(PREFIX_ID)) {
             val id = query.substringAfter(PREFIX_ID)
             if (id.toIntOrNull() == null) {
@@ -130,7 +139,9 @@ class JavGuru :
                 val anime = it.apply { this.url = url }
                 AnimesPage(listOf(anime), false)
             }
-        } else if (query.isNotEmpty()) {
+        }
+
+        if (query.isNotEmpty()) {
             return client.newCall(searchAnimeRequest(page, query, filters))
                 .awaitSuccess()
                 .use(::searchAnimeParse)
