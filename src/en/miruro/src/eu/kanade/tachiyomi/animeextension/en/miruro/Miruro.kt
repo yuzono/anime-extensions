@@ -78,8 +78,7 @@ class Miruro :
     private var providerEntries: List<String> = DEFAULT_PROVIDER_ENTRIES
     private var providerValues: List<String> = DEFAULT_PROVIDER_VALUES
 
-    private fun providerDisplayName(alias: String): String =
-        providerDisplayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
+    private fun providerDisplayName(alias: String): String = providerDisplayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
 
     private fun fetchConfig(): ConfigResponseDto = synchronized(this) {
         siteConfig?.let { return it }
@@ -588,10 +587,9 @@ class Miruro :
         val episodes = mutableListOf<SEpisode>()
         val seenNumbers = mutableSetOf<Float>()
 
-        val providersToProcess = mutableListOf<String>()
-        providersToProcess.add(primaryProvider)
-        val providerOrder = getProviderOrder()
-        for (providerKey in providerOrder) {
+	val providersToProcess = mutableListOf<String>()
+	providersToProcess.add(primaryProvider)
+	for (providerKey in providerOrder) {
             if (providerKey != primaryProvider && providerKey in availableProviders) {
                 providersToProcess.add(providerKey)
             }
