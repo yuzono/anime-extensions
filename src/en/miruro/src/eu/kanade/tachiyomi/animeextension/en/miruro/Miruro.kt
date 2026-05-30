@@ -68,11 +68,18 @@ class Miruro :
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
 
     private val extractor by lazy {
-        MiruroExtractor(client, PIPE_KEY, headers)
+        MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
     }
 
     @Volatile
     private var siteConfig: ConfigResponseDto? = null
+
+    private var providerDisplayNames: Map<String, String> = KNOWN_DISPLAY_NAMES
+    private var providerEntries: List<String> = DEFAULT_PROVIDER_ENTRIES
+    private var providerValues: List<String> = DEFAULT_PROVIDER_VALUES
+
+    private fun providerDisplayName(alias: String): String =
+        providerDisplayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
 
     private fun fetchConfig(): ConfigResponseDto = synchronized(this) {
         siteConfig?.let { return it }
@@ -92,7 +99,35 @@ class Miruro :
             }
             val config = jsonParser.decodeFromString<ConfigResponseDto>(json)
             siteConfig = config
-            Log.i("Miruro", "Fetched site config: ${config.providerOrder.size} providers, order=${config.providerOrder}")
+
+            val nativeProviders = config.providerOrder.filter { key ->
+                val providerConfig = config.streaming[key]
+                providerConfig?.relationship != "embed"
+            }
+
+            if (nativeProviders.isNotEmpty()) {
+                providerValues = nativeProviders
+                providerDisplayNames = buildMap {
+                    putAll(KNOWN_DISPLAY_NAMES)
+                    for (key in nativeProviders) {
+                        if (key !in this) {
+                            put(key, key.replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
+                providerEntries = nativeProviders.map { providerDisplayNames[it] ?: it.replaceFirstChar { c -> c.uppercase() } }
+
+                val currentProvider = preferences.preferredProvider
+                if (currentProvider !in nativeProviders) {
+                    val newDefault = PREF_PROVIDER_DEFAULT.takeIf { it in nativeProviders }
+                        ?: nativeProviders.firstOrNull()
+                        ?: currentProvider
+                    Log.i("Miruro", "Preferred provider '$currentProvider' no longer available, resetting to '$newDefault'")
+                    preferences.edit().putString(PREF_PROVIDER_KEY, newDefault).apply()
+                }
+            }
+
+            Log.i("Miruro", "Fetched site config: ${config.providerOrder.size} providers (${nativeProviders.size} native), order=$nativeProviders")
             config
         } catch (e: Exception) {
             Log.w("Miruro", "Failed to fetch config: ${e.message}, using defaults")
@@ -101,43 +136,40 @@ class Miruro :
     }
 
     private fun getProviderOrder(): List<String> = try {
-        fetchConfig().providerOrder.ifEmpty { PREF_PROVIDER_VALUES }
+        val config = fetchConfig()
+        config.providerOrder.filter { key ->
+            config.streaming[key]?.relationship != "embed"
+        }.ifEmpty { providerValues }
     } catch (e: Exception) {
         Log.w("Miruro", "Failed to get provider order: ${e.message}")
-        PREF_PROVIDER_VALUES
+        providerValues
     }
 
     private val defaultConfig = ConfigResponseDto(
         streaming = mapOf(
             "kiwi" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
             ),
             "bee" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, thumbnails = true),
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
             ),
             "bonk" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, download = true, skipTimes = true),
             ),
-            "twin" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
-            ),
             "ally" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
-            ),
-            "cog" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
             ),
             "moo" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, download = true),
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
             ),
             "hop" to ConfigResponseDto.ProviderConfigDto(
-                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, dub = true, ssub = true, thumbnails = true),
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true, thumbnails = true),
             ),
             "dune" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true),
             ),
         ),
-        providerOrder = PREF_PROVIDER_VALUES,
+        providerOrder = DEFAULT_PROVIDER_VALUES,
     )
 
     companion object {
@@ -148,23 +180,21 @@ class Miruro :
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
-        private val PREF_PROVIDER_ENTRIES = listOf("AnimePahe", "Anikoto", "AniDao", "AniTaku", "9Anime", "AnimeGG", "Mango", "Zoro", "AnimeKai")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "twin", "ally", "cog", "moo", "hop", "dune")
+        private val DEFAULT_PROVIDER_ENTRIES = listOf("AnimePahe", "Anikoto", "AniDao", "9Anime", "Mango", "Zoro", "AnimeKai")
+        private val DEFAULT_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "dune")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
-        private val PROVIDER_DISPLAY_NAMES = mapOf(
+        private val KNOWN_DISPLAY_NAMES = mapOf(
             "kiwi" to "AnimePahe",
             "bee" to "Anikoto",
             "hop" to "Zoro",
             "ally" to "9Anime",
             "bonk" to "AniDao",
-            "twin" to "AniTaku",
-            "cog" to "AnimeGG",
             "moo" to "Mango",
             "dune" to "AnimeKai",
         )
 
-        fun providerDisplayName(alias: String): String = PROVIDER_DISPLAY_NAMES[alias] ?: alias.replaceFirstChar { it.uppercase() }
+        fun providerDisplayName(alias: String): String = alias.replaceFirstChar { it.uppercase() }
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
         private const val PREF_SUB_TYPE_TITLE = "Preferred Sub/Dub"
@@ -517,12 +547,13 @@ class Miruro :
         }
 
         val availableProviders = providers.keys().asSequence().toList()
+        val providerOrder = getProviderOrder()
         val primaryProvider = if (providers.optJSONObject(preferredProvider)?.optJSONObject("episodes") != null) {
             preferredProvider
         } else {
-            availableProviders.firstOrNull { key ->
-                providers.optJSONObject(key)?.optJSONObject("episodes") != null
-            } ?: return emptyList()
+            providerOrder.firstOrNull { it in availableProviders && providers.optJSONObject(it)?.optJSONObject("episodes") != null }
+                ?: availableProviders.firstOrNull { key -> providers.optJSONObject(key)?.optJSONObject("episodes") != null }
+                ?: return emptyList()
         }
 
         val crossProviderMap = mutableMapOf<Float, MutableMap<String, MutableMap<String, String>>>()
@@ -807,6 +838,8 @@ class Miruro :
     // ============================== Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        fetchConfig()
+
         screen.addListPreference(
             key = PREF_MIRROR_KEY,
             title = PREF_MIRROR_TITLE,
@@ -817,14 +850,17 @@ class Miruro :
         ) {
             baseUrl = it
             siteConfig = null
+            providerDisplayNames = KNOWN_DISPLAY_NAMES
+            providerEntries = DEFAULT_PROVIDER_ENTRIES
+            providerValues = DEFAULT_PROVIDER_VALUES
         }
 
         screen.addPreference(
             screen.getListPreference(
                 key = PREF_PROVIDER_KEY,
                 title = PREF_PROVIDER_TITLE,
-                entries = PREF_PROVIDER_ENTRIES,
-                entryValues = PREF_PROVIDER_VALUES,
+                entries = providerEntries,
+                entryValues = providerValues,
                 default = PREF_PROVIDER_DEFAULT,
                 summary = providerDisplayName(preferences.preferredProvider),
                 onChange = { pref, value ->
@@ -981,15 +1017,18 @@ class Miruro :
     }
 
     private fun findMaxEpisodeNumber(providers: JSONObject, preferredProvider: String): Float {
-        val providerData = providers.optJSONObject(preferredProvider) ?: return 0f
-        val episodesObj = providerData.optJSONObject("episodes") ?: return 0f
+        val providerKeys = listOf(preferredProvider) + providers.keys().asSequence().toList().filter { it != preferredProvider }
         var max = 0f
-        for (key in episodesObj.keys()) {
-            val arr = episodesObj.optJSONArray(key) ?: continue
-            for (i in 0 until arr.length()) {
-                val num = arr.optJSONObject(i)?.optDouble("number", 0.0)?.toFloat() ?: continue
-                if (num > max) max = num
+        for (providerKey in providerKeys) {
+            val episodesObj = providers.optJSONObject(providerKey)?.optJSONObject("episodes") ?: continue
+            for (key in episodesObj.keys()) {
+                val arr = episodesObj.optJSONArray(key) ?: continue
+                for (i in 0 until arr.length()) {
+                    val num = arr.optJSONObject(i)?.optDouble("number", 0.0)?.toFloat() ?: continue
+                    if (num > max) max = num
+                }
             }
+            if (max > 0f) break
         }
         return max
     }

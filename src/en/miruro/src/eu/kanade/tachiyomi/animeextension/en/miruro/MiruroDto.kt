@@ -140,6 +140,10 @@ data class ConfigResponseDto(
     @Serializable
     data class ProviderConfigDto(
         val capabilities: ProviderCapabilitiesDto = ProviderCapabilitiesDto(),
+        val parent: String? = null,
+        val relationship: String? = null,
+        val visible: Boolean = true,
+        val player: String = "native",
     )
 
     @Serializable

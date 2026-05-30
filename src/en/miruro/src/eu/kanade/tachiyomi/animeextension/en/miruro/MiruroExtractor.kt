@@ -13,13 +13,14 @@ class MiruroExtractor(
     private val client: OkHttpClient,
     private val pipeKey: ByteArray,
     private val headers: Headers,
+    private val resolveDisplayName: (String) -> String,
 ) {
 
     companion object {
         private const val TAG = "MiruroExtractor"
     }
 
-    fun providerDisplayName(key: String): String = Miruro.providerDisplayName(key)
+    fun providerDisplayName(key: String): String = resolveDisplayName(key)
 
     fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
