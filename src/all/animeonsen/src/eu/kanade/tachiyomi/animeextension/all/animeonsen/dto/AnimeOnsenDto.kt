@@ -29,6 +29,8 @@ data class AnimeDetails(
     val content_id: String,
     val content_title: String?,
     val content_title_en: String?,
+    val mal_id: Int? = null,
+    val subtitle_support: Boolean? = null,
     @Serializable(with = MalSerializer::class)
     val mal_data: MalData?,
 )
@@ -36,7 +38,9 @@ data class AnimeDetails(
 @Serializable
 data class EpisodeDto(
     @SerialName("contentTitle_episode_en")
-    val name: String,
+    val nameEn: String? = null,
+    @SerialName("contentTitle_episode_jp")
+    val nameJp: String? = null,
 )
 
 @Serializable
@@ -45,6 +49,8 @@ data class MalData(
     val status: String?,
     val studios: List<Studio>?,
     val synopsis: String?,
+    val mean_score: Double? = null,
+    val rating: String? = null,
 )
 
 @Serializable

@@ -27,6 +27,7 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import kotlin.math.roundToInt
 
 class AnimeOnsen :
     AnimeHttpSource(),
@@ -83,19 +84,15 @@ class AnimeOnsen :
     override fun getFilterList(): AnimeFilterList = AnimeOnsenFilters.FILTER_LIST
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        // When there's search text, override filters and use the search endpoint
         if (query.isNotBlank()) {
             return GET("$apiUrl/search/$query", headers)
         }
 
-        // No search text: use Genre filter
         val genre = filters.firstInstanceOrNull<AnimeOnsenFilters.GenreFilter>()?.getValue()
 
         return if (!genre.isNullOrBlank()) {
-            // A genre is selected, reroute to /genre/slug endpoint
             GET("$apiUrl/content/index/genre/$genre", headers)
         } else {
-            // "All" selected, fallback to standard index with pagination
             val start = (page - 1) * 30
             GET("$apiUrl/content/index?start=$start&limit=30", headers)
         }
@@ -131,8 +128,54 @@ class AnimeOnsen :
         status = parseStatus(details.mal_data?.status)
         author = details.mal_data?.studios?.joinToString { it.name }
         genre = details.mal_data?.genres?.joinToString { it.name }
-        description = details.mal_data?.synopsis
         thumbnail_url = "$apiUrl/image/210x300/${details.content_id}"
+
+        val descBuilder = StringBuilder()
+
+        details.mal_data?.mean_score?.let { score ->
+            val starCount = (score / 2.0).roundToInt().coerceIn(0, 5)
+            val stars = "★".repeat(starCount) + "☆".repeat(5 - starCount)
+            descBuilder.append("$stars $score\n\n")
+        }
+
+        // Main synopsis
+        details.mal_data?.synopsis?.let { descBuilder.append(it) }
+
+        val subsList = try {
+            val epsResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/episodes", headers)).execute()
+            val epsJson = epsResponse.parseAs<Map<String, EpisodeDto>>()
+            epsResponse.close()
+
+            val firstEpNum = epsJson.keys.firstOrNull()
+            if (firstEpNum != null) {
+                val videoResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/video/$firstEpNum", headers)).execute()
+                val videoData = videoResponse.parseAs<VideoData>()
+                videoResponse.close()
+                videoData.metadata.subtitles.values
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val extras = buildList {
+            details.mal_data?.rating?.let {
+                val formattedRating = it.replace("_", " ").uppercase()
+                add("**Rating:** $formattedRating")
+            }
+            if (subsList.isNotEmpty()) {
+                add("**Subtitles:** ${subsList.joinToString(", ")}")
+            }
+            details.mal_id?.let { add("[MAL](https://myanimelist.net/anime/$it)") }
+        }
+
+        if (extras.isNotEmpty()) {
+            descBuilder.append("\n\n")
+            descBuilder.append(extras.joinToString("\n"))
+        }
+
+        description = descBuilder.toString().trimEnd()
     }
 
     // ============================== Episodes ==============================
@@ -146,7 +189,10 @@ class AnimeOnsen :
             SEpisode.create().apply {
                 url = "$contentId/video/$epNum"
                 episode_number = epNum.toFloat()
-                name = "Episode $epNum: ${item.name}"
+                name = when (preferredTitle) {
+                    "english" -> "Episode $epNum: ${item.nameEn ?: item.nameJp ?: ""}"
+                    else -> "Episode $epNum: ${item.nameJp ?: item.nameEn ?: ""}"
+                }
             }
         }.sortedByDescending { it.episode_number }
     }
@@ -229,14 +275,14 @@ class AnimeOnsen :
 
 const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.3"
 
-// Title Preferences
+// Title and episode name preferences
 private const val PREF_TITLE_KEY = "preferred_title"
 private const val PREF_TITLE_TITLE = "Preferred Title Language"
 private const val PREF_TITLE_DEFAULT = "romanji"
 private val PREF_TITLE_ENTRIES = arrayOf("Romanji", "English")
 private val PREF_TITLE_VALUES = arrayOf("romanji", "english")
 
-// Subtitle Preferences
+// Subtitle preferences
 private const val PREF_SUB_KEY = "preferred_subLang"
 private const val PREF_SUB_TITLE = "Preferred sub language"
 const val PREF_SUB_DEFAULT = "en-US"
