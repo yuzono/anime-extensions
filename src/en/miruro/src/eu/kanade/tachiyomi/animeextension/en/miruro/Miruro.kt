@@ -587,9 +587,9 @@ class Miruro :
         val episodes = mutableListOf<SEpisode>()
         val seenNumbers = mutableSetOf<Float>()
 
-	val providersToProcess = mutableListOf<String>()
-	providersToProcess.add(primaryProvider)
-	for (providerKey in providerOrder) {
+        val providersToProcess = mutableListOf<String>()
+        providersToProcess.add(primaryProvider)
+        for (providerKey in providerOrder) {
             if (providerKey != primaryProvider && providerKey in availableProviders) {
                 providersToProcess.add(providerKey)
             }
