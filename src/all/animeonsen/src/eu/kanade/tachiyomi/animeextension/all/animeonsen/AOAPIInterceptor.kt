@@ -15,10 +15,16 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
 
     private var token: String? = null
 
+    // Create a separate client for fetching the token to avoid infinite recursion
+    private val tokenClient by lazy {
+        client.newBuilder()
+            .apply { interceptors().removeAll { it is AOAPIInterceptor } }
+            .build()
+    }
+
     @Synchronized
     private fun fetchToken(): String? {
         return try {
-            // OAuth2 standard requires x-www-form-urlencoded, not JSON
             val formBody = FormBody.Builder()
                 .add("client_id", "f296be26-28b5-4358-b5a1-6259575e23b7")
                 .add("client_secret", "349038c4157d0480784753841217270c3c5b35f4281eaee029de21cb04084235")
@@ -36,7 +42,7 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
                 "https://www.animeonsen.xyz/",
             )
 
-            val response = client.newCall(
+            val response = tokenClient.newCall(
                 POST(
                     "https://auth.animeonsen.xyz/oauth/token",
                     headers,
@@ -46,6 +52,7 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
 
             val responseBody = response.body?.string()
 
+            // If we still get an HTML page (Cloudflare block or wrong endpoint), fail gracefully
             if (responseBody.isNullOrBlank() || responseBody.trimStart().startsWith("<")) {
                 return null
             }
@@ -53,6 +60,7 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
             val tokenObject = Json.decodeFromString<JsonObject>(responseBody)
             tokenObject["access_token"]?.jsonPrimitive?.content
         } catch (_: Throwable) {
+            // Silently fail so we don't break endpoints that don't require auth (like Search)
             null
         }
     }
