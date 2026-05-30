@@ -17,12 +17,14 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
+import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
@@ -50,17 +52,25 @@ class AnimeOnsen :
 
     private val json: Json by injectLazy()
 
-    override fun headersBuilder() = Headers.Builder().add("user-agent", AO_USER_AGENT)
+    override fun headersBuilder() = Headers.Builder()
+        .add("User-Agent", AO_USER_AGENT)
+        .add("Accept", "application/json, text/plain, */*")
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("Referer", "$baseUrl/")
+        .add("Origin", baseUrl)
+        .add("Sec-Fetch-Dest", "empty")
+        .add("Sec-Fetch-Mode", "cors")
+        .add("Sec-Fetch-Site", "same-site")
+
+    private val preferredTitle: String
+        get() = preferences.getString(PREF_TITLE_KEY, PREF_TITLE_DEFAULT)!!
 
     // ============================== Popular ===============================
-    // The site doesn't have a popular anime tab, so we use the home page instead (latest anime).
-    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/content/index?start=${(page - 1) * 20}&limit=20")
+    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/content/index?start=${(page - 1) * 30}&limit=30", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseJson = response.parseAs<AnimeListResponse>()
         val animes = responseJson.content.map { it.toSAnime() }
-        // we can't (easily) serialize this thing because it returns a array with
-        // two types: a boolean and a integer.
         val hasNextPage = responseJson.cursor.next.firstOrNull()?.jsonPrimitive?.boolean == true
         return AnimesPage(animes, hasNextPage)
     }
@@ -70,23 +80,54 @@ class AnimeOnsen :
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$apiUrl/search/$query")
+    override fun getFilterList(): AnimeFilterList = AnimeOnsenFilters.FILTER_LIST
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        // When there's search text, override filters and use the search endpoint
+        if (query.isNotBlank()) {
+            return GET("$apiUrl/search/$query", headers)
+        }
+
+        // No search text: use Genre filter
+        val genre = filters.firstInstanceOrNull<AnimeOnsenFilters.GenreFilter>()?.getValue()
+
+        return if (!genre.isNullOrBlank()) {
+            // A genre is selected, reroute to /genre/slug endpoint
+            GET("$apiUrl/content/index/genre/$genre", headers)
+        } else {
+            // "All" selected, fallback to standard index with pagination
+            val start = (page - 1) * 30
+            GET("$apiUrl/content/index?start=$start&limit=30", headers)
+        }
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val searchResult = response.parseAs<SearchResponse>().result
-        val results = searchResult.map { it.toSAnime() }
-        return AnimesPage(results, false)
+        val requestUrl = response.request.url.toString()
+
+        return if (requestUrl.contains("/search/") || requestUrl.contains("/genre/")) {
+            val searchResult = response.parseAs<SearchResponse>().result
+            val results = searchResult.map { it.toSAnime() }
+            AnimesPage(results, false)
+        } else {
+            val responseJson = response.parseAs<AnimeListResponse>()
+            val animes = responseJson.content.map { it.toSAnime() }
+            val hasNextPage = responseJson.cursor.next.firstOrNull()?.jsonPrimitive?.boolean == true
+            AnimesPage(animes, hasNextPage)
+        }
     }
 
     // =========================== Anime Details ============================
-    override fun animeDetailsRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/extensive")
+    override fun animeDetailsRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/extensive", headers)
 
     override fun getAnimeUrl(anime: SAnime) = "$baseUrl/details/${anime.url}"
 
     override fun animeDetailsParse(response: Response) = SAnime.create().apply {
         val details = response.parseAs<AnimeDetails>()
         url = details.content_id
-        title = details.content_title ?: details.content_title_en!!
+        title = when (preferredTitle) {
+            "english" -> details.content_title_en ?: details.content_title!!
+            else -> details.content_title ?: details.content_title_en!!
+        }
         status = parseStatus(details.mal_data?.status)
         author = details.mal_data?.studios?.joinToString { it.name }
         genre = details.mal_data?.genres?.joinToString { it.name }
@@ -95,7 +136,7 @@ class AnimeOnsen :
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/episodes")
+    override fun episodeListRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/episodes", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val contentId = response.request.url.toString().substringBeforeLast("/episodes")
@@ -115,7 +156,6 @@ class AnimeOnsen :
         val videoData = response.parseAs<VideoData>()
         val videoUrl = videoData.uri.stream
         val subtitleLangs = videoData.metadata.subtitles
-        val headers = headersBuilder().add("referer", baseUrl).build()
 
         val subs = videoData.uri.subtitles.sortSubs().map { (langPrefix, subUrl) ->
             val language = subtitleLangs[langPrefix]!!
@@ -126,12 +166,28 @@ class AnimeOnsen :
         return listOf(video)
     }
 
-    override fun videoListRequest(episode: SEpisode) = GET("$apiUrl/content/${episode.url}")
+    override fun videoListRequest(episode: SEpisode) = GET("$apiUrl/content/${episode.url}", headers)
 
     override fun videoUrlParse(response: Response) = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = PREF_TITLE_KEY
+            title = PREF_TITLE_TITLE
+            entries = PREF_TITLE_ENTRIES
+            entryValues = PREF_TITLE_VALUES
+            setDefaultValue(PREF_TITLE_DEFAULT)
+            summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
+        }.also(screen::addPreference)
+
         ListPreference(screen.context).apply {
             key = PREF_SUB_KEY
             title = PREF_SUB_TITLE
@@ -157,7 +213,10 @@ class AnimeOnsen :
 
     private fun AnimeListItem.toSAnime() = SAnime.create().apply {
         url = content_id
-        title = content_title ?: content_title_en!!
+        title = when (preferredTitle) {
+            "english" -> content_title_en ?: content_title!!
+            else -> content_title ?: content_title_en!!
+        }
         thumbnail_url = "$apiUrl/image/210x300/$content_id"
     }
 
@@ -171,6 +230,15 @@ class AnimeOnsen :
 }
 
 const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.3"
+
+// Title Preferences
+private const val PREF_TITLE_KEY = "preferred_title"
+private const val PREF_TITLE_TITLE = "Preferred Title Language"
+private const val PREF_TITLE_DEFAULT = "romanji"
+private val PREF_TITLE_ENTRIES = arrayOf("Romanji", "English")
+private val PREF_TITLE_VALUES = arrayOf("romanji", "english")
+
+// Subtitle Preferences
 private const val PREF_SUB_KEY = "preferred_subLang"
 private const val PREF_SUB_TITLE = "Preferred sub language"
 const val PREF_SUB_DEFAULT = "en-US"
