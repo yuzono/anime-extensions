@@ -278,9 +278,9 @@ const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36
 // Title and episode name preferences
 private const val PREF_TITLE_KEY = "preferred_title"
 private const val PREF_TITLE_TITLE = "Preferred Title Language"
-private const val PREF_TITLE_DEFAULT = "romanji"
-private val PREF_TITLE_ENTRIES = arrayOf("Romanji", "English")
-private val PREF_TITLE_VALUES = arrayOf("romanji", "english")
+private const val PREF_TITLE_DEFAULT = "romaji"
+private val PREF_TITLE_ENTRIES = arrayOf("Romaji", "English")
+private val PREF_TITLE_VALUES = arrayOf("romaji", "english")
 
 // Subtitle preferences
 private const val PREF_SUB_KEY = "preferred_subLang"
