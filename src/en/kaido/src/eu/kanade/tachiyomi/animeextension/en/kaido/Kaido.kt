@@ -17,7 +17,7 @@ class Kaido :
     ) {
     private val rapidCloudExtractor by lazy { RapidCloudExtractor(client, headers, preferences) }
 
-    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+    override suspend fun extractVideo(server: VideoData): List<Video> = when (server.name) {
         "Vidstreaming", "Vidcloud" -> rapidCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
         else -> emptyList()
     }
