@@ -1,9 +1,11 @@
+import keiyoushi.gradle.extensions.baseVersionCode
+
 plugins {
-    id("lib-multisrc")
+    alias(kei.plugins.multisrc)
 }
 
-baseVersionCode = 3
+baseVersionCode = 4
 
 dependencies {
-    implementation(project(":lib:megaupextractor"))
+    api(project(":lib:megaupextractor"))
 }

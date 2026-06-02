@@ -16,13 +16,12 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
@@ -179,7 +178,7 @@ class AnimeUnity :
                 "dubbed": ${if (filters.dub.isEmpty()) "false" else "true"},
                 "season": ${filters.season.falseIfEmpty()}
             }
-            """.trimIndent().toRequestBody("application/json".toMediaType())
+            """.trimIndent().toJsonRequestBody()
 
         return POST("$baseUrl/archivio/get-animes", body = body, headers = searchHeaders)
     }

@@ -13,7 +13,8 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -119,12 +120,12 @@ class TRAnimeCI :
         name = "Bölüm $epNum"
         episode_number = epNum.toFloat()
 
-        date_upload = element.selectFirst(".epl-date")?.text().toDate()
+        date_upload = element.selectFirst(".epl-date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val script = doc.selectFirst("script:containsData(let video_source)")!!.data()
         return script.substringAfter("[").substringBefore("]")
             .split("{")

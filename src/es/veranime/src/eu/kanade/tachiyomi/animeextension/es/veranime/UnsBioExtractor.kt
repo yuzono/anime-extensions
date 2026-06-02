@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.es.veranime
 
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.decodeHex
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -165,9 +166,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
             val ivSpec = IvParameterSpec(ivBytes)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
 
-            val ciphertext = ByteArray(apiResponse.length / 2) { i ->
-                apiResponse.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-            }
+            val ciphertext = apiResponse.decodeHex()
             val decryptedBytes = cipher.doFinal(ciphertext)
             val decrypted = String(decryptedBytes, Charsets.UTF_8)
 

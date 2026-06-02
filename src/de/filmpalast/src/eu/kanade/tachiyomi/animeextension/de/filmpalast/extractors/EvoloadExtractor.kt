@@ -3,9 +3,8 @@ package eu.kanade.tachiyomi.animeextension.de.filmpalast.extractors
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import okhttp3.MediaType.Companion.toMediaType
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.OkHttpClient
-import okhttp3.RequestBody.Companion.toRequestBody
 
 class EvoloadExtractor(private val client: OkHttpClient) {
 
@@ -19,7 +18,7 @@ class EvoloadExtractor(private val client: OkHttpClient) {
         val file = client.newCall(
             POST(
                 "https://evoload.io/SecurePlayer",
-                body = "{\"code\":\"$id\",\"token\":\"ok\",\"csrv_token\":\"$csrvToken\",\"pass\":\"$captchaPass\",\"reff\":\"https://filmpalast.to/\"}".toRequestBody("application/json".toMediaType()),
+                body = "{\"code\":\"$id\",\"token\":\"ok\",\"csrv_token\":\"$csrvToken\",\"pass\":\"$captchaPass\",\"reff\":\"https://filmpalast.to/\"}".toJsonRequestBody(),
             ),
         ).execute().body.string()
 
