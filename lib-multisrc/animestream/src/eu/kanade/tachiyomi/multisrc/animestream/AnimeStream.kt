@@ -351,8 +351,7 @@ abstract class AnimeStream(
     // Taken from LuciferDonghua
     protected open suspend fun getHosterUrl(encodedData: String): String {
         val doc = if (encodedData.toHttpUrlOrNull() == null) {
-            Base64.decode(encodedData, Base64.DEFAULT)
-                .let(::String) // bytearray -> string
+            String(Base64.decode(encodedData, Base64.DEFAULT))
                 .let(Jsoup::parse) // string -> document
         } else {
             client.newCall(GET(encodedData, headers)).awaitSuccess().useAsJsoup()

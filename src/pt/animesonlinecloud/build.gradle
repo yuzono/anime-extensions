@@ -2,7 +2,7 @@ ext {
     extName = 'AnimesOnlineCloud'
     extClass = '.AnimesOnlineCloud'
     themePkg = 'dooplay'
-    baseUrl = 'https://animesonline.cloud/'
+    baseUrl = 'https://animesonline.cloud'
     overrideVersionCode = 2
     isNsfw = true
 }
@@ -11,4 +11,5 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:bloggerextractor"))
+    implementation(project(":lib:playlistutils"))
 }

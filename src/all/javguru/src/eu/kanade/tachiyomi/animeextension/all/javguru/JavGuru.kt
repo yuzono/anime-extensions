@@ -257,7 +257,7 @@ class JavGuru :
 
         val iframeUrls = IFRAME_B64_REGEX.findAll(iframeData)
             .map { it.groupValues[1] }
-            .map { Base64.decode(it, Base64.DEFAULT).let(::String) }
+            .map { String(Base64.decode(it, Base64.DEFAULT)) }
             .toList()
 
         return iframeUrls

@@ -1,5 +1,5 @@
 ext {
-    extName = 'AnimesOnlineCC'
+    extName = 'Animes Online CC'
     extClass = '.AnimesOnlineCC'
     themePkg = 'dooplay'
     baseUrl = 'https://animesonlinecc.to'

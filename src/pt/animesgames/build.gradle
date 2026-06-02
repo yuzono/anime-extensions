@@ -8,4 +8,5 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:bloggerextractor'))
+    implementation(project(':lib:playlistutils'))
 }

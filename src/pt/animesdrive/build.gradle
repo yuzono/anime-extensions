@@ -2,7 +2,7 @@ ext {
     extName = 'AnimesDrive'
     extClass = '.AnimesDrive'
     themePkg = 'dooplay'
-    baseUrl = 'https://animesdrive.blog'
+    baseUrl = 'https://animesdrive.online'
     overrideVersionCode = 2
     isNsfw = true
 }
@@ -11,4 +11,5 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:bloggerextractor"))
+    implementation(project(":lib:playlistutils"))
 }
