@@ -62,6 +62,7 @@ class Miruro :
     private val SharedPreferences.preferredTitleStyle by preferences.delegate(PREF_TITLE_STYLE_KEY, PREF_TITLE_STYLE_DEFAULT)
     private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
     private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
+    private val SharedPreferences.preferredStreamType by preferences.delegate(PREF_STREAM_TYPE_KEY, PREF_STREAM_TYPE_DEFAULT)
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
@@ -201,11 +202,17 @@ class Miruro :
         private val PREF_SUB_TYPE_VALUES = listOf("sub", "dub", "ssub")
         private const val PREF_SUB_TYPE_DEFAULT = "sub"
 
+        private const val PREF_STREAM_TYPE_KEY = "preferred_stream_type"
+        private const val PREF_STREAM_TYPE_TITLE = "Preferred Stream Type"
+        private val PREF_STREAM_TYPE_ENTRIES = listOf("HLS", "Embed", "All")
+        private val PREF_STREAM_TYPE_VALUES = listOf("hls", "embed", "all")
+        private const val PREF_STREAM_TYPE_DEFAULT = "hls"
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
-        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
-        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
-        private const val PREF_QUALITY_DEFAULT = "1080"
+        private val PREF_QUALITY_ENTRIES = listOf("Highest Available", "1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("0", "1080", "720", "480", "360")
+        private const val PREF_QUALITY_DEFAULT = "0"
 
         private const val PREF_TITLE_STYLE_KEY = "preferred_title_style"
         private const val PREF_TITLE_STYLE_TITLE = "Title Display Style"
@@ -241,8 +248,8 @@ class Miruro :
 
         private const val PREF_DESCRIPTION_TRUNCATE_KEY = "description_truncation"
         private const val PREF_DESCRIPTION_TRUNCATE_TITLE = "Description Truncation"
-        private val PREF_DESCRIPTION_TRUNCATE_ENTRIES = listOf("No Limit", "500 characters", "300 characters", "150 characters")
-        private val PREF_DESCRIPTION_TRUNCATE_VALUES = listOf("0", "500", "300", "150")
+        private val PREF_DESCRIPTION_TRUNCATE_ENTRIES = listOf("No Limit", "750 characters", "500 characters", "300 characters", "150 characters", "75 characters")
+        private val PREF_DESCRIPTION_TRUNCATE_VALUES = listOf("0", "750", "500", "300", "150", "75")
         private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
 
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
@@ -796,15 +803,24 @@ class Miruro :
         val subTypeLabel = formatSubTypeLabel(preferences.preferredSubType)
         val providerName = providerDisplayName(preferences.preferredProvider)
         val qualityInt = quality.toIntOrNull() ?: 0
-        // HLS only — no format filter needed
+        val streamTypePref = preferences.preferredStreamType
 
-        return sortedWith(
+        val filtered: List<Video> = when (streamTypePref) {
+            "hls" -> filter { it.quality.contains("HLS") }
+            "embed" -> filter { it.quality.contains("EMBED") }
+            else -> this
+        }
+
+        if (filtered.isEmpty()) return this
+
+        return filtered.sortedWith(
             compareByDescending<Video> { it.quality.contains("HLS") }
                 .thenByDescending { it.quality.contains(providerName) }
                 .thenByDescending { it.quality.contains(subTypeLabel) }
                 .thenByDescending {
                     val q = QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                     when {
+                        qualityInt == 0 -> q
                         q == qualityInt -> 100000
                         q > 0 -> q
                         it.quality.contains(quality) -> 99999
@@ -874,6 +890,15 @@ class Miruro :
             entries = PREF_SUB_TYPE_ENTRIES,
             entryValues = PREF_SUB_TYPE_VALUES,
             default = PREF_SUB_TYPE_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_STREAM_TYPE_KEY,
+            title = PREF_STREAM_TYPE_TITLE,
+            entries = PREF_STREAM_TYPE_ENTRIES,
+            entryValues = PREF_STREAM_TYPE_VALUES,
+            default = PREF_STREAM_TYPE_DEFAULT,
             summary = "%s",
         )
 
