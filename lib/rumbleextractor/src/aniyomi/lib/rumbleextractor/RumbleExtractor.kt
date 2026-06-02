@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.donghuastream.extractors
+package aniyomi.lib.rumbleextractor
 
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video

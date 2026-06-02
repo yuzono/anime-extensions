@@ -3,6 +3,6 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":lib:m3u8server"))
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:unpacker"))
 }

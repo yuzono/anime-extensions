@@ -48,7 +48,7 @@ class HiAnime :
         url = url.substringBefore("?")
     }
 
-    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+    override suspend fun extractVideo(server: VideoData): List<Video> = when (server.name) {
         "StreamTape" -> {
             streamtapeExtractor.videoFromUrl(
                 server.link,
@@ -60,6 +60,7 @@ class HiAnime :
             server.link,
             server.type,
             server.name,
+            server.name == "HD-3",
         )
 
         else -> emptyList()
