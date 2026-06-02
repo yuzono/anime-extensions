@@ -101,6 +101,7 @@ data class StreamDto(
     val audio: String = "",
     val fansub: String = "",
     val referer: String = "https://kwik.cx/",
+    val isActive: Boolean = true,
 )
 
 @Serializable
