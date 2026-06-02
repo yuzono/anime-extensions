@@ -12,7 +12,7 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.applicationContext
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -25,8 +25,9 @@ class UniversalExtractor(private val client: OkHttpClient) {
     @SuppressLint("SetJavaScriptEnabled")
     @Synchronized
     fun videosFromUrl(origRequestUrl: String, origRequestHeader: Headers, name: String?): List<Video> {
+        val httpUrl = origRequestUrl.toHttpUrlOrNull() ?: return emptyList()
         Log.d(tag, "Fetching videos from: $origRequestUrl")
-        val host = origRequestUrl.toHttpUrl().host.substringBefore(".").proper()
+        val host = httpUrl.host.removePrefix("www.").substringBefore(".").proper()
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var resultUrl = ""
@@ -64,7 +65,8 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 }
             }
 
-            webView?.loadUrl("$origRequestUrl&dl=1", headers)
+            val loadUrl = httpUrl.newBuilder().addQueryParameter("dl", "1").build().toString()
+            webView?.loadUrl(loadUrl, headers)
         }
 
         latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
@@ -88,7 +90,12 @@ class UniversalExtractor(private val client: OkHttpClient) {
             }
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
-                Video(resultUrl, "$prefix: MP4", resultUrl, Headers.headersOf("referer", origRequestUrl)).let(::listOf)
+                Video(
+                    resultUrl,
+                    "$prefix: MP4",
+                    resultUrl,
+                    Headers.headersOf("referer", origRequestUrl),
+                ).let(::listOf)
             }
             else -> emptyList()
         }
@@ -106,7 +113,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
 
     companion object {
         const val TIMEOUT_SEC: Long = 10
-        private val VIDEO_REGEX by lazy { Regex(".*\\.(mp4|m3u8|mpd)(\\?.*)?$") }
+        private val VIDEO_REGEX by lazy { Regex(".*\\.(mp4|m3u8|mpd)(\\?.*)?$", RegexOption.IGNORE_CASE) }
         private val CHECK_SCRIPT by lazy {
             """
             setInterval(() => {

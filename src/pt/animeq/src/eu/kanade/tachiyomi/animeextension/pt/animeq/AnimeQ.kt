@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animeextension.pt.animeq.extractors.UniversalExtracto
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
@@ -27,6 +28,8 @@ class AnimeQ :
         "https://animeq.net",
     ) {
     // ============================== Popular ===============================
+    override fun popularAnimeSelector() = "article.w_item_a > a, article.w_item_b > a"
+
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/anime", headers)
 
     // =============================== Latest ===============================
@@ -35,14 +38,11 @@ class AnimeQ :
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
-
-        val orderByFilter = filterList.find { it is OrderByFilter } as? OrderByFilter
-        val orderFilter = filterList.find { it is OrderFilter } as? OrderFilter
+        val params = AnimeQFilters.getSearchParameters(filterList)
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             filterList.firstOrNull { it is UriPartFilter && it.state != 0 }?.let {
-                val filter = it as UriPartFilter
-                addEncodedPathSegments(filter.toUriPart())
+                addEncodedPathSegments((it as UriPartFilter).toUriPart())
             }
 
             if (page > 1) {
@@ -53,9 +53,8 @@ class AnimeQ :
             addPathSegment("")
             addQueryParameter("s", query)
 
-            // order (optional)
-            if (orderByFilter != null) addQueryParameter("orderby", orderByFilter.selected)
-            if (orderFilter != null) addQueryParameter("order", orderFilter.selected)
+            params.orderBy?.let { addQueryParameter("orderby", it) }
+            params.order?.let { addQueryParameter("order", it) }
         }.build()
 
         return GET(url.toString(), headers)
@@ -65,12 +64,12 @@ class AnimeQ :
     override val additionalInfoSelector = "div.wp-content"
 
     override fun Document.getDescription(): String = select("$additionalInfoSelector p")
-        .first { !it.text().contains("Título Alternativo") }
-        ?.let { it.text() + "\n" }
+        .firstOrNull { !it.text().contains("Título Alternativo") }
+        ?.let { it.text().substringAfter("Sinopse: ") + "\n" }
         ?: ""
 
     fun Document.getAlternativeTitle(): String = select("$additionalInfoSelector p")
-        .first { it.text().contains("Título Alternativo") }
+        .firstOrNull { it.text().contains("Título Alternativo") }
         ?.let { it.text() + "\n" }
         ?: ""
 
@@ -79,28 +78,38 @@ class AnimeQ :
         val sheader = doc.selectFirst("div.sheader")!!
         return SAnime.create().apply {
             setUrlWithoutDomain(doc.location())
-            sheader.selectFirst("div.poster > img")!!.let {
-                thumbnail_url = it.getImageUrl()
-                title = it.attr("alt").ifEmpty {
-                    sheader.selectFirst("div.data > h1")!!.text()
-                }.trim()
-            }
+            val posterImg = requireNotNull(sheader.selectFirst("div.poster > img"))
+            thumbnail_url = posterImg.getImageUrl()
+            title = posterImg.attr("alt").ifEmpty {
+                sheader.selectFirst("div.data > h1")?.text() ?: ""
+            }.trim()
 
             genre = sheader.select("div.data div.sgeneros > a")
                 .eachText()
                 .joinToString()
 
-            // description = doc.getDescription()
-            doc.selectFirst("div#info")?.let { info ->
-                description = buildString {
-                    append(doc.getDescription())
-                    append(doc.getAlternativeTitle())
-                    additionalInfoItems.forEach {
-                        info.getInfo(it)?.let(::append)
-                    }
+            val info = doc.selectFirst("div#info") ?: return@apply
+            description = buildString {
+                append(doc.getDescription())
+                appendLine()
+                append(doc.getAlternativeTitle())
+                additionalInfoItems.forEach { item ->
+                    info.getInfo(item)?.let { value -> append(value) }
                 }
             }
         }
+    }
+
+    // ============================== Episodes ==============================
+    override fun episodeListSelector() = "div.episodios-grid > div.episode-card"
+
+    override fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
+        val epNum = element.attr("data-episode-number").trim()
+        val href = element.selectFirst("a[href]")!!
+        val episodeName = element.attr("data-episode-title").trim()
+        episode_number = epNum.toFloatOrNull() ?: 0F
+        name = "$episodeSeasonPrefix $seasonName x $epNum - $episodeName"
+        setUrlWithoutDomain(href.attr("href"))
     }
 
     // ============================ Video Links =============================
@@ -114,8 +123,8 @@ class AnimeQ :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private suspend fun getPlayerVideos(player: Element): List<Video> {
-        val name = player.selectFirst("span.title")!!.text()
-            .run {
+        val name = player.selectFirst("span.title")?.text()
+            ?.run {
                 when (this.uppercase()) {
                     "SD" -> "360p"
                     "HD" -> "720p"
@@ -123,9 +132,10 @@ class AnimeQ :
                     "FHD", "FULLHD", "FULLHD / HLS" -> "1080p"
                     else -> this
                 }
-            }
+            } ?: "Player"
 
         val url = getPlayerUrl(player)
+        if (url.isEmpty() || !url.startsWith("http")) return emptyList()
 
         val videos = when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
@@ -174,11 +184,11 @@ class AnimeQ :
     override fun getFilterList(): AnimeFilterList = if (hasFetchedGenresArray) {
         AnimeFilterList(
             AnimeFilter.Header(genreFilterHeader),
-            AudioFilter(),
+            AnimeQFilters.AudioFilter(),
             FetchedGenresFilter(genresListMessage, genresArray),
             AnimeFilter.Separator(),
-            OrderByFilter(),
-            OrderFilter(),
+            AnimeQFilters.OrderByFilter(),
+            AnimeQFilters.OrderFilter(),
         )
     } else if (fetchGenres) {
         AnimeFilterList(AnimeFilter.Header(genresMissingWarning))
@@ -217,43 +227,6 @@ class AnimeQ :
             arrayOf(Pair(selectFilterText, "")) + items
         }
     }
-
-    private class AudioFilter :
-        UriPartFilter(
-            "Áudio",
-            arrayOf(
-                Pair("Todos", ""),
-                Pair("Dublado", "tipo/dublado"),
-                Pair("Legendado", "tipo/legendado"),
-            ),
-        )
-
-    private abstract class SelectFilter(
-        name: String,
-        private val options: Array<Pair<String, String>>,
-    ) : AnimeFilter.Select<String>(name, options.map { it.first }.toTypedArray()) {
-        val selected
-            get() = options[state].second
-    }
-
-    private class OrderByFilter :
-        SelectFilter(
-            "Ordenar Por",
-            arrayOf(
-                Pair("Data de Criação", "date"),
-                Pair("Data de Modificação", "modified"),
-                Pair("Título", "title"),
-            ),
-        )
-
-    private class OrderFilter :
-        SelectFilter(
-            "Ordem",
-            arrayOf(
-                Pair("Descendente", "desc"),
-                Pair("Ascendente", "asc"),
-            ),
-        )
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
