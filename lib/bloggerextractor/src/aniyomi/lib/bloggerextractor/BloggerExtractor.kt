@@ -3,22 +3,22 @@ package aniyomi.lib.bloggerextractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import kotlinx.serialization.json.Json
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import uy.kohesive.injekt.injectLazy
 
 class BloggerExtractor(private val client: OkHttpClient) {
-    private val json: Json by injectLazy()
 
-    fun videosFromUrl(url: String, headers: Headers, suffix: String = ""): List<Video> = runCatching {
-        val body = client.newCall(GET(url, headers)).execute().use { it.body.string() }
+    suspend fun videosFromUrl(url: String, headers: Headers, suffix: String = ""): List<Video> {
+        val body = client.newCall(GET(url, headers)).awaitSuccess().bodyString()
 
-        getStreamVideos(body, headers, suffix)
+        return getStreamVideos(body, headers, suffix)
             .ifEmpty { getRpcVideos(url, body, headers, suffix) }
-    }.getOrDefault(emptyList())
+    }
 
     private fun getStreamVideos(body: String, headers: Headers, suffix: String = ""): List<Video> {
         if (body.contains("errorContainer")) return emptyList()
@@ -32,7 +32,7 @@ class BloggerExtractor(private val client: OkHttpClient) {
                     .takeIf(String::isNotBlank)
                     ?: return@mapNotNull null
                 val format = it.substringAfter("\"format_id\":").substringBefore('}')
-                Video(videoUrl, "Blogger - ${qualityFromFormat(format)} $suffix", videoUrl, headers)
+                Video(videoUrl, "Blogger - ${qualityFromFormat(format)} $suffix".trimEnd(), videoUrl, headers)
             }
     }
 
@@ -40,7 +40,7 @@ class BloggerExtractor(private val client: OkHttpClient) {
      * Extract videos from the RPC URL
      * Based on https://github.com/FightFarewellFearless/AniFlix/blob/4b07254fc0051664691fd2f3c001dbd6b43e18ad/src/utils/scrapers/animeSeries.ts#L445
      */
-    private fun getRpcVideos(
+    private suspend fun getRpcVideos(
         url: String,
         body: String,
         headers: Headers,
@@ -79,8 +79,8 @@ class BloggerExtractor(private val client: OkHttpClient) {
             "Referer", BLOGGER_BASE,
         )
 
-        val rpcString = client.newCall(POST(rpcUrl, body = rpcBody, headers = rpcHeaders)).execute()
-            .use { it.body.string() }
+        val rpcString = client.newCall(POST(rpcUrl, body = rpcBody, headers = rpcHeaders))
+            .awaitSuccess().bodyString()
 
         if (!rpcString.contains("https://")) return emptyList()
 
@@ -93,7 +93,7 @@ class BloggerExtractor(private val client: OkHttpClient) {
                 val videoUrl = it.substringAfter("\\\"", "")
                     .substringBefore("\\\"")
                     .takeIf(String::isNotBlank)
-                    ?.let { decodeDoubleEscapedJson(it) }
+                    ?.let(::decodeDoubleEscapedJson)
                     ?: return@mapNotNull null
 
                 val format = it.substringAfter("[").substringBefore("]")
@@ -105,8 +105,8 @@ class BloggerExtractor(private val client: OkHttpClient) {
     private fun decodeDoubleEscapedJson(value: String): String? = runCatching {
         // The RPC response wraps the URL in JSON double-escaped strings,
         // so it needs two decoding passes: escaped -> JSON string -> actual value
-        val first = json.decodeFromString<String>("\"$value\"")
-        json.decodeFromString<String>("\"$first\"")
+        val first = "\"$value\"".parseAs<String>()
+        "\"$first\"".parseAs<String>()
     }.getOrNull()
 
     private fun qualityFromFormat(format: String): String = when (format) {
