@@ -2,7 +2,7 @@ ext {
     extName = 'AsyaAnimeleri'
     extClass = '.AsyaAnimeleri'
     themePkg = 'animestream'
-    baseUrl = 'https://asyaanimeleri.com'
+    baseUrl = 'https://asyaanimeleri.top'
     overrideVersionCode = 15
 }
 

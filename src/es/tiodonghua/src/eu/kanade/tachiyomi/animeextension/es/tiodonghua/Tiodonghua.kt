@@ -6,7 +6,6 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import kotlinx.coroutines.runBlocking
 
 class Tiodonghua :
     AnimeStream(
@@ -21,16 +20,13 @@ class Tiodonghua :
     private val youruploadExtractor by lazy { YourUploadExtractor(client) }
     private val mixdropExtractor by lazy { MixDropExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
-        when (name) {
-            "Okru" -> okruExtractor.videosFromUrl(url)
-            "Voe" -> voeExtractor.videosFromUrl(url)
-            "YourUpload" -> youruploadExtractor.videoFromUrl(url, headers)
-            "MixDrop" -> mixdropExtractor.videosFromUrl(url)
-            else -> emptyList()
-        }
+    override suspend fun getVideoList(url: String, name: String): List<Video> = when (name) {
+        "Okru" -> okruExtractor.videosFromUrl(url)
+        "Voe" -> voeExtractor.videosFromUrl(url)
+        "YourUpload" -> youruploadExtractor.videoFromUrl(url, headers)
+        "MixDrop" -> mixdropExtractor.videosFromUrl(url)
+        else -> emptyList()
     }
 
-    override val fetchFilters: Boolean
-        get() = false
+    override val fetchFilters = false
 }

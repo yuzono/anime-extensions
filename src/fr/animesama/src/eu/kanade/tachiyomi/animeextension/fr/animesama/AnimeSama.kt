@@ -116,6 +116,24 @@ class AnimeSama :
     // =============================== Search ===============================
     override fun getFilterList() = AnimeSamaFilters.FILTER_LIST
 
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        } else if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            val animeUrl = if (id.startsWith("/")) "$baseUrl$id" else "$baseUrl/$id"
+            val seasons = fetchAnimeSeasons(animeUrl)
+            return AnimesPage(seasons, false)
+        }
+        return super.getSearchAnime(page, query, filters)
+    }
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$baseUrl/catalogue/".toHttpUrl().newBuilder()
         val params = AnimeSamaFilters.getSearchFilters(filters)
