@@ -482,8 +482,6 @@ class AnimeVerse :
         val epNum = payload.int("ep")
         val malId = payload.int("malId")
         val items = (payload["items"] as? JsonArray) ?: return emptyList()
-        val preferDirect = preferences.getBoolean(PREF_DIRECT_MP4, PREF_DIRECT_MP4_DEFAULT)
-        val cookie = synchronized(lock) { sessionCookie }
         val seenUrls = mutableSetOf<String>()
         val videos = mutableListOf<Video>()
         val hosterExclusion = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
@@ -545,64 +543,49 @@ class AnimeVerse :
                             val vidnestVideos = fetchVidnestVideos(vidnestUrl, kind, serverLabel)
                             vidnestVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
                         }
-                        // Fallback for Chiki if AnimeVerse returns a MegaPlay link directly
-                        else if (streamPath.contains("megaplay.buzz") || streamPath.startsWith("/stream/mal/") || streamPath.startsWith("/stream/ani/") || streamPath.startsWith("/stream/s-2/")) {
-                            val refererUrl = if (streamPath.startsWith("http")) streamPath else "https://megaplay.buzz$streamPath"
+                        // Fallback for MegaPlay if AnimeVerse returns a link directly
+                        else if (isMegaplayStream(streamPath)) {
+                            val fullUrl = if (streamPath.startsWith("http")) {
+                                streamPath
+                            } else {
+                                val host = streamObj.string("host").orEmpty()
+                                if (host.isNotEmpty()) "https://$host$streamPath" else "https://megaplay.buzz$streamPath"
+                            }
+
                             var megaplayId = when {
-                                streamPath.contains("id=") -> streamPath.substringAfter("id=").substringBefore("&").substringBefore("\"").trim()
+                                fullUrl.contains("id=") -> fullUrl.substringAfter("id=").substringBefore("&").substringBefore("\"").trim()
                                 streamPath.matches(Regex("^\\d+$")) -> streamPath
                                 else -> ""
                             }
 
                             if (megaplayId.isEmpty()) {
-                                megaplayId = extractMegaplayId(refererUrl) ?: ""
+                                megaplayId = extractMegaplayId(fullUrl) ?: ""
                             }
 
                             if (megaplayId.isNotEmpty()) {
-                                val megaplayVideos = fetchMegaplayVideos(megaplayId, refererUrl, kind, serverLabel)
+                                val megaplayVideos = fetchMegaplayVideos(megaplayId, fullUrl, kind, serverLabel)
                                 megaplayVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
                             }
                         }
-                        // Standard AnimeVerse Proxy/Direct streams
+                        // Standard AnimeVerse Direct streams (Removed Proxy due to 404)
                         else {
                             val videoHeaders = Headers.Builder()
                                 .add("Referer", "$baseUrl/")
                                 .add("Origin", baseUrl)
                                 .build()
 
-                            val directUrl = if (streamPath.startsWith("/r/")) {
-                                runCatching { String(base64UrlDecode(streamPath.substringAfter("/r/").substringBefore("."))) }.getOrDefault("")
-                            } else if (streamPath.startsWith("http")) {
-                                streamPath
-                            } else {
-                                ""
+                            val directUrl = when {
+                                streamPath.startsWith("/r/") -> {
+                                    runCatching { String(base64UrlDecode(streamPath.substringAfter("/r/").substringBefore("."))) }.getOrDefault("")
+                                }
+                                streamPath.startsWith("http") -> streamPath
+                                else -> ""
                             }
 
-                            val directVideo = if (directUrl.startsWith("http")) {
-                                Video(directUrl, "$kind - $serverLabel - Direct", directUrl, videoHeaders)
-                            } else {
-                                null
+                            if (directUrl.startsWith("http")) {
+                                val video = Video(directUrl, "$kind - $serverLabel", directUrl, videoHeaders)
+                                if (seenUrls.add(video.url)) videos.add(video)
                             }
-
-                            val proxyHeaders = Headers.Builder()
-                                .add("Referer", "$baseUrl/")
-                                .add("Origin", baseUrl)
-                                .add("Cookie", "av_session=$cookie")
-                                .build()
-
-                            val proxiedVideo = if (streamPath.startsWith("/")) {
-                                Video("$baseUrl$streamPath", "$kind - $serverLabel - Proxied", "$baseUrl$streamPath", proxyHeaders)
-                            } else {
-                                null
-                            }
-
-                            val serverVideos = if (preferDirect) {
-                                listOfNotNull(directVideo, proxiedVideo)
-                            } else {
-                                listOfNotNull(proxiedVideo, directVideo)
-                            }
-
-                            serverVideos.filter { seenUrls.add(it.url) }.also { videos.addAll(it) }
                         }
                     }
                 } catch (_: Exception) {
@@ -616,10 +599,28 @@ class AnimeVerse :
 
     // ========================= MegaPlay / VidWish ==========================
 
+    private fun extractBaseUrl(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return url
+        val pathStart = url.indexOf("/", schemeEnd + 3)
+        return if (pathStart > 0) url.substring(0, pathStart) else url
+    }
+
+    private fun isMegaplayStream(path: String): Boolean = path.contains("/stream/mal/") ||
+        path.contains("/stream/ani/") ||
+        path.contains("/stream/s-") ||
+        path.contains("megaplay") ||
+        path.contains("vidwish")
+
     private fun extractMegaplayId(pageUrl: String): String? {
         val pageHeaders = Headers.Builder()
-            .add("Referer", "https://megaplay.buzz/")
+            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .add("Referer", "$baseUrl/")
+            .add("Sec-Fetch-Dest", "iframe")
+            .add("Sec-Fetch-Mode", "navigate")
+            .add("Sec-Fetch-Site", "cross-site")
             .build()
+
         val pageResp = client.newCall(GET(pageUrl, pageHeaders)).execute()
         val pageBody = pageResp.bodyString()
 
@@ -642,15 +643,17 @@ class AnimeVerse :
     private fun fetchMegaplayVideos(id: String, referer: String, kind: String, serverName: String): List<Video> {
         val videos = mutableListOf<Video>()
         try {
-            val sourcesUrl = "https://megaplay.buzz/stream/getSources?id=$id"
+            val base = extractBaseUrl(referer)
+            val sourcesUrl = "$base/stream/getSources?id=$id&id=$id"
+
             val headers = Headers.Builder()
-                .add("Accept", "*/*")
+                .add("Accept", "application/json, text/javascript, */*; q=0.01")
                 .add("X-Requested-With", "XMLHttpRequest")
                 .add("Referer", referer)
-                .add("Origin", "https://megaplay.buzz")
+                .add("Origin", base)
                 .add("Sec-Fetch-Dest", "empty")
                 .add("Sec-Fetch-Mode", "cors")
-                .add("Sec-Fetch-Site", "cross-site")
+                .add("Sec-Fetch-Site", "same-origin")
                 .build()
 
             val resp = client.newCall(GET(sourcesUrl, headers)).execute()
@@ -676,7 +679,7 @@ class AnimeVerse :
                     masterUrl,
                     videoNameGen = { q -> "$kind - $serverName - ${cleanQuality(q)}" },
                     subtitleList = subtitleTracks,
-                    referer = "https://megaplay.buzz/",
+                    referer = "$base/",
                 ),
             )
         } catch (_: Exception) {
@@ -686,6 +689,18 @@ class AnimeVerse :
     }
 
     // ========================= Vidnest Extractor ==========================
+
+    private val vidnestCustomAlphabet = "RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/"
+    private val standardAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+    private fun decryptVidNestData(encryptedData: String): String {
+        val translated = encryptedData.map { char ->
+            val index = vidnestCustomAlphabet.indexOf(char)
+            if (index >= 0) standardAlphabet[index] else char
+        }.joinToString("")
+
+        return String(Base64.decode(translated, Base64.NO_WRAP), Charsets.UTF_8)
+    }
 
     private fun fetchVidnestVideos(url: String, kind: String, serverName: String): List<Video> {
         val videos = mutableListOf<Video>()
@@ -765,13 +780,6 @@ class AnimeVerse :
             default = PREF_USE_ALT_TITLE_DEFAULT,
         )
 
-        screen.addSwitchPreference(
-            key = PREF_DIRECT_MP4,
-            title = "Prefer Direct MP4",
-            summary = "Use direct Base64 decoded MP4 stream instead of proxy. (Applies to AnimeVerse server)",
-            default = PREF_DIRECT_MP4_DEFAULT,
-        )
-
         MultiSelectListPreference(screen.context).apply {
             key = PREF_HOSTER_EXCLUDE_KEY
             title = PREF_HOSTER_EXCLUDE_TITLE
@@ -785,8 +793,6 @@ class AnimeVerse :
     companion object {
         private const val PREF_USE_ALT_TITLE = "use_alt_title"
         private const val PREF_USE_ALT_TITLE_DEFAULT = false
-        private const val PREF_DIRECT_MP4 = "direct_mp4"
-        private const val PREF_DIRECT_MP4_DEFAULT = true
 
         private val SERVERS = arrayOf("animeverse", "choi", "chiki")
         private val SERVERS_DISPLAY = arrayOf("AnimeVerse", "Choi", "Chiki")
