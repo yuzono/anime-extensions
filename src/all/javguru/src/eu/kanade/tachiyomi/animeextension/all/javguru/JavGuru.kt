@@ -131,20 +131,19 @@ class JavGuru :
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val queryUrl = query.toHttpUrlOrNull()
-        if (queryUrl != null) {
-            if (queryUrl.host == baseUrl.toHttpUrl().host) {
-                val cleanSegments = queryUrl.pathSegments.filter { it.isNotEmpty() }
-                if (cleanSegments.size == 1) {
-                    val idOrSlug = cleanSegments[0]
-                    val url = "/$idOrSlug/"
-                    val tempAnime = SAnime.create().apply { this.url = url }
-                    return getAnimeDetails(tempAnime).let {
-                        val anime = it.apply { this.url = url }
-                        AnimesPage(listOf(anime), false)
-                    }
+        if (queryUrl?.host == baseUrl.toHttpUrl().host) {
+            val cleanSegments = queryUrl.pathSegments.filter { it.isNotEmpty() }
+            if (cleanSegments.size == 1) {
+                val idOrSlug = cleanSegments[0]
+                val url = "/$idOrSlug/"
+                val tempAnime = SAnime.create().apply { this.url = url }
+                return getAnimeDetails(tempAnime).let {
+                    val anime = it.apply { this.url = url }
+                    AnimesPage(listOf(anime), false)
                 }
             }
         }
+
         if (query.startsWith(PREFIX_ID)) {
             val id = query.substringAfter(PREFIX_ID)
             if (id.toIntOrNull() == null) {
