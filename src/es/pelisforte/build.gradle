@@ -1,7 +1,7 @@
 ext {
     extName = 'PelisForte'
     extClass = '.PelisForte'
-    extVersionCode = 46
+    extVersionCode = 47
 }
 
 apply plugin: "kei.plugins.extension.legacy"

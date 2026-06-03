@@ -3,7 +3,7 @@ ext {
     extClass = '.AsyaAnimeleri'
     themePkg = 'animestream'
     baseUrl = 'https://asyaanimeleri.top'
-    overrideVersionCode = 15
+    overrideVersionCode = 16
 }
 
 apply plugin: "kei.plugins.extension.legacy"

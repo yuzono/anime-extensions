@@ -1,7 +1,7 @@
 ext {
     extName = 'Gnula'
     extClass = '.Gnula'
-    extVersionCode = 45
+    extVersionCode = 46
 }
 
 apply plugin: "kei.plugins.extension.legacy"
