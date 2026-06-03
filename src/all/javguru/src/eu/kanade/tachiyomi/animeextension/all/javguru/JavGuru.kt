@@ -365,11 +365,11 @@ class JavGuru :
                     .set("Origin", baseUrl)
                     .build()
                 Video(
-                    video.url,
-                    video.quality,
-                    video.videoUrl,
+                    url = video.url,
+                    quality = video.quality,
+                    videoUrl = video.videoUrl,
                     headers = newHeaders,
-                    subtitleTracks = emptyList(),
+                    subtitleTracks = video.subtitleTracks,
                     audioTracks = video.audioTracks,
                 )
             }
