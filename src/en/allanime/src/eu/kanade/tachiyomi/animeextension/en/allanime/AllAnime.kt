@@ -632,8 +632,8 @@ class AllAnime :
         ListPreference(screen.context).apply {
             key = PREF_SITE_DOMAIN_KEY
             title = "Preferred domain for site (requires app restart)"
-            entries = arrayOf("allmanga.to")
-            entryValues = arrayOf("https://allmanga.to")
+            entries = arrayOf("allmanga.to", "mkissa.to")
+            entryValues = arrayOf("https://allmanga.to", "https://mkissa.to")
             setDefaultValue(PREF_SITE_DOMAIN_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
