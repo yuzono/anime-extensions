@@ -7,7 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import kotlin.system.exitProcess
 
-class UrlActivity : Activity() {
+class JavGuruUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -20,7 +20,7 @@ class UrlActivity : Activity() {
         try {
             startActivity(mainIntent)
         } catch (e: ActivityNotFoundException) {
-            Log.e("UrlActivity", "Unable to launch activity", e)
+            Log.e("JavGuruUrlActivity", "Unable to launch activity", e)
         }
 
         finish()
