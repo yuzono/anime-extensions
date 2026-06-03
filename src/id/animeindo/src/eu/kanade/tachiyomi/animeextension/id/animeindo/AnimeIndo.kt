@@ -20,7 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Element
@@ -31,6 +31,9 @@ class AnimeIndo :
         "AnimeIndo",
         "https://animeindo.skin",
     ) {
+
+    // ============================== Filters ============================== (fetch URL)
+    override val animeListUrl = "$baseUrl/browse"
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/browse?sort=view&page=$page")
@@ -47,7 +50,22 @@ class AnimeIndo :
             if (params.studios.isNotEmpty()) append(params.studios + "&")
         }
 
-        return GET("$baseUrl/browse?page=$page&title=$query&$multiString&status=${params.status}&type=${params.type}&order=${params.order}")
+        val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("browse")
+            addQueryParameter("page", page.toString())
+            if (query.isNotBlank()) addQueryParameter("title", query)
+            if (params.status.isNotBlank()) addQueryParameter("status", params.status)
+            if (params.type.isNotBlank()) addQueryParameter("type", params.type)
+            if (params.order.isNotBlank()) addQueryParameter("order", params.order)
+        }
+        val url = urlBuilder.build().toString().let {
+            if (multiString.isNotBlank()) {
+                "$it&$multiString".removeSuffix("&")
+            } else {
+                it
+            }
+        }
+        return GET(url)
     }
 
     override fun searchAnimeSelector() = "div.animepost > div > a"
@@ -63,7 +81,7 @@ class AnimeIndo :
     // ============================== Filters ===============================
     override val filtersSelector = "div.filtersearch tbody > tr:not(:has(td.filter_title:contains(Search))) > td.filter_act"
 
-    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized()) {
+    override fun getFilterList(): AnimeFilterList = if (AnimeStreamFilters.filterInitialized() && AnimeStreamFilters.filterElements.isNotEmpty()) {
         AnimeFilterList(
             OrderFilter(orderFilterText),
             StatusFilter(statusFilterText),
@@ -93,7 +111,7 @@ class AnimeIndo :
         val num = ahref.text()
         name = "Episode $num"
         episode_number = num.trim().toFloatOrNull() ?: 0F
-        date_upload = element.selectFirst("span.date")?.text().toDate()
+        date_upload = element.selectFirst("span.date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
@@ -103,30 +121,28 @@ class AnimeIndo :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
-        with(name) {
-            when {
-                contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
+    override suspend fun getVideoList(url: String, name: String): List<Video> = with(name) {
+        when {
+            contains("streamtape") -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf).orEmpty()
 
-                contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
+            contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
 
-                contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
+            contains("yourupload") -> yourUploadExtractor.videoFromUrl(url, headers)
 
-                url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
+            url.contains("ok.ru") -> okruExtractor.videosFromUrl(url)
 
-                contains("gdrive") -> {
-                    val gdriveUrl = when {
-                        baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
-                        else -> url
-                    }
-                    gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
+            contains("gdrive") -> {
+                val gdriveUrl = when {
+                    baseUrl in url -> "https:" + url.toHttpUrl().queryParameter("data")!!
+                    else -> url
                 }
+                gdrivePlayerExtractor.videosFromUrl(gdriveUrl, "Gdrive", headers)
+            }
 
-                else -> {
-                    // just to detect video hosts easily
-                    Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
-                    emptyList()
-                }
+            else -> {
+                // just to detect video hosts easily
+                Log.i("AnimeIndo", "Unrecognized at getVideoList => Name -> $name || URL => $url")
+                emptyList()
             }
         }
     }

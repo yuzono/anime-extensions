@@ -256,7 +256,7 @@ abstract class ZoroTheme(
         return embedLinks.parallelCatchingFlatMap(::extractVideo)
     }
 
-    abstract fun extractVideo(server: VideoData): List<Video>
+    abstract suspend fun extractVideo(server: VideoData): List<Video>
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 

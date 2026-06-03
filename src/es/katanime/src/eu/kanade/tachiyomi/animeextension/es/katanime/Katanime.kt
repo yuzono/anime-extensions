@@ -22,14 +22,16 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -50,8 +52,6 @@ class Katanime :
     override val lang = "es"
 
     override val supportsLatest = true
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     private val preferences by getPreferencesLazy()
 
@@ -91,7 +91,7 @@ class Katanime :
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst(".comics-title")?.ownText() ?: ""
             description = document.selectFirst("#sinopsis p")?.ownText()
@@ -109,7 +109,7 @@ class Katanime :
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/populares", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select("#article-div .full > a")
         val nextPage = document.select(".pagination .active ~ li:not(.disabled)").any()
         val animeList = elements.map { element ->
@@ -141,7 +141,7 @@ class Katanime :
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsoup = response.asJsoup()
+        val jsoup = response.useAsJsoup()
         val paginationElement = jsoup.selectFirst("._pagination") ?: return emptyList()
         val paginationUrl = paginationElement.attr("abs:data-url")
             .ifBlank { paginationElement.attr("data-url") }
@@ -178,7 +178,7 @@ class Katanime :
 
         val detailResponse = client.newCall(
             POST(paginationUrl, headers, body = formBody),
-        ).execute().parseAs<EpisodeList>(json)
+        ).execute().parseAs<EpisodeList>()
 
         val pages = detailResponse.ep?.lastPage
             ?: ((detailResponse.ep?.total?.toDouble() ?: 1.0) / (detailResponse.ep?.perPage?.toDouble() ?: Int.MAX_VALUE.toDouble())).ceilPage()
@@ -189,7 +189,7 @@ class Katanime :
                     SEpisode.create().apply {
                         name = ep.numero?.let { "Episodio $it" } ?: "Episodio"
                         episode_number = ep.numero?.toFloatOrNull() ?: 0f
-                        date_upload = ep.createdAt?.toDate() ?: 0L
+                        date_upload = DATE_FORMATTER.tryParse(ep.createdAt)
                         setUrlWithoutDomain(url)
                     }
                 }
@@ -198,29 +198,25 @@ class Katanime :
     }.getOrElse { emptyList<SEpisode>() to 1 }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
-        document.select("[data-player]:not([data-player-name=\"Mega\"])").forEach { element ->
-            runCatching {
-                val serverTitle = element.ownText().trim()
-                val dataPlayer = element.attr("data-player")
-                val playerDocument = client.newCall(GET("$baseUrl/reproductor?url=$dataPlayer"))
-                    .execute()
-                    .asJsoup()
+        val document = response.useAsJsoup()
+        return document.select("[data-player]:not([data-player-name=\"Mega\"])").parallelCatchingFlatMapBlocking { element ->
+            val serverTitle = element.ownText().trim()
+            val dataPlayer = element.attr("data-player")
+            val playerDocument = client.newCall(GET("$baseUrl/reproductor?url=$dataPlayer"))
+                .awaitSuccess()
+                .useAsJsoup()
 
-                val encryptedData = playerDocument
-                    .selectFirst("script:containsData(var e =)")?.data()
-                    ?.substringAfter("var e = '")?.substringBefore("';")
-                    ?: return emptyList()
+            val encryptedData = playerDocument
+                .selectFirst("script:containsData(var e =)")?.data()
+                ?.substringAfter("var e = '")?.substringBefore("';")
+                ?: return@parallelCatchingFlatMapBlocking emptyList()
 
-                val json = encryptedData.parseAs<CryptoDto>()
-                val decryptedLink = CryptoAES.decryptWithSalt(json.ct!!, json.s!!, DECRYPTION_PASSWORD)
-                    .replace("\\/", "/").replace("\"", "")
+            val json = encryptedData.parseAs<CryptoDto>()
+            val decryptedLink = CryptoAES.decryptWithSalt(json.ct!!, json.s!!, DECRYPTION_PASSWORD)
+                .replace("\\/", "/").replace("\"", "")
 
-                serverVideoResolver(decryptedLink, serverTitle).also(videoList::addAll)
-            }
+            serverVideoResolver(decryptedLink, serverTitle)
         }
-        return videoList
     }
 
     private val doodExtractor by lazy { DoodExtractor(client) }
@@ -231,7 +227,7 @@ class Katanime :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val unpackerExtractor by lazy { UnpackerExtractor(client, headers) }
 
-    private fun serverVideoResolver(url: String, serverOpt: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String, serverOpt: String): List<Video> {
         val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in serverOpt.lowercase() } }?.first
         return when (matched) {
             "streamwish" -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
@@ -304,8 +300,6 @@ class Katanime :
     } else {
         maxOf(1, ceil(this).toInt())
     }
-
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
 
     private fun Element.getImageUrl(): String? = when {
         isValidUrl("data-src") -> attr("abs:data-src")

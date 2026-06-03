@@ -1,7 +1,14 @@
 ext {
     extName = 'AnimesROLL'
     extClass = '.AnimesROLL'
-    extVersionCode = 6
+    themePkg = 'dooplay'
+    baseUrl = 'https://anroll.tv'
+    overrideVersionCode = 4
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:unpacker"))
+}

@@ -5,7 +5,6 @@ import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import kotlinx.coroutines.runBlocking
 
 class AnimeKhor :
     AnimeStream(
@@ -15,9 +14,9 @@ class AnimeKhor :
     ) {
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             url.contains("ahvsh.com") || name.equals("streamhide", true) -> {
                 VidHideExtractor(client, headers).videosFromUrl(url) { "$prefix$it" }
             }
