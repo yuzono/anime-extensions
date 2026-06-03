@@ -41,7 +41,6 @@ class AnimePahe :
     private val preferences by getPreferencesLazy()
 
     override fun headersBuilder() = super.headersBuilder()
-        .set("User-Agent", UA_MOBILE)
         .set("Referer", "$baseUrl/")
 
     private val interceptor = DdosGuardInterceptor(network.client)
