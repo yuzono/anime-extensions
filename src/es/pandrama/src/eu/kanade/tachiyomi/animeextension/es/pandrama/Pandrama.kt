@@ -5,6 +5,7 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -12,16 +13,16 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 
 class Pandrama :
@@ -30,15 +31,13 @@ class Pandrama :
 
     override val name = "Pandrama"
 
-    override val baseUrl = "https://pandra.ma"
+    override val baseUrl = "https://pandrama.com"
 
     override val lang = "es"
 
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
-
-    private val json: Json by injectLazy()
 
     companion object {
         private const val PREF_QUALITY_KEY = "preferred_quality"
@@ -51,86 +50,108 @@ class Pandrama :
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
-        val details = SAnime.create()
-
-        for (element in document.select(".hl-full-box ul li")) {
-            val title = element.select("em").text()
-            val content = element.select("span")
-
+        val document = response.useAsJsoup()
+        val details = SAnime.create().apply {
+            status = SAnime.UNKNOWN
+            description = document.selectFirst("#height_limit")?.ownText()
+            genre = document.select(".this-desc-labels a").joinToString { it.text() }
+        }
+        for (element in document.select(".this-info")) {
+            val title = element.select("strong").text()
             when {
-                title.contains("Director:") -> details.author = element.ownText().trim()
-                title.contains("Estado:") -> details.status = parseStatus(content.text())
-                title.contains("Protagonistas:") -> details.artist = element.selectFirst("a")?.text()
-                title.contains("Género:") -> details.genre = element.select("a").joinToString { it.text() }
-                title.contains("Sinopsis:") -> details.description = element.ownText().trim()
+                title.contains("Director:") -> details.author = element.selectFirst("a")?.text()
+                title.contains("Actores:") -> details.artist = element.selectFirst("a")?.text()
             }
         }
-
         return details
     }
 
-    private fun parseStatus(status: String?) = when (status.orEmpty()) {
-        "En Emisión" -> SAnime.ONGOING
-        "Finalizado" -> SAnime.COMPLETED
-        else -> SAnime.UNKNOWN
-    }
-
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/vodshow/Dramas--------$page---/", headers)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/explorar/Dramas--------$page---/", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val elements = document.select(".hl-vod-list li > a")
-        val nextPage = document.select(".hl-page-wrap a:not(.hl-disad) span:contains(siguiente)").any()
+        val document = response.useAsJsoup()
+        val elements = document.select("a.public-list-exp")
+        val nextPage = document.select("[title=\"Página siguiente\"]").any()
         val animeList = elements.map { element ->
-            val langTag = element.select(".hl-pic-tag").text().trim()
+            val langTag = element.select(".public-prt").text().trim()
             val prefix = when {
-                langTag.contains("Español LAT") -> "\uD83C\uDDF2\uD83C\uDDFD "
-                langTag.contains("Español ES") -> "\uD83C\uDDEA\uD83C\uDDF8 "
+                langTag.contains("Español") -> "\uD83C\uDDF2\uD83C\uDDFD "
+                langTag.contains("Castellano") -> "\uD83C\uDDEA\uD83C\uDDF8 "
                 else -> ""
             }
             SAnime.create().apply {
-                title = """$prefix ${element.attr("title")}""".trim()
-                thumbnail_url = element.attr("abs:data-original")
+                title = "$prefix ${element.attr("title")}".trim()
+                thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
         return AnimesPage(animeList, nextPage)
     }
+
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/explorar/Dramas--hits------$page---/", headers)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/vodshow/Dramas--hits------$page---/", headers)
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = when {
-            query.isNotBlank() -> "$baseUrl/vodsearch/$query----------$page---/"
-            else -> "$baseUrl/vodshow/Dramas--------$page---/"
+        val filterList = if (filters.isEmpty()) getFilterList() else filters
+        val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
+        return when {
+            query.isNotBlank() -> GET("$baseUrl/buscar/media/$query----------$page---/")
+            genreFilter.state != 0 -> GET("$baseUrl${genreFilter.toUriPart().replace("page", "$page")}")
+            else -> popularAnimeRequest(page)
         }
-        return GET(url, headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        if (!document.location().contains("vodsearch")) return popularAnimeParse(response)
-        val elements = document.select(".hl-one-list .hl-item-thumb")
-        val nextPage = document.select(".hl-page-wrap a:not(.hl-disad) span:contains(siguiente)").any()
-        val animeList = elements.map { element ->
-            SAnime.create().apply {
-                title = element.attr("title")
-                thumbnail_url = element.attr("abs:data-original")
-                setUrlWithoutDomain(element.attr("abs:href"))
-            }
-        }
-        return AnimesPage(animeList, nextPage)
-    }
+    override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
+
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
+        GenreFilter(),
+    )
+
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Acción", "/explorar/Dramas---Acción-----page---/"),
+                Pair("Comedia", "/explorar/Dramas---Comedia-----page---/"),
+                Pair("Crimen", "/explorar/Dramas---Crimen-----page---/"),
+                Pair("BL", "/explorar/Dramas---BL-----page---/"),
+                Pair("GL", "/explorar/Dramas---GL-----page---/"),
+                Pair("Investigación", "/explorar/Dramas---Investigación-----page---/"),
+                Pair("Drama", "/explorar/Dramas---Drama-----page---/"),
+                Pair("Familiar", "/explorar/Dramas---Familiar-----page---/"),
+                Pair("Fantasía", "/explorar/Dramas---Fantasía-----page---/"),
+                Pair("De época", "/explorar/Dramas---De+época-----page---/"),
+                Pair("Juvenil", "/explorar/Dramas---Juvenil-----page---/"),
+                Pair("Legal", "/explorar/Dramas---Legal-----page---/"),
+                Pair("Maduro", "/explorar/Dramas---Maduro-----page---/"),
+                Pair("Médico", "/explorar/Dramas---Médico-----page---/"),
+                Pair("Melodrama", "/explorar/Dramas---Melodrama-----page---/"),
+                Pair("Militar", "/explorar/Dramas---Militar-----page---/"),
+                Pair("Misterio", "/explorar/Dramas---Misterio-----page---/"),
+                Pair("Musical", "/explorar/Dramas---Musical-----page---/"),
+                Pair("Oficina", "/explorar/Dramas---Oficina-----page---/"),
+                Pair("Politica", "/explorar/Dramas---Politica-----page---/"),
+                Pair("Psicológico", "/explorar/Dramas---Psicológico-----page---/"),
+                Pair("Romance", "/explorar/Dramas---Romance-----page---/"),
+                Pair("Rom&Com", "/explorar/Dramas---Rom%26Com-----page---/"),
+                Pair("Escolar", "/explorar/Dramas---Escolar-----page---/"),
+                Pair("Ciencia Ficción", "/explorar/Dramas---Ciencia+Ficción-----page---/"),
+                Pair("Deportes", "/explorar/Dramas---Deportes-----page---/"),
+                Pair("Sobrenatural", "/explorar/Dramas---Sobrenatural-----page---/"),
+                Pair("Suspenso", "/explorar/Dramas---Suspenso-----page---/"),
+                Pair("Terror", "/explorar/Dramas---Terror-----page---/"),
+            ),
+        )
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        return document.select(".hl-plays-list li > a").groupBy { it.text().trim() }.map {
-            val urlList = json.encodeToString(it.value.map { it.attr("abs:href") })
+        val document = response.useAsJsoup()
+        return document.select(".anthology-list-play li a").groupBy { it.text().trim() }.map {
+            val urlList = it.value.map { it.attr("abs:href") }.toJsonString()
             SEpisode.create().apply {
-                name = it.key
+                name = "Episodio ${it.key.substringAfter("Ep.").trim()}"
                 episode_number = it.key.substringAfter("Ep.").trim().toFloatOrNull() ?: 0F
                 url = urlList
             }
@@ -138,13 +159,13 @@ class Pandrama :
     }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val serverData = json.decodeFromString<List<String>>(episode.url)
-        return serverData.parallelCatchingFlatMapBlocking {
-            val page = client.newCall(GET(it)).execute().asJsoup()
+        val serverData = episode.url.parseAs<List<String>>()
+        return serverData.parallelCatchingFlatMap {
+            val page = client.newCall(GET(it)).awaitSuccess().useAsJsoup()
             val jsonData = page.selectFirst("script:containsData(var player_aaaa)")
                 ?.data()?.substringAfter("var player_aaaa=")?.trim()
-                ?: return@parallelCatchingFlatMapBlocking emptyList()
-            val player = json.decodeFromString<PlayerDto>(jsonData)
+                ?: return@parallelCatchingFlatMap emptyList()
+            val player = jsonData.parseAs<PlayerDto>()
             val url = if (player.encrypt == 2) {
                 URLDecoder.decode(base64decode(player.url ?: ""), "UTF-8")
             } else {
@@ -186,13 +207,6 @@ class Pandrama :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%d"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -202,14 +216,11 @@ class Pandrama :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%d"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
+    }
+
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+        fun toUriPart() = vals[state].second
     }
 
     private val base64DecodeChars = intArrayOf(
