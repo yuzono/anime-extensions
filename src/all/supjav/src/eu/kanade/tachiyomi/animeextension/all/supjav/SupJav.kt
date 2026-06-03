@@ -14,10 +14,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -92,7 +94,7 @@ class SupJav(override val lang: String = "en") :
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -141,7 +143,7 @@ class SupJav(override val lang: String = "en") :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         val players = doc.select("div.btnst > a").toList()
             .filter { it.text() in SUPPORTED_PLAYERS }
@@ -163,9 +165,9 @@ class SupJav(override val lang: String = "en") :
         client.newBuilder().followRedirects(false).build()
     }
 
-    private fun videosFromPlayer(player: Pair<String, String>): List<Video> {
+    private suspend fun videosFromPlayer(player: Pair<String, String>): List<Video> {
         val (hoster, id) = player
-        val url = noRedirectClient.newCall(GET("$PROTECTOR_URL/supjav.php?c=$id", protectorHeaders)).execute()
+        val url = noRedirectClient.newCall(GET("$PROTECTOR_URL/supjav.php?c=$id", protectorHeaders)).await()
             .use { it.headers["location"] }
             ?: return emptyList()
 
@@ -177,7 +179,7 @@ class SupJav(override val lang: String = "en") :
             "FST" -> streamwishExtractor.videosFromUrl(url)
 
             "TV" -> {
-                val body = client.newCall(GET(url)).execute().body.string()
+                val body = client.newCall(GET(url)).awaitSuccess().bodyString()
                 val playlistUrl = body.substringAfter("var urlPlay = '", "")
                     .substringBefore("';")
                     .takeUnless(String::isEmpty)
@@ -206,13 +208,6 @@ class SupJav(override val lang: String = "en") :
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
