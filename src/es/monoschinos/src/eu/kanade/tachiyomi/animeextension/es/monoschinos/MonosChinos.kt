@@ -233,7 +233,6 @@ class MonosChinos :
             }
         }
 
-        // Orden descendente: muestra primero el capítulo más alto
         return episodes.sortedByDescending { it.episode_number }
     }
 
@@ -267,24 +266,31 @@ class MonosChinos :
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private suspend fun serverVideoResolver(url: String): List<Video> {
-        val embedUrl = url.lowercase()
-        return when {
-            embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
-            embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-            embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
-            embedUrl.contains("filemoon.sx") || embedUrl.contains("moonplayer") ->
-                filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-            embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
-                doodExtractor.videosFromUrl(url)
-            embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
-                streamTapeExtractor.videosFromUrl(url)
-            embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
-            embedUrl.contains("mixdrop") -> mixdropExtractor.videosFromUrl(url)
-            else -> universalExtractor.videosFromUrl(url, headers)
-        }
+  private suspend fun serverVideoResolver(url: String): List<Video> {
+    val embedUrl = url.lowercase()
+    return when {
+        embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
+        embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
+        embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
+        embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") ||
+        embedUrl.contains("moviesm4u") || embedUrl.contains("files.im") ->
+            filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+        embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
+            doodExtractor.videosFromUrl(url)
+        embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
+            streamTapeExtractor.videosFromUrl(url)
+        embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
+        embedUrl.contains("mixdrop") -> mixdropExtractor.videosFromUrl(url)
+        embedUrl.contains("wishembed") || embedUrl.contains("streamwish") ||
+        embedUrl.contains("strwish") || embedUrl.contains("wish") ||
+        embedUrl.contains("kswplayer") || embedUrl.contains("swhoi") ||
+        embedUrl.contains("multimovies") || embedUrl.contains("uqloads") ||
+        embedUrl.contains("neko-stream") || embedUrl.contains("swdyu") ||
+        embedUrl.contains("iplayerhls") || embedUrl.contains("streamgg") ->
+            streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+        else -> universalExtractor.videosFromUrl(url, headers)
     }
-
+}
     // ====================== ORDENAR VIDEOS ======================
 
     override fun List<Video>.sort(): List<Video> {
