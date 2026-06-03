@@ -4,14 +4,19 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.lib.synchrony.Deobfuscator
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
 
@@ -26,29 +31,36 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
     private val mainServersRegex = """main\s*=\s*\[(.*?)]""".toRegex(RegexOption.DOT_MATCHES_ALL)
     private val rulesServersRegex = """rules\s*=\s*\[(.*?)]""".toRegex(RegexOption.DOT_MATCHES_ALL)
 
-    fun videosFromUrl(url: String, prefix: String) = videosFromUrl(url) { "$prefix - $it" }
+    suspend fun videosFromUrl(url: String, prefix: String) = videosFromUrl(url) { "$prefix - $it" }
 
-    fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "StreamWish - $quality" }): List<Video> {
+    suspend fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "StreamWish - $quality" }): List<Video> {
         val embedUrl = getEmbedUrl(url).toHttpUrl()
         val id = getEmbedId(url)
-        for (domain in DOMAINS) {
-            val fullUrl = if (id.startsWith("https://")) id else "https://$domain/$id"
+
+        // If id is already an absolute URL, avoid iterating over all DOMAINS and reuse it directly.
+        val isAbsoluteId = id.startsWith("https://") || id.startsWith("http://")
+        val domainsToTry = if (isAbsoluteId) listOf("") else DOMAINS
+
+        for (domain in domainsToTry) {
+            val fullUrl = UrlUtils.fixUrl(id, "https://$domain") ?: continue
             try {
+                val response = client.newCall(GET(fullUrl, headers)).await()
+                if (!response.isSuccessful) {
+                    response.close()
+                    continue
+                }
 
-                val response = client.newCall(GET(fullUrl, headers)).execute()
-                if (!response.isSuccessful) continue
-
-                val body = response.body.string()
-                if (body.isEmpty()) continue
+                val body = response.bodyString()
+                if (body.isBlank()) continue
                 var doc = Jsoup.parse(body)
 
                 val scriptElement = doc.selectFirst("body > script[src*=/main.js]")
                 if (scriptElement != null) {
                     val scriptUrl = scriptElement.absUrl("src")
-                    val scriptContent = client.newCall(GET(scriptUrl, headers)).execute().body.string()
+                    val scriptContent = client.newCall(GET(scriptUrl, headers)).awaitSuccess().bodyString()
 
                     val deobfuscatedScript = runCatching { Deobfuscator.deobfuscateScript(scriptContent) }.getOrNull()
-                        ?: return emptyList()
+                        ?: continue
 
                     val dmcaServers = extractServerList(dmcaServersRegex, deobfuscatedScript)
 
@@ -60,16 +72,15 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
                         mainServers.randomOrNull()
                     } else {
                         dmcaServers.randomOrNull()
-                    } ?: return emptyList()
+                    } ?: continue
 
                     val redirectedUrl = embedUrl.newBuilder()
                         .host(destination)
                         .build()
                         .toString()
 
-                    doc = client.newCall(GET(getEmbedUrl(redirectedUrl), headers)).execute().asJsoup()
+                    doc = client.newCall(GET(getEmbedUrl(redirectedUrl), headers)).awaitSuccess().useAsJsoup()
                 }
-
 
                 val scriptBody = doc.selectFirst("script:containsData(m3u8)")?.data()
                     ?.let { script ->
@@ -89,13 +100,15 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
 
                     return playlistUtils.extractFromHls(
                         playlistUrl = masterUrl,
-                        referer = "https://${url.toHttpUrl().host}/",
+                        referer = masterUrl.toHttpUrlOrNull()
+                            ?.let { "${it.scheme}://${it.host}/" }
+                            ?: "https://${url.toHttpUrl().host}/",
                         videoNameGen = videoNameGen,
                         subtitleList = playlistUtils.fixSubtitles(subtitleList),
                     )
                 }
             } catch (_: Exception) {
-                if (id.startsWith("https://")) return emptyList()
+                if (isAbsoluteId) return emptyList()
             }
         }
 
@@ -151,7 +164,7 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
         private val DOMAINS = listOf(
             "streamwish.com",
             "niramirus.com",
-            "medixiru.com"
+            "medixiru.com",
         )
     }
 }

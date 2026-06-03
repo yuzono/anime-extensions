@@ -20,10 +20,11 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -66,7 +67,7 @@ class JavGuru :
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/most-watched-rank/", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        popularElements = response.asJsoup().select(".tabcontent li")
+        popularElements = response.useAsJsoup().select(".tabcontent li")
 
         return cachedPopularAnimeParse(1)
     }
@@ -94,7 +95,7 @@ class JavGuru :
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
         val entries = document.select("div.site-content div.inside-article:not(:contains(nothing))").map { element ->
             SAnime.create().apply {
@@ -183,7 +184,7 @@ class JavGuru :
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select("div.woo-sc-related-posts li").map { element ->
             SAnime.create().apply {
                 element.select("a.thumbnail").let { a ->
@@ -214,7 +215,7 @@ class JavGuru :
     override fun searchAnimeParse(response: Response) = latestUpdatesParse(response)
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
         val javId = document.selectFirst(".infoleft li:contains(code)")?.ownText()
         val siteCover = document.select(".large-screenshot img").attr("abs:src")
@@ -250,7 +251,7 @@ class JavGuru :
     )
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
         val iframeData = document.selectFirst("script:containsData(iframe_url)")?.html()
             ?: return emptyList()
@@ -261,19 +262,19 @@ class JavGuru :
             .toList()
 
         return iframeUrls
-            .mapNotNull(::resolveHosterUrl)
+            .parallelMapNotNullBlocking(::resolveHosterUrl)
             .parallelCatchingFlatMapBlocking(::getVideos)
     }
 
-    private fun resolveHosterUrl(iframeUrl: String): String? {
-        val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
+    private suspend fun resolveHosterUrl(iframeUrl: String): String? = runCatching {
+        val iframeResponse = client.newCall(GET(iframeUrl, headers)).await()
 
         if (iframeResponse.isSuccessful.not()) {
             iframeResponse.close()
             return null
         }
 
-        val iframeDocument = iframeResponse.asJsoup()
+        val iframeDocument = iframeResponse.useAsJsoup()
 
         val script = iframeDocument.selectFirst("script:containsData(start_player)")
             ?.html() ?: return null
@@ -290,7 +291,7 @@ class JavGuru :
             .build()
 
         val redirectUrl = noRedirectClient.newCall(GET(olidUrl, newHeaders))
-            .execute().use { it.header("location") }
+            .await().use { it.header("location") }
             ?: return null
 
         if (redirectUrl.toHttpUrlOrNull() == null) {
@@ -298,7 +299,7 @@ class JavGuru :
         }
 
         return redirectUrl
-    }
+    }.getOrNull()
 
     private val streamWishExtractor by lazy {
         val swHeaders = headersBuilder()
@@ -313,7 +314,7 @@ class JavGuru :
     private val maxStreamExtractor by lazy { MaxStreamExtractor(client, headers) }
     private val emTurboExtractor by lazy { EmTurboExtractor(client, headers) }
 
-    private fun getVideos(hosterUrl: String): List<Video> = when {
+    private suspend fun getVideos(hosterUrl: String): List<Video> = when {
         listOf("javplaya", "javclan").any { it in hosterUrl } -> {
             streamWishExtractor.videosFromUrl(hosterUrl)
         }
