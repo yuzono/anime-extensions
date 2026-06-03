@@ -132,9 +132,7 @@ class JavGuru :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val queryUrl = query.toHttpUrlOrNull()
         if (queryUrl != null) {
-            val host = queryUrl.host.removePrefix("www.")
-            val baseHost = baseUrl.toHttpUrl().host.removePrefix("www.")
-            if (host == baseHost) {
+            if (queryUrl.host == baseUrl.toHttpUrl().host) {
                 val cleanSegments = queryUrl.pathSegments.filter { it.isNotEmpty() }
                 if (cleanSegments.size == 1) {
                     val idOrSlug = cleanSegments[0]
@@ -222,8 +220,6 @@ class JavGuru :
 
     // ========================= Details =========================
 
-    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
-
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
 
@@ -254,7 +250,7 @@ class JavGuru :
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select("div.woo-sc-related-posts li").map { element ->
             SAnime.create().apply {
                 element.select("a.thumbnail").let { a ->
@@ -273,12 +269,8 @@ class JavGuru :
 
     // ========================= Episodes =========================
 
-    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
-
-    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
-
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val dateText = document.selectFirst("span.thedate")?.text()?.substringAfter("Posted:")?.trim()
         val dateUpload = DATE_FORMATTER.tryParse(dateText)
 
@@ -309,16 +301,14 @@ class JavGuru :
             .parallelCatchingFlatMapBlocking(::getVideos)
     }
 
-    private fun resolveHosterUrl(iframeUrl: String): String? {
+    private suspend fun resolveHosterUrl(iframeUrl: String): String? = runCatching {
         val token = iframeUrl.toHttpUrlOrNull()?.queryParameter("xd")
         val finalUrl = if (token != null) {
             val base = iframeUrl.substringBefore("?")
             "$base?xr=${token.reversed()}"
         } else {
-            val iframeDocument = client.newCall(GET(iframeUrl, headers)).execute().use { response ->
-                if (!response.isSuccessful) return null
-                response.asJsoup()
-            }
+            val iframeDocument = client.newCall(GET(iframeUrl, headers))
+                .awaitSuccess().useAsJsoup()
             val script = iframeDocument.selectFirst("script:containsData(cfg)")?.html() ?: return null
             val cid = CID_REGEX.find(script)?.groupValues?.get(1) ?: return null
             val rawBase = BASE_REGEX.find(script)?.groupValues?.get(1) ?: return null
@@ -344,7 +334,7 @@ class JavGuru :
             .build()
 
         val redirectUrl = noRedirectClient.newCall(GET(finalUrl, newHeaders))
-            .execute().use { it.header("location") }
+            .await().use { it.header("location") }
             ?: return null
 
         if (redirectUrl.toHttpUrlOrNull() == null) {
@@ -465,7 +455,7 @@ class JavGuru :
         private val CID_REGEX = Regex("""cid:\s*['"]([^'"]+)['"]""")
         private val BASE_REGEX = Regex("""base:\s*['"]([^'"]+)['"]""")
         private val RTYPE_REGEX = Regex("""rtype:\s*['"]([^'"]+)['"]""")
-        private val KEYS_REGEX = Regex("""keys:\s*\[([^\]]+)\]""")
+        private val KEYS_REGEX = Regex("""keys:\s*\[([^]]+)]""")
         private val PAGINATION_REGEX = Regex("""/page/(\d+)""")
 
         private val DATE_FORMATTER by lazy {
