@@ -41,7 +41,7 @@ class AnimePahe :
     private val preferences by getPreferencesLazy()
 
     override fun headersBuilder() = super.headersBuilder()
-        .set("User-Agent", UA_DESKTOP)
+        .set("User-Agent", UA_MOBILE)
         .set("Referer", "$baseUrl/")
 
     private val interceptor = DdosGuardInterceptor(network.client)
@@ -492,8 +492,6 @@ class AnimePahe :
             |Turn off to never select av1 as preferred codec
             """.trimMargin()
         }
-
-        const val UA_DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
         const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
     }
 }
