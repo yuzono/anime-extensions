@@ -58,6 +58,7 @@ class JavGuru :
 
     private val preferences by getPreferencesLazy()
 
+    @Volatile
     private lateinit var popularElements: Elements
 
     // ========================= Popular =========================
@@ -73,7 +74,7 @@ class JavGuru :
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/most-watched-rank/", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        popularElements = response.useAsJsoup().select(".tabcontent li")
+        popularElements = response.useAsJsoup().select(".rank-item")
 
         return cachedPopularAnimeParse(1)
     }
@@ -82,13 +83,13 @@ class JavGuru :
         val end = min(page * 20, popularElements.size)
         val entries = popularElements.subList((page - 1) * 20, end).map { element ->
             SAnime.create().apply {
-                element.select("a").let { a ->
+                element.select(".rank-title a").let { a ->
                     getIDFromUrl(a)?.let { url = it }
                         ?: setUrlWithoutDomain(a.attr("href"))
 
                     title = a.text()
-                    thumbnail_url = a.select("img").attr("abs:src")
                 }
+                thumbnail_url = element.select("img").attr("abs:src")
             }
         }
         return AnimesPage(entries, end < popularElements.size)
