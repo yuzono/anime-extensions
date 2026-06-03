@@ -1,11 +1,12 @@
 ext {
     extName = 'Animes Digital'
     extClass = '.AnimesDigital'
-    extVersionCode = 8
+    extVersionCode = 9
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
+    implementation(project(":lib:bloggerextractor"))
     implementation(project(":lib:unpacker"))
 }

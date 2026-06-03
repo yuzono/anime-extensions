@@ -1,7 +1,7 @@
 ext {
     extName = 'Wbijam'
     extClass = '.Wbijam'
-    extVersionCode = 12
+    extVersionCode = 13
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -9,5 +9,6 @@ apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:dailymotionextractor'))
     implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:vkextractor'))
     implementation(project(':lib:sibnetextractor'))
 }

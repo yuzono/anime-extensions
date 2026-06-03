@@ -17,7 +17,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -113,7 +112,7 @@ class AnimeOnlineNinja :
     override val episodeMovieText = "Película"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = getRealAnimeDoc(response.asJsoup())
+        val doc = getRealAnimeDoc(response.useAsJsoup())
         val seasonList = doc.select(seasonListSelector)
         return if (seasonList.isEmpty()) {
             listOf(
@@ -132,7 +131,7 @@ class AnimeOnlineNinja :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val players = document.select("ul#playeroptionsul li")
         return players.parallelCatchingFlatMapBlocking { player ->
             val name = player.selectFirst("span.title")!!.text()
@@ -207,7 +206,7 @@ class AnimeOnlineNinja :
             else -> "div.OD_$prefLang"
         }
         return document.select("div.ODDIV $langSelector > li").flatMap {
-            val hosterUrl = it.attr("onclick").toString()
+            val hosterUrl = it.attr("onclick")
                 .substringAfter("('")
                 .substringBefore("')")
             val lang = when (langSelector) {
@@ -263,13 +262,6 @@ class AnimeOnlineNinja :
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
@@ -278,13 +270,6 @@ class AnimeOnlineNinja :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         val vrfIterceptPref = CheckBoxPreference(screen.context).apply {
