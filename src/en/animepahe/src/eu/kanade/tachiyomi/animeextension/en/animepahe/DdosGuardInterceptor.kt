@@ -9,16 +9,14 @@ import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 
 class DdosGuardInterceptor(
     private val client: OkHttpClient,
-    private val cfBypassUserAgentProvider: () -> String = { AnimePahe.UA }, // Inject custom UA provider
+    private val context: Application,
+    private val cfBypassUserAgentProvider: () -> String = { AnimePahe.UA },
 ) : Interceptor {
 
     private val cookieManager by lazy { CookieManager.getInstance() }
-    private val context by lazy { Injekt.get<Application>() }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
@@ -101,7 +99,7 @@ class DdosGuardInterceptor(
 
     companion object {
         private const val WELL_KNOWN_URL = "https://check.ddos-guard.net/check.js"
-        private val ERROR_CODES = listOf(403, 503) // Added 503 for Cloudflare challenges
+        private val ERROR_CODES = listOf(403, 503)
         private val SERVER_CHECK = listOf("ddos-guard")
     }
 }

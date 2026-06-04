@@ -41,16 +41,15 @@ class AnimePahe :
 
     private val preferences by getPreferencesLazy()
 
+    private val context: Application by injectLazy()
+
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private val interceptor = DdosGuardInterceptor(network.client) { cfBypassUserAgent }
-
+    private val interceptor = DdosGuardInterceptor(network.client, context) { cfBypassUserAgent }
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
-
-    private val context: Application by injectLazy()
 
     override val name = "AnimePahe"
 
