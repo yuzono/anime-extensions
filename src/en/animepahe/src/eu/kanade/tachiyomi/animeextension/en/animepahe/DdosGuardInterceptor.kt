@@ -52,7 +52,7 @@ class DdosGuardInterceptor(
                 val newCookieHeader = (oldCookie + newCookie).joinToString("; ") {
                     "${it.name}=${it.value}"
                 }
-                return chain.proceed(originalRequest.newBuilder().addHeader("cookie", newCookieHeader).build())
+                return chain.proceed(originalRequest.newBuilder().addHeader("Cookie", newCookieHeader).build())
             }
         }
 
