@@ -38,11 +38,10 @@ class CloudflareBypass(private val context: Context) {
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
             webView.settings.userAgentString = userAgentToUse
-            val defaultUserAgent = webView.settings.userAgentString
 
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, loadedUrl: String) {
-                    pollForClearance(pageUrl, defaultUserAgent, cancelled) { bypassResult ->
+                    pollForClearance(pageUrl, userAgentToUse, cancelled) { bypassResult ->
                         result = bypassResult
                         latch.countDown()
                     }
