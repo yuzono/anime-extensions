@@ -31,6 +31,7 @@ class MiruroExtractor(
 
         val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
         if (obfuscated != "2") {
+            Log.d(TAG, "decryptResponse: not obfuscated (header=$obfuscated), ${bodyStr.length} chars")
             return bodyStr
         }
 
@@ -45,9 +46,11 @@ class MiruroExtractor(
                 (b.toInt() xor pipeKey[i % pipeKey.size].toInt()).toByte()
             }.toByteArray()
 
-            GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
+            val result = GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
                 gzipStream.bufferedReader(Charsets.UTF_8).readText()
             }
+            Log.d(TAG, "decryptResponse: decrypted ${bodyStr.length} → ${result.length} chars")
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Failed to decrypt response from server: ${e.message}")
             ""
@@ -74,9 +77,11 @@ class MiruroExtractor(
         }
 
         if (sourcesDto.streams.isEmpty()) {
-            Log.w(TAG, "Empty streams array in response (subType=$subType)")
+            Log.w(TAG, "Empty streams array in response (subType=$subType, provider=$providerKey)")
             return emptyList()
         }
+
+        Log.d(TAG, "parseStreamsFromResponse: ${sourcesDto.streams.size} streams, ${sourcesDto.subtitles.size} subtitles (subType=$subType, provider=$providerKey)")
 
         val subTypeLabel = when (subType) {
             "sub" -> "Sub"
@@ -127,6 +132,7 @@ class MiruroExtractor(
                     )
                 }
                 "embed" -> {
+                    Log.d(TAG, "parseStreams: extracting kwik embed: ${stream.url}")
                     val embedVideos = extractFromKwikEmbed(stream.url, stream.referer, qualityLabel, subtitles)
                     if (embedVideos.isNotEmpty()) {
                         videos.addAll(embedVideos)
@@ -140,6 +146,7 @@ class MiruroExtractor(
             }
         }
 
+        Log.d(TAG, "parseStreamsFromResponse: built ${videos.size} videos from ${sourcesDto.streams.size} streams")
         return videos
     }
 
@@ -149,6 +156,7 @@ class MiruroExtractor(
         qualityLabel: String,
         subtitles: List<Track>,
     ): List<Video> {
+        Log.d(TAG, "extractFromKwikEmbed: url=$embedUrl, referer=${referer.take(50)}")
         return try {
             val requestHeaders = buildKwikEPageHeaders(referer)
             val html = client.newCall(
@@ -166,6 +174,8 @@ class MiruroExtractor(
 
             val m3u8Url = parseM3u8FromKwikHtml(html, embedUrl)
                 ?: return emptyList()
+
+            Log.d(TAG, "extractFromKwikEmbed: extracted m3u8: ${m3u8Url.take(80)}")
 
             val videoHeaders = Headers.Builder()
                 .set("Referer", embedUrl)

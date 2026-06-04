@@ -1,9 +1,16 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
@@ -145,7 +152,33 @@ data class ConfigResponseDto(
         val relationship: String? = null,
         val visible: Boolean = true,
         val player: String = "native",
+        val fallback: Int? = null,
+        @Serializable(with = ProxyConfigSerializer::class)
+        val proxy: ProxyConfigDto = ProxyConfigDto(),
+        val cors: Boolean = false,
     )
+
+    @Serializable
+    data class ProxyConfigDto(
+        val rotate: Boolean = false,
+    )
+
+    internal object ProxyConfigSerializer : KSerializer<ProxyConfigDto> {
+        override val descriptor: SerialDescriptor = ProxyConfigDto.serializer().descriptor
+
+        override fun serialize(encoder: Encoder, value: ProxyConfigDto) {
+            ProxyConfigDto.serializer().serialize(encoder, value)
+        }
+
+        override fun deserialize(decoder: Decoder): ProxyConfigDto {
+            val json = decoder.decodeSerializableValue(JsonElement.serializer())
+            return when {
+                json is JsonPrimitive && json.booleanOrNull != null -> ProxyConfigDto(rotate = false)
+                json is JsonObject -> Json.decodeFromJsonElement(ProxyConfigDto.serializer(), json)
+                else -> ProxyConfigDto()
+            }
+        }
+    }
 
     @Serializable
     data class ProviderCapabilitiesDto(
