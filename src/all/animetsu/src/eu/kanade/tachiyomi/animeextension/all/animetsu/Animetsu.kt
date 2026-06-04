@@ -305,27 +305,17 @@ class Animetsu :
                                 subtitleTracks,
                             ).let(::listOf)
                         source.type?.contains("mpegurl") == true ->
-                            if (source.oldHls) {
-                                Video(
-                                    fullUrl,
-                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                    fullUrl,
-                                    apiHeaders(watchReferer),
-                                    subtitleTracks,
-                                ).let(::listOf)
-                            } else {
-                                playlistUtils.extractFromHls(
-                                    playlistUrl = fullUrl,
-                                    videoNameGen = { quality ->
-                                        val cleanQuality = quality.substringBefore(" ").let { q ->
-                                            if (q.endsWith("P")) q.lowercase() else q
-                                        }
-                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
-                                    },
-                                    referer = "$baseUrl/",
-                                    subtitleList = subtitleTracks,
-                                )
-                            }
+                            playlistUtils.extractFromHls(
+                                playlistUrl = fullUrl,
+                                videoNameGen = { quality ->
+                                    val cleanQuality = quality.substringBefore(" ").let { q ->
+                                        if (q.endsWith("P")) q.lowercase() else q
+                                    }
+                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                },
+                                referer = "$baseUrl/",
+                                subtitleList = subtitleTracks,
+                            )
                         else -> emptyList()
                     }
                 }
