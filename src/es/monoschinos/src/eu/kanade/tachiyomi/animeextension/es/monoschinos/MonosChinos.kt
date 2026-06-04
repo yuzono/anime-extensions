@@ -275,8 +275,8 @@ class MonosChinos :
         embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") ||
         embedUrl.contains("moviesm4u") || embedUrl.contains("files.im") ->
             filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-        embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
-            doodExtractor.videosFromUrl(url)
+        embedUrl.contains("doodstream") || embedUrl.contains("dood.") || embedUrl.contains("ds2play") ->
+            doodExtractor.videosFromUrl(url, quality = "DoodStream")
         embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
             streamTapeExtractor.videosFromUrl(url)
         embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
