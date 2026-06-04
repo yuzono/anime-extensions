@@ -30,9 +30,11 @@ package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.jsunpacker.JsUnpacker
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -78,7 +80,7 @@ class KwikExtractor(
 
     suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
         val eContent = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
-            .awaitSuccess().asJsoup()
+            .awaitSuccess().useAsJsoup()
         val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
             ?.substringAfterLast("eval(function(")
             ?: throw KwikException.ExtractionException("JsUnpacker not found.")
@@ -87,7 +89,7 @@ class KwikExtractor(
         return unpacked.substringAfter("const source=\\'").substringBefore("\\';")
     }
 
-    fun getStreamVideo(paheUrl: String, quality: String = ""): Video {
+    suspend fun getStreamVideo(paheUrl: String, quality: String = ""): Video {
         val videoUrl = getStreamUrlFromKwik(paheUrl)
 
         return Video(
@@ -98,8 +100,8 @@ class KwikExtractor(
         )
     }
 
-    fun getStreamUrlFromKwik(paheUrl: String): String {
-        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i", headers)).execute().use { response ->
+    suspend fun getStreamUrlFromKwik(paheUrl: String): String {
+        val kwikUrl = noRedirectClient.newCall(GET("$paheUrl/i", headers)).await().use { response ->
             val location = response.header("location")
                 ?: throw KwikException.ExtractionException("Pahe redirect failed: No location header found.")
             "https://" + location.substringAfterLast("https://")
@@ -136,7 +138,7 @@ class KwikExtractor(
 
             noRedirectClient.newCall(
                 POST(uri, headersBuilder.build(), FormBody.Builder().add("_token", tok).build()),
-            ).execute().use { response ->
+            ).await().use { response ->
                 code = response.code
                 kwikLocation = response.header("location")
             }
@@ -159,8 +161,8 @@ class KwikExtractor(
         return kwikLocation ?: throw KwikException.ExtractionException("Failed to extract stream URI after $tries attempts.")
     }
 
-    private fun fetchKwikHtml(kwikUrl: String): KwikContent {
-        fun attemptKwikFetch(cfResult: CloudFlareBypassResult?): KwikContent? {
+    private suspend fun fetchKwikHtml(kwikUrl: String): KwikContent {
+        suspend fun attemptKwikFetch(cfResult: CloudFlareBypassResult?): KwikContent? {
             // Use `Headers.Builder()` because we want to use the default User-Agent from the app,
             // since that would be the one used when open webview manually
             val headers = Headers.Builder()
@@ -177,8 +179,8 @@ class KwikExtractor(
             // Use the base client directly so all interceptors are preserved.
             return try {
                 // try-catch the `Failed to bypass Cloudflare` exception
-                client.newCall(GET(kwikUrl, headers)).execute().use { resp ->
-                    val html = resp.body.string()
+                client.newCall(GET(kwikUrl, headers)).awaitSuccess().use { resp ->
+                    val html = resp.bodyString()
                     if (html.contains("eval(function(")) {
                         val respCookies = resp.extractCookies()
                         val finalCookies =
