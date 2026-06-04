@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.annotation.SuppressLint
-import android.content.Context
+import android.app.Application
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -18,7 +18,7 @@ data class CloudFlareBypassResult(
     val userAgent: String,
 )
 
-class CloudflareBypass(private val context: Context) {
+class CloudflareBypass(private val context: Application) {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun getCookies(pageUrl: String, customUserAgent: String? = null): CloudFlareBypassResult? {

@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.parseAs
@@ -28,7 +29,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
@@ -41,7 +41,9 @@ class AnimePahe :
 
     private val preferences by getPreferencesLazy()
 
-    private val context: Application by injectLazy()
+    // Use applicationContext from the NetworkHelper instead of injectLazy
+    private val context: Application
+        get() = applicationContext
 
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
