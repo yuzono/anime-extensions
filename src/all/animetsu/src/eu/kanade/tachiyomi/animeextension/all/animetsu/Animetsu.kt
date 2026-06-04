@@ -283,8 +283,8 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "pahe", "dio", "meg" -> " [Hard Subs]"
-                    "kite", "kiss" -> " [Soft Subs]"
+                    "baku", "dio", "meg" -> " [Hard Subs]"
+                    "kite" -> " [Soft Subs]"
                     else -> ""
                 }
 
@@ -513,13 +513,13 @@ class Animetsu :
 
         private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
         private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
-        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
-        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "pahe", "kite", "dio", "meg", "kiss")
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "baku", "dio", "meg", "kite")
 
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
-        private val SERVER_ENTRIES = listOf("Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
-        private val SERVER_VALUES = listOf("pahe", "kite", "dio", "meg", "kiss")
+        private val SERVER_ENTRIES = listOf("Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val SERVER_VALUES = listOf("baku", "dio", "meg", "kite")
 
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"

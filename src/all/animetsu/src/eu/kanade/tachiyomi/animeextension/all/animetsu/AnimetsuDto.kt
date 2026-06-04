@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.roundToInt
 
 @Serializable
 data class AnimetsuSearchDto(
@@ -97,6 +98,12 @@ data class AnimetsuAnimeDto(
             ?: dto.studios?.joinToString { it.name }
     }
 
+    private fun getFancyScore(score: Int): String {
+        if (score <= 0) return ""
+        val stars = (score / 20.0).roundToInt().coerceIn(1, 5)
+        return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
+    }
+
     fun buildDescription(
         showExtraInfo: Boolean = true,
         showStaff: Boolean = true,
@@ -107,7 +114,15 @@ data class AnimetsuAnimeDto(
     ): String {
         val desc = StringBuilder()
 
+        averageScore?.let { score ->
+            val fancyScore = getFancyScore(score)
+            if (fancyScore.isNotEmpty()) {
+                desc.append(fancyScore)
+            }
+        }
+
         description?.cleanHtml()?.let {
+            if (desc.isNotBlank()) desc.append("\n\n")
             desc.append(it)
         }
 
@@ -156,12 +171,9 @@ data class AnimetsuAnimeDto(
                 desc.append("**Hashtag**: $it")
             }
 
-            averageScore?.let { score ->
-                if (desc.isNotBlank()) desc.append("\n\n")
-                desc.append("**Score**: $score/100")
-                meanScore?.takeIf { it != score }?.let { mean ->
-                    desc.append(" *(Mean: $mean/100)*")
-                }
+            meanScore?.takeIf { it != averageScore }?.let { mean ->
+                if (desc.isNotBlank()) desc.append("\n")
+                desc.append("**Mean Score**: $mean/100")
             }
 
             val stats = mutableListOf<String>()
