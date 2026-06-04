@@ -44,6 +44,7 @@ data class KwikContent(val cookies: String, val html: String, val finalUrl: Stri
 class KwikExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
+    private val cfBypassUserAgent: String? = null, // Added custom User-Agent parameter
 ) {
     private val kwikParamsRegex by lazy { Regex("""\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)""") }
     private val kwikDUrl by lazy { Regex("action=\"([^\"]+)\"") }
@@ -143,7 +144,8 @@ class KwikExtractor(
 
             // Cloudflare/Session Timeout Handling
             if (code == 403 || code == 419) {
-                cloudFlareBypassResult = CloudflareBypass(context).getCookies(kwikUrl)
+                // Pass the custom User-Agent to the bypass
+                cloudFlareBypassResult = CloudflareBypass(context).getCookies(kwikUrl, cfBypassUserAgent)
                     ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
 
                 // Prevent stacking multiple cf_clearance cookies
@@ -195,8 +197,8 @@ class KwikExtractor(
         // 1. Try standard fetch without bypass
         attemptKwikFetch(null)?.let { return it }
 
-        // 2. Try Cloudflare Bypass (Always fresh)
-        val cfResult = CloudflareBypass(context).getCookies(kwikUrl)
+        // 2. Try Cloudflare Bypass (Always fresh) with the custom User-Agent
+        val cfResult = CloudflareBypass(context).getCookies(kwikUrl, cfBypassUserAgent)
             ?: throw KwikException.CloudflareBlockedException("Bypass returned null result.")
 
         attemptKwikFetch(cfResult)?.let { return it }

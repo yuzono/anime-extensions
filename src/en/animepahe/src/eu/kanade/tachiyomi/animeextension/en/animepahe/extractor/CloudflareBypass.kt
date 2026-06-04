@@ -8,7 +8,7 @@ import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import eu.kanade.tachiyomi.animeextension.en.animepahe.AnimePahe.Companion.UA_MOBILE
+import eu.kanade.tachiyomi.animeextension.en.animepahe.AnimePahe.Companion.UA
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -21,7 +21,7 @@ data class CloudFlareBypassResult(
 class CloudflareBypass(private val context: Context) {
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun getCookies(pageUrl: String): CloudFlareBypassResult? {
+    fun getCookies(pageUrl: String, customUserAgent: String? = null): CloudFlareBypassResult? {
         // Only clear cookies for the target domain instead of hardcoding unrelated domains.
         clearCookiesForUrl(pageUrl)
 
@@ -30,14 +30,15 @@ class CloudflareBypass(private val context: Context) {
         var webView: WebView? = null
         val cancelled = AtomicBoolean(false)
 
+        val userAgentToUse = customUserAgent ?: UA
+
         // We MUST jump to the Main Thread because WebView is UI-bound
         Handler(Looper.getMainLooper()).post {
             webView = WebView(context)
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
-            webView.settings.userAgentString = UA_MOBILE
+            webView.settings.userAgentString = userAgentToUse
             val defaultUserAgent = webView.settings.userAgentString
-                ?: UA_MOBILE
 
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, loadedUrl: String) {

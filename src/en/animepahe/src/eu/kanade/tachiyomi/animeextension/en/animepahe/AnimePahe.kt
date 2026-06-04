@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -43,7 +44,7 @@ class AnimePahe :
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private val interceptor = DdosGuardInterceptor(network.client)
+    private val interceptor = DdosGuardInterceptor(network.client) { cfBypassUserAgent }
 
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
@@ -333,12 +334,13 @@ class AnimePahe :
         }
 
         val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
+        val cfUA = cfBypassUserAgent // Get the custom UA once
 
         val videos = if (!useHLS) {
             links.mapNotNull { (_, paheWinLink, quality) ->
                 if (paheWinLink.isNullOrBlank()) return@mapNotNull null
                 runCatching {
-                    KwikExtractor(client, headers).getStreamVideo(context, paheWinLink, quality)
+                    KwikExtractor(client, headers, cfUA).getStreamVideo(context, paheWinLink, quality)
                 }.getOrNull()
             }
         } else {
@@ -348,7 +350,7 @@ class AnimePahe :
         return videos.ifEmpty {
             links.parallelMapNotNullBlocking { (kwikLink, _, quality) ->
                 runCatching {
-                    KwikExtractor(client, headers).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                    KwikExtractor(client, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                 }.getOrNull()
             }
         }
@@ -420,6 +422,12 @@ class AnimePahe :
             summary = PREF_AV1_SUMMARY,
             default = PREF_AV1_DEFAULT,
         )
+        screen.addEditTextPreference(
+            key = PREF_CF_UA_KEY,
+            title = PREF_CF_UA_TITLE,
+            summary = PREF_CF_UA_SUMMARY,
+            default = PREF_CF_UA_DEFAULT,
+        )
     }
 
     // ============================= Utilities ==============================
@@ -446,6 +454,12 @@ class AnimePahe :
 
     private fun SAnime.getId() = newAnimeIdRegex.find(url)?.let { it.groupValues[1] }
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
+
+    private val cfBypassUserAgent: String
+        get() = preferences.getString(PREF_CF_UA_KEY, PREF_CF_UA_DEFAULT)
+            ?.trim()
+            .takeIf { !it.isNullOrBlank() }
+            ?: PREF_CF_UA_DEFAULT
 
     companion object {
         private val DATE_FORMATTER by lazy {
@@ -491,6 +505,12 @@ class AnimePahe :
             |Turn off to never select av1 as preferred codec
             """.trimMargin()
         }
-        const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        const val UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        private const val PREF_CF_UA_KEY = "cf_bypass_ua"
+        private const val PREF_CF_UA_TITLE = "Custom User-Agent"
+        private const val PREF_CF_UA_DEFAULT = UA
+        private val PREF_CF_UA_SUMMARY = """Custom User-Agent string for the Cloudflare WebView bypass.
+|Leave blank to use the default.
+        """.trimMargin()
     }
 }
