@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import android.app.Application
 import android.webkit.CookieManager
 import eu.kanade.tachiyomi.animeextension.en.animepahe.extractor.CloudflareBypass
 import eu.kanade.tachiyomi.network.GET
@@ -12,7 +11,6 @@ import okhttp3.Response
 
 class DdosGuardInterceptor(
     private val client: OkHttpClient,
-    private val context: Application,
     private val cfBypassUserAgentProvider: () -> String = { AnimePahe.UA },
 ) : Interceptor {
 
@@ -57,7 +55,7 @@ class DdosGuardInterceptor(
         // Fallback to WebView Cloudflare/DDos-Guard bypass using the custom User-Agent
         if (isCloudflare || isDdosGuard) {
             val customUA = cfBypassUserAgentProvider()
-            val bypassResult = CloudflareBypass(context).getCookies(
+            val bypassResult = CloudflareBypass().getCookies(
                 pageUrl = originalRequest.url.toString(),
                 customUserAgent = customUA,
             )

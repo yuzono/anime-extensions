@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import android.app.Application
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
@@ -19,7 +18,6 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
-import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.parseAs
@@ -41,14 +39,10 @@ class AnimePahe :
 
     private val preferences by getPreferencesLazy()
 
-    // Use applicationContext from the NetworkHelper instead of injectLazy
-    private val context: Application
-        get() = applicationContext
-
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private val interceptor = DdosGuardInterceptor(network.client, context) { cfBypassUserAgent }
+    private val interceptor = DdosGuardInterceptor(network.client) { cfBypassUserAgent }
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
@@ -491,27 +485,23 @@ class AnimePahe :
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
         private const val PREF_LINK_TYPE_DEFAULT = true
-        private val PREF_LINK_TYPE_SUMMARY by lazy {
-            """Enable this if you are having Cloudflare issues.
+        private val PREF_LINK_TYPE_SUMMARY = """Enable this if you are having Cloudflare issues.
             |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
-            """.trimMargin()
-        }
+        """.trimMargin()
 
         // Big slap to whoever misspelled `preferred`
         private const val PREF_AV1_KEY = "preferred_av1"
         private const val PREF_AV1_TITLE = "Use AV1 codec"
         private const val PREF_AV1_DEFAULT = false
-        private val PREF_AV1_SUMMARY by lazy {
-            """Enable to use AV1 if available
+        private val PREF_AV1_SUMMARY = """Enable to use AV1 if available
             |Turn off to never select av1 as preferred codec
-            """.trimMargin()
-        }
+        """.trimMargin()
         const val UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
         private const val PREF_CF_UA_KEY = "cf_bypass_ua"
         private const val PREF_CF_UA_TITLE = "Custom User-Agent"
         private const val PREF_CF_UA_DEFAULT = UA
         private val PREF_CF_UA_SUMMARY = """Custom User-Agent string for the Cloudflare WebView bypass.
-|Leave blank to use the default.
+            |Leave blank to use the default.
         """.trimMargin()
     }
 }

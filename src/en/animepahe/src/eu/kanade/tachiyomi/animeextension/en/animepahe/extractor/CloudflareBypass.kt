@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe.extractor
 
 import android.annotation.SuppressLint
-import android.app.Application
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -9,6 +8,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.animeextension.en.animepahe.AnimePahe.Companion.UA
+import keiyoushi.utils.applicationContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -18,7 +18,7 @@ data class CloudFlareBypassResult(
     val userAgent: String,
 )
 
-class CloudflareBypass(private val context: Application) {
+class CloudflareBypass {
 
     @SuppressLint("SetJavaScriptEnabled")
     fun getCookies(pageUrl: String, customUserAgent: String? = null): CloudFlareBypassResult? {
@@ -34,7 +34,7 @@ class CloudflareBypass(private val context: Application) {
 
         // We MUST jump to the Main Thread because WebView is UI-bound
         Handler(Looper.getMainLooper()).post {
-            webView = WebView(context)
+            webView = WebView(applicationContext)
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
             webView.settings.userAgentString = userAgentToUse
