@@ -19,7 +19,7 @@ import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -332,21 +332,19 @@ class AnimePahe :
         val cfUA = cfBypassUserAgent // Get the custom UA once
 
         val videos = if (!useHLS) {
-            links.mapNotNull { (_, paheWinLink, quality) ->
-                if (paheWinLink.isNullOrBlank()) return@mapNotNull null
-                runCatching {
-                    KwikExtractor(client, headers, cfUA).getStreamVideo(context, paheWinLink, quality)
-                }.getOrNull()
+            links.parallelCatchingFlatMapBlocking { (_, paheWinLink, quality) ->
+                if (paheWinLink.isNullOrBlank()) return@parallelCatchingFlatMapBlocking emptyList()
+                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality)
+                    .let(::listOf)
             }
         } else {
             emptyList()
         }
 
         return videos.ifEmpty {
-            links.parallelMapNotNullBlocking { (kwikLink, _, quality) ->
-                runCatching {
-                    KwikExtractor(client, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
-                }.getOrNull()
+            links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
+                KwikExtractor(client, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                    .let(::listOf)
             }
         }
     }

@@ -21,6 +21,7 @@ data class CloudFlareBypassResult(
 class CloudflareBypass {
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Synchronized
     fun getCookies(pageUrl: String, customUserAgent: String? = null): CloudFlareBypassResult? {
         // Only clear cookies for the target domain instead of hardcoding unrelated domains.
         clearCookiesForUrl(pageUrl)
