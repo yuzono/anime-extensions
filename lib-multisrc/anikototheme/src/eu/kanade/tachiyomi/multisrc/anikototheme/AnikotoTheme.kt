@@ -57,7 +57,6 @@ abstract class AnikotoTheme(
     override val name: String,
     private val domainEntries: List<String>,
     private val hosterNames: List<String>,
-    private val hosterDisplayNames: List<String> = hosterNames.map { it.replaceFirstChar { c -> c.uppercase() } },
 ) : ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
@@ -83,6 +82,38 @@ abstract class AnikotoTheme(
             .build()
     }
 
+    private var discoveredServersCache: Set<String>? = null
+
+    protected val discoveredServers: Set<String>
+        get() {
+            if (discoveredServersCache == null) {
+                discoveredServersCache = preferences.getStringSet(PREF_DISCOVERED_SERVERS_KEY, null)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: hosterNames.toSet()
+            }
+            return discoveredServersCache!!
+        }
+
+    protected fun updateDiscoveredServers(rawNames: Collection<String>) {
+        val newBases = rawNames.map { extractBaseServerName(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (newBases.isEmpty()) return
+        val current = discoveredServers
+        val merged = current + newBases
+        if (merged != current) {
+            discoveredServersCache = merged
+            preferences.edit().putStringSet(PREF_DISCOVERED_SERVERS_KEY, merged).apply()
+        }
+    }
+
+    /** Extract the base/canonical server name from the raw HTML server name.
+     *  "HD-1" → "HD", "Vidstream-2" → "Vidstream", "Kiwi-Stream-" → "Kiwi-Stream" */
+    protected open fun extractBaseServerName(rawName: String): String = rawName.replace(Regex("-*\\d+\\s*$"), "").trimEnd('-', ' ').trim()
+
+    /** Display name for a base server name, used in preference screens. */
+    protected open fun getHosterDisplayName(baseName: String): String = baseName
+
     private val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
 
     private val utils by lazy { AnikotoUtils() }
@@ -91,7 +122,7 @@ abstract class AnikotoTheme(
     private val excludedHosts: Set<String> by preferences.delegate(PREF_HOSTER_EXCLUDE_KEY, emptySet())
     private val excludedTypes: Set<String> by preferences.delegate(PREF_TYPE_EXCLUDE_KEY, emptySet())
 
-    protected val hostToggle: Set<String> get() = hosterNames.toSet() - excludedHosts
+    protected val hostToggle: Set<String> get() = discoveredServers - excludedHosts
     protected val typeToggle: Set<String> get() = PREF_TYPE_ENTRIES.toSet() - excludedTypes
 
     // ============================ Headers & Client =========================
@@ -428,13 +459,15 @@ abstract class AnikotoTheme(
     // ============================= Extractors =============================
 
     private suspend fun extractVideo(server: VideoData, epUrl: String): List<Video> = try {
-        val embedLink = getEmbedLink(server.serverId, epUrl)
-        val isMewcdn = embedLink.contains("mewcdn.online/player/plyr.php")
-
-        if (isMewcdn) {
-            extractFromMewcdnPlayer(embedLink, server)
+        val embedLink = if (server.serverId.startsWith("http")) {
+            server.serverId // Mapper URL, use directly as embed link
         } else {
-            extractFromPlayer(embedLink, server)
+            getEmbedLink(server.serverId, epUrl) // Site API server ID
+        }
+
+        when {
+            embedLink.contains("mewcdn.online/player/plyr.php") -> extractFromMewcdnPlayer(embedLink, server)
+            else -> extractFromPlayer(embedLink, server)
         }
     } catch (e: Exception) {
         Log.e("AnikotoTheme", "Failed to extract from ${server.serverName}: ${e.message}")
@@ -473,6 +506,12 @@ abstract class AnikotoTheme(
 
             client.newCall(GET(apiUrl, mapperHeaders)).awaitSuccess().use { apiResponse ->
                 val mapperJson = apiResponse.parseAs<JsonObject>()
+
+                mapperJson.keys
+                    .filter { !it.equals("status", true) }
+                    .map { mapMapperServerName(it) }
+                    .also { updateDiscoveredServers(it) }
+
                 val servers = mutableListOf<VideoData>()
 
                 for ((key, value) in mapperJson) {
@@ -483,7 +522,10 @@ abstract class AnikotoTheme(
                         continue
                     }
 
-                    listOf("sub" to "S-Sub", "dub" to "A-Dub").forEach { (typeKey, typeLabel) ->
+                    val serverName = mapMapperServerName(key)
+                    val isKiwi = serverName.contains("Kiwi-Stream", true)
+
+                    listOf("sub", "dub").forEach { typeKey ->
                         val typeObj = try {
                             obj[typeKey]?.jsonObject
                         } catch (_: Exception) {
@@ -491,9 +533,17 @@ abstract class AnikotoTheme(
                         } ?: return@forEach
 
                         val linkId = typeObj["url"]?.jsonPrimitive?.content ?: return@forEach
-                        val serverName = mapMapperServerName(key)
 
-                        if (hostToggle.none { serverName.contains(it, true) }) return@forEach
+                        // Kiwi-Stream uses H-Sub/A-Dub to match the website's H-SUB/A-DUB sections
+                        val typeLabel = when {
+                            isKiwi && typeKey == "sub" -> "H-Sub"
+                            isKiwi && typeKey == "dub" -> "A-Dub"
+                            typeKey == "sub" -> "Sub"
+                            typeKey == "dub" -> "Dub"
+                            else -> typeKey.replaceFirstChar { it.uppercase() }
+                        }
+
+                        if (!hostToggle.contains(serverName, true)) return@forEach
                         if (!isTypeEnabled(typeLabel, typeToggle)) return@forEach
 
                         servers.add(VideoData(typeLabel, linkId, serverName))
@@ -516,7 +566,7 @@ abstract class AnikotoTheme(
         else -> key.replaceFirstChar { it.uppercase() }
     }
 
-    private suspend fun extractFromPlayer(embedUrl: String, server: VideoData): List<Video> {
+    private suspend fun extractFromPlayer(embedUrl: String, server: VideoData, pageReferer: String = "$baseUrl/"): List<Video> {
         val host = try {
             embedUrl.toHttpUrl().host
         } catch (_: Exception) {
@@ -524,7 +574,7 @@ abstract class AnikotoTheme(
         }
 
         val pageHeaders = headers.newBuilder()
-            .add("Referer", "$baseUrl/")
+            .add("Referer", pageReferer)
             .build()
 
         val pageBody = client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
@@ -533,7 +583,15 @@ abstract class AnikotoTheme(
         }
 
         val dataId = Regex("""data-id="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
-            ?: throw Exception("Could not find data-id")
+
+        if (dataId == null) {
+            // No data-id found — check for nested iframe (e.g., MegaPlay wrapper)
+            val iframeSrc = Regex("""<iframe[^>]+src="([^"]+)"""").find(pageBody)?.groupValues?.get(1)
+            if (iframeSrc != null) {
+                return extractFromPlayer(iframeSrc, server, pageReferer = embedUrl)
+            }
+            throw Exception("Could not find data-id or iframe src")
+        }
 
         val apiHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
@@ -620,13 +678,14 @@ abstract class AnikotoTheme(
 
     override fun List<Video>.sort(): List<Video> {
         val quality = prefQuality
-        val serverDisplayName = getServerDisplayName(prefServer)
+        val preferredBase = extractBaseServerName(prefServer)
         val type = prefType
         val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
 
         val sortType = when (type) {
-            "Sub" -> listOf("Sub", "S-Sub")
+            "Sub" -> listOf("Sub", "S-Sub", "H-Sub")
             "S-Sub" -> listOf("S-Sub", "Sub")
+            "H-Sub" -> listOf("H-Sub", "Sub")
             "Dub" -> listOf("Dub", "A-Dub")
             "HSub" -> listOf("HSub")
             "A-Dub" -> listOf("A-Dub", "Dub")
@@ -636,7 +695,10 @@ abstract class AnikotoTheme(
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(quality) }
                 .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
-                .thenByDescending { it.quality.contains(serverDisplayName, true) }
+                .thenByDescending { video ->
+                    val videoBase = extractBaseServerName(video.quality.substringBefore(" - "))
+                    videoBase.equals(preferredBase, ignoreCase = true)
+                }
                 .thenByDescending { sortType.any { t -> it.quality.contains(" - $t ", true) } },
         )
     }
@@ -726,27 +788,39 @@ abstract class AnikotoTheme(
         return EP_URL_SUFFIX_REGEX.replace(path, "").takeIf { it.startsWith("/watch/") }
     }
 
+    protected open fun resolveTypeLabel(typeElem: Element): String {
+        val labelText = typeElem.selectFirst("label")?.text()?.trim()
+        val dataType = typeElem.attr("data-type")
+
+        return when {
+            labelText.equals("SUB", true) -> "Sub"
+            labelText.equals("H-SUB", true) -> "H-Sub"
+            labelText.equals("HSUB", true) -> "HSub"
+            labelText.equals("DUB", true) -> "Dub"
+            labelText.equals("A-DUB", true) || labelText.equals("ADUB", true) -> "A-Dub"
+            dataType.equals("sub", true) -> "Sub"
+            dataType.equals("hsub", true) -> "HSub"
+            dataType.equals("dub", true) -> "Dub"
+            dataType.equals("adub", true) -> "A-Dub"
+            else -> (labelText ?: dataType).replaceFirstChar { it.uppercase() }
+        }
+    }
+
     protected open fun parseServerListData(
         document: Document,
         typeSelection: Set<String>,
     ): List<VideoData> {
-        return document.select("div.servers > div.type").flatMap { elem ->
-            val label = elem.selectFirst("label")?.text()?.trim()?.let { lbl ->
-                when (lbl.uppercase()) {
-                    "SUB" -> "Sub"
-                    "S-SUB" -> "S-Sub"
-                    "H-SUB", "HSUB" -> "HSub"
-                    "DUB" -> "Dub"
-                    "A-DUB", "ADUB" -> "A-Dub"
-                    else -> lbl.replaceFirstChar { it.uppercase() }
-                }
-            } ?: when (elem.attr("data-type").lowercase()) {
-                "sub" -> "Sub"
-                "hsub" -> "HSub"
-                "dub" -> "Dub"
-                "adub" -> "A-Dub"
-                else -> elem.attr("data-type").replaceFirstChar { it.uppercase() }
-            }
+        val typeElements = document.select("div.servers > div.type")
+
+        // Pre-discover all server base names so hostToggle is up-to-date for filtering
+        typeElements.flatMap { elem ->
+            elem.select("li")
+                .filter { !it.hasClass("download-icon") }
+                .mapNotNull { it.text().trim().takeIf(String::isNotBlank) }
+        }.also { updateDiscoveredServers(it) }
+
+        return typeElements.flatMap { elem ->
+            val label = resolveTypeLabel(elem)
 
             if (!isTypeEnabled(label, typeSelection)) return@flatMap emptyList()
 
@@ -755,19 +829,19 @@ abstract class AnikotoTheme(
 
                 val serverId = serverElement.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
+
                 val serverName = serverElement.text().trim()
-                if (hostToggle.none { serverName.contains(it, true) }) return@mapNotNull null
+                val baseName = extractBaseServerName(serverName)
+
+                if (!hostToggle.contains(baseName, true)) return@mapNotNull null
 
                 VideoData(label, serverId, serverName)
             }
         }
     }
 
-    protected open fun getServerDisplayName(serverName: String): String = serverName.split("-")
-        .filter { it.isNotBlank() }
-        .joinToString("-") { word ->
-            word.replaceFirstChar { it.uppercase() }
-        }
+    /** Display name used in Video labels — matches the website exactly for easy troubleshooting. */
+    protected open fun getServerDisplayName(serverName: String): String = serverName.trimEnd('-', ' ')
 
     protected open fun extractRelatedThumbnail(element: Element): String? = element.selectFirst("img")?.attr("src")?.trim()
 
@@ -818,7 +892,7 @@ abstract class AnikotoTheme(
     }
 
     protected fun isTypeEnabled(label: String, typeSelection: Set<String>): Boolean = typeSelection.contains(label, true) ||
-        (label == "S-Sub" && typeSelection.contains("Sub", true)) ||
+        (label == "H-Sub" && typeSelection.contains("Sub", true)) ||
         (label == "A-Dub" && typeSelection.contains("Dub", true))
 
     private fun cleanHlsQuality(quality: String): String = quality.substringBefore(" (").substringBefore(" - ").trim()
@@ -832,13 +906,18 @@ abstract class AnikotoTheme(
 
         val invalidDomain = domain !in domainEntries
 
+        // Use discovered servers for validation, falling back to seed hosterNames
+        val validServers = getStringSet(PREF_DISCOVERED_SERVERS_KEY, null)
+            ?.takeIf { it.isNotEmpty() }
+            ?: hosterNames.toSet()
+
         val oldHosterSelection = getStringSet("hoster_selection", null)
         if (oldHosterSelection != null) {
-            val newExclusion = hosterNames.toSet() - oldHosterSelection.filter { it in hosterNames }.toSet()
+            val newExclusion = validServers - oldHosterSelection.filter { it in validServers || it in hosterNames }.toSet()
             edit().putStringSet(PREF_HOSTER_EXCLUDE_KEY, newExclusion).remove("hoster_selection").apply()
         }
         val currentExcludedHosts = getStringSet(PREF_HOSTER_EXCLUDE_KEY, emptySet()) ?: emptySet()
-        val invalidHosters = currentExcludedHosts.any { it !in hosterNames }
+        val invalidHosters = currentExcludedHosts.any { it !in validServers && it !in hosterNames }
 
         val oldTypeSelection = getStringSet("type_selection", null)
         if (oldTypeSelection != null) {
@@ -854,12 +933,16 @@ abstract class AnikotoTheme(
         val savedPrefType = getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT) ?: PREF_TYPE_DEFAULT
         val invalidPrefType = savedPrefType !in PREF_TYPE_ENTRIES
 
-        if (invalidDomain || invalidHosters || invalidTypes || invalidPrefType) {
+        val savedPrefServer = getString(PREF_SERVER_KEY, null)
+        val invalidPrefServer = savedPrefServer != null && savedPrefServer !in validServers && savedPrefServer !in hosterNames
+
+        if (invalidDomain || invalidHosters || invalidTypes || invalidPrefType || invalidPrefServer) {
             edit().also { editor ->
                 if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
-                if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, currentExcludedHosts.filter { it in hosterNames }.toSet())
+                if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, currentExcludedHosts.filter { it in validServers || it in hosterNames }.toSet())
                 if (invalidTypes) editor.putStringSet(PREF_TYPE_EXCLUDE_KEY, currentExcludedTypes.filter { it in PREF_TYPE_ENTRIES }.toSet())
                 if (invalidPrefType) editor.putString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
+                if (invalidPrefServer) editor.putString(PREF_SERVER_KEY, validServers.firstOrNull() ?: hosterNames.firstOrNull() ?: "")
             }.apply()
         }
         return this
@@ -869,7 +952,7 @@ abstract class AnikotoTheme(
 
     protected val getTitleLang by preferences.delegate(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT)
     protected val prefQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
-    protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.first())
+    protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.firstOrNull() ?: "")
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
@@ -910,12 +993,15 @@ abstract class AnikotoTheme(
             }
         }.also(screen::addPreference)
 
+        val serverEntries = discoveredServers.map { getHosterDisplayName(it) }.toTypedArray()
+        val serverValues = discoveredServers.toTypedArray()
+
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Preferred Server"
-            entries = hosterDisplayNames.toTypedArray()
-            entryValues = hosterNames.toTypedArray()
-            setDefaultValue(hosterNames.first())
+            entries = serverEntries
+            entryValues = serverValues
+            setDefaultValue(serverValues.firstOrNull() ?: "")
             summary = "%s"
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit().putString(key, newValue as String).commit()
@@ -950,8 +1036,8 @@ abstract class AnikotoTheme(
             key = PREF_HOSTER_EXCLUDE_KEY
             title = "Exclude Servers"
             summary = "Choose which servers you want to exclude"
-            entries = hosterDisplayNames.toTypedArray()
-            entryValues = hosterNames.toTypedArray()
+            entries = serverEntries
+            entryValues = serverValues
             setDefaultValue(emptySet<String>())
             setOnPreferenceChangeListener { _, newValue ->
                 @Suppress("UNCHECKED_CAST")
@@ -996,8 +1082,8 @@ abstract class AnikotoTheme(
         private const val PREF_SERVER_KEY = "preferred_server"
 
         private const val PREF_TYPE_EXCLUDE_KEY = "type_exclusion"
-        private val PREF_TYPE_ENTRIES = arrayOf("Sub", "S-Sub", "HSub", "Dub", "A-Dub")
-        private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Soft Sub", "Hard Sub", "Dub", "Alternate Dub")
+        private val PREF_TYPE_ENTRIES = arrayOf("Sub", "S-Sub", "H-Sub", "HSub", "Dub", "A-Dub")
+        private val PREF_TYPE_DISPLAY_ENTRIES = arrayOf("Sub", "Soft Sub", "H-Sub", "Hard Sub", "Dub", "Alternate Dub")
 
         private const val PREF_TYPE_KEY = "preferred_language"
         private const val PREF_TYPE_DEFAULT = "Sub"
@@ -1010,6 +1096,7 @@ abstract class AnikotoTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
+        private const val PREF_DISCOVERED_SERVERS_KEY = "discovered_servers"
     }
 
     // =============================== VRF ==================================

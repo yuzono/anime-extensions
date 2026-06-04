@@ -18,8 +18,7 @@ class AnimeSogo :
         domainEntries = listOf(
             "animesogo.to",
         ),
-        hosterNames = listOf("HD-1", "HD-2", "HD-3", "Server-"),
-        hosterDisplayNames = listOf("HD-1", "HD-2", "HD-3", "Kiwi-Stream"),
+        hosterNames = listOf("HD", "Kiwi-Stream"), // seed/fallback only
     ) {
 
     // =================== Selector Overrides ==============================
@@ -32,10 +31,29 @@ class AnimeSogo :
     override val synopsisContentSelector = "div.synopsis > div.content"
     override val detailThumbnailSelector = "section#w-info div.poster img"
     override val listingThumbnailSelector = "a.poster img"
+    override val watchOrderItemSelector = "a.item"
 
     // =================== Episode List Override ===========================
 
     override fun episodeListSelector() = "ul.episodes > li > a"
+
+    // =================== Server Name Mapping =============================
+
+    override fun extractBaseServerName(rawName: String): String {
+        val base = super.extractBaseServerName(rawName)
+        return when (base) {
+            "Server" -> "Kiwi-Stream"
+            else -> base
+        }
+    }
+
+    override fun getServerDisplayName(serverName: String): String {
+        val base = extractBaseServerName(serverName)
+        return when (base) {
+            "Kiwi-Stream" -> "Kiwi-Stream"
+            else -> serverName.trimEnd('-', ' ')
+        }
+    }
 
     // =================== Video Server List Override ======================
 
@@ -43,49 +61,30 @@ class AnimeSogo :
         document: Document,
         typeSelection: Set<String>,
     ): List<VideoData> {
-        return document.select("div.type").flatMap { typeElem ->
-            val typeLabel = resolveTypeLabel(typeElem)
+        val typeElements = document.select("div.type")
 
-            if (!isTypeEnabled(typeLabel, typeSelection)) return@flatMap emptyList()
+        typeElements.flatMap { elem ->
+            elem.select("a.server")
+                .mapNotNull { it.selectFirst("span")?.text()?.trim()?.takeIf(String::isNotBlank) }
+        }.also { updateDiscoveredServers(it) }
 
-            typeElem.select("a.server").mapNotNull { serverElem ->
+        return typeElements.flatMap { elem ->
+            val label = resolveTypeLabel(elem)
+
+            if (!isTypeEnabled(label, typeSelection)) return@flatMap emptyList()
+
+            elem.select("a.server").mapNotNull { serverElem ->
                 val serverId = serverElem.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
 
                 val serverName = serverElem.selectFirst("span")?.text()?.trim() ?: return@mapNotNull null
-                if (serverName !in hostToggle) return@mapNotNull null
+                val baseName = extractBaseServerName(serverName)
 
-                VideoData(typeLabel, serverId, serverName)
+                if (!hostToggle.contains(baseName, true)) return@mapNotNull null
+
+                VideoData(label, serverId, serverName)
             }
         }
-    }
-
-    private fun resolveTypeLabel(typeElem: Element): String {
-        val labelText = typeElem.selectFirst("label")?.text()?.trim()
-        val dataType = typeElem.attr("data-type")
-
-        return when {
-            labelText.equals("SUB", true) -> "Sub"
-            labelText.equals("S-SUB", true) -> "S-Sub"
-            labelText.equals("HSUB", true) -> "HSub"
-            labelText.equals("DUB", true) -> "Dub"
-            labelText.equals("A-DUB", true) -> "A-Dub"
-            dataType.equals("sub", true) -> "Sub"
-            dataType.equals("hsub", true) -> "HSub"
-            dataType.equals("dub", true) -> "Dub"
-            dataType.equals("adub", true) -> "A-Dub"
-            else -> (labelText ?: dataType).replaceFirstChar { it.uppercase() }
-        }
-    }
-
-    override fun mapMapperServerName(key: String): String = when {
-        key.startsWith("Kiwi-Stream", true) -> "Server-"
-        else -> super.mapMapperServerName(key)
-    }
-
-    override fun getServerDisplayName(serverName: String): String = when (serverName) {
-        "Server-" -> "Kiwi-Stream"
-        else -> super.getServerDisplayName(serverName)
     }
 
     // =================== Search Override =================================
@@ -119,8 +118,6 @@ class AnimeSogo :
         val style = element.selectFirst("[style*='background-image']")?.attr("style") ?: return null
         return BACKGROUND_IMAGE_URL_REGEX.find(style)?.groupValues?.get(1)
     }
-
-    override val watchOrderItemSelector = "a.item"
 
     companion object {
         private val BACKGROUND_IMAGE_URL_REGEX =
