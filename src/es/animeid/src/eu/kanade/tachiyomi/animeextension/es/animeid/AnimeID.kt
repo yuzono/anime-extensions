@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.es.animeid
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
@@ -26,6 +27,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     // Extractores usando el client estándar
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
@@ -38,6 +40,7 @@ private suspend fun serverVideoResolver(url: String): List<Video> {
             embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe: ")
             embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload: ")
             embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload: ")
+            embedUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(url, prefix = "StreamWish")
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     } catch (e: Exception) {
@@ -80,14 +83,13 @@ private suspend fun serverVideoResolver(url: String): List<Video> {
     }
 
     // ============================== Preferencias ===============================
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = "preferred_server"
-            title = "Servidor preferido"
-            entries = arrayOf("Automático", "Voe", "Mp4upload")
-            entryValues = arrayOf("auto", "Voe", "Mp4upload")
-            setDefaultValue("auto")
-            summary = "%s"
-        }.also(screen::addPreference)
-    }
+override fun setupPreferenceScreen(screen: PreferenceScreen) {
+    ListPreference(screen.context).apply {
+        key = "preferred_server"
+        title = "Servidor preferido"
+        entries = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish")
+        entryValues = arrayOf("Voe", "Mp4upload", "Uqload", "StreamWish")
+        setDefaultValue("Voe")
+        summary = "%s"
+    }.also(screen::addPreference)
 }
