@@ -50,10 +50,10 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
                 ),
             ).execute()
 
-            val responseBody = response.body?.string()
+            val responseBody = response.body.string()
 
             // If we still get an HTML page (Cloudflare block or wrong endpoint), fail gracefully
-            if (responseBody.isNullOrBlank() || responseBody.trimStart().startsWith("<")) {
+            if (responseBody.isBlank() || responseBody.trimStart().startsWith("<")) {
                 return null
             }
 
@@ -65,18 +65,22 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
         }
     }
 
+    @Synchronized
+    private fun getOrRefreshToken(oldToken: String?): String? {
+        if (token == oldToken) {
+            token = fetchToken()
+        }
+        return token
+    }
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
 
-        // Fetch token lazily on the first API request
-        if (token == null) {
-            token = fetchToken()
-        }
+        val currentToken = getOrRefreshToken(null)
 
-        // Attach token if we successfully fetched it
-        val request = if (token != null) {
+        val request = if (currentToken != null) {
             originalRequest.newBuilder()
-                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Authorization", "Bearer $currentToken")
                 .build()
         } else {
             originalRequest
@@ -84,14 +88,13 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
 
         val response = chain.proceed(request)
 
-        // If we get a 401, the token might be invalid or expired. Try refreshing it once.
         if (response.code == 401) {
             response.close()
-            token = fetchToken()
+            val newToken = getOrRefreshToken(currentToken)
 
-            if (token != null) {
+            if (newToken != null) {
                 val newRequest = originalRequest.newBuilder()
-                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Authorization", "Bearer $newToken")
                     .build()
                 return chain.proceed(newRequest)
             }
