@@ -5,7 +5,7 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
-import aniyomi.lib.videhideextractor.VidHideExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -68,7 +68,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     // Extractores con sus parámetros correctos
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(mp4uploadClient) }  // Solo client
-    private val videhideExtractor by lazy { VidHideExtractor(client, headers) }
+    private val vidhideExtractor by lazy { VidHideExtractor(client, headers) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
@@ -317,7 +317,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             when {
                 embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe: ")
                 embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)  // ✅ Con headers
-                embedUrl.contains("vidhide") -> videhideExtractor.videosFromUrl(url) { quality -> "VidHide - $quality" }
+                embedUrl.contains("vidhide") -> vidhideExtractor.videosFromUrl(url) { quality -> "VidHide - $quality" }
                 embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload: ")
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
