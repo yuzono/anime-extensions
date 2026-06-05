@@ -103,85 +103,89 @@ class AnimeOnlineNinja :
         }
     }
 
-    // ============================== Episodes ==============================
-    override val episodeMovieText = "Película"
+// ============================== Episodes ==============================
+override val episodeMovieText = "Película"
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
-        
-        // Si estamos en una página de episodio (viene de "Recientes"), redirigir al anime
-        val animeUrl = if (doc.location().contains("/episodio/")) {
-            // Buscar el enlace al anime en la página del episodio
-            doc.selectFirst("a[href*=/online/]")?.attr("abs:href") 
-                ?: doc.selectFirst("div.data a[href*=/online/]")?.attr("abs:href")
-                ?: doc.location()
-        } else {
-            doc.location()
-        }
-        
-        // Cargar la página correcta del anime si es necesario
-        val finalDoc = if (animeUrl != doc.location()) {
-            client.newCall(GET(animeUrl, headers)).awaitSuccess().asJsoup()
-        } else {
-            doc
-        }
-        
-        // Seleccionar la lista de episodios (formato directo sin temporadas)
-        val episodeElements = finalDoc.select("ul.episodios li")
-        
-        return if (episodeElements.isEmpty()) {
-            // Si no hay episodios, tratar como película
-            listOf(
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(finalDoc.location())
-                    episode_number = 1F
-                    name = episodeMovieText
-                },
-            )
-        } else {
-            episodeElements.mapNotNull { element ->
-                parseEpisode(element, finalDoc.location())
-            }.reversed() // Los episodios más recientes primero
-        }
+override fun episodeListParse(response: Response): List<SEpisode> {
+    val doc = response.asJsoup()
+    
+    // Si estamos en una página de episodio (viene de "Recientes"), redirigir al anime
+    val animeUrl = if (doc.location().contains("/episodio/")) {
+        // Buscar el enlace al anime en la página del episodio
+        doc.selectFirst("a[href*=/online/]")?.attr("abs:href") 
+            ?: doc.selectFirst("div.data a[href*=/online/]")?.attr("abs:href")
+            ?: doc.location()
+    } else {
+        doc.location()
     }
     
-    private fun parseEpisode(element: Element, baseUrl: String): SEpisode? {
-        val linkElement = element.selectFirst("a")
-        val url = linkElement?.attr("abs:href") ?: return null
-        
-        // Extraer número de episodio del título o enlace
-        val title = linkElement.text()
-        val episodeNumber = extractEpisodeNumber(title, url)
-        
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(url)
-            name = title.trim()
-            episode_number = episodeNumber
+    // Cargar la página correcta del anime si es necesario (versión bloqueante)
+    val finalDoc = if (animeUrl != doc.location()) {
+        val request = GET(animeUrl, headers)
+        client.newCall(request).execute().use { newResponse ->
+            if (!newResponse.isSuccessful) throw Exception("Error loading anime page: ${newResponse.code}")
+            newResponse.asJsoup()
         }
+    } else {
+        doc
     }
     
-    private fun extractEpisodeNumber(title: String, url: String): Float {
-        // Patrones para extraer número de episodio
-        val patterns = listOf(
-            Regex("""Episodio\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-            Regex("""Ep\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-            Regex("""Capítulo\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-            Regex("""(\d+(?:\.\d+)?)\s*-(?:\s*\d+)?$"""),
-            Regex("""/(\d+(?:\.\d+)?)/?$""")
+    // Seleccionar la lista de episodios (formato directo sin temporadas)
+    val episodeElements = finalDoc.select("ul.episodios li")
+    
+    return if (episodeElements.isEmpty()) {
+        // Si no hay episodios, tratar como película
+        listOf(
+            SEpisode.create().apply {
+                setUrlWithoutDomain(finalDoc.location())
+                episode_number = 1F
+                name = episodeMovieText
+            },
         )
-        
-        for (pattern in patterns) {
-            pattern.find(title)?.let { matchResult ->
-                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
-            }
-            pattern.find(url)?.let { matchResult ->
-                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
-            }
-        }
-        
-        // Si no se encuentra, usar el índice como respaldo
-        return -1f
+    } else {
+        episodeElements.mapNotNull { element ->
+            parseEpisode(element, finalDoc.location())
+        }.reversed() // Los episodios más recientes primero
     }
+}
+
+private fun parseEpisode(element: Element, baseUrl: String): SEpisode? {
+    val linkElement = element.selectFirst("a")
+    val url = linkElement?.attr("abs:href") ?: return null
+    
+    // Extraer número de episodio del título o enlace
+    val title = linkElement.text()
+    val episodeNumber = extractEpisodeNumber(title, url)
+    
+    return SEpisode.create().apply {
+        setUrlWithoutDomain(url)
+        name = title.trim()
+        episode_number = episodeNumber
+    }
+}
+
+private fun extractEpisodeNumber(title: String, url: String): Float {
+    // Patrones para extraer número de episodio
+    val patterns = listOf(
+        Regex("""Episodio\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+        Regex("""Ep\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+        Regex("""Capítulo\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+        Regex("""(\d+(?:\.\d+)?)\s*-(?:\s*\d+)?$"""),
+        Regex("""/(\d+(?:\.\d+)?)/?$""")
+    )
+    
+    for (pattern in patterns) {
+        pattern.find(title)?.let { matchResult ->
+            return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+        }
+        pattern.find(url)?.let { matchResult ->
+            return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+        }
+    }
+    
+    // Si no se encuentra, usar el índice como respaldo
+    return -1f
+}
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
