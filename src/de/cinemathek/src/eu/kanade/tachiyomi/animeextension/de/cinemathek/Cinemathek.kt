@@ -11,9 +11,10 @@ import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -44,7 +45,7 @@ class Cinemathek :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val players = response.asJsoup().select("ul#playeroptionsul li")
+        val players = response.useAsJsoup().select("ul#playeroptionsul li")
         val hosterSelection = preferences.getStringSet(PREF_HOSTER_SELECTION_KEY, PREF_HOSTER_SELECTION_DEFAULT)!!
         return players.parallelCatchingFlatMapBlocking { player ->
             val url = getPlayerUrl(player).takeUnless(String::isEmpty)!!
@@ -58,8 +59,8 @@ class Cinemathek :
         val num = player.attr("data-nume")
         if (num == "trailer") return ""
         return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/$type/$num"))
-            .await()
-            .body.string()
+            .awaitSuccess()
+            .bodyString()
             .substringAfter("\"embed_url\":\"")
             .substringBefore("\",")
             .replace("\\", "")
@@ -71,7 +72,7 @@ class Cinemathek :
     private val streamtapeExtractor by lazy { StreamTapeExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
-    private fun getPlayerVideos(url: String, hosterSelection: Set<String>): List<Video> = when {
+    private suspend fun getPlayerVideos(url: String, hosterSelection: Set<String>): List<Video> = when {
         url.contains("https://streamlare.com") && hosterSelection.contains("slare") -> {
             streamlareExtractor.videosFromUrl(url)
         }

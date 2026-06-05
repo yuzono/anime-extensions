@@ -33,6 +33,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -41,9 +42,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
@@ -64,8 +63,6 @@ class Doramasflix :
     // with other calculated strings, the milliseconds indicate the expiration date
     // of the token, so it was calculated to expire in 100 years.
     private val accessPlatform = "RxARncfg1S_MdpSrCvreoLu_SikCGMzE1NzQzODc3NjE2MQ=="
-
-    private val mediaType = "application/json; charset=utf-8".toMediaType()
 
     override val lang = "es"
 
@@ -185,7 +182,7 @@ class Doramasflix :
                 $$"{\"operationName\":\"listSeasons\",\"variables\":{\"serie_id\":\"$$id\"},\"query\":\"query listSeasons($serie_id: MongoID!) " +
                     $$"{\\n  listSeasons(sort: NUMBER_ASC, filter: {serie_id: $serie_id}) {\\n    slug\\n    season_number\\n    poster_path\\n    air_date\\n    " +
                     "serie_name\\n    poster\\n    backdrop\\n    __typename\\n  }\\n}\\n\"}"
-                ).toRequestBody(mediaType)
+                ).toJsonRequestBody()
             POST("$apiUrl?id=$id", popularRequestHeaders, body)
         }
     }
@@ -210,7 +207,7 @@ class Doramasflix :
                     $$"listEpisodes($season_number: Float!, $serie_id: MongoID!) {\\n  listEpisodes(sort: NUMBER_ASC, filter: {type_serie: \\\"dorama\\\", " +
                     $$"serie_id: $serie_id, season_number: $season_number}) {\\n    _id\\n    name\\n    slug\\n    serie_name\\n    serie_name_es\\n    " +
                     "serie_id\\n    still_path\\n    air_date\\n    season_number\\n    episode_number\\n    languages\\n    poster\\n    backdrop\\n    __typename\\n  }\\n}\\n\"}"
-                ).toRequestBody(mediaType)
+                ).toJsonRequestBody()
 
             val episodes = client.newCall(POST(apiUrl, popularRequestHeaders, body)).awaitSuccess()
                 .parseAs<EpisodeModel>(json)
@@ -245,7 +242,6 @@ class Doramasflix :
     }
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
         val body = (
             "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"CREATEDAT_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":false}}," +
                 $$"\"query\":\"query listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  " +
@@ -255,7 +251,7 @@ class Doramasflix :
                 "backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      backdrop\\n      genres {\\n        " +
                 "name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        __typename\\n      }\\n      " +
                 "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toRequestBody(mediaType)
+            ).toJsonRequestBody()
         return POST(apiUrl, popularRequestHeaders, body)
     }
 
@@ -321,7 +317,6 @@ class Doramasflix :
     }
 
     override fun popularAnimeRequest(page: Int): Request {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
         val body = (
             "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"POPULARITY_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":false}}," +
                 $$"\"query\":\"query listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  " +
@@ -331,7 +326,7 @@ class Doramasflix :
                 "backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      backdrop\\n      genres {\\n        " +
                 "name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        __typename\\n      }\\n      " +
                 "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toRequestBody(mediaType)
+            ).toJsonRequestBody()
         return POST(apiUrl, popularRequestHeaders, body)
     }
 
@@ -387,12 +382,11 @@ class Doramasflix :
                 $$"searchDorama(input: $input, limit: 32) {\\n    _id\\n    slug\\n    name\\n    name_es\\n    poster_path\\n    poster\\n    " +
                 $$"__typename\\n  }\\n  searchMovie(input: $input, limit: 32) {\\n    _id\\n    name\\n    name_es\\n    slug\\n    poster_path\\n    " +
                 "poster\\n    __typename\\n  }\\n}\\n\"}"
-            ).toRequestBody(mediaType)
+            ).toJsonRequestBody()
         return POST(apiUrl, popularRequestHeaders, body)
     }
 
     private fun popularMovieRequest(page: Int): Request {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
         val body = (
             "{\"operationName\":\"listMovies\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{},\"page\":$page},\"query\":\"query " +
                 $$"listMovies($page: Int, $perPage: Int, $sort: SortFindManyMovieInput, $filter: FilterFindManyMovieInput) {\\n  paginationMovie(page: $page" +
@@ -401,13 +395,12 @@ class Doramasflix :
                 "languages\\n      popularity\\n      poster_path\\n      vote_average\\n      backdrop_path\\n      release_date\\n      runtime\\n      poster\\n      " +
                 "backdrop\\n      genres {\\n        name\\n        __typename\\n      }\\n      networks {\\n        name\\n        __typename\\n      }\\n      " +
                 "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toRequestBody(mediaType)
+            ).toJsonRequestBody()
 
         return POST(apiUrl, popularRequestHeaders, body)
     }
 
     private fun popularVarietiesRequest(page: Int): Request {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
         val body = (
             "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"CREATEDAT_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":true}},\"query\":\"query " +
                 $$"listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  paginationDorama(page: $page, perPage: $perPage, " +
@@ -416,7 +409,7 @@ class Doramasflix :
                 "popularity\\n      poster_path\\n      vote_average\\n      backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      " +
                 "backdrop\\n      genres {\\n        name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        " +
                 "__typename\\n      }\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toRequestBody(mediaType)
+            ).toJsonRequestBody()
 
         return POST(apiUrl, popularRequestHeaders, body)
     }
@@ -483,8 +476,7 @@ class Doramasflix :
             .selectFirst("script:containsData({\"props\":{\"pageProps\":{)")?.data()
             ?.parseAs<TokenModel>()
 
-        val mediaType = "application/json".toMediaType()
-        val requestBody = "{\"token\":\"${token?.props?.pageProps?.token ?: token?.query?.token}\"}".toRequestBody(mediaType)
+        val requestBody = "{\"token\":\"${token?.props?.pageProps?.token ?: token?.query?.token}\"}".toJsonRequestBody()
 
         val headersVideo = headers.newBuilder()
             .add("origin", "https://${link.toHttpUrl().host}")

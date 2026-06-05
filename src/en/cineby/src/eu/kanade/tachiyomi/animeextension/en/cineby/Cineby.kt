@@ -104,6 +104,19 @@ class Cineby :
         query: String,
         filters: AnimeFilterList,
     ): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val type = url.pathSegments.getOrNull(0)
+                ?: throw Exception("Unsupported url")
+            val rawId = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            if (type !in listOf("movie", "tv")) throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_ID}$type/$rawId", filters)
+        }
+
         // Deep link from CinebyUrlActivity: "id:<type>/<id>"
         if (query.startsWith(PREFIX_ID)) {
             val rawPath = query.substringAfter(PREFIX_ID)

@@ -31,7 +31,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -264,20 +264,30 @@ class KickAssAnime :
                 put("page", page)
                 put("query", query)
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
-            }.toRequestBody()
+            }.toJsonRequestBody()
 
             POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
-        val slug = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$SEARCH_BASE_URL/api/show/$slug"))
-            .awaitSuccess()
-            .use(::searchAnimeBySlugParse)
-    } else {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != PREF_DOMAIN_DEFAULT.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val slug = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$slug", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val slug = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$SEARCH_BASE_URL/api/show/$slug"))
+                .awaitSuccess()
+                .use(::searchAnimeBySlugParse)
+        }
         val params = KickAssAnimeFilters.getSearchParameters(filters)
-        client.newCall(searchAnimeRequest(page, query, params))
+        return client.newCall(searchAnimeRequest(page, query, params))
             .awaitSuccess()
             .use { response ->
                 searchAnimeParse(response, page)

@@ -2,11 +2,11 @@ ext {
     extName = 'AsyaAnimeleri'
     extClass = '.AsyaAnimeleri'
     themePkg = 'animestream'
-    baseUrl = 'https://asyaanimeleri.com'
-    overrideVersionCode = 14
+    baseUrl = 'https://asyaanimeleri.top'
+    overrideVersionCode = 16
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:vkextractor"))

@@ -1,8 +1,10 @@
+import keiyoushi.gradle.extensions.baseVersionCode
+
 plugins {
-    id("lib-multisrc")
+    alias(kei.plugins.multisrc)
 }
 
-baseVersionCode = 5
+baseVersionCode = 8
 
 dependencies {
     api(project(":lib:vudeoextractor"))

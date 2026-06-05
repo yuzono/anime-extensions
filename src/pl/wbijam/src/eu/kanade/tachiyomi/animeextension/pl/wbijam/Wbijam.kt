@@ -6,8 +6,8 @@ import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animeextension.pl.wbijam.extractors.CdaPlExtractor
-import eu.kanade.tachiyomi.animeextension.pl.wbijam.extractors.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -17,18 +17,19 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingMapNotNull
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -43,8 +44,6 @@ class Wbijam :
     override val lang = "pl"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -88,15 +87,15 @@ class Wbijam :
         filters: AnimeFilterList,
     ): AnimesPage = client.newCall(searchAnimeRequest(page, query, filters))
         .awaitSuccess()
-        .let { response ->
+        .use { response ->
             searchAnimeParse(response, query)
         }
 
     private fun searchAnimeParse(response: Response, query: String): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
-        val animes = document.select(searchAnimeSelector(query)).map { element ->
-            searchAnimeFromElement(element)
+        val animes = document.select(searchAnimeSelector(query)).mapNotNull { element ->
+            runCatching { searchAnimeFromElement(element) }.getOrNull()
         }
 
         return AnimesPage(animes, false)
@@ -123,14 +122,14 @@ class Wbijam :
     override fun episodeListRequest(anime: SAnime): Request = GET(anime.url, headers = headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val episodeList = mutableListOf<SEpisode>()
         var counter = 1
 
         document.select("button:not(:contains(Wychodzące)):not(:contains(Warsztat)):not(:contains(Lista anime)) + div.dropdown-content > a").forEach seasons@{ season ->
             val seasonDoc = client.newCall(
                 GET(response.request.url.toString() + "/${season.attr("href")}", headers = headers),
-            ).execute().asJsoup()
+            ).execute().useAsJsoup()
             seasonDoc.select("table.lista > tbody > tr").reversed().forEach { ep ->
                 val episode = SEpisode.create()
 
@@ -163,7 +162,7 @@ class Wbijam :
                         scanlator
                     }
                     episode.episode_number = counter.toFloat()
-                    episode.date_upload = ep.selectFirst("td:matches(\\d+\\.\\d+\\.\\d)")?.let { parseDate(it.text()) } ?: 0L
+                    episode.date_upload = ep.selectFirst("td:matches(\\d+\\.\\d+\\.\\d)")?.text().let(DATE_FORMATTER::tryParse)
                     val urls = ep.select("td > span[class*=link]").map {
                         "https://${response.request.url.host}/${it.className().substringBefore("_link")}-${it.attr("rel")}.html"
                     }
@@ -188,7 +187,7 @@ class Wbijam :
 
                     episode.name = name
                     episode.episode_number = counter.toFloat()
-                    episode.date_upload = ep.selectFirst("td:matches(\\d+\\.\\d+\\.\\d)")?.let { parseDate(it.text()) } ?: 0L
+                    episode.date_upload = ep.selectFirst("td:matches(\\d+\\.\\d+\\.\\d)")?.text().let(DATE_FORMATTER::tryParse)
                     episode.scanlator = if (notUploaded) {
                         "(Jeszcze nie przesłane) $scanlator"
                     } else {
@@ -216,27 +215,23 @@ class Wbijam :
     // ============================ Video Links =============================
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val parsed = json.decodeFromString<EpisodeType>(episode.url)
+        val parsed = episode.url.parseAs<EpisodeType>()
         val serverList = mutableListOf<String>()
 
-        parsed.url.forEach {
-            val document = client.newCall(GET(it)).execute().asJsoup()
+        parsed.url.parallelCatchingMapNotNull {
+            val document = client.newCall(GET(it)).awaitSuccess().useAsJsoup()
 
             if (parsed.type == "single") {
-                serverList.add(
-                    document.selectFirst("iframe")?.attr("src")
-                        ?: document.selectFirst("span.odtwarzaj_vk")?.let { t -> "https://vk.com/video${t.attr("rel")}_${t.attr("id")}" } ?: "",
-                )
+                document.selectFirst("iframe")?.attr("src")
+                    ?: document.selectFirst("span.odtwarzaj_vk")?.let { t -> "https://vk.com/video${t.attr("rel")}_${t.attr("id")}" }!!
             } else if (parsed.type == "multi") {
                 document.select("table.lista > tbody > tr.lista_hover").forEach { server ->
                     val urlSpan = server.selectFirst("span[class*=link]")!!
                     val serverDoc = client.newCall(
                         GET("https://${it.toHttpUrl().host}/${urlSpan.className().substringBefore("_link")}-${urlSpan.attr("rel")}.html"),
-                    ).execute().asJsoup()
-                    serverList.add(
-                        serverDoc.selectFirst("iframe")?.attr("src")
-                            ?: serverDoc.selectFirst("span.odtwarzaj_vk")?.let { t -> "https://vk.com/video${t.attr("rel")}_${t.attr("id")}" } ?: "",
-                    )
+                    ).awaitSuccess().useAsJsoup()
+                    serverDoc.selectFirst("iframe")?.attr("src")
+                        ?: serverDoc.selectFirst("span.odtwarzaj_vk")?.let { t -> "https://vk.com/video${t.attr("rel")}_${t.attr("id")}" }!!
                 }
             }
         }
@@ -256,7 +251,7 @@ class Wbijam :
                 }
 
                 serverUrl.contains("vk.com") -> {
-                    VkExtractor(client).getVideosFromUrl(serverUrl, headers)
+                    VkExtractor(client, headers).videosFromUrl(serverUrl)
                 }
 
                 serverUrl.contains("dailymotion") -> {
@@ -278,8 +273,6 @@ class Wbijam :
 
     // ============================= Utilities ==============================
 
-    private fun EpisodeType.toJsonString(): String = json.encodeToString(this)
-
     @Serializable
     data class EpisodeType(
         val type: String,
@@ -298,9 +291,6 @@ class Wbijam :
         ).reversed()
     }
 
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-        .getOrNull() ?: 0L
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
@@ -309,13 +299,6 @@ class Wbijam :
             entryValues = arrayOf("1080", "720", "480", "360", "240")
             setDefaultValue("1080")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         val videoServerPref = ListPreference(screen.context).apply {
             key = "preferred_server"
@@ -324,34 +307,17 @@ class Wbijam :
             entryValues = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com")
             setDefaultValue("cda.pl")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         val seasonViewPref = SwitchPreferenceCompat(screen.context).apply {
             key = "preferred_season_view"
             title = "Przenieś nazwę sezonu do skanera"
             setDefaultValue(false)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val new = newValue as Boolean
-                preferences.edit().putBoolean(key, new).commit()
-            }
         }
         val openEndPref = SwitchPreferenceCompat(screen.context).apply {
             key = "preferred_opening"
             title = "Usuń zakończenia i otwory"
             summary = "Usuń zakończenia i otwarcia z listy odcinków"
             setDefaultValue(false)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val new = newValue as Boolean
-                preferences.edit().putBoolean(key, new).commit()
-            }
         }
 
         screen.addPreference(videoQualityPref)

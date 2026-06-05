@@ -5,7 +5,6 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher.fetchHDCovers
 import aniyomi.lib.playlistutils.PlaylistUtils
-import aniyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -16,16 +15,16 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.unpacker.Unpacker
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
@@ -143,24 +142,23 @@ class MissAV :
     }
 
     private val recommMap: MutableMap<String, String> = ConcurrentHashMap()
-    private val jsonMime by lazy { "application/json; charset=utf-8".toMediaTypeOrNull() }
 
     private fun fallbackApiSearch(query: String, page: Int): Request {
         val recommId = recommMap[query]
         return if (page == 1 || recommId == null) {
             val body = MissAvApi.searchData(query)
-                .toRequestBody(jsonMime)
+                .toJsonRequestBody()
             POST(MissAvApi.searchURL(getUuid()), docHeaders, body)
         } else {
             val body = MissAvApi.recommData
-                .toRequestBody(jsonMime)
+                .toJsonRequestBody()
             POST(MissAvApi.recommURL(recommId), docHeaders, body)
         }
     }
 
     override fun relatedAnimeListRequest(anime: SAnime): Request {
         val body = MissAvApi.relatedData(getUuid(), anime.url.substringAfterLast("/"))
-            .toRequestBody(jsonMime)
+            .toJsonRequestBody()
 
         return POST(MissAvApi.relatedURL(), docHeaders, body)
     }

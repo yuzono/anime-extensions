@@ -18,9 +18,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -131,8 +134,7 @@ class OtakuFR :
                 ?: 1F
             date_upload = element.selectFirst("span")
                 ?.text()
-                ?.let(::parseDate)
-                ?: 0L
+                .let(DATE_FORMATTER::tryParse)
         }
     }
 
@@ -148,20 +150,23 @@ class OtakuFR :
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
-        val serversList = document.select("div.tab-content iframe[src]").mapNotNull {
+        val serversList = document.select("div.tab-content iframe[src]").parallelMapNotNullBlocking {
             val url = it.attr("abs:data-src")
 
             if (url.contains("parisanime.com")) {
                 val docHeaders = headers.newBuilder().apply {
                     set("X-Requested-With", "XMLHttpRequest")
                 }.build()
-                val newDoc = client.newCall(
-                    GET(url, headers = docHeaders),
-                ).execute().asJsoup()
+                val newDoc = runCatching {
+                    client.newCall(
+                        GET(url, headers = docHeaders),
+                    ).awaitSuccess().useAsJsoup()
+                }.getOrNull() ?: return@parallelMapNotNullBlocking null
                 val resUrl = newDoc.selectFirst("div[data-url]")?.attr("data-url")
-                if (resUrl!!.startsWith("//")) "https:$resUrl" else resUrl
+                    ?: return@parallelMapNotNullBlocking null
+                if (resUrl.startsWith("//")) "https:$resUrl" else resUrl
             } else {
                 url
             }
@@ -206,9 +211,6 @@ class OtakuFR :
             addPathSegment(page.toString())
         }.build().toString()
     }
-
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -262,13 +264,6 @@ class OtakuFR :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -278,13 +273,6 @@ class OtakuFR :
             entryValues = HOSTERS
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

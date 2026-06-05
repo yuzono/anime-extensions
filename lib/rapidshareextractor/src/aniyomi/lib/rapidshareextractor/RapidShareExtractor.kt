@@ -16,7 +16,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -190,7 +190,7 @@ class RapidShareExtractor(
         val decryptionBody = buildJsonObject {
             put("text", encryptedResult)
             put("agent", userAgent)
-        }.toRequestBody()
+        }.toJsonRequestBody()
 
         val rapidResult = try {
             client.newCall(POST("https://enc-dec.app/api/dec-rapid", body = decryptionBody, headers = encDecHeaders(url)))
