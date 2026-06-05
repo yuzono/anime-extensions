@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.es.animeonlineninja
 
+import android.util.Log
 import androidx.preference.CheckBoxPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
@@ -21,10 +22,13 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.util.concurrent.TimeUnit
 
 class AnimeOnlineNinja :
     DooPlay(
@@ -32,18 +36,34 @@ class AnimeOnlineNinja :
         "AnimeOnline.Ninja",
         "https://ww3.animeonline.ninja",
     ) {
+    
+    override val headers = Headers.Builder()
+        .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Mobile Safari/537.36")
+        .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
+        .add("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
+        .add("Accept-Encoding", "gzip, deflate, br")
+        .add("DNT", "1")
+        .add("Connection", "keep-alive")
+        .add("Upgrade-Insecure-Requests", "1")
+        .build()
+    
     override val client by lazy {
+        val baseClient = network.client.newBuilder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
-            network.client.newBuilder()
+            baseClient.newBuilder()
                 .addInterceptor(VrfInterceptor())
                 .build()
         } else {
-            network.client
+            baseClient
         }
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page")
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page", headers)
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
 
@@ -79,7 +99,7 @@ class AnimeOnlineNinja :
                 )
                 append(
                     if (contains("tendencias")) {
-                        "&get=${when (params.type){
+                        "&get=${when (params.type) {
                             "serie" -> "TV"
                             "pelicula" -> "movies"
                             else -> "todos"
@@ -93,99 +113,228 @@ class AnimeOnlineNinja :
         }
 
         return if (path.startsWith("/?s=")) {
-            GET("$baseUrl/page/$page$path")
+            GET("$baseUrl/page/$page$path", headers)
         } else if (path.startsWith("/letra") || path.startsWith("/tendencias")) {
             val before = path.substringBeforeLast("/")
             val after = path.substringAfterLast("/")
-            GET("$baseUrl$before/page/$page/$after")
+            GET("$baseUrl$before/page/$page/$after", headers)
         } else {
-            GET("$baseUrl$path/page/$page")
+            GET("$baseUrl$path/page/$page", headers)
         }
     }
 
-// ============================== Episodes ==============================
-override val episodeMovieText = "Película"
+    // ============================== Episodes ==============================
+    override val episodeMovieText = "Película"
 
-override fun episodeListParse(response: Response): List<SEpisode> {
-    val doc = response.asJsoup()
-    
-    // Si estamos en una página de episodio (viene de "Recientes"), redirigir al anime
-    val animeUrl = if (doc.location().contains("/episodio/")) {
-        // Buscar el enlace al anime en la página del episodio
-        doc.selectFirst("a[href*=/online/]")?.attr("abs:href") 
-            ?: doc.selectFirst("div.data a[href*=/online/]")?.attr("abs:href")
-            ?: doc.location()
-    } else {
-        doc.location()
-    }
-    
-    // Cargar la página correcta del anime si es necesario (versión bloqueante)
-    val finalDoc = if (animeUrl != doc.location()) {
-        val request = GET(animeUrl, headers)
-        client.newCall(request).execute().use { newResponse ->
-            if (!newResponse.isSuccessful) throw Exception("Error loading anime page: ${newResponse.code}")
-            newResponse.asJsoup()
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val doc = response.asJsoup()
+        val currentUrl = doc.location()
+        
+        // Extraer ID del post desde la URL actual
+        val postId = extractPostIdFromUrl(currentUrl)
+        
+        // Intentar obtener episodios vía API (más rápido y confiable)
+        if (postId.isNotBlank()) {
+            val apiEpisodes = getEpisodesFromApiWithRetry(postId)
+            if (apiEpisodes.isNotEmpty()) {
+                Log.d("AnimeOnlineNinja", "Episodios obtenidos vía API: ${apiEpisodes.size}")
+                return apiEpisodes
+            }
         }
-    } else {
-        doc
+        
+        // Si la API falla, intentar con HTML usando reintentos
+        val animeUrl = if (currentUrl.contains("/episodio/")) {
+            doc.selectFirst("a[href*=/online/]:not([href*=/episodio/])")?.attr("abs:href")
+                ?: doc.selectFirst(".sbox a[href*=/online/]")?.attr("abs:href")
+                ?: doc.selectFirst(".content a[href*=/online/]")?.attr("abs:href")
+                ?: currentUrl.replace("/episodio/", "/online/")
+        } else {
+            currentUrl
+        }
+        
+        val finalDoc = if (animeUrl != currentUrl) {
+            fetchWithRetry(animeUrl)?.asJsoup() ?: doc
+        } else {
+            doc
+        }
+        
+        val episodes = parseEpisodesFromHtml(finalDoc)
+        
+        return if (episodes.isNotEmpty()) {
+            episodes
+        } else {
+            listOf(
+                SEpisode.create().apply {
+                    setUrlWithoutDomain(finalDoc.location())
+                    episode_number = 1F
+                    name = episodeMovieText
+                }
+            )
+        }
     }
     
-    // Seleccionar la lista de episodios (formato directo sin temporadas)
-    val episodeElements = finalDoc.select("ul.episodios li")
+    private fun fetchWithRetry(url: String, maxRetries: Int = 3): Response? {
+        var lastResponse: Response? = null
+        for (i in 0 until maxRetries) {
+            try {
+                val request = GET(url, headers)
+                val response = client.newCall(request).execute()
+                val bodyString = response.body?.string()
+                
+                // Verificar si la respuesta es válida (no contiene página de Cloudflare)
+                if (bodyString != null && !bodyString.contains("One moment, please") && 
+                    !bodyString.contains("Checking your browser")) {
+                    return response.newBuilder().body(bodyString.toResponseBody(response.body?.contentType())).build()
+                }
+                
+                // Si es Cloudflare, esperar antes de reintentar
+                Log.d("AnimeOnlineNinja", "Intento ${i+1} falló por Cloudflare, reintentando...")
+                Thread.sleep(2000 * (i + 1L)) // Espera progresiva: 2s, 4s, 6s
+                lastResponse = response
+            } catch (e: Exception) {
+                Log.e("AnimeOnlineNinja", "Error en intento ${i+1}: ${e.message}")
+            }
+        }
+        return lastResponse
+    }
     
-    return if (episodeElements.isEmpty()) {
-        // Si no hay episodios, tratar como película
-        listOf(
-            SEpisode.create().apply {
-                setUrlWithoutDomain(finalDoc.location())
-                episode_number = 1F
-                name = episodeMovieText
-            },
+    private fun extractPostIdFromUrl(url: String): String {
+        // Patrón para /online/titulo/ -> buscar en API
+        val pattern = Regex("""/online/([^/]+)/?$""")
+        pattern.find(url)?.let {
+            val slug = it.groupValues[1]
+            return getPostIdBySlug(slug)
+        }
+        return ""
+    }
+    
+    private fun getPostIdBySlug(slug: String): String {
+        try {
+            val apiUrl = "$baseUrl/wp-json/wp/v2/posts?slug=$slug&_fields=id"
+            val request = GET(apiUrl, headers)
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val json = response.body?.string() ?: return ""
+                val idPattern = Regex("""\[\{"id":(\d+)\}\]""")
+                idPattern.find(json)?.let { return it.groupValues[1] }
+            }
+        } catch (e: Exception) {
+            Log.e("AnimeOnlineNinja", "Error obteniendo post ID: ${e.message}")
+        }
+        return ""
+    }
+    
+    private fun getEpisodesFromApiWithRetry(postId: String): List<SEpisode> {
+        repeat(3) { attempt ->
+            try {
+                val apiUrl = "$baseUrl/wp-json/dooplayer/v1/post/$postId"
+                val request = GET(apiUrl, headers)
+                val response = client.newCall(request).execute()
+                
+                if (response.isSuccessful) {
+                    val json = response.body?.string() ?: continue
+                    // Verificar que no sea página de Cloudflare
+                    if (json.contains("One moment, please")) {
+                        Thread.sleep(2000)
+                        return@repeat
+                    }
+                    return parseEpisodesFromJson(json)
+                }
+            } catch (e: Exception) {
+                Log.e("AnimeOnlineNinja", "API intento ${attempt + 1} falló: ${e.message}")
+                Thread.sleep(2000)
+            }
+        }
+        return emptyList()
+    }
+    
+    private fun parseEpisodesFromJson(json: String): List<SEpisode> {
+        val episodes = mutableListOf<SEpisode>()
+        
+        // Buscar patrones de episodios en el JSON
+        val episodePattern = Regex(""""episodes":\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
+        val match = episodePattern.find(json) ?: return emptyList()
+        
+        val episodesJson = match.groupValues[1]
+        
+        // Extraer cada episodio individual
+        val singleEpisodePattern = Regex("""\{[^}]*"title":"([^"]+)"[^}]*"url":"([^"]+)"[^}]*\}""")
+        var index = 1
+        
+        singleEpisodePattern.findAll(episodesJson).forEach { episodeMatch ->
+            val title = episodeMatch.groupValues[1]
+            val url = episodeMatch.groupValues[2].replace("\\/", "/")
+            
+            val episode = SEpisode.create().apply {
+                setUrlWithoutDomain(url)
+                name = title
+                episode_number = extractEpisodeNumber(title, url).takeIf { it > 0 } ?: index.toFloat()
+            }
+            episodes.add(episode)
+            index++
+        }
+        
+        return episodes
+    }
+    
+    private fun parseEpisodesFromHtml(doc: Document): List<SEpisode> {
+        // Múltiples selectores para máxima compatibilidad
+        val selectors = listOf(
+            "#seasons .se-c ul.episodios li",
+            "#seasons .se-c .episodios li",
+            ".se-c ul.episodios li",
+            ".episodios li",
+            "ul.episodios li",
+            ".listing-episodes li",
+            "[class*=episode] li a[href*=/episodio/]"
         )
-    } else {
-        episodeElements.mapNotNull { element ->
-            parseEpisode(element, finalDoc.location())
-        }.reversed() // Los episodios más recientes primero
-    }
-}
-
-private fun parseEpisode(element: Element, baseUrl: String): SEpisode? {
-    val linkElement = element.selectFirst("a")
-    val url = linkElement?.attr("abs:href") ?: return null
-    
-    // Extraer número de episodio del título o enlace
-    val title = linkElement.text()
-    val episodeNumber = extractEpisodeNumber(title, url)
-    
-    return SEpisode.create().apply {
-        setUrlWithoutDomain(url)
-        name = title.trim()
-        episode_number = episodeNumber
-    }
-}
-
-private fun extractEpisodeNumber(title: String, url: String): Float {
-    // Patrones para extraer número de episodio
-    val patterns = listOf(
-        Regex("""Episodio\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-        Regex("""Ep\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-        Regex("""Capítulo\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
-        Regex("""(\d+(?:\.\d+)?)\s*-(?:\s*\d+)?$"""),
-        Regex("""/(\d+(?:\.\d+)?)/?$""")
-    )
-    
-    for (pattern in patterns) {
-        pattern.find(title)?.let { matchResult ->
-            return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+        
+        for (selector in selectors) {
+            val elements = doc.select(selector)
+            if (elements.isNotEmpty()) {
+                return elements.mapNotNull { element ->
+                    val link = element.selectFirst("a")
+                    val url = link?.attr("abs:href") ?: element.attr("abs:href")
+                    if (url.isBlank()) return@mapNotNull null
+                    
+                    val title = link?.text()?.trim()
+                        ?: element.selectFirst(".title")?.text()?.trim()
+                        ?: element.selectFirst(".episodiotitle")?.text()?.trim()
+                        ?: element.text().trim()
+                    
+                    SEpisode.create().apply {
+                        setUrlWithoutDomain(url)
+                        name = title
+                        episode_number = extractEpisodeNumber(title, url)
+                    }
+                }.reversed()
+            }
         }
-        pattern.find(url)?.let { matchResult ->
-            return matchResult.groupValues[1].toFloatOrNull() ?: -1f
-        }
+        
+        return emptyList()
     }
-    
-    // Si no se encuentra, usar el índice como respaldo
-    return -1f
-}
+
+    private fun extractEpisodeNumber(title: String, url: String): Float {
+        val patterns = listOf(
+            Regex("""Episodio\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""Ep\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""Cap(?:ítulo)?\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""(\d+(?:\.\d+)?)\s*-\s*\d+"""),
+            Regex("""/(\d+(?:\.\d+)?)/?$"""),
+            Regex("""[_-](\d+(?:\.\d+)?)$""")
+        )
+        
+        for (pattern in patterns) {
+            pattern.find(title)?.let { matchResult ->
+                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+            }
+            pattern.find(url)?.let { matchResult ->
+                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+            }
+        }
+        
+        return -1f
+    }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -247,7 +396,7 @@ private fun extractEpisodeNumber(title: String, url: String): Float {
     )
 
     private suspend fun extractFromMulti(url: String): List<Video> {
-        val document = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+        val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
         val prefLang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         val langSelector = when {
             prefLang.isBlank() -> "div"
@@ -273,7 +422,7 @@ private fun extractEpisodeNumber(title: String, url: String): Float {
         val type = player.attr("data-type")
         val id = player.attr("data-post")
         val num = player.attr("data-nume")
-        return client.newCall(GET("$baseUrl/wp-json/dooplayer/v1/post/$id?type=$type&source=$num"))
+        return client.newCall(GET("$baseUrl/wp-json/dooplayer/v1/post/$id?type=$type&source=$num", headers))
             .awaitSuccess()
             .bodyString()
             .substringAfter("\"embed_url\":\"")
@@ -317,6 +466,7 @@ private fun extractEpisodeNumber(title: String, url: String): Float {
                 preferences.edit().putString(key, entry).commit()
             }
         }
+        
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Preferred server"
