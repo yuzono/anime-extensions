@@ -91,15 +91,19 @@ data class AnimetsuAnimeDto(
 
         val genreList = dto.genres.orEmpty()
         val tagList = if (showTags) dto.tags.orEmpty() else emptyList()
-        genre = (genreList + tagList).joinToString()
+        genre = (genreList + tagList).joinToString().takeIf { it.isNotBlank() }
 
         status = parseStatus(dto.status)
-        description = dto.buildDescription(tagField)
+        description = dto.buildDescription(tagField).takeIf { it.isNotBlank() }
         artist = dto.staff?.filter {
             it.role in listOf("Original Story", "Original Creator", "Original Character Design")
         }?.mapNotNull { it.name }?.joinToString()
-        author = dto.studios?.firstOrNull { it.isMain }?.name
-            ?: dto.studios?.joinToString { it.name }
+            ?.takeIf { it.isNotBlank() }
+        author = (
+            dto.studios?.firstOrNull { it.isMain }?.name
+                ?: dto.studios?.joinToString { it.name }
+            )
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun getFancyScore(score: Int): String {
