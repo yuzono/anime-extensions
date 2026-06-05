@@ -232,11 +232,11 @@ class JikanEpisodesDto(
 
 @Serializable
 class MALPicturesDto(
-    val data: List<MALCoverDto>,
+    val data: List<MALCoverDto>? = null,
 ) {
     @Serializable
     class MALCoverDto(
-        val jpg: MALJpgDto,
+        val jpg: MALJpgDto? = null,
     ) {
         @Serializable
         class MALJpgDto(

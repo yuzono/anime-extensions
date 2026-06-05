@@ -3,8 +3,6 @@ package eu.kanade.tachiyomi.animeextension.pt.anitube
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
-import eu.kanade.tachiyomi.animeextension.pt.anitube.extractors.AnitubeDownloadExtractor
 import eu.kanade.tachiyomi.animeextension.pt.anitube.extractors.AnitubeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -15,9 +13,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -32,7 +31,7 @@ class Anitube :
 
     override val name = "Anitube"
 
-    override val baseUrl = "https://www.anitube.vip"
+    override val baseUrl by lazy { preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!! }
 
     override val lang = "pt-BR"
 
@@ -108,7 +107,7 @@ class Anitube :
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -157,7 +156,9 @@ class Anitube :
         val infos = content.selectFirst("div.anime_infos")!!
 
         title = doc.selectFirst("div.anime_container_titulo")!!.text()
-        thumbnail_url = content.selectFirst("img")?.attr("src")
+        thumbnail_url = content.selectFirst("img")
+            ?.attr("src")
+            ?.replace(".webp", ".jpg")
         genre = infos.getInfo("Gêneros")
         author = infos.getInfo("Autor")
         artist = infos.getInfo("Estúdio")
@@ -177,11 +178,11 @@ class Anitube :
     override fun episodeListSelector() = "div.animepag_episodios_item > a"
 
     override fun episodeListParse(response: Response) = buildList {
-        var doc = getRealDoc(response.asJsoup())
+        var doc = getRealDoc(response.useAsJsoup())
         do {
             if (isNotEmpty()) {
                 val path = doc.selectFirst(popularAnimeNextPageSelector())!!.attr("href")
-                doc = client.newCall(GET(baseUrl + path, headers)).execute().asJsoup()
+                doc = client.newCall(GET(baseUrl + path, headers)).execute().useAsJsoup()
             }
             doc.select(episodeListSelector())
                 .map(::episodeFromElement)
@@ -196,36 +197,33 @@ class Anitube :
             .text()
             .substringAfter(" ")
             .toFloatOrNull() ?: 0F
-        name = element.selectFirst("div.animepag_episodios_item_nome")!!.text()
+        name = element.selectFirst("div.animepag_episodios_item_views")!!.text()
         date_upload = element.selectFirst("div.animepag_episodios_item_date")!!
             .text()
-            .toDate()
+            .let(DATE_FORMATTER::tryParse)
     }
 
     // ============================ Video Links =============================
     private val anitubeExtractor by lazy { AnitubeExtractor(headers, client, preferences) }
-    private val downloadExtractor by lazy { AnitubeDownloadExtractor(headers, client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
-        val links = mutableListOf(document.location())
+        val videoLinks = document
+            .select("div.video_container > a, div.playerContainer > a")
+            .map { it.attr("href") }
+            .take(3) // Limit to 3 links maximum
 
-        if (preferences.getBoolean(PREF_FILE4GO_KEY, PREF_FILE4GO_DEFAULT)) {
-            document.selectFirst("div.abaItemDown > a")?.attr("href")?.let {
-                links.add(it)
+        // Always use three qualities: SD, HD, FHD
+        val qualities = listOf("SD", "HD", "FHD")
+
+        return videoLinks
+            .mapIndexed { index, url ->
+                url to qualities[index]
             }
-        }
-
-        val epName = document.selectFirst("meta[itemprop=name]")!!.attr("content")
-
-        return links.parallelCatchingFlatMapBlocking {
-            when {
-                it.contains("/download/") -> downloadExtractor.videosFromUrl(it, epName)
-                it.contains("file4go.net") -> downloadExtractor.videosFromUrl(it, epName)
-                else -> anitubeExtractor.getVideoList(document)
+            .parallelCatchingFlatMapBlocking { (url, quality) ->
+                anitubeExtractor.getVideosFromUrl(url, quality)
             }
-        }
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
@@ -241,35 +239,21 @@ class Anitube :
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_FILE4GO_KEY
-            title = "Usar File4Go como mirror"
-            setDefaultValue(PREF_FILE4GO_DEFAULT)
-            summary = PREF_FILE4GO_SUMMARY
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         // Auth Code
         EditTextPreference(screen.context).apply {
-            key = PREF_AUTHCODE_KEY
-            title = "Auth Code"
-            setDefaultValue(PREF_AUTHCODE_DEFAULT)
-            summary = PREF_AUTHCODE_SUMMARY
+            key = PREF_DOMAIN_KEY
+            title = PREF_DOMAIN_TITLE
+            setDefaultValue(PREF_DOMAIN_DEFAULT)
+            summary = getDomainPrefSummary()
 
             setOnPreferenceChangeListener { _, newValue ->
                 runCatching {
-                    val value = (newValue as String).trim().ifBlank { PREF_AUTHCODE_DEFAULT }
-                    preferences.edit().putString(key, value).commit()
+                    val value = (newValue as String).trim().ifBlank { PREF_DOMAIN_DEFAULT }
+                    preferences.edit().putString(key, value).commit().also {
+                        summary = getDomainPrefSummary()
+                    }
                 }.getOrDefault(false)
             }
         }.also(screen::addPreference)
@@ -284,7 +268,7 @@ class Anitube :
         return document.selectFirst("div.controles_ep > a[href]:has(i.spr.listaEP)")
             ?.let {
                 val path = it.attr("href")
-                client.newCall(GET(baseUrl + path, headers)).execute().asJsoup()
+                client.newCall(GET(baseUrl + path, headers)).execute().useAsJsoup()
             } ?: document
     }
 
@@ -315,9 +299,11 @@ class Anitube :
         ).reversed()
     }
 
-    private fun String.toDate(): Long = runCatching {
-        DATE_FORMATTER.parse(this)?.time
-    }.getOrNull() ?: 0L
+    private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
+        """$it
+                | Para qualquer alteração ser aplicada, o reinício da app é necessário.
+        """.trimMargin()
+    }
 
     companion object {
         const val PREFIX_SEARCH = "id:"
@@ -325,12 +311,9 @@ class Anitube :
 
         private const val ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
 
-        private const val PREF_AUTHCODE_KEY = "authcode"
-        private const val PREF_AUTHCODE_SUMMARY = "Código de Autenticação"
-        private const val PREF_AUTHCODE_DEFAULT = ""
-        private const val PREF_FILE4GO_KEY = "file4go"
-        private const val PREF_FILE4GO_SUMMARY = "Usar File4Go como mirror"
-        private const val PREF_FILE4GO_DEFAULT = false
+        private const val PREF_DOMAIN_KEY = "preferred_domain"
+        private const val PREF_DOMAIN_TITLE = "Domínio preferido (requer reinicialização da app)"
+        private const val PREF_DOMAIN_DEFAULT = "https://www.anitube.vip"
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Qualidade preferida"
         private const val PREF_QUALITY_DEFAULT = "HD"

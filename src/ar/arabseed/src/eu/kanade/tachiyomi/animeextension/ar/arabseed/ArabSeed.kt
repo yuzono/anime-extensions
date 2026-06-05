@@ -13,9 +13,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -56,7 +57,7 @@ class ArabSeed :
     override fun episodeListSelector() = "div.ContainerEpisodesList a"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val episodes = document.select(episodeListSelector())
         return when {
             episodes.isEmpty() -> {
@@ -78,28 +79,29 @@ class ArabSeed :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val watchUrl = doc.selectFirst("a.watchBTn")!!.attr("href")
-        val element = client.newCall(GET(watchUrl, headers)).execute().asJsoup()
+        val element = client.newCall(GET(watchUrl, headers)).execute().useAsJsoup()
         return videosFromElement(element)
     }
 
     override fun videoListSelector() = "div.containerServers ul li"
 
-    private fun videosFromElement(document: Document): List<Video> = document.select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
-        val quality = element.text()
-        val embedUrl = element.attr("data-link")
-        getVideosFromUrl(embedUrl, quality)
-    }
+    private fun videosFromElement(document: Document): List<Video> = document.select(videoListSelector())
+        .parallelCatchingFlatMapBlocking { element ->
+            val quality = element.text()
+            val embedUrl = element.attr("data-link")
+            getVideosFromUrl(embedUrl, quality)
+        }
 
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun getVideosFromUrl(url: String, quality: String): List<Video> = when {
+    private suspend fun getVideosFromUrl(url: String, quality: String): List<Video> = when {
         "reviewtech" in url || "reviewrate" in url -> {
-            val iframeResponse = client.newCall(GET(url)).execute()
-                .asJsoup()
+            val iframeResponse = client.newCall(GET(url)).awaitSuccess()
+                .useAsJsoup()
             val videoUrl = iframeResponse.selectFirst("source")!!.attr("abs:src")
             listOf(Video(videoUrl, quality + "p", videoUrl))
         }
@@ -211,13 +213,6 @@ class ArabSeed :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(videoQualityPref)
     }

@@ -31,7 +31,7 @@ class AniWatchtv :
         url = url.substringBefore("?")
     }
 
-    override fun extractVideo(server: VideoData): List<Video> = when (server.name) {
+    override suspend fun extractVideo(server: VideoData): List<Video> = when (server.name) {
         "VidSrc", "MegaCloud" -> megaCloudExtractor.getVideosFromUrl(server.link, server.type, server.name)
         else -> emptyList()
     }
