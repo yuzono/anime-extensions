@@ -144,21 +144,22 @@ class AnimeAv1 :
         val subRegex = Regex("""SUB\s*:\s*\[([^]]*)]""")
         val dubRegex = Regex("""DUB\s*:\s*\[([^]]*)]""")
 
-        fun processMatches(regex: Regex): List<Pair<String, String>> = regex.findAll(script)
+        fun processMatches(regex: Regex, type: String): List<Triple<String, String, String>> = regex.findAll(script)
             .flatMap { jsonRegex.findAll(it.groupValues[1]) }
             .map {
-                Pair(
+                Triple(
                     it.groupValues[2].substringBefore("?embed"),
                     it.groupValues[1],
+                    type,
                 )
             }
             .distinctBy { it.first }.toList()
 
-        val dubServers = processMatches(dubRegex).map { it to "DUB" }
-        val subServers = processMatches(subRegex).map { it to "SUB" }
+        val dubServers = processMatches(dubRegex, "DUB")
+        val subServers = processMatches(subRegex, "SUB")
 
-        return (dubServers + subServers).parallelCatchingFlatMapBlocking { (pair, type) ->
-            serverVideoResolver(pair.first, type, pair.second)
+        return (dubServers + subServers).parallelCatchingFlatMapBlocking { (url, server, type) ->
+            serverVideoResolver(url, type, server)
         }
     }
 
