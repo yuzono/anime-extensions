@@ -162,9 +162,9 @@ class AnimeSama :
 
     // =========================== Anime Details ============================
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val animeSeasonUrl = "$baseUrl${anime.url.substringBeforeLast("/")}"
-        val animeUrl = animeSeasonUrl.substringBeforeLast("/")
-        val season = animeSeasonUrl.substringAfterLast("/")
+        val segments = anime.url.trim('/').split("/")
+        val animeUrl = "$baseUrl/${segments.take(2).joinToString("/")}/"
+        val season = segments.getOrNull(2) ?: ""
 
         val animes = fetchAnimeSeasons(animeUrl, season)
         return animes.firstOrNull() ?: anime
