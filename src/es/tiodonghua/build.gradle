@@ -3,10 +3,10 @@ ext {
     extClass = '.Tiodonghua'
     themePkg = 'animestream'
     baseUrl = 'https://anime.tiodonghua.com'
-    overrideVersionCode = 14
+    overrideVersionCode = 16
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
 

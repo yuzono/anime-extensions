@@ -14,10 +14,13 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -68,20 +71,30 @@ class SupJav(override val lang: String = "en") :
 
     override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val path = url.pathSegments.takeIf { it.isNotEmpty() }?.joinToString("/")
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$path", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -130,7 +143,7 @@ class SupJav(override val lang: String = "en") :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         val players = doc.select("div.btnst > a").toList()
             .filter { it.text() in SUPPORTED_PLAYERS }
@@ -152,9 +165,9 @@ class SupJav(override val lang: String = "en") :
         client.newBuilder().followRedirects(false).build()
     }
 
-    private fun videosFromPlayer(player: Pair<String, String>): List<Video> {
+    private suspend fun videosFromPlayer(player: Pair<String, String>): List<Video> {
         val (hoster, id) = player
-        val url = noRedirectClient.newCall(GET("$PROTECTOR_URL/supjav.php?c=$id", protectorHeaders)).execute()
+        val url = noRedirectClient.newCall(GET("$PROTECTOR_URL/supjav.php?c=$id", protectorHeaders)).await()
             .use { it.headers["location"] }
             ?: return emptyList()
 
@@ -166,7 +179,7 @@ class SupJav(override val lang: String = "en") :
             "FST" -> streamwishExtractor.videosFromUrl(url)
 
             "TV" -> {
-                val body = client.newCall(GET(url)).execute().body.string()
+                val body = client.newCall(GET(url)).awaitSuccess().bodyString()
                 val playlistUrl = body.substringAfter("var urlPlay = '", "")
                     .substringBefore("';")
                     .takeUnless(String::isEmpty)
@@ -195,13 +208,6 @@ class SupJav(override val lang: String = "en") :
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

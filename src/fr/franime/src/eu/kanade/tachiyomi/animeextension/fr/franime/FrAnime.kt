@@ -63,6 +63,16 @@ class FrAnime : AnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, id, filters)
+        }
+
         val pages = database.filter {
             it.title.contains(query, true) ||
                 it.originalTitle.contains(query, true) ||
@@ -126,7 +136,7 @@ class FrAnime : AnimeHttpSource() {
         val sendvidExtractor by lazy { SendvidExtractor(client, headers) }
         val sibnetExtractor by lazy { SibnetExtractor(client) }
         val vkExtractor by lazy { VkExtractor(client, headers) }
-        val vidMolyExtractor by lazy { VidMolyExtractor(client) }
+        val vidMolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
         val videos = players.withIndex().parallelCatchingFlatMap { (index, playerName) ->
             val apiUrl = "$videoBaseUrl/$episodeLang/$index"

@@ -1,11 +1,9 @@
 ext {
     extName = 'AnimeKai'
     extClass = '.AnimeKai'
-    extVersionCode = 13
+    themePkg = 'animekaitheme'
+    baseUrl = 'https://animekai.to'
+    overrideVersionCode = 14
 }
 
-apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(':lib:playlistutils'))
-}
+apply plugin: "kei.plugins.extension.legacy"

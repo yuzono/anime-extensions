@@ -3,10 +3,10 @@ ext {
     extClass = '.DarkMahou'
     themePkg = 'animestream'
     baseUrl = 'https://darkmahou.org'
-    overrideVersionCode = 11
+    overrideVersionCode = 12
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:unpacker"))

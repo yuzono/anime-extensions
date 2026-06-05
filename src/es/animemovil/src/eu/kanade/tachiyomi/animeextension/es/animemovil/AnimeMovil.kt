@@ -29,13 +29,12 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
@@ -156,11 +155,10 @@ class AnimeMovil :
                 val sid = it.attr("data-sid")
                 val t = it.attr("data-t")
 
-                val mediaType = "application/json".toMediaType()
                 val requestBody = "{\"show\": \"$sid\",\"temporada\": \"$t\"}"
                 val request = Request.Builder()
                     .url("https://animemeow.xyz/api/obtener_episodios_x_temporada/")
-                    .post(requestBody.toRequestBody(mediaType))
+                    .post(requestBody.toJsonRequestBody())
                     .header("authority", response.request.url.host)
                     .header("origin", "https://${response.request.url.host}")
                     .header("referer", response.request.url.toString())

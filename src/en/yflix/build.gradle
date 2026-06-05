@@ -1,12 +1,10 @@
 ext {
     extName = 'YFlix'
     extClass = '.YFlix'
-    extVersionCode = 3
+    themePkg = 'yflixtheme'
+    baseUrl = 'https://yflix.to'
+    overrideVersionCode = 4
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(':lib:playlistutils'))
-}
+apply plugin: "kei.plugins.extension.legacy"

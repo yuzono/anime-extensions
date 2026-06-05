@@ -1,10 +1,10 @@
 ext {
     extName = 'MhdFlix'
     extClass = '.MhdFlix'
-    extVersionCode = 18
+    extVersionCode = 21
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:doodextractor'))
@@ -13,5 +13,7 @@ dependencies {
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:uqloadextractor'))
     implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:luluextractor'))
     implementation(project(':lib:universalextractor'))
 }

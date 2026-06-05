@@ -30,7 +30,7 @@ class AsyaAnimeleri :
     AnimeStream(
         "tr",
         "AsyaAnimeleri",
-        "https://asyaanimeleri.com",
+        "https://asyaanimeleri.top",
     ) {
     override val animeListUrl = "$baseUrl/series"
 
@@ -96,24 +96,21 @@ class AsyaAnimeleri :
     override val episodePrefix = "Bölüm"
 
     // ============================ Video Links =============================
-    override val prefQualityValues = arrayOf("1080p", "720p", "480p", "360p", "240p", "144p")
-    override val prefQualityEntries = prefQualityValues
+    override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p", "144p")
 
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
-    // private val dailyExtractor by lazy { DailymotionExtractor(client, headers) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = when (name.lowercase().trim()) {
+    override suspend fun getVideoList(url: String, name: String): List<Video> = when (name.lowercase().trim()) {
         "vk" -> vkExtractor.videosFromUrl(url)
 
         "ok.ru" -> okruExtractor.videosFromUrl(url)
 
         "sibnet" -> sibnetExtractor.videosFromUrl(url)
 
-        // "daily" -> dailyExtractor.videosFromUrl(url)
         "dood", "doodstream" -> doodExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
 
         "gdrive" -> {

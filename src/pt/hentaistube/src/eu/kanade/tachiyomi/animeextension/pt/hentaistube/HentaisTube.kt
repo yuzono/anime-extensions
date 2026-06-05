@@ -13,12 +13,12 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -78,22 +78,32 @@ class HentaisTube :
             .asSequence()
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
         val params = HentaisTubeFilters.getSearchParameters(filters).apply {
             animeName = query
         }
         val filtered = animeList.applyFilterParams(params)
         val results = filtered.chunked(30).toList()
         val hasNextPage = results.size > page
-        val currentPage = if (results.size == 0) {
-            emptyList<SAnime>()
+        val currentPage = if (results.isEmpty()) {
+            emptyList()
         } else {
-            results.get(page - 1).map {
+            results[page - 1].map {
                 SAnime.create().apply {
                     title = it.title.substringBefore("- Episódios")
                     url = "/" + it.url
@@ -101,13 +111,13 @@ class HentaisTube :
                 }
             }
         }
-        AnimesPage(currentPage, hasNextPage)
+        return AnimesPage(currentPage, hasNextPage)
     }
 
     override fun getFilterList(): AnimeFilterList = HentaisTubeFilters.FILTER_LIST
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -121,7 +131,7 @@ class HentaisTube :
 
     override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun searchAnimeNextPageSelector(): String? = throw UnsupportedOperationException()
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -146,16 +156,16 @@ class HentaisTube :
     }
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> = response.asJsoup().select(videoListSelector())
+    override fun videoListParse(response: Response): List<Video> = response.useAsJsoup().select(videoListSelector())
         .parallelCatchingFlatMapBlocking {
-            client.newCall(GET(it.attr("src"), headers)).await().let { res ->
-                extractVideosFromIframe(res.asJsoup())
-            }
+            client.newCall(GET(it.attr("src"), headers))
+                .awaitSuccess()
+                .let { response -> extractVideosFromIframe(response.useAsJsoup()) }
         }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
-    private fun extractVideosFromIframe(iframe: Document): List<Video> {
+    private suspend fun extractVideosFromIframe(iframe: Document): List<Video> {
         val url = iframe.location()
         return when {
             url.contains("/hd.php") -> {
@@ -172,7 +182,7 @@ class HentaisTube :
 
             url.contains("/player.php") -> {
                 val ahref = iframe.selectFirst("a")!!.attr("href")
-                val internal = client.newCall(GET(ahref, headers)).execute().asJsoup()
+                val internal = client.newCall(GET(ahref, headers)).awaitSuccess().useAsJsoup()
                 val videoUrl = internal.selectFirst("video > source")!!.attr("src")
                 listOf(Video(videoUrl, "Alternativo", videoUrl, headers))
             }

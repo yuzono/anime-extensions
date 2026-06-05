@@ -1,5 +1,5 @@
 ext {
-    extName = 'AnimesBr'
+    extName = 'AnimesBr (Dead)'
     extClass = '.AnimesBr'
     themePkg = 'dooplay'
     baseUrl = 'https://animesbr.tv'
@@ -7,9 +7,4 @@ ext {
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(":lib:unpacker"))
-    implementation(project(":lib:vidmolyextractor"))
-}
+apply plugin: "kei.plugins.extension.legacy"

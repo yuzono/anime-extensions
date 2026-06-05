@@ -1,10 +1,10 @@
 ext {
     extName = 'TioanimeH'
     extClass = '.TioanimeHFactory'
-    extVersionCode = 33
+    extVersionCode = 35
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:youruploadextractor'))

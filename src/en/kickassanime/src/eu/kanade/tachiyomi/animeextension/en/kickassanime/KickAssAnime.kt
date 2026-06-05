@@ -8,6 +8,7 @@ import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.AnimeInfoDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.EpisodeResponseDto
+import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.KaaDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.LanguagesDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.PopularItemDto
 import eu.kanade.tachiyomi.animeextension.en.kickassanime.dto.PopularResponseDto
@@ -25,20 +26,17 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
@@ -64,7 +62,7 @@ class KickAssAnime :
     private val json: Json by injectLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/popular?page=$page")
+    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/trending?page=$page")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<PopularResponseDto>()
@@ -76,10 +74,12 @@ class KickAssAnime :
 
     private fun popularAnimeFromObject(anime: PopularItemDto): SAnime = SAnime.create().apply {
         val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
+
         title = when {
-            anime.title_en.isNotBlank() && useEnglish -> anime.title_en
+            !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
             else -> anime.title
-        }
+        }.takeIf(String::isNotBlank)!!
+
         setUrlWithoutDomain("/${anime.slug}")
         thumbnail_url = "$baseUrl/${anime.poster.url}"
     }
@@ -87,11 +87,11 @@ class KickAssAnime :
     // ============================== Episodes ==============================
     private fun episodeListRequest(anime: SAnime, page: Int, lang: String) = GET("$apiUrl${anime.url}/episodes?page=$page&lang=$lang")
 
-    private fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
-        .execute()
+    private suspend fun getEpisodeResponse(anime: SAnime, page: Int, lang: String): EpisodeResponseDto = client.newCall(episodeListRequest(anime, page, lang))
+        .awaitSuccess()
         .parseAs()
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         // Fetch what languages are available for this anime
         val languages = client.newCall(
             GET("$apiUrl${anime.url}/language"),
@@ -100,7 +100,6 @@ class KickAssAnime :
         val prefLang = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)!!
         val pref2ndLang = preferences.getString(PREF_AUDIO_LANG_KEY_2ND, PREF_AUDIO_LANG_DEFAULT_2ND)!!
 
-        // Try preferred language first, then others
         val langOrder = languages
             .sortedWith(
                 compareBy(
@@ -109,43 +108,40 @@ class KickAssAnime :
                 ),
             )
 
-        var foundEpisodes: List<SEpisode>? = null
+        val foundEpisodes = mutableListOf<SEpisode>()
 
+        // Try preferred language first, then others
         for (lang in langOrder) {
-            val firstResponse = withContext(Dispatchers.IO) {
-                runCatching {
-                    getEpisodeResponse(anime, 1, lang)
-                }.getOrNull()
-            }
-            if (firstResponse == null || firstResponse.result.isEmpty()) continue
-
-            val items = runCatching {
-                val deferredPages = List(firstResponse.pages.drop(1).size) { idx ->
-                    async(Dispatchers.IO) { getEpisodeResponse(anime, idx + 2, lang).result }
-                }
-                firstResponse.result + deferredPages.awaitAll().flatten()
+            val firstPage = runCatching {
+                getEpisodeResponse(anime, 1, lang)
             }.getOrNull()
+            if (firstPage == null || firstPage.result.isEmpty()) continue
 
-            if (!items.isNullOrEmpty()) {
-                foundEpisodes = items.map {
-                    SEpisode.create().apply {
-                        name = "Ep. ${it.episode_string} - ${it.title}"
-                        url = "${anime.url}/ep-${it.episode_string}-${it.slug}"
-                        episode_number = it.episode_string.toFloatOrNull() ?: 0F
-                        scanlator = lang.getLocale()
+            val size = firstPage.pages.drop(1).size
+            val otherPagesResults = (1..size).parallelCatchingMapNotNull { idx ->
+                getEpisodeResponse(anime, idx + 1, lang).result
+            }.flatten()
+
+            (firstPage.result + otherPagesResults).map {
+                SEpisode.create().apply {
+                    name = "Ep. ${it.episode_string}" + if (!it.title.isNullOrBlank()) " - ${it.title}" else ""
+                    url = "${anime.url}/ep-${it.episode_string}-${it.slug}"
+                    it.episode_string.toFloatOrNull()?.let { eps ->
+                        episode_number = eps
                     }
-                }.reversed()
-                break
-            }
+                    scanlator = lang.getLocale()
+                }
+            }.reversed()
+                .let(foundEpisodes::addAll)
+
+            // Already have episodes, no need to try other lang
+            break
         }
 
-        // If nothing was found, return empty list
-        foundEpisodes ?: emptyList()
+        return foundEpisodes
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        TODO("Not yet implemented")
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     override fun videoListRequest(episode: SEpisode): Request {
@@ -153,19 +149,16 @@ class KickAssAnime :
         return GET(url)
     }
 
+    private val kickAssAnimeExtractor by lazy { KickAssAnimeExtractor(client, json, headers) }
+
     override fun videoListParse(response: Response): List<Video> {
         val videos = response.parseAs<ServersDto>()
-        val extractor = KickAssAnimeExtractor(client, json, headers)
-        val hosterSelection = preferences.getStringSet(PREF_HOSTER_KEY, PREF_HOSTER_DEFAULT)!!
+        val hosterExclusion = preferences.getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
 
-        val videoList = videos.servers.mapNotNull {
-            if (!hosterSelection.contains(it.name)) return@mapNotNull null
-            runCatching { extractor.videosFromUrl(it.src, it.name) }.getOrNull()
-        }.flatten()
-
-        require(videoList.isNotEmpty()) { "Failed to fetch videos" }
-
-        return videoList
+        return videos.servers.parallelCatchingFlatMapBlocking {
+            if (hosterExclusion.contains(it.name)) return@parallelCatchingFlatMapBlocking emptyList()
+            kickAssAnimeExtractor.videosFromUrl(it.src, it.name)
+        }
     }
 
     // =========================== Anime Details ============================
@@ -174,16 +167,18 @@ class KickAssAnime :
     override fun animeDetailsRequest(anime: SAnime) = GET(apiUrl + anime.url)
 
     override fun animeDetailsParse(response: Response): SAnime {
+        val anime = response.parseAs<AnimeInfoDto>()
         val languages = client.newCall(
             GET("${response.request.url}/language"),
         ).execute().parseAs<LanguagesDto>()
-        val anime = response.parseAs<AnimeInfoDto>()
         return SAnime.create().apply {
             val useEnglish = preferences.getBoolean(PREF_USE_ENGLISH_KEY, PREF_USE_ENGLISH_DEFAULT)
+
             title = when {
-                anime.title_en.isNotBlank() && useEnglish -> anime.title_en
+                !anime.title_en.isNullOrBlank() && useEnglish -> anime.title_en
                 else -> anime.title
-            }
+            }.takeIf(String::isNotBlank)!!
+
             setUrlWithoutDomain("/${anime.slug}")
             thumbnail_url = "$baseUrl/${anime.poster.url}"
             genre = anime.genres.joinToString()
@@ -191,19 +186,38 @@ class KickAssAnime :
             description = buildString {
                 anime.synopsis?.let { append(it + "\n\n") }
                 append("Available Dub Languages: ${languages.result.joinToString(", ") { t -> t.getLocale() }}\n")
-                append(
-                    "Season: ${anime.season.replaceFirstChar {
-                        if (it.isLowerCase()) {
-                            it.titlecase(
-                                Locale.ROOT,
-                            )
-                        } else {
-                            it.toString()
-                        }
-                    }}\n",
-                )
-                append("Year: ${anime.year}")
+
+                // Append season if it exists, saw errors in i.e. Black Cat without fix.
+                anime.season?.let { seasonStr ->
+                    append(
+                        "Season: ${seasonStr.replaceFirstChar {
+                            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
+                        }}\n",
+                    )
+                }
+
+                // Safely append year if it exists
+                anime.year?.let { append("Year: $it") }
             }
+        }
+    }
+
+    override fun relatedAnimeListRequest(anime: SAnime) = GET(getAnimeUrl(anime))
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val document = response.asJsoup()
+        return document.selectFirst("script:containsData(window.KAA)")?.data()?.let {
+            kaaReturnRegex.find(it)?.groupValues?.get(1)
+        }?.parseAs<KaaDto>(jsonWithoutQuote)?.fetch?.detail?.related
+            ?.map { popularAnimeFromObject(it) }
+            ?: emptyList()
+    }
+
+    private val kaaReturnRegex by lazy { Regex("""return (\{.*\})\}\(""") }
+    private val jsonWithoutQuote by lazy {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
         }
     }
 
@@ -227,17 +241,18 @@ class KickAssAnime :
     private fun searchAnimeRequest(page: Int, query: String, filters: KickAssAnimeFilters.FilterSearchParams): Request {
         val newHeaders = headers.newBuilder()
             .add("Accept", "application/json, text/plain, */*")
-            .add("Host", baseUrl.toHttpUrl().host)
-            .add("Referer", "$baseUrl/anime")
+            .add("Content-Type", "application/json")
+            .add("Host", SEARCH_BASE_URL.toHttpUrl().host)
+            .add("Referer", "$SEARCH_BASE_URL/search?q=$query")
             .build()
 
-        if (filters.subPage.isNotBlank()) return GET("$baseUrl/api/${filters.subPage}?page=$page", headers = newHeaders)
+        if (filters.subPage.isNotBlank()) return GET("$SEARCH_BASE_URL/api/${filters.subPage}?page=$page", headers = newHeaders)
 
         val encodedFilters = if (filters.filters == "{}") "" else Base64.encodeToString(filters.filters.encodeToByteArray(), Base64.NO_WRAP)
 
         return if (query.isBlank()) {
             val url = buildString {
-                append(baseUrl)
+                append(SEARCH_BASE_URL)
                 append("/api/anime")
                 append("?page=$page")
                 if (encodedFilters.isNotEmpty()) append("&filters=$encodedFilters")
@@ -249,26 +264,34 @@ class KickAssAnime :
                 put("page", page)
                 put("query", query)
                 if (encodedFilters.isNotEmpty()) put("filters", encodedFilters)
-            }.toString().toRequestBody("application/json".toMediaType())
+            }.toJsonRequestBody()
 
-            POST("$baseUrl/api/fsearch", body = data, headers = newHeaders)
+            POST("$SEARCH_BASE_URL/api/fsearch", body = data, headers = newHeaders)
         }
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != PREF_DOMAIN_DEFAULT.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val slug = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$slug", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
             val slug = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/api/show/$slug"))
+            return client.newCall(GET("$SEARCH_BASE_URL/api/show/$slug"))
                 .awaitSuccess()
                 .use(::searchAnimeBySlugParse)
-        } else {
-            val params = KickAssAnimeFilters.getSearchParameters(filters)
-            return client.newCall(searchAnimeRequest(page, query, params))
-                .awaitSuccess()
-                .let { response ->
-                    searchAnimeParse(response, page)
-                }
         }
+        val params = KickAssAnimeFilters.getSearchParameters(filters)
+        return client.newCall(searchAnimeRequest(page, query, params))
+            .awaitSuccess()
+            .use { response ->
+                searchAnimeParse(response, page)
+            }
     }
 
     private fun searchAnimeBySlugParse(response: Response): AnimesPage {
@@ -293,7 +316,6 @@ class KickAssAnime :
     override fun latestUpdatesRequest(page: Int) = GET("$apiUrl/recent?type=all&page=$page")
 
     // ============================= Utilities ==============================
-
     private fun String.getLocale(): String = LOCALE.firstOrNull { it.first == this }?.second ?: ""
 
     private fun String.parseStatus() = when (this) {
@@ -307,9 +329,9 @@ class KickAssAnime :
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedWith(
             compareBy(
+                { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
                 { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-                { it.quality.contains(server, true) },
                 { Regex("""([\d,]+) [KMGTPE]B/s""").find(it.quality)?.groupValues?.get(1)?.replace(",", ".")?.toFloatOrNull() ?: 0F },
             ),
         ).reversed()
@@ -327,13 +349,21 @@ class KickAssAnime :
     }
 
     companion object {
-        private val SERVERS = arrayOf("VidStreaming", "DuckStream", "BirdStream")
+        // KAA has .lt domain as primary, and others are redirects.
+        // This change is necessary as it forces all search traffic to go through primary domain to ensure all domains have searching abilities.
 
+        /**
+         * Only the primary URL does the search, other domains are redirects to it.
+         */
+        private const val SEARCH_BASE_URL = "https://kaa.lt"
+
+        private val SERVERS = arrayOf("VidStreaming", "CatStream", "BirdStream", "DuckStream")
         private val LOCALE = listOf(
             Pair("ja-JP", "Japanese"),
             Pair("en-US", "English"),
             Pair("es-ES", "Spanish (España)"),
             Pair("ko-KR", "Korean"),
+            Pair("zh-CN", "Chinese (Simplified)"),
         )
 
         const val PREFIX_SEARCH = "slug:"
@@ -365,19 +395,24 @@ class KickAssAnime :
         private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
 
         // Check domains here: https://kickassanime.cx/
-        private val PREF_DOMAIN_ENTRIES = arrayOf(
+        private val DOMAINS = listOf(
+            "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
             "kickass-anime.ru",
             "kickass-anime.ro",
             "kaa.to",
             "kaa.rs",
-            "kaa.si",
+            // Removed https://kaa.si as its certificate expired, leading to SSL errors
         )
-        private val PREF_DOMAIN_ENTRY_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
+
+        private val PREF_DOMAIN_ENTRIES = DOMAINS.toTypedArray()
+        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://$it" }.toTypedArray()
+
+        // Default is automatically https://kaa.lt since it's the first in the DOMAINS list above.
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]
 
-        private const val PREF_HOSTER_KEY = "hoster_selection"
-        private const val PREF_HOSTER_TITLE = "Enable/Disable Hosts"
-        private val PREF_HOSTER_DEFAULT = SERVERS.toSet()
+        private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
+        private const val PREF_HOSTER_EXCLUDE_TITLE = "Excluded Hosts"
+        private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
     }
 
     // ============================== Settings ==============================
@@ -435,11 +470,12 @@ class KickAssAnime :
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
-            key = PREF_HOSTER_KEY
-            title = PREF_HOSTER_TITLE
+            key = PREF_HOSTER_EXCLUDE_KEY
+            title = PREF_HOSTER_EXCLUDE_TITLE
             entries = SERVERS
             entryValues = SERVERS
-            setDefaultValue(PREF_HOSTER_DEFAULT)
+            setDefaultValue(PREF_HOSTER_EXCLUDE_DEFAULT)
+            summary = "Choose which hosts you want to exclude"
         }.also(screen::addPreference)
     }
 }

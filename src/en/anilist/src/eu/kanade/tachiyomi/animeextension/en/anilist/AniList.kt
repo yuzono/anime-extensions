@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -28,6 +29,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class AniList :
     AnimeHttpSource(),
@@ -44,7 +48,7 @@ class AniList :
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1)
+        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1L, TimeUnit.SECONDS)
         .build()
 
     private val json: Json by injectLazy()
@@ -327,7 +331,7 @@ class AniList :
             SEpisode.create().apply {
                 name = "Episode 1"
                 episode_number = 1F
-                date_upload = parseDate(animeData.aired.from)
+                date_upload = DATE_FORMAT.tryParse(animeData.aired.from)
                 url = "1"
             },
         )
@@ -350,7 +354,7 @@ class AniList :
 
             episodeList.addAll(
                 data.data.map { ep ->
-                    val airedOn = ep.aired?.let { parseDate(it) } ?: -1L
+                    val airedOn = DATE_FORMAT.tryParse(ep.aired)
                     val fullName = ep.title?.let { "Ep. ${ep.number} - $it" } ?: "Episode ${ep.number}"
                     val scanlatorText = if (markFillers && ep.filler) "Filler episode" else null
 
@@ -390,7 +394,7 @@ class AniList :
     // ============================= Utilities ==============================
 
     companion object {
-        private val SANITY_REGEX by lazy { Regex("""^Ep. \d+ - (Episode \d+)${'$'}""") }
+        private val SANITY_REGEX by lazy { Regex("""^Ep. \d+ - (Episode \d+)$""") }
 
         private const val PER_PAGE = 20
 
@@ -402,6 +406,8 @@ class AniList :
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title"
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
+
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH)
     }
 
     private val SharedPreferences.markFiller
@@ -429,13 +435,6 @@ class AniList :
             entryValues = arrayOf("romaji", "english", "native")
             setDefaultValue(PREF_TITLE_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {

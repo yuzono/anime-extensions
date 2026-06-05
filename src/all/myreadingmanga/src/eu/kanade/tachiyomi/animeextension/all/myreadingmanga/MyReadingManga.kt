@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.myreadingmanga
 
 import android.annotation.SuppressLint
-import android.app.Application
 import android.content.SharedPreferences
 import android.net.Uri
 import android.webkit.CookieManager
@@ -23,6 +22,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.FormBody
@@ -33,7 +33,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -113,7 +112,7 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
                 } else {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         Toast.makeText(
-                            Injekt.get<Application>(),
+                            applicationContext,
                             "MyReadingManga login failed. Please check your credentials.",
                             Toast.LENGTH_LONG,
                         ).show()

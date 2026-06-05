@@ -3,10 +3,10 @@ ext {
     extClass = '.AnimeXin'
     themePkg = 'animestream'
     baseUrl = 'https://animexin.vip'
-    overrideVersionCode = 18
+    overrideVersionCode = 20
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:dailymotionextractor'))

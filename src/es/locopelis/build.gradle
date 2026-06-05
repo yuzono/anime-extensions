@@ -1,10 +1,10 @@
 ext {
     extName = 'LocoPelis'
     extClass = '.LocoPelis'
-    extVersionCode = 36
+    extVersionCode = 38
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:streamtapeextractor'))

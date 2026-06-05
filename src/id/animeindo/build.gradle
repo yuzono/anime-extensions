@@ -3,10 +3,10 @@ ext {
     extClass = '.AnimeIndo'
     themePkg = 'animestream'
     baseUrl = 'https://animeindo.skin'
-    overrideVersionCode = 19
+    overrideVersionCode = 21
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:mp4uploadextractor"))

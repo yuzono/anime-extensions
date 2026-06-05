@@ -3,11 +3,11 @@ ext {
     extClass = '.PiFansubs'
     themePkg = 'dooplay'
     baseUrl = 'https://pifansubs.club'
-    overrideVersionCode = 28
+    overrideVersionCode = 29
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:vidhideextractor'))

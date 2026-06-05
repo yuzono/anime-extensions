@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -191,38 +192,50 @@ class AnimeLatinoHD :
                             ),
                         ).execute()
                         val locationsDdh = request.networkResponse.toString()
-                        fetchUrls(locationsDdh).map { url ->
+                        fetchUrls(locationsDdh).parallelCatchingFlatMapBlocking { url ->
                             val language = if (item["languaje"]!!.jsonPrimitive.content == "1") "[LAT]" else "[SUB]"
                             val embedUrl = url.lowercase()
-                            if (embedUrl.contains("filemoon")) {
-                                val vidHeaders = headers.newBuilder()
-                                    .add("Origin", "https://${url.toHttpUrl().host}")
-                                    .add("Referer", "https://${url.toHttpUrl().host}/")
-                                    .build()
-                                FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = vidHeaders).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("filelions") || embedUrl.contains("lion")) {
-                                StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$language FileLions:$it" }).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("streamtape")) {
-                                StreamTapeExtractor(client).videoFromUrl(url, "$language Streamtape")?.let { videoList.add(it) }
-                            }
-                            if (embedUrl.contains("dood")) {
-                                DoodExtractor(client).videoFromUrl(url, language)?.let { videoList.add(it) }
-                            }
-                            if (embedUrl.contains("okru") || embedUrl.contains("ok.ru")) {
-                                OkruExtractor(client).videosFromUrl(url, language).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("solidfiles")) {
-                                SolidFilesExtractor(client).videosFromUrl(url, language).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("od.lk")) {
-                                videoList.add(Video(url, language + "Od.lk", url))
-                            }
-                            if (embedUrl.contains("cldup.com")) {
-                                videoList.add(Video(url, language + "CldUp", url))
+                            when {
+                                embedUrl.contains("filemoon") -> {
+                                    val vidHeaders = headers.newBuilder()
+                                        .add("Origin", "https://${url.toHttpUrl().host}")
+                                        .add("Referer", "https://${url.toHttpUrl().host}/")
+                                        .build()
+                                    FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = vidHeaders)
+                                }
+
+                                embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
+                                    StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$language FileLions:$it" })
+                                }
+
+                                embedUrl.contains("streamtape") -> {
+                                    StreamTapeExtractor(client).videoFromUrl(url, "$language Streamtape")?.let(::listOf).orEmpty()
+                                }
+
+                                embedUrl.contains("dood") -> {
+                                    DoodExtractor(client).videoFromUrl(url, language)?.let(::listOf).orEmpty()
+                                }
+
+                                embedUrl.contains("okru") || embedUrl.contains("ok.ru") -> {
+                                    OkruExtractor(client).videosFromUrl(url, language)
+                                }
+
+                                embedUrl.contains("solidfiles") -> {
+                                    SolidFilesExtractor(client).videosFromUrl(url, language)
+                                }
+
+                                embedUrl.contains("od.lk") -> {
+                                    Video(url, language + "Od.lk", url).let(::listOf)
+                                }
+
+                                embedUrl.contains("cldup.com") -> {
+                                    Video(url, language + "CldUp", url).let(::listOf)
+                                }
+
+                                else -> emptyList()
                             }
                         }
+                            .let(videoList::addAll)
                     }
                 }
             }

@@ -20,7 +20,7 @@ class Tiodonghua :
     private val youruploadExtractor by lazy { YourUploadExtractor(client) }
     private val mixdropExtractor by lazy { MixDropExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = when (name) {
+    override suspend fun getVideoList(url: String, name: String): List<Video> = when (name) {
         "Okru" -> okruExtractor.videosFromUrl(url)
         "Voe" -> voeExtractor.videosFromUrl(url)
         "YourUpload" -> youruploadExtractor.videoFromUrl(url, headers)
@@ -28,6 +28,5 @@ class Tiodonghua :
         else -> emptyList()
     }
 
-    override val fetchFilters: Boolean
-        get() = false
+    override val fetchFilters = false
 }
