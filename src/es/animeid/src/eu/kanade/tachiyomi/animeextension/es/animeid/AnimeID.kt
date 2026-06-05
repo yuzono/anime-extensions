@@ -248,7 +248,7 @@ override fun episodeListParse(response: Response): List<SEpisode> {
         if (episodesOnPage.isEmpty()) break
         allEpisodes.addAll(episodesOnPage)
         currentPage++
-        Thread.sleep(500)
+        Thread.sleep(50)
     }
     // Eliminar duplicados por URL y ordenar de mayor a menor según episode_number
     return allEpisodes
