@@ -346,6 +346,7 @@ data class AnimetsuEpisodeDto(
                 likes?.let { parts.add("Likes: ${formatNumber(it)}") }
                 dislikes?.let { parts.add("Dislikes: ${formatNumber(it)}") }
                 parts.joinToString(" | ")
+                    .ifEmpty { "\u200B" }
             } else {
                 "\u200B"
             }
