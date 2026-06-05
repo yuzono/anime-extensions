@@ -20,11 +20,9 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -41,16 +39,13 @@ class AnimeOnsen :
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
 
-    private val searchUrl = "https://search.animeonsen.xyz"
-
     override val lang = "all"
 
     override val supportsLatest = false
 
     override val client by lazy {
         network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client, apiUrl))
-            .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
+            .addInterceptor(AOAPIInterceptor(network.client))
             .build()
     }
 
@@ -244,6 +239,13 @@ class AnimeOnsen :
             entryValues = PREF_SUB_VALUES
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
         }.also(screen::addPreference)
     }
 

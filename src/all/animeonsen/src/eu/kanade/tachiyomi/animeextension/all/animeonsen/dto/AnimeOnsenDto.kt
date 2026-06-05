@@ -76,7 +76,8 @@ data class StreamData(
 
 @Serializable
 data class SearchResponse(
-    val hits: List<AnimeListItem>,
+    val status: Int,
+    val result: List<AnimeListItem>,
 )
 
 object MalSerializer : JsonTransformingSerializer<MalData>(MalData.serializer()) {

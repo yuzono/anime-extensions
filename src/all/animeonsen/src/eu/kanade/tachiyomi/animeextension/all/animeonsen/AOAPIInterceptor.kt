@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
@@ -65,8 +64,6 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
             null
         }
     }
-
-    private val host: String = apiUrl.toHttpUrlOrNull()?.host ?: apiUrl
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
