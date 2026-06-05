@@ -17,11 +17,14 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.runBlocking
+import okhttp3.ConnectionPool
+import okhttp3.ConnectionSpec
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -37,37 +40,40 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val preferences by getPreferencesLazy()
 
     /**
-     * Custom client derived from the standard Tachiyomi `client`.
-     * Adds a mobile Chrome User-Agent and some common headers to improve compatibility
-     * with servers that reject default requests or require a browser UA.
+     * Custom OkHttpClient independent from the global `client`.
+     * - Mobile Chrome User-Agent
+     * - Own ConnectionPool and ConnectionSpec to avoid sharing TLS sessions
      */
     private val customClient: OkHttpClient by lazy {
-        client.newBuilder()
+        OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.CLEARTEXT))
             .addInterceptor { chain ->
                 val original = chain.request()
                 val newReq = original.newBuilder()
                     .header(
                         "User-Agent",
-                        // Mobile Chrome UA (Android)
-                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
                     )
                     .header("Accept-Language", "es-ES,es;q=0.9")
-                    // Keep existing Referer if present; many extractors set referer explicitly.
                     .build()
                 chain.proceed(newReq)
             }
             .build()
     }
 
-    // Extractores: usar customClient para servidores que suelen requerir UA/headers
-    private val voeExtractor by lazy { VoeExtractor(client, headers) } // Voe funciona bien con client estándar
+    // Use the same customClient for all extractors to keep behavior consistent
+    private val voeExtractor by lazy { VoeExtractor(customClient, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(customClient) }
     private val uqloadExtractor by lazy { UqloadExtractor(customClient) }
     private val streamWishExtractor by lazy { StreamWishExtractor(customClient, headers) }
     private val universalExtractor by lazy { UniversalExtractor(customClient) }
+
+    // Track last host used to evict connection pool when switching servers
+    private var lastServerHost: String? = null
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
@@ -296,7 +302,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 .addHeader("X-Requested-With", "XMLHttpRequest")
                 .addHeader("Referer", baseUrl)
                 .build()
-            val response = client.newCall(request).execute()
+            val response = customClient.newCall(request).execute()
             response.body?.string() ?: ""
         } catch (e: Exception) {
             ""
@@ -305,6 +311,15 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     // ============================== Videos (Voe, Mp4upload, Uqload, StreamWish, Universal) ===============================
     private fun serverVideoResolverBlocking(url: String): List<Video> {
+        // Determine host to detect server switch
+        val host = runCatching { url.toHttpUrlOrNull()?.host }.getOrNull()
+            ?: url.substringAfter("://").substringBefore("/")
+        if (lastServerHost == null || lastServerHost != host) {
+            try {
+                customClient.connectionPool.evictAll()
+            } catch (_: Exception) { /* ignore */ }
+            lastServerHost = host
+        }
         return runBlocking {
             serverVideoResolver(url)
         }
@@ -340,7 +355,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 for ((_, pageUrl) in videoUrls) {
                     videos.addAll(serverVideoResolverBlocking(pageUrl))
                 }
-                if (videos.isNotEmpty()) return filterByPreferences(videos)
+                if (videos.isNotEmpty()) return orderVideosByPreferences(videos)
             }
         }
 
@@ -356,41 +371,73 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             }
         }
 
-        return filterByPreferences(videos)
+        return orderVideosByPreferences(videos)
     }
 
-    private fun filterByPreferences(videos: List<Video>): List<Video> {
-        val preferredServer = preferences.getString("animeid_preferred_server", "Voe")
-        val preferredQuality = preferences.getString("animeid_preferred_quality", "any")
+    /**
+     * Reordena (no filtra) la lista de videos para:
+     *  - Mostrar primero las fuentes del servidor preferido (si existen)
+     *  - Priorizar la calidad preferida dentro de cada servidor
+     *  - Mantener todas las demás fuentes disponibles en el selector del reproductor
+     */
+    private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
+        val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
+        val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
 
-        var filtered = videos
-
-        // Filtrar por servidor (buscar en quality o en la URL del video)
-        if (!preferredServer.isNullOrBlank()) {
-            val byServer = filtered.filter {
-                it.quality.contains(preferredServer, ignoreCase = true) ||
-                    it.url.contains(preferredServer, ignoreCase = true)
+        fun detectServer(video: Video): String {
+            val urlHost = runCatching { video.url.toHttpUrlOrNull()?.host }.getOrNull() ?: ""
+            return when {
+                urlHost.contains("voe", ignoreCase = true) -> "voe"
+                urlHost.contains("mp4upload", ignoreCase = true) -> "mp4upload"
+                urlHost.contains("uqload", ignoreCase = true) -> "uqload"
+                urlHost.contains("streamwish", ignoreCase = true) -> "streamwish"
+                video.quality.contains("voe", ignoreCase = true) -> "voe"
+                video.quality.contains("mp4upload", ignoreCase = true) -> "mp4upload"
+                video.quality.contains("uqload", ignoreCase = true) -> "uqload"
+                video.quality.contains("streamwish", ignoreCase = true) -> "streamwish"
+                else -> "other"
             }
-            if (byServer.isNotEmpty()) filtered = byServer
         }
 
-        // Filtrar por calidad
-        if (!preferredQuality.isNullOrBlank() && preferredQuality != "any") {
+        fun qualityScore(video: Video): Int {
+            if (preferredQuality == null || preferredQuality == "any") return 0
             val qToken = "${preferredQuality}p"
-            val byQuality = filtered.filter {
-                it.quality.contains(qToken, ignoreCase = true) ||
-                    it.quality.contains(preferredQuality, ignoreCase = true) ||
-                    it.url.contains("/${preferredQuality}p", ignoreCase = true)
+            return when {
+                video.quality.contains(qToken, ignoreCase = true) -> 3
+                video.quality.contains(preferredQuality, ignoreCase = true) -> 2
+                video.url.contains("/$qToken", ignoreCase = true) -> 3
+                else -> 0
             }
-            if (byQuality.isNotEmpty()) filtered = byQuality
         }
 
-        return filtered
+        val grouped = videos.groupBy { detectServer(it) }
+
+        val order = mutableListOf<Video>()
+
+        if (!preferredServer.isNullOrBlank()) {
+            grouped[preferredServer]?.let { list ->
+                order.addAll(list.sortedByDescending { qualityScore(it) })
+            }
+        }
+
+        val serversOrder = listOf("voe", "mp4upload", "uqload", "streamwish", "other")
+        for (srv in serversOrder) {
+            if (srv == preferredServer) continue
+            grouped[srv]?.let { list ->
+                order.addAll(list.sortedByDescending { qualityScore(it) })
+            }
+        }
+
+        val addedUrls = order.map { it.url }.toSet()
+        videos.filter { it.url !in addedUrls }.let { leftovers ->
+            order.addAll(leftovers.sortedByDescending { qualityScore(it) })
+        }
+
+        return order
     }
 
     // ============================== Preferences ===============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        // Preferencia: servidor
         ListPreference(screen.context).apply {
             key = "animeid_preferred_server"
             title = "Servidor preferido"
@@ -400,7 +447,6 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             summary = "%s"
         }.also(screen::addPreference)
 
-        // Preferencia: calidad / resolución
         ListPreference(screen.context).apply {
             key = "animeid_preferred_quality"
             title = "Calidad preferida"
@@ -425,7 +471,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 .addHeader("X-Requested-With", "XMLHttpRequest")
                 .addHeader("Referer", baseUrl)
                 .build()
-            val response = client.newCall(request).execute()
+            val response = customClient.newCall(request).execute()
             response.body?.string() ?: ""
         } catch (e: Exception) {
             ""
