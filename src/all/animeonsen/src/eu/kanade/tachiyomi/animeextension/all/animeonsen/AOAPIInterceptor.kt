@@ -7,13 +7,16 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 
-class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
+class AOAPIInterceptor(private val client: OkHttpClient, apiUrl: String) : Interceptor {
 
     private var token: String? = null
+
+    private val host: String = apiUrl.toHttpUrlOrNull()?.host ?: apiUrl
 
     // Create a separate client for fetching the token to avoid infinite recursion
     private val tokenClient by lazy {
@@ -75,6 +78,11 @@ class AOAPIInterceptor(private val client: OkHttpClient) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
+
+        // Only apply API token to the API host, let SearchInterceptor handle the search host
+        if (originalRequest.url.host != host) {
+            return chain.proceed(originalRequest)
+        }
 
         val currentToken = getOrRefreshToken(null)
 

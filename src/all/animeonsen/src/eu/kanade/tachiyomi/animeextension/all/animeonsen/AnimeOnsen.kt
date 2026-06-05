@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeDetails
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeListItem
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeListResponse
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.EpisodeDto
+import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.MeilisearchResponse
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.SearchResponse
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.VideoData
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -17,16 +18,18 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import kotlin.math.roundToInt
 
 class AnimeOnsen :
@@ -39,19 +42,20 @@ class AnimeOnsen :
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
 
+    private val searchUrl = "https://search.animeonsen.xyz"
+
     override val lang = "all"
 
     override val supportsLatest = false
 
     override val client by lazy {
         network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client))
+            .addInterceptor(AOAPIInterceptor(network.client, apiUrl))
+            .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
             .build()
     }
 
     private val preferences by getPreferencesLazy()
-
-    private val json: Json by injectLazy()
 
     override fun headersBuilder() = Headers.Builder()
         .add("User-Agent", AO_USER_AGENT)
@@ -85,7 +89,11 @@ class AnimeOnsen :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         if (query.isNotBlank()) {
-            return GET("$apiUrl/search/$query", headers)
+            val postBody = buildJsonObject {
+                put("q", query)
+            }.toJsonRequestBody()
+
+            return POST("$searchUrl/indexes/content/search", headers, postBody)
         }
 
         val genre = filters.firstInstanceOrNull<AnimeOnsenFilters.GenreFilter>()?.getValue()
@@ -101,7 +109,11 @@ class AnimeOnsen :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val requestUrl = response.request.url.toString()
 
-        return if (requestUrl.contains("/search/") || requestUrl.contains("/genre/")) {
+        return if (requestUrl.contains("indexes/content/search")) {
+            val searchResult = response.parseAs<MeilisearchResponse>().hits
+            val results = searchResult.map { it.toSAnime() }
+            AnimesPage(results, false)
+        } else if (requestUrl.contains("/genre/")) {
             val searchResult = response.parseAs<SearchResponse>().result
             val results = searchResult.map { it.toSAnime() }
             AnimesPage(results, false)
@@ -258,10 +270,11 @@ class AnimeOnsen :
     private fun AnimeListItem.toSAnime() = SAnime.create().apply {
         url = content_id
         title = when (preferredTitle) {
-            "english" -> content_title_en ?: content_title!!
-            else -> content_title ?: content_title_en!!
+            "english" -> content_title_en ?: content_title ?: content_title_jp!!
+            else -> content_title ?: content_title_jp ?: content_title_en!!
         }
-        thumbnail_url = "$apiUrl/image/210x300/$content_id"
+        // Reference way: dynamically construct the thumbnail URL from the ID if not provided directly by search
+        thumbnail_url = thumbnail ?: content_image ?: "$apiUrl/image/210x300/$content_id"
     }
 
     private fun Map<String, String>.sortSubs(): List<Map.Entry<String, String>> {

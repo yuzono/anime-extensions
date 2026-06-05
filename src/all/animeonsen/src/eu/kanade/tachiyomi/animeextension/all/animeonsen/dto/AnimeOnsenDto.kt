@@ -19,6 +19,9 @@ data class AnimeListItem(
     val content_id: String,
     val content_title: String? = null,
     val content_title_en: String? = null,
+    val content_title_jp: String? = null,
+    val content_image: String? = null,
+    val thumbnail: String? = null,
 )
 
 @Serializable
@@ -72,6 +75,11 @@ data class MetaData(val subtitles: Map<String, String>)
 data class StreamData(
     val stream: String,
     val subtitles: Map<String, String>,
+)
+
+@Serializable
+data class MeilisearchResponse(
+    val hits: List<AnimeListItem>,
 )
 
 @Serializable
