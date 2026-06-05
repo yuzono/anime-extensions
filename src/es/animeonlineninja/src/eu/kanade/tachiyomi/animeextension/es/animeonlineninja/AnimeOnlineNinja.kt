@@ -30,7 +30,7 @@ class AnimeOnlineNinja :
     DooPlay(
         "es",
         "AnimeOnline.Ninja",
-        "https://ww3.animeonline.ninja", // CAMBIO: nueva URL base
+        "https://ww3.animeonline.ninja",
     ) {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
@@ -92,7 +92,6 @@ class AnimeOnlineNinja :
             }
         }
 
-        // CAMBIO: ajuste en la construcción de URLs de búsqueda
         return if (path.startsWith("/?s=")) {
             GET("$baseUrl/page/$page$path")
         } else if (path.startsWith("/letra") || path.startsWith("/tendencias")) {
@@ -108,21 +107,80 @@ class AnimeOnlineNinja :
     override val episodeMovieText = "Película"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = getRealAnimeDoc(response.asJsoup())
-        val seasonList = doc.select(seasonListSelector)
-        return if (seasonList.isEmpty()) {
+        val doc = response.asJsoup()
+        
+        // Si estamos en una página de episodio (viene de "Recientes"), redirigir al anime
+        val animeUrl = if (doc.location().contains("/episodio/")) {
+            // Buscar el enlace al anime en la página del episodio
+            doc.selectFirst("a[href*=/online/]")?.attr("abs:href") 
+                ?: doc.selectFirst("div.data a[href*=/online/]")?.attr("abs:href")
+                ?: doc.location()
+        } else {
+            doc.location()
+        }
+        
+        // Cargar la página correcta del anime si es necesario
+        val finalDoc = if (animeUrl != doc.location()) {
+            client.newCall(GET(animeUrl, headers)).awaitSuccess().asJsoup()
+        } else {
+            doc
+        }
+        
+        // Seleccionar la lista de episodios (formato directo sin temporadas)
+        val episodeElements = finalDoc.select("ul.episodios li")
+        
+        return if (episodeElements.isEmpty()) {
+            // Si no hay episodios, tratar como película
             listOf(
                 SEpisode.create().apply {
-                    setUrlWithoutDomain(doc.location())
+                    setUrlWithoutDomain(finalDoc.location())
                     episode_number = 1F
                     name = episodeMovieText
                 },
             )
         } else {
-            seasonList.reversed().flatMap { seasonElement ->
-                getSeasonEpisodes(seasonElement).reversed()
+            episodeElements.mapNotNull { element ->
+                parseEpisode(element, finalDoc.location())
+            }.reversed() // Los episodios más recientes primero
+        }
+    }
+    
+    private fun parseEpisode(element: Element, baseUrl: String): SEpisode? {
+        val linkElement = element.selectFirst("a")
+        val url = linkElement?.attr("abs:href") ?: return null
+        
+        // Extraer número de episodio del título o enlace
+        val title = linkElement.text()
+        val episodeNumber = extractEpisodeNumber(title, url)
+        
+        return SEpisode.create().apply {
+            setUrlWithoutDomain(url)
+            name = title.trim()
+            episode_number = episodeNumber
+        }
+    }
+    
+    private fun extractEpisodeNumber(title: String, url: String): Float {
+        // Patrones para extraer número de episodio
+        val patterns = listOf(
+            Regex("""Episodio\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""Ep\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""Capítulo\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""(\d+(?:\.\d+)?)\s*-(?:\s*\d+)?$"""),
+            Regex("""/(\d+(?:\.\d+)?)/?$""")
+        )
+        
+        for (pattern in patterns) {
+            pattern.find(title)?.let { matchResult ->
+                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
+            }
+            pattern.find(url)?.let { matchResult ->
+                return matchResult.groupValues[1].toFloatOrNull() ?: -1f
             }
         }
+        
+        // Si no se encuentra, usar el índice como respaldo
+        return -1f
     }
 
     // ============================ Video Links =============================
@@ -173,10 +231,10 @@ class AnimeOnlineNinja :
 
     private val conventions = listOf(
         "saidochesto" to listOf("saidochesto", "multiserver"),
-        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "bysekoze"), // CAMBIO: añadido bysekoze (Filemoon alternativo)
-        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dsvplay"), // CAMBIO: añadido dsvplay
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "bysekoze"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dsvplay"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
-        "mixdrop" to listOf("mixdrop", "mixdroop", "mxdrop"), // CAMBIO: variantes
+        "mixdrop" to listOf("mixdrop", "mixdroop", "mxdrop"),
         "uqload" to listOf("uqload"),
         "wolfstream" to listOf("wolfstream"),
         "mp4upload" to listOf("mp4upload"),
@@ -227,7 +285,7 @@ class AnimeOnlineNinja :
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
-    override val latestUpdatesPath = "episodio" // CAMBIO: ruta para últimos episodios
+    override val latestUpdatesPath = "episodio"
 
     override fun latestUpdatesNextPageSelector() = "div.pagination > *:last-child:not(span):not(.current)"
 
@@ -238,7 +296,7 @@ class AnimeOnlineNinja :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        super.setupPreferenceScreen(screen) // Quality preference
+        super.setupPreferenceScreen(screen)
 
         val langPref = ListPreference(screen.context).apply {
             key = PREF_LANG_KEY
@@ -317,4 +375,4 @@ class AnimeOnlineNinja :
         private const val PREF_VRF_INTERCEPT_SUMMARY = "Intercept VRF links and open them in the browser"
         private const val PREF_VRF_INTERCEPT_DEFAULT = false
     }
-    }
+}
