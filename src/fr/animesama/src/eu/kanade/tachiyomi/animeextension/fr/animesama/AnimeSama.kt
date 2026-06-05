@@ -234,6 +234,7 @@ class AnimeSama :
 
     private val commentRegex by lazy { Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL) }
     private val seasonRegex by lazy { Regex("^\\s*panneauAnime\\(\"(.*)\", \"(.*)\"\\)", RegexOption.MULTILINE) }
+    private val movieNameRegex by lazy { Regex("^\\s*newSPF\\(\"(.*)\"\\);", RegexOption.MULTILINE) }
 
     private suspend fun fetchAnimeSeasons(response: Response, season: String): List<SAnime> {
         val animeDoc = response.useAsJsoup()
@@ -252,7 +253,6 @@ class AnimeSama :
             if (seasonStem.contains("film", true)) {
                 val moviesUrl = "$animeUrl/$seasonStem"
                 val movies = fetchPlayers(moviesUrl).ifEmpty { return@parallelCatchingFlatMapBlocking emptyList() }
-                val movieNameRegex = Regex("^\\s*newSPF\\(\"(.*)\"\\);", RegexOption.MULTILINE)
                 val moviesDoc = client.newCall(GET(moviesUrl)).awaitSuccess().bodyString()
                 val matches = movieNameRegex.findAll(moviesDoc).toList()
                 List(movies.size) { i ->
@@ -276,16 +276,17 @@ class AnimeSama :
                 description = animeDoc.select("h2:contains(synopsis) + p").text()
                 genre = animeDoc.select("h2:contains(genres) + a").text().replace(" - ", ", ")
                 setUrlWithoutDomain(it.second)
-                status = parseStatus(it.second) ?: SAnime.UNKNOWN
+                status = parseStatus(it.second.substringBefore('#')) ?: SAnime.UNKNOWN
                 initialized = true
             }
         }.toList()
     }
 
+    private val cleanUrlRegex by lazy { "(?<!:)/{2,}".toRegex() }
+    private val statusRegex by lazy { ".*/(catalogue/[^/]+/[^/]+)".toRegex() }
     private fun parseStatus(animeUrl: String): Int? = runCatching {
-        val cleanedUrl = animeUrl.replace("(?<!:)/{2,}".toRegex(), "/")
-        val pattern = ".*/(catalogue/[^/]+/[^/]+)".toRegex()
-        val match = pattern.find(cleanedUrl)
+        val cleanedUrl = animeUrl.replace(cleanUrlRegex, "/")
+        val match = statusRegex.find(cleanedUrl)
         val searchTarget = match?.groupValues?.get(1) ?: cleanedUrl
 
         return if (planning.contains(searchTarget)) {
