@@ -232,26 +232,29 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return episode
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val initialHtml = response.body?.string() ?: return emptyList()
-        val doc = Jsoup.parse(initialHtml, baseUrl)
-        val animeId = doc.selectFirst("#dt")?.attr("data-i") ?: return emptyList()
-        val animeSlug = doc.selectFirst("#dt")?.attr("data-u") ?: return emptyList()
+override fun episodeListParse(response: Response): List<SEpisode> {
+    val initialHtml = response.body?.string() ?: return emptyList()
+    val doc = Jsoup.parse(initialHtml, baseUrl)
+    val animeId = doc.selectFirst("#dt")?.attr("data-i") ?: return emptyList()
+    val animeSlug = doc.selectFirst("#dt")?.attr("data-u") ?: return emptyList()
 
-        val allEpisodes = mutableListOf<SEpisode>()
-        var currentPage = 1
-        while (true) {
-            val pageHtml = fetchEpisodesPage(animeId, animeSlug, currentPage)
-            if (pageHtml.isBlank()) break
-            val pageDoc = Jsoup.parse(pageHtml)
-            val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
-            if (episodesOnPage.isEmpty()) break
-            allEpisodes.addAll(episodesOnPage)
-            currentPage++
-            Thread.sleep(500)
-        }
-        return allEpisodes.distinctBy { it.url }.reversed()
+    val allEpisodes = mutableListOf<SEpisode>()
+    var currentPage = 1
+    while (true) {
+        val pageHtml = fetchEpisodesPage(animeId, animeSlug, currentPage)
+        if (pageHtml.isBlank()) break
+        val pageDoc = Jsoup.parse(pageHtml)
+        val episodesOnPage = pageDoc.select(episodeListSelector()).map { episodeFromElement(it) }
+        if (episodesOnPage.isEmpty()) break
+        allEpisodes.addAll(episodesOnPage)
+        currentPage++
+        Thread.sleep(500)
     }
+    // Eliminar duplicados por URL y ordenar de mayor a menor según episode_number
+    return allEpisodes
+        .distinctBy { it.url }
+        .sortedByDescending { it.episode_number }
+}
 
     private fun fetchEpisodesPage(animeId: String, animeSlug: String, page: Int): String {
         return try {
