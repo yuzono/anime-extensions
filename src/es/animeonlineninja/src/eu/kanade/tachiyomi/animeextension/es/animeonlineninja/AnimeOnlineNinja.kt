@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -29,7 +30,7 @@ class AnimeOnlineNinja :
     DooPlay(
         "es",
         "AnimeOnline.Ninja",
-        "https://ver.animeonline.ninja",
+        "https://ww3.animeonline.ninja", // CAMBIO: nueva URL base
     ) {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
@@ -59,11 +60,8 @@ class AnimeOnlineNinja :
                     "/genero/${params.genre}"
                 }
             }
-
             params.language.isNotBlank() -> "/genero/${params.language}"
-
             params.year.isNotBlank() -> "/release/${params.year}"
-
             params.movie.isNotBlank() -> {
                 if (params.movie == "pelicula") {
                     "/pelicula"
@@ -71,7 +69,6 @@ class AnimeOnlineNinja :
                     "/genero/${params.movie}"
                 }
             }
-
             else -> buildString {
                 append(
                     when {
@@ -80,7 +77,6 @@ class AnimeOnlineNinja :
                         else -> "/tendencias/?"
                     },
                 )
-
                 append(
                     if (contains("tendencias")) {
                         "&get=${when (params.type){
@@ -92,11 +88,11 @@ class AnimeOnlineNinja :
                         "&tipo=${params.type}"
                     },
                 )
-
                 if (params.isInverted) append("&orden=asc")
             }
         }
 
+        // CAMBIO: ajuste en la construcción de URLs de búsqueda
         return if (path.startsWith("/?s=")) {
             GET("$baseUrl/page/$page$path")
         } else if (path.startsWith("/letra") || path.startsWith("/tendencias")) {
@@ -112,7 +108,7 @@ class AnimeOnlineNinja :
     override val episodeMovieText = "Película"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = getRealAnimeDoc(response.useAsJsoup())
+        val doc = getRealAnimeDoc(response.asJsoup())
         val seasonList = doc.select(seasonListSelector)
         return if (seasonList.isEmpty()) {
             listOf(
@@ -131,7 +127,7 @@ class AnimeOnlineNinja :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.useAsJsoup()
+        val document = response.asJsoup()
         val players = document.select("ul#playeroptionsul li")
         return players.parallelCatchingFlatMapBlocking { player ->
             val name = player.selectFirst("span.title")!!.text()
@@ -153,17 +149,11 @@ class AnimeOnlineNinja :
         val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in lang.lowercase() } }?.first
         return when (matched) {
             "saidochesto" -> extractFromMulti(url)
-
             "filemoon" -> filemoonExtractor.videosFromUrl(url, "$lang Filemoon:", headers)
-
             "doodstream" -> doodExtractor.videosFromUrl(url, "$lang DoodStream", false)
-
             "streamtape" -> streamTapeExtractor.videosFromUrl(url, "$lang StreamTape")
-
             "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
-
             "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = lang)
-
             "wolfstream" -> {
                 client.newCall(GET(url, headers)).awaitSuccess()
                     .useAsJsoup()
@@ -174,23 +164,19 @@ class AnimeOnlineNinja :
                         listOf(Video(videoUrl, "$lang WolfStream", videoUrl, headers = headers))
                     }
             }
-
             "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$lang ")
-
             "vidhide" -> vidHideExtractor.videosFromUrl(url) { "$lang - VidHide:$it" }
-
             "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" })
-
             else -> null
         } ?: emptyList()
     }
 
     private val conventions = listOf(
         "saidochesto" to listOf("saidochesto", "multiserver"),
-        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
-        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "bysekoze"), // CAMBIO: añadido bysekoze (Filemoon alternativo)
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dsvplay"), // CAMBIO: añadido dsvplay
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
-        "mixdrop" to listOf("mixdrop"),
+        "mixdrop" to listOf("mixdrop", "mixdroop", "mxdrop"), // CAMBIO: variantes
         "uqload" to listOf("uqload"),
         "wolfstream" to listOf("wolfstream"),
         "mp4upload" to listOf("mp4upload"),
@@ -206,7 +192,7 @@ class AnimeOnlineNinja :
             else -> "div.OD_$prefLang"
         }
         return document.select("div.ODDIV $langSelector > li").flatMap {
-            val hosterUrl = it.attr("onclick")
+            val hosterUrl = it.attr("onclick").toString()
                 .substringAfter("('")
                 .substringBefore("')")
             val lang = when (langSelector) {
@@ -215,7 +201,6 @@ class AnimeOnlineNinja :
                         .substringAfter("OD_", "")
                         .substringBefore(" ")
                 }
-
                 else -> prefLang
             }
             extractVideos(hosterUrl, lang)
@@ -242,7 +227,7 @@ class AnimeOnlineNinja :
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
-    override val latestUpdatesPath = "episodio"
+    override val latestUpdatesPath = "episodio" // CAMBIO: ruta para últimos episodios
 
     override fun latestUpdatesNextPageSelector() = "div.pagination > *:last-child:not(span):not(.current)"
 
@@ -262,6 +247,13 @@ class AnimeOnlineNinja :
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
         }
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
@@ -270,6 +262,13 @@ class AnimeOnlineNinja :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
         }.also(screen::addPreference)
 
         val vrfIterceptPref = CheckBoxPreference(screen.context).apply {
@@ -318,4 +317,4 @@ class AnimeOnlineNinja :
         private const val PREF_VRF_INTERCEPT_SUMMARY = "Intercept VRF links and open them in the browser"
         private const val PREF_VRF_INTERCEPT_DEFAULT = false
     }
-}
+    }
