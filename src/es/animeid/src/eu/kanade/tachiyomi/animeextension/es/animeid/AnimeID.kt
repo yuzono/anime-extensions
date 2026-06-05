@@ -25,6 +25,7 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.util.concurrent.TimeUnit
 
 class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
@@ -35,12 +36,38 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
 
-    // Extractores usando el client estándar
-    private val voeExtractor by lazy { VoeExtractor(client, headers) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val uqloadExtractor by lazy { UqloadExtractor(client) }
-    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
-    private val universalExtractor by lazy { UniversalExtractor(client) }
+    /**
+     * Custom client derived from the standard Tachiyomi `client`.
+     * Adds a mobile Chrome User-Agent and some common headers to improve compatibility
+     * with servers that reject default requests or require a browser UA.
+     */
+    private val customClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val newReq = original.newBuilder()
+                    .header(
+                        "User-Agent",
+                        // Mobile Chrome UA (Android)
+                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36"
+                    )
+                    .header("Accept-Language", "es-ES,es;q=0.9")
+                    // Keep existing Referer if present; many extractors set referer explicitly.
+                    .build()
+                chain.proceed(newReq)
+            }
+            .build()
+    }
+
+    // Extractores: usar customClient para servidores que suelen requerir UA/headers
+    private val voeExtractor by lazy { VoeExtractor(client, headers) } // Voe funciona bien con client estándar
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(customClient) }
+    private val uqloadExtractor by lazy { UqloadExtractor(customClient) }
+    private val streamWishExtractor by lazy { StreamWishExtractor(customClient, headers) }
+    private val universalExtractor by lazy { UniversalExtractor(customClient) }
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector(): String = "div.ul.x5 article.li, div.ul article.li"
