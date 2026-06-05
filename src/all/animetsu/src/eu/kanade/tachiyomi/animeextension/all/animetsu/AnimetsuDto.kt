@@ -13,6 +13,15 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToInt
 
+class TagField(
+    val showExtraInfo: Boolean = true,
+    val showStaff: Boolean = true,
+    val showCharacters: Boolean = true,
+    val showRelations: Boolean = true,
+    val showTrackers: Boolean = true,
+    val showTrailer: Boolean = true,
+)
+
 @Serializable
 data class AnimetsuSearchDto(
     val results: List<AnimetsuAnimeDto>,
@@ -73,12 +82,7 @@ data class AnimetsuAnimeDto(
     fun toSAnime(
         titleLanguage: String,
         showTags: Boolean,
-        showExtraInfo: Boolean = true,
-        showStaff: Boolean = true,
-        showCharacters: Boolean = true,
-        showRelations: Boolean = true,
-        showTrackers: Boolean = true,
-        showTrailer: Boolean = true,
+        tagField: TagField = TagField(),
     ): SAnime? = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
@@ -90,7 +94,7 @@ data class AnimetsuAnimeDto(
         genre = (genreList + tagList).joinToString()
 
         status = parseStatus(dto.status)
-        description = dto.buildDescription(showExtraInfo, showStaff, showCharacters, showRelations, showTrackers, showTrailer)
+        description = dto.buildDescription(tagField)
         artist = dto.staff?.filter {
             it.role in listOf("Original Story", "Original Creator", "Original Character Design")
         }?.mapNotNull { it.name }?.joinToString()
@@ -104,14 +108,7 @@ data class AnimetsuAnimeDto(
         return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
     }
 
-    fun buildDescription(
-        showExtraInfo: Boolean = true,
-        showStaff: Boolean = true,
-        showCharacters: Boolean = true,
-        showRelations: Boolean = true,
-        showTrackers: Boolean = true,
-        showTrailer: Boolean = true,
-    ): String {
+    fun buildDescription(tagField: TagField): String {
         val desc = StringBuilder()
 
         averageScore?.let { score ->
@@ -126,7 +123,7 @@ data class AnimetsuAnimeDto(
             desc.append(it)
         }
 
-        if (showExtraInfo) {
+        if (tagField.showExtraInfo) {
             val meta = mutableListOf<String>()
             format?.let { meta.add(it.replace("_", " ").titleCase()) }
             status?.let {
@@ -199,7 +196,7 @@ data class AnimetsuAnimeDto(
             }
         }
 
-        if (showRelations) {
+        if (tagField.showRelations) {
             relations?.takeIf { it.isNotEmpty() }?.let { relations ->
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("**Relations**:")
@@ -219,7 +216,7 @@ data class AnimetsuAnimeDto(
             }
         }
 
-        if (showCharacters) {
+        if (tagField.showCharacters) {
             characters?.filter { it.role == "MAIN" }?.takeIf { it.isNotEmpty() }?.let { chars ->
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("**Main Characters**:")
@@ -230,7 +227,7 @@ data class AnimetsuAnimeDto(
             }
         }
 
-        if (showStaff) {
+        if (tagField.showStaff) {
             staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("**Staff**:")
@@ -240,7 +237,7 @@ data class AnimetsuAnimeDto(
             }
         }
 
-        if (showTrackers) {
+        if (tagField.showTrackers) {
             val ids = mutableListOf<String>()
             anilistId?.let { ids.add("[AniList](https://anilist.co/anime/$it)") }
             malId?.let { ids.add("[MAL](https://myanimelist.net/anime/$it)") }
@@ -250,7 +247,7 @@ data class AnimetsuAnimeDto(
             }
         }
 
-        if (showTrailer) {
+        if (tagField.showTrailer) {
             trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("[Trailer](https://www.youtube.com/watch?v=$it)")

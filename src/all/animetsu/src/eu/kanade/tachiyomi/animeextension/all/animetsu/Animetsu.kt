@@ -180,12 +180,14 @@ class Animetsu :
     override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(
         titleLanguage = titleLanguage,
         showTags = showTags,
-        showExtraInfo = showExtraInfo,
-        showStaff = showStaff,
-        showCharacters = showCharacters,
-        showRelations = showRelations,
-        showTrackers = showTrackers,
-        showTrailer = showTrailer,
+        tagField = TagField(
+            showExtraInfo = showExtraInfo,
+            showStaff = showStaff,
+            showCharacters = showCharacters,
+            showRelations = showRelations,
+            showTrackers = showTrackers,
+            showTrailer = showTrailer,
+        ),
     )!!
 
     // ============================== Related ===============================
