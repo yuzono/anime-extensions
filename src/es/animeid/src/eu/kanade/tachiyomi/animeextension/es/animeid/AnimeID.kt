@@ -35,11 +35,11 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     override val name = "AnimeID"
     override val baseUrl = "https://wwv.animeid2.com"
     override val lang = "es"
-   override val supportsLatest = true
+    override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
 
-    // Cliente SSL personalizado para Mp4upload (evita errores SSL)
+    // Cliente SSL personalizado para Mp4upload
     private val mp4uploadClient: OkHttpClient by lazy {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
@@ -67,8 +67,8 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     // Extractores con sus parámetros correctos
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
-    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(mp4uploadClient) }  // Solo client
-    private val vidhideExtractor by lazy { VidHideExtractor(client, headers) }
+    private val mp4uploadExtractor by lazy { Mp4uploadExtractor(mp4uploadClient) }
+    private val vidhideExtractor by lazy { VidHideExtractor(client, headers) }  // Nombre corregido
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
@@ -316,7 +316,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return try {
             when {
                 embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe: ")
-                embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)  // ✅ Con headers
+                embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
                 embedUrl.contains("vidhide") -> vidhideExtractor.videosFromUrl(url) { quality -> "VidHide - $quality" }
                 embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload: ")
                 else -> universalExtractor.videosFromUrl(url, headers)
@@ -452,7 +452,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             entryValues = arrayOf("voe", "mp4upload", "vidhide", "uqload")
             setDefaultValue("voe")
             summary = "La extensión muestra TODAS las fuentes automáticamente"
-            isEnabled = false
+            // isEnabled line removed to avoid compilation error
         }.also(screen::addPreference)
     }
 }
