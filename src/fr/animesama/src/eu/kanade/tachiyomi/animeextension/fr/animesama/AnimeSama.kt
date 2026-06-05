@@ -276,13 +276,13 @@ class AnimeSama :
                 description = animeDoc.select("h2:contains(synopsis) + p").text()
                 genre = animeDoc.select("h2:contains(genres) + a").text().replace(" - ", ", ")
                 setUrlWithoutDomain(it.second)
-                status = parseStatus(it.second)
+                status = parseStatus(it.second) ?: SAnime.UNKNOWN
                 initialized = true
             }
         }.toList()
     }
 
-    private fun parseStatus(animeUrl: String): Int {
+    private fun parseStatus(animeUrl: String): Int? = runCatching {
         val cleanedUrl = animeUrl.replace("(?<!:)/{2,}".toRegex(), "/")
         val pattern = ".*/(catalogue/[^/]+/[^/]+)".toRegex()
         val match = pattern.find(cleanedUrl)
@@ -293,7 +293,7 @@ class AnimeSama :
         } else {
             SAnime.COMPLETED
         }
-    }
+    }.getOrNull()
 
     private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> = List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
         val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
