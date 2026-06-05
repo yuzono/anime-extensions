@@ -5,6 +5,7 @@ import androidx.preference.PreferenceScreen
 import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
@@ -27,20 +28,22 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val uqloadExtractor by lazy { UqloadExtractor(client) }
 
     // ============================== Videos ===============================
-    private suspend fun serverVideoResolver(url: String): List<Video> {
-        val embedUrl = url.lowercase()
-        return try {
-            when {
-                embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe: ")
-                embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload: ")
-                else -> universalExtractor.videosFromUrl(url, headers)
-            }
-        } catch (e: Exception) {
-            universalExtractor.videosFromUrl(url, headers)
+private suspend fun serverVideoResolver(url: String): List<Video> {
+    val embedUrl = url.lowercase()
+    return try {
+        when {
+            embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url, prefix = "Voe: ")
+            embedUrl.contains("mp4upload") -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "Mp4upload: ")
+            embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = "Uqload: ")
+            else -> universalExtractor.videosFromUrl(url, headers)
         }
+    } catch (e: Exception) {
+        universalExtractor.videosFromUrl(url, headers)
     }
+}
 
     override fun videoListParse(response: Response): List<Video> {
         val body = response.body?.string() ?: return emptyList()
