@@ -1,7 +1,7 @@
 ext {
-    extName = 'Hanime1'
+    extName = 'Hanime1.me'
     extClass = '.Hanime1'
-    extVersionCode = 5
+    extVersionCode = 6
     isNsfw = true
 }
 

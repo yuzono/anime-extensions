@@ -3,7 +3,7 @@ ext {
     extClass = '.SoloLatino'
     themePkg = 'dooplay'
     baseUrl = 'https://sololatino.net'
-    overrideVersionCode = 19
+    overrideVersionCode = 21
 }
 
 apply plugin: "kei.plugins.extension.legacy"

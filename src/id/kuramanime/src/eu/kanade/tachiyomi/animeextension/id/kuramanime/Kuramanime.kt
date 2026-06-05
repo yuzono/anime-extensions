@@ -13,11 +13,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -100,12 +104,12 @@ class Kuramanime :
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
         val html = document.selectFirst(episodeListSelector())?.attr("data-content")
             ?: return emptyList()
 
-        val newDoc = response.asJsoup(html)
+        val newDoc = Jsoup.parse(html)
 
         val limits = newDoc.select("a.btn-secondary")
 
@@ -155,7 +159,7 @@ class Kuramanime :
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         val scriptData = doc.selectFirst("[data-kps]")?.attr("data-kps")
             ?.let(::getScriptData)
@@ -176,48 +180,45 @@ class Kuramanime :
             .set("X-Requested-With", "XMLHttpRequest")
             .build()
 
-        return servers.flatMap { (server, serverName) ->
-            runCatching {
-                val newHeaders = headers.newBuilder()
-                    .set("X-CSRF-TOKEN", csrfToken)
-                    .set("X-Fuck-ID", scriptData.tokenId)
-                    .set("X-Request-ID", getRandomString())
-                    .set("X-Request-Index", "0")
-                    .build()
+        return servers.parallelCatchingFlatMapBlocking { (server, serverName) ->
+            val newHeaders = headers.newBuilder()
+                .set("X-CSRF-TOKEN", csrfToken)
+                .set("X-Fuck-ID", scriptData.tokenId)
+                .set("X-Request-ID", getRandomString())
+                .set("X-Request-Index", "0")
+                .build()
 
-                val hash = client.newCall(GET("$baseUrl/" + scriptData.authPath, newHeaders)).execute()
-                    .body.string()
-                    .trim('"')
+            val hash = client.newCall(GET("$baseUrl/" + scriptData.authPath, newHeaders))
+                .awaitSuccess()
+                .bodyString()
+                .trim('"')
 
-                val newUrl = episodeUrl.newBuilder()
-                    .addQueryParameter(scriptData.tokenParam, hash)
-                    .addQueryParameter(scriptData.serverParam, server)
-                    .build()
+            val newUrl = episodeUrl.newBuilder()
+                .addQueryParameter(scriptData.tokenParam, hash)
+                .addQueryParameter(scriptData.serverParam, server)
+                .build()
 
-                val playerDoc = client.newCall(GET(newUrl.toString(), headers)).execute()
-                    .asJsoup()
+            val playerDoc = client.newCall(GET(newUrl.toString(), headers))
+                .awaitSuccess()
+                .useAsJsoup()
 
-                val url = playerDoc.selectFirst("div.video-content iframe")?.attr("src")
-                when {
-                    // server == "filelions" && url != null -> streamtapeExtractor.videosFromUrl(url)
-                    server == "filemoon" && url != null -> filemoonExtractor.videosFromUrl(url)
+            val url = playerDoc.selectFirst("div.video-content iframe")?.attr("src")
+            when (server) {
+                "filelions" if url != null -> streamWishExtractor.videosFromUrl(url)
+                "filemoon" if url != null -> filemoonExtractor.videosFromUrl(url)
 
-                    // mega.nz source
-                    // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url)
-                    server == "streamwish" && url != null -> streamWishExtractor.videosFromUrl(url)
-
-                    server == "streamtape" && url != null -> streamtapeExtractor.videosFromUrl(url)
-
-                    server == "vidguard" && url != null -> vidguardExtractor.videosFromUrl(url)
-
-                    else -> {
-                        playerDoc.select("video#player > source").map {
-                            val src = it.attr("src")
-                            Video(src, "${it.attr("size")}p - $serverName", src)
-                        }
+                // mega.nz source
+                // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url)
+                "streamwish" if url != null -> streamWishExtractor.videosFromUrl(url)
+                "streamtape" if url != null -> streamtapeExtractor.videosFromUrl(url)
+                "vidguard" if url != null -> vidguardExtractor.videosFromUrl(url)
+                else -> {
+                    playerDoc.select("video#player > source").map {
+                        val src = it.attr("src")
+                        Video(src, "${it.attr("size")}p - $serverName", src)
                     }
                 }
-            }.getOrElse { emptyList() }
+            }
         }
     }
 
@@ -226,7 +227,7 @@ class Kuramanime :
 
         return runCatching {
             val response = client.newCall(GET(assetsUrl, headers)).execute()
-                .body.string()
+                .bodyString()
 
             // Extract the data from the window.process assignment
             val processEnvRegex = Regex("""window\.process\s*=\s*\{[\s\S]*?env:\s*\{([\s\S]*?)\}[\s\S]*?\}""")

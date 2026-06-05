@@ -26,13 +26,16 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Element
+import kotlin.text.ifEmpty
+import kotlin.text.lowercase
 
 open class PelisForte :
     AnimeHttpSource(),
@@ -70,7 +73,7 @@ open class PelisForte :
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/todas-las-peliculas/page/$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select("#movies-a li[id*=post-]")
         val nextPage = document.select(".pagination .nav-links .current ~ a:not(.page-link)").any()
         val animeList = elements.map { element ->
@@ -83,7 +86,7 @@ open class PelisForte :
         return AnimesPage(animeList, nextPage)
     }
 
-    protected open fun org.jsoup.nodes.Element.getImageUrl(): String? = if (hasAttr("srcset")) {
+    protected open fun Element.getImageUrl(): String? = if (hasAttr("srcset")) {
         try {
             fetchUrls(attr("abs:srcset")).maxOrNull()
         } catch (_: Exception) {
@@ -111,7 +114,7 @@ open class PelisForte :
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val animeDetails = SAnime.create().apply {
             title = document.selectFirst(".alg-cr .entry-header .entry-title")?.text() ?: ""
             description = document.select(".alg-cr .description").text()
@@ -146,7 +149,7 @@ open class PelisForte :
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select(".video-player iframe").parallelCatchingFlatMapBlocking { iframe ->
             val id = iframe.parent()?.attr("id")
             val idTab = document.selectFirst("[href=\"#$id\"]")?.closest(".lrt")?.attr("id")
@@ -166,17 +169,15 @@ open class PelisForte :
                 GET(player, headers = headers.newBuilder().add("referer", src).build()),
             ).awaitSuccess().use { it.networkResponse.toString() }
 
-            fetchUrls(locationsDdh).parallelCatchingFlatMap { serverVideoResolver(it, prefix) }
+            fetchUrls(locationsDdh).parallelCatchingFlatMap { serverVideoResolver(it, prefix, src) }
         }
     }
 
     /*--------------------------------Video extractors------------------------------------*/
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
-    private val okruExtractor by lazy { OkruExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
-    private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val streamlareExtractor by lazy { StreamlareExtractor(client) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
@@ -186,42 +187,44 @@ open class PelisForte :
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = when {
-        arrayOf("voe").any(url) -> voeExtractor.videosFromUrl(url, "$prefix ")
-
-        arrayOf("ok.ru", "okru").any(url) -> okruExtractor.videosFromUrl(url, prefix)
-
-        arrayOf("filemoon", "moonplayer").any(url) -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
-
-        arrayOf("uqload").any(url) -> uqloadExtractor.videosFromUrl(url, prefix)
-
-        arrayOf("mp4upload").any(url) -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
-
-        arrayOf("wishembed", "streamwish", "strwish", "wish").any(url) -> {
-            streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+    private suspend fun serverVideoResolver(url: String, prefix: String = "", referer: String): List<Video> {
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+        val newHeaders = headers.newBuilder().add("Referer", referer).build()
+        return when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "okru" -> OkruExtractor(client, newHeaders).videosFromUrl(url, prefix)
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$prefix Filemoon:")
+            "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, newHeaders, prefix = "$prefix ")
+            "streamwish" -> StreamWishExtractor(client, newHeaders).videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
+            "doodstream" -> doodExtractor.videosFromUrl(url, "$prefix DoodStream")
+            "streamlare" -> streamlareExtractor.videosFromUrl(url, prefix)
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = newHeaders, prefix = "$prefix ")
+            "burstcloud" -> burstCloudExtractor.videoFromUrl(url, headers = newHeaders, prefix = "$prefix ")
+            "fastream" -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
+            "upstream" -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+            else -> emptyList()
         }
-
-        arrayOf("doodstream", "dood.", "ds2play", "doods.").any(url) -> {
-            val url2 = url.replace("https://doodstream.com/e/", "https://d0000d.com/e/")
-            doodExtractor.videosFromUrl(url2, "$prefix DoodStream")
-        }
-
-        arrayOf("streamlare").any(url) -> streamlareExtractor.videosFromUrl(url, prefix)
-
-        arrayOf("yourupload", "upload").any(url) -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-        arrayOf("burstcloud", "burst").any(url) -> burstCloudExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
-
-        arrayOf("fastream").any(url) -> fastreamExtractor.videosFromUrl(url, prefix = "$prefix Fastream:")
-
-        arrayOf("upstream").any(url) -> upstreamExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-        arrayOf("streamtape", "stp", "stape").any(url) -> streamTapeExtractor.videosFromUrl(url, quality = "$prefix StreamTape")
-
-        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-
-        else -> emptyList()
     }
+
+    private val conventions = listOf(
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "okru" to listOf("ok.ru", "okru"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
+        "uqload" to listOf("uqload"),
+        "mp4upload" to listOf("mp4upload"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2play", "ds2video", "dooood", "d000d", "d0000d"),
+        "streamlare" to listOf("streamlare", "slmaxed"),
+        "yourupload" to listOf("yourupload", "upload"),
+        "burstcloud" to listOf("burstcloud", "burst"),
+        "fastream" to listOf("fastream"),
+        "upstream" to listOf("upstream"),
+        "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
+        "vidguard" to listOf("vembed", "guard", "listeamed", "bembed", "vgfplay", "bembed"),
+    )
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -273,8 +276,6 @@ open class PelisForte :
         fun toUriPart() = vals[state].second
     }
 
-    private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = PREF_LANGUAGE_KEY
@@ -283,13 +284,6 @@ open class PelisForte :
             entryValues = LANGUAGE_LIST
             setDefaultValue(PREF_LANGUAGE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -299,13 +293,6 @@ open class PelisForte :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -315,13 +302,6 @@ open class PelisForte :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }
