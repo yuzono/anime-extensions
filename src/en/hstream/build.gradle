@@ -1,34 +1,8 @@
 ext {
     extName = 'Hstream'
     extClass = '.Hstream'
-    extVersionCode = 11
+    extVersionCode = 12
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
-
-android {
-    sourceSets {
-        main {
-            java.exclude 'test/**'
-            kotlin.exclude 'test/**'
-        }
-        test {
-            java.directories.clear()
-            java.directories.add("src/test")
-            kotlin.directories.clear()
-            kotlin.directories.add("src/test")
-        }
-    }
-    testOptions {
-        unitTests {
-            includeAndroidResources = true
-        }
-    }
-}
-
-dependencies {
-    testImplementation 'org.jetbrains.kotlin:kotlin-stdlib'
-    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
-    testImplementation libs.okhttp
-}
+apply plugin: "kei.plugins.extension.legacy"

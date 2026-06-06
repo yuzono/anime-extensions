@@ -181,7 +181,7 @@ class AnimeBum :
         val iframeRegex = """video\[\d+]\s*=\s*['"]<iframe[^>]+src=["']([^"']+)["']""".toRegex()
         val matches = iframeRegex.findAll(scriptContent)
 
-        matches.toList().parallelCatchingFlatMapBlocking { match ->
+        matches.asIterable().parallelCatchingFlatMapBlocking { match ->
             var videoUrl = match.groupValues[1]
 
             if (videoUrl.startsWith("//")) {

@@ -1,11 +1,11 @@
 ext {
     extName = 'Jkhentai'
     extClass = '.Jkhentai'
-    extVersionCode = 10
+    extVersionCode = 11
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:youruploadextractor'))

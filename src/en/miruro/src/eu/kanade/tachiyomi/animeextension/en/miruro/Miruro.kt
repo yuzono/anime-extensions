@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.decodeHex
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
@@ -67,8 +68,7 @@ class Miruro :
     companion object {
         const val PREFIX_SEARCH = "miruro:"
 
-        private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c"
-            .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
@@ -162,6 +162,19 @@ class Miruro :
     // ============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            if (url.pathSegments.getOrNull(0) != "watch") {
+                throw Exception("Unsupported url")
+            }
+            val anilistId = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$anilistId", filters)
+        }
+
         if (query.startsWith(PREFIX_SEARCH)) {
             val anilistId = query.removePrefix(PREFIX_SEARCH)
             val request = buildPipeRequest("info/$anilistId", "GET")
