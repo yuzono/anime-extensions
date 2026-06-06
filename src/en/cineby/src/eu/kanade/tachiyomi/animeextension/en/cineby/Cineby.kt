@@ -43,7 +43,7 @@ class Cineby :
         get() = preferences.domainPref
 
     // Cineby/Videasy proxy
-    private val apiUrl = "https://db.videasy.net/3"
+    private val apiUrl = "https://db.videasy.to/3"
 
     private fun apiOrigin(url: String): String = url.replace(Regex("""https?://www\."""), "https://")
 
@@ -614,7 +614,7 @@ class Cineby :
         private const val MIN_VOTES_FOR_RECENT_SORT = "50"
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
-        private val DOMAIN_ENTRIES = arrayOf("www.cineby.sc", "www.fmovies.gd", "www.bitcine.tv")
+        private val DOMAIN_ENTRIES = arrayOf("www.cineby.at", "www.fmovies.gd", "www.bitcine.tv")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
 
