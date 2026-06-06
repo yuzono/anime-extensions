@@ -3,7 +3,7 @@ ext {
     extClass = '.Animenix'
     themePkg = 'dooplay'
     baseUrl = 'https://animenix.com'
-    overrideVersionCode = 18
+    overrideVersionCode = 20
 }
 
 apply plugin: "kei.plugins.extension.legacy"

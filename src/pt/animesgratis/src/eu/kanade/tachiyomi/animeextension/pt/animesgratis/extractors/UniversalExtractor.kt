@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesgratis.extractors
 
 import android.annotation.SuppressLint
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -11,73 +10,71 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.applicationContext
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class UniversalExtractor(private val client: OkHttpClient) {
     private val tag by lazy { javaClass.simpleName }
-    private val context: Application by injectLazy()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Synchronized
     fun videosFromUrl(origRequestUrl: String, origRequestHeader: Headers, name: String?): List<Video> {
+        val httpUrl = origRequestUrl.toHttpUrlOrNull() ?: return emptyList()
         Log.d(tag, "Fetching videos from: $origRequestUrl")
-        val host = origRequestUrl.toHttpUrl().host.substringBefore(".").proper()
+        val host = httpUrl.host.removePrefix("www.").substringBefore(".").proper()
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var resultUrl = ""
         val playlistUtils by lazy { PlaylistUtils(client, origRequestHeader) }
         val headers = origRequestHeader.toMultimap().mapValues { it.value.getOrNull(0) ?: "" }.toMutableMap()
 
-        try {
-            handler.post {
-                val newView = WebView(context)
-                webView = newView
-                with(newView.settings) {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    databaseEnabled = true
-                    useWideViewPort = false
-                    loadWithOverviewMode = false
-                    userAgentString = origRequestHeader["User-Agent"]
-                }
-                newView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        Log.d(tag, "Page loaded, injecting script")
-                        view?.evaluateJavascript(CHECK_SCRIPT) {}
-                    }
-
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        val url = request.url.toString()
-                        Log.d(tag, "Intercepted URL: $url")
-                        if (VIDEO_REGEX.containsMatchIn(url)) {
-                            resultUrl = url
-                            latch.countDown()
-                        }
-                        return super.shouldInterceptRequest(view, request)
-                    }
+        handler.post {
+            val newView = WebView(applicationContext)
+            webView = newView
+            with(newView.settings) {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                useWideViewPort = false
+                loadWithOverviewMode = false
+                userAgentString = origRequestHeader["User-Agent"]
+            }
+            newView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    Log.d(tag, "Page loaded, injecting script")
+                    view?.evaluateJavascript(CHECK_SCRIPT) {}
                 }
 
-                webView?.loadUrl("$origRequestUrl&dl=1", headers)
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): WebResourceResponse? {
+                    val url = request.url.toString()
+                    Log.d(tag, "Intercepted URL: $url")
+                    if (VIDEO_REGEX.containsMatchIn(url)) {
+                        resultUrl = url
+                        latch.countDown()
+                    }
+                    return super.shouldInterceptRequest(view, request)
+                }
             }
 
-            latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            Log.e(tag, "Error while waiting for video URL", e)
-        } finally {
-            handler.post {
-                webView?.stopLoading()
-                webView?.destroy()
-                webView = null
-            }
+            val loadUrl = httpUrl.newBuilder().addQueryParameter("dl", "1").build().toString()
+            webView?.loadUrl(loadUrl, headers)
+        }
+
+        latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+
+        handler.post {
+            webView?.stopLoading()
+            webView?.destroy()
+            webView = null
         }
 
         val prefix = name ?: host
@@ -87,17 +84,19 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 Log.d(tag, "m3u8 URL: $resultUrl")
                 playlistUtils.extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
             }
-
             "mpd" in resultUrl -> {
                 Log.d(tag, "mpd URL: $resultUrl")
                 playlistUtils.extractFromDash(resultUrl, { it -> "$prefix: $it" }, referer = origRequestUrl)
             }
-
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
-                Video(resultUrl, "$prefix: MP4", resultUrl, Headers.headersOf("referer", origRequestUrl)).let(::listOf)
+                Video(
+                    resultUrl,
+                    "$prefix: MP4",
+                    resultUrl,
+                    Headers.headersOf("referer", origRequestUrl),
+                ).let(::listOf)
             }
-
             else -> emptyList()
         }
     }

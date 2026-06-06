@@ -25,11 +25,13 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -44,7 +46,7 @@ class TRAnimeIzle :
 
     override val name = "TR Anime Izle"
 
-    override val baseUrl = "https://www.tranimeizle.top"
+    override val baseUrl = "https://www.tranimeizle.io"
 
     override val lang = "tr"
 
@@ -110,7 +112,7 @@ class TRAnimeIzle :
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -181,12 +183,12 @@ class TRAnimeIzle :
         name = "Bölüm $epNum"
         episode_number = epNum.toFloat()
 
-        date_upload = element.selectFirst(".etitle > small.author")?.text()?.toDate() ?: 0L
+        date_upload = element.selectFirst(".etitle > small.author")?.text().let(DATE_FORMATTER::tryParse)
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val episodeId = doc.selectFirst("input#EpisodeId")!!.attr("value")
 
         val allFansubs = PREF_FANSUB_SELECTION_ENTRIES
@@ -197,7 +199,7 @@ class TRAnimeIzle :
             // Filter-out non-chosen fansubs that were included in the fansub selection preference.
             // This way we prevent excluding unknown/non-added fansubs.
             .filter { it.text() in chosenFansubs || it.text() !in allFansubs }
-            .flatMap { fansub ->
+            .parallelCatchingFlatMapBlocking { fansub ->
                 val fansubId = fansub.attr("data-fid")
                 val fansubName = fansub.text()
 
@@ -205,12 +207,12 @@ class TRAnimeIzle :
                     .toJsonRequestBody()
 
                 client.newCall(POST("$baseUrl/api/fansubSources", headers, body))
-                    .execute()
-                    .asJsoup()
+                    .awaitSuccess()
+                    .useAsJsoup()
                     .select("li.sourceBtn")
                     .toList()
                     .filter { it.selectFirst("p")?.ownText().orEmpty() in chosenHosts }
-                    .parallelCatchingFlatMapBlocking {
+                    .parallelCatchingFlatMap {
                         getVideosFromId(it.attr("data-id"))
                     }
                     .map {
@@ -298,13 +300,6 @@ class TRAnimeIzle :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -314,11 +309,6 @@ class TRAnimeIzle :
                 entries = it
                 entryValues = it
                 setDefaultValue(it.toSet())
-            }
-
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
             }
         }.also(screen::addPreference)
 
@@ -345,19 +335,11 @@ class TRAnimeIzle :
             entries = PREF_HOSTS_SELECTION_ENTRIES
             entryValues = PREF_HOSTS_SELECTION_ENTRIES
             setDefaultValue(PREF_HOSTS_SELECTION_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
     private fun String.clearName() = removeSuffix(" İzle").removeSuffix(" Bölüm")
-
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
-        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

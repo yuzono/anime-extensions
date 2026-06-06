@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.cineby
 
+import android.os.Build
 import android.util.LruCache
+import androidx.annotation.RequiresApi
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -55,6 +57,7 @@ class CinebyExtractor(
         .removePrefix("https://www.").removePrefix("http://www.")
         .let { if (it.startsWith("http")) it else "https://$it" }
 
+    @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
         path: String,
         title: String,
@@ -368,28 +371,28 @@ class CinebyExtractor(
         private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
 
         //   Official servers (verified against website JS + reference table)
-        //   Neon    = mb-flix                                (api.videasy.net)
-        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.net)
-        //   Cypher  = downloader2                            (api.videasy.net)
-        //   Sage    = 1movies                                (api.videasy.net)
-        //   Breach  = m4uhd                                  (api.videasy.net)
-        //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.net)
-        //   Killjoy = meine ?lang=german  - German          (api.videasy.net)
-        //   Harbor  = meine ?lang=italian - Italian         (api.videasy.net)
-        //   Chamber = meine ?lang=french  - French [MOVIE ONLY] (api.videasy.net)
-        //   Fade    = hdmovie      [FILTERS quality=Hindi]  (api.videasy.net)
-        //   Omen    = lamovie             - Spanish          (api.videasy.net)
-        //   Raze    = superflix           - Portuguese       (api.videasy.net)
+        //   Neon    = mb-flix                                (api.videasy.to)
+        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.to)
+        //   Cypher  = downloader2                            (api.videasy.to)
+        //   Sage    = 1movies                                (api.videasy.to)
+        //   Breach  = m4uhd                                  (api.videasy.to)
+        //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.to)
+        //   Killjoy = meine ?lang=german  - German          (api.videasy.to)
+        //   Harbor  = meine ?lang=italian - Italian         (api.videasy.to)
+        //   Chamber = meine ?lang=french  - French [MOVIE ONLY] (api.videasy.to)
+        //   Fade    = hdmovie      [FILTERS quality=Hindi]  (api.videasy.to)
+        //   Omen    = lamovie             - Spanish          (api.videasy.to)
+        //   Raze    = superflix           - Portuguese       (api.videasy.to)
         val VIDEASY_SERVERS = listOf(
             VideasyServer(
                 "Neon",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "mb-flix",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Yoru",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "cdn",
                 movieOnly = true,
                 mayHave4K = true,
@@ -397,46 +400,46 @@ class CinebyExtractor(
             ),
             VideasyServer(
                 "Cypher",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "downloader2",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Sage",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "1movies",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Breach",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "m4uhd",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Vyse",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "hdmovie",
                 qualityFilter = "English",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Killjoy",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "meine",
                 language = "german",
                 audioLabel = "German",
             ),
             VideasyServer(
                 "Harbor",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "meine",
                 language = "italian",
                 audioLabel = "Italian",
             ),
             VideasyServer(
                 "Chamber",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "meine",
                 language = "french",
                 movieOnly = true,
@@ -444,20 +447,20 @@ class CinebyExtractor(
             ),
             VideasyServer(
                 "Fade",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "hdmovie",
                 qualityFilter = "Hindi",
                 audioLabel = "Hindi",
             ),
             VideasyServer(
                 "Omen",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "lamovie",
                 audioLabel = "Spanish",
             ),
             VideasyServer(
                 "Raze",
-                "https://api.videasy.net",
+                "https://api.videasy.to",
                 "superflix",
                 audioLabel = "Portuguese",
             ),

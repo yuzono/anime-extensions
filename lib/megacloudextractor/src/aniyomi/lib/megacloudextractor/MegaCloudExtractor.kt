@@ -1,6 +1,7 @@
 package aniyomi.lib.megacloudextractor
 
 import android.util.Log
+import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -24,14 +25,26 @@ class MegaCloudExtractor(
     private val json: Json by injectLazy()
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val m3u8Integration by lazy { M3u8Integration(client) }
 
     companion object {
         private const val SOURCES_URL = "/embed-2/v3/e-1/getSources?id="
         private const val SOURCES_SPLITTER = "/e-1/"
     }
 
-    fun getVideosFromUrl(url: String, type: String, name: String): List<Video> {
-        val videos = getVideoDto(url)
+    fun getVideosFromUrl(
+        url: String,
+        type: String,
+        name: String,
+        withM3u8Server: Boolean = false,
+    ): List<Video> {
+        val host = runCatching {
+            url.toHttpUrl().host
+        }.getOrNull() ?: throw IllegalStateException("MegaCloud host is invalid: $url")
+
+        val megaCloudServerUrl = "https://$host"
+
+        val videos = getVideoDto(url, megaCloudServerUrl)
         if (videos.isEmpty()) return emptyList()
 
         val subtitles = videos.first().tracks
@@ -47,19 +60,19 @@ class MegaCloudExtractor(
                 subtitleList = subtitles,
                 referer = "https://${url.toHttpUrl().host}/",
             )
+        }.let {
+            if (withM3u8Server) {
+                m3u8Integration.processVideoList(it)
+            } else {
+                it
+            }
         }
     }
 
-    private fun getVideoDto(url: String): List<VideoDto> {
+    private fun getVideoDto(url: String, megaCloudServerUrl: String): List<VideoDto> {
         val id = url.substringAfter(SOURCES_SPLITTER, "")
             .substringBefore("?", "")
             .ifEmpty { throw Exception("Failed to extract ID from URL") }
-
-        val host = runCatching {
-            url.toHttpUrl().host
-        }.getOrNull() ?: throw IllegalStateException("MegaCloud host is invalid: $url")
-
-        val megaCloudServerUrl = "https://$host"
 
         val megaCloudHeaders = headers.newBuilder()
             .add("Accept", "*/*")

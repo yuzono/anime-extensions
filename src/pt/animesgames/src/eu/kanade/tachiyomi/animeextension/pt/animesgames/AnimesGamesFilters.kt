@@ -28,8 +28,8 @@ object AnimesGamesFilters {
         .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
         .groupBy { it.first } // group by state
         .let { dict ->
-            val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
-            val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
+            val included = dict[TriState.STATE_INCLUDE]?.map { it.second }.orEmpty()
+            val excluded = dict[TriState.STATE_EXCLUDE]?.map { it.second }.orEmpty()
             listOf(included, excluded)
         }
 

@@ -1,7 +1,7 @@
 ext {
     extName = 'Gnula'
     extClass = '.Gnula'
-    extVersionCode = 45
+    extVersionCode = 47
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -21,5 +21,7 @@ dependencies {
     implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:filemoonextractor'))
     implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:streamsilkextractor'))
+    implementation(project(':lib:vidguardextractor'))
     implementation(project(':lib:universalextractor'))
 }
