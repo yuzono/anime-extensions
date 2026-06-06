@@ -614,7 +614,7 @@ class Cineby :
         private const val MIN_VOTES_FOR_RECENT_SORT = "50"
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
-        private val DOMAIN_ENTRIES = arrayOf("www.cineby.at", "www.fmovies.gd", "www.bitcine.tv")
+        private val DOMAIN_ENTRIES = arrayOf("www.cineby.at", "www.cineplay.to", "www.fmovies.nz")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
 
