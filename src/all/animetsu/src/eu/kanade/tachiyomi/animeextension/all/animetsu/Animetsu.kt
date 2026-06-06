@@ -24,6 +24,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.delay
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Protocol
@@ -393,17 +394,10 @@ class Animetsu :
                                     )
                                 }
                             }
-                            if (!m3u8ServerManager.isRunning()) {
-                                try {
-                                    m3u8ServerManager.startServer()
-                                } catch (e: Exception) {
-                                    Log.e("Animetsu", "Failed to start M3U8 server: ${e.message}")
-                                }
-                            }
-                            videos.addAll(
-                                dioVideos.map { video ->
-                                    val processedUrl = m3u8ServerManager.processM3u8Url(video.url)
-                                    if (processedUrl != null) {
+                            for (video in dioVideos) {
+                                val processedUrl = getProcessedM3u8Url(video.url)
+                                if (processedUrl != null) {
+                                    videos.add(
                                         Video(
                                             url = processedUrl,
                                             quality = video.quality,
@@ -411,12 +405,13 @@ class Animetsu :
                                             headers = video.headers,
                                             subtitleTracks = video.subtitleTracks,
                                             audioTracks = video.audioTracks,
-                                        )
-                                    } else {
-                                        video
-                                    }
-                                },
-                            )
+                                        ),
+                                    )
+                                } else {
+                                    // If the server fails to proxy the URL, we MUST NOT add the raw URL.
+                                    Log.e("Animetsu", "Dropping Dio video due to M3U8 server failure.")
+                                }
+                            }
                         } else if (source.type?.contains("mp4") == true) {
                             videos.add(
                                 Video(
@@ -599,6 +594,38 @@ class Animetsu :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Helper to enforce M3u8 Server with a robust retry mechanism.
+     * If the server fails to start or process, it restarts the server and tries again up to 3 times.
+     * If it still fails, returns null so the video gets strictly dropped.
+     */
+    private suspend fun getProcessedM3u8Url(originalUrl: String): String? {
+        repeat(3) { attempt ->
+            try {
+                if (!m3u8ServerManager.isRunning()) {
+                    m3u8ServerManager.startServer()
+                    // Give NanoHTTPD a fraction of a second to properly bind the port
+                    delay(200L)
+                }
+
+                val processedUrl = m3u8ServerManager.processM3u8Url(originalUrl)
+                if (processedUrl != null) return processedUrl
+
+                // If it returned null despite running, the server instance might be corrupted. Restart it.
+                Log.w("Animetsu", "M3U8 server process returned null on attempt ${attempt + 1}, restarting...")
+                m3u8ServerManager.stopServer()
+                delay(500L)
+            } catch (e: Exception) {
+                Log.e("Animetsu", "M3U8 server start failed on attempt ${attempt + 1}: ${e.message}")
+                m3u8ServerManager.stopServer() // Ensure clean state
+                delay(500L)
+            }
+        }
+
+        Log.e("Animetsu", "M3U8 server failed to process URL after 3 attempts. Dropping video to prevent cubes.")
+        return null
+    }
 
     private fun SharedPreferences.clearOldPrefs() {
         val hostExclusion = getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
