@@ -106,6 +106,18 @@ class Animetsu :
         .add("Sec-Fetch-Site", "same-origin")
         .build()
 
+    private fun videoHeaders(referer: String = "$baseUrl/"): Headers = Headers.Builder()
+        .add("Accept", "*/*")
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("Accept-Encoding", "gzip, deflate, br, zstd")
+        .add("Origin", baseUrl)
+        .add("Referer", referer)
+        .add("Sec-Fetch-Dest", "empty")
+        .add("Sec-Fetch-Mode", "cors")
+        .add("Sec-Fetch-Site", "cross-site")
+        .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
+        .build()
+
     private val rateLimit = 5
 
     override val client by lazy {
@@ -270,7 +282,7 @@ class Animetsu :
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
 
-        val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
+        val playlistUtils = PlaylistUtils(client, videoHeaders()) // ← changed
 
         return servers.parallelFlatMap { server ->
             sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
@@ -303,7 +315,7 @@ class Animetsu :
                                 fullUrl,
                                 "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
                                 fullUrl,
-                                apiHeaders(watchReferer),
+                                videoHeaders(),
                                 subtitleTracks,
                             ).let(::listOf)
                         source.type?.contains("mpegurl") == true ->
