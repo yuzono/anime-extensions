@@ -18,7 +18,7 @@ internal val PREF_QUALITY_DEFAULT = QUALITY_VALUES.first()
 
 internal const val PREF_LINK_TYPE_KEY = "preferred_link_type"
 internal const val PREF_LINK_TYPE_DEFAULT = "Stream"
-internal val LINK_TYPE_ENTRIES = arrayOf("Watch", "Stream", "Download", "Torrent")
+internal val LINK_TYPE_ENTRIES = arrayOf("DASH", "Stream", "Direct DL", "Torrent")
 
 internal const val PREF_SHOW_TORRENT_KEY = "show_torrent"
 internal const val PREF_SHOW_TORRENT_DEFAULT = true
