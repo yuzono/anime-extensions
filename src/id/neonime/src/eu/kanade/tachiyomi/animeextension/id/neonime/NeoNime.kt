@@ -19,7 +19,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -196,15 +197,14 @@ class NeoNime :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
 
         val hosterSelection = preferences.getStringSet(
             "hoster_selection",
             setOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer"),
         )!!
 
-        document.select("div.player2 > div.embed2 > div").forEach {
-            val iframe = it.selectFirst("iframe") ?: return@forEach
+        return document.select("div.player2 > div.embed2 > div").parallelCatchingFlatMapBlocking {
+            val iframe = it.selectFirst("iframe") ?: return@parallelCatchingFlatMapBlocking emptyList()
 
             var link = iframe.attr("data-src")
             if (!link.startsWith("http")) {
@@ -213,19 +213,19 @@ class NeoNime :
 
             when {
                 hosterSelection.contains("linkbox") && link.contains("linkbox.to") -> {
-                    videoList.addAll(LinkBoxExtractor(client).videosFromUrl(link, it.text()))
+                    LinkBoxExtractor(client).videosFromUrl(link, it.text())
                 }
 
                 hosterSelection.contains("okru") && link.contains("ok.ru") -> {
-                    runBlocking { videoList.addAll(OkruExtractor(client).videosFromUrl(link)) }
+                    OkruExtractor(client).videosFromUrl(link)
                 }
 
                 hosterSelection.contains("yourupload") && link.contains("blogger.com") -> {
-                    videoList.addAll(BloggerExtractor(client).videosFromUrl(link, headers, it.text()))
+                    BloggerExtractor(client).videosFromUrl(link, headers, it.text())
                 }
 
                 hosterSelection.contains("linkbox") && link.contains("yourupload.com") -> {
-                    videoList.addAll(YourUploadExtractor(client).videoFromUrl(link, headers, it.text(), "Original - "))
+                    YourUploadExtractor(client).videoFromUrl(link, headers, it.text(), "Original - ")
                 }
 
                 hosterSelection.contains("gdriveplayer") && link.contains("neonime.fun") -> {
@@ -239,7 +239,7 @@ class NeoNime :
                     )
                     val iframe = client.newCall(
                         GET(link, headers = headers),
-                    ).execute().asJsoup()
+                    ).awaitSuccess().useAsJsoup()
 
                     var iframeUrl = iframe.selectFirst("iframe")!!.attr("src")
 
@@ -247,17 +247,16 @@ class NeoNime :
                         iframeUrl = "https:$iframeUrl"
                     }
 
-                    when {
-                        iframeUrl.contains("gdriveplayer.to") -> {
-                            val newHeaders = headersBuilder().add("Referer", baseUrl).build()
-                            videoList.addAll(GdrivePlayerExtractor(client).videosFromUrl(iframeUrl, it.text(), headers = newHeaders))
-                        }
+                    if (iframeUrl.contains("gdriveplayer.to")) {
+                        val newHeaders = headersBuilder().add("Referer", baseUrl).build()
+                        GdrivePlayerExtractor(client).videosFromUrl(iframeUrl, it.text(), headers = newHeaders)
+                    } else {
+                        emptyList()
                     }
                 }
+                else -> emptyList()
             }
         }
-
-        return videoList
     }
 
     override fun List<Video>.sort(): List<Video> {

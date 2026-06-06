@@ -20,11 +20,12 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.Calendar
 
 class AsiaLiveAction :
     ParsedAnimeHttpSource(),
@@ -57,78 +58,116 @@ class AsiaLiveAction :
             "Vk",
             "Okru",
         )
+
+        private val ALL_VIDEOS_REGEX = Regex("var\\s+allVideos\\s*=\\s*(\\{.*?\\});", RegexOption.DOT_MATCHES_ALL)
     }
 
-    override fun popularAnimeSelector(): String = "div.TpRwCont main section ul.MovieList li.TPostMv article.TPost"
+    override fun popularAnimeSelector(): String = "ul.navegacion-grid li"
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/todos/page/$page")
+    override fun popularAnimeRequest(page: Int): Request {
+        val url = if (page == 1) {
+            "$baseUrl/navegacion/"
+        } else {
+            "$baseUrl/navegacion/?pagina=$page"
+        }
+        return GET(url, headers)
+    }
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
-        anime.setUrlWithoutDomain(element.select("a").attr("href"))
-        anime.title = element.select("a h3.Title").text()
-        anime.thumbnail_url = element.select("a div.Image figure img").attr("src").trim().replace("//", "https://")
+        val link = element.selectFirst("a")!!
+        anime.setUrlWithoutDomain(link.attr("href"))
+        anime.title = element.selectFirst("h5, h4, h3.Title, a.Title, span.Title")!!.text()
+        val image = element.selectFirst("img")
+        anime.thumbnail_url = image?.imageUrl()
         return anime
     }
 
-    override fun popularAnimeNextPageSelector(): String = "div.TpRwCont main div a.next.page-numbers"
+    override fun popularAnimeNextPageSelector(): String = ".paginado a:has(i.fa-angle-right)"
 
-    override fun animeDetailsParse(document: Document): SAnime {
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-        return SAnime.create().apply {
-            thumbnail_url = document.selectFirst("header div.Image figure img")?.attr("abs:src")?.getHdImg()
-            title = document.selectFirst("header div.asia-post-header h1.Title")!!.text()
-            description = document.selectFirst("header div.asia-post-main div.Description p:nth-child(2), header div.asia-post-main div.Description p")!!.text().removeSurrounding("\"")
-            genre = document.select("div.asia-post-main p.Info span.tags a").joinToString { it.text() }
-            artist = document.selectFirst("#elenco a span")?.text()
-            val year = document.select("header div.asia-post-main p.Info span.Date a").text().toInt()
-            status = when {
-                year < currentYear -> SAnime.COMPLETED
-                year == currentYear -> SAnime.ONGOING
-                else -> SAnime.UNKNOWN
-            }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        thumbnail_url = document.selectFirst("div.Poster")?.attr("style")?.extractBackgroundUrl()
+            ?: document.selectFirst("figure img")?.attr("abs:src")?.getHdImg()
+        document.selectFirst("h2.Title, h1.Title")?.text()?.let { title = it }
+        val descriptionText = document.select("section article > p")
+            .joinToString("\n\n") { it.text() }
+        description = descriptionText.takeIf { it.isNotBlank() }
+        val genreText = document.select("footer a.tag").joinToString { it.text() }
+        genre = genreText.takeIf { it.isNotBlank() }
+        val artistText = document.select("#elenco .actor-nm").joinToString { it.text() }
+        artist = artistText.takeIf { it.isNotBlank() }
+        val statusText = document.selectFirst(".categorias .estado")?.text()?.lowercase()
+        status = when {
+            statusText?.contains("finalizado") == true -> SAnime.COMPLETED
+            statusText?.contains("publicacion") == true -> SAnime.ONGOING
+            statusText?.contains("publicación") == true -> SAnime.ONGOING
+            else -> SAnime.UNKNOWN
         }
     }
 
     override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
 
-    override fun episodeListSelector() = "#ep-list div.TPTblCn span a, #ep-list div.TPTblCn .accordion"
+    override fun episodeListSelector() = "div.lista-episodios div.episodio-unico"
 
-    override fun episodeFromElement(element: Element): SEpisode = if (element.attr("class").contains("accordion")) {
-        val epNum = getNumberFromEpsString(element.select("label span").text())
-        SEpisode.create().apply {
-            name = element.select("label span").text().trim()
-            episode_number = when {
-                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                else -> 1F
-            }
-            setUrlWithoutDomain(element.selectFirst("ul li a")?.attr("abs:href")!!)
+    override fun episodeFromElement(element: Element): SEpisode {
+        val link = element.selectFirst("a") ?: throw Exception("Episode link not found")
+        val episode = SEpisode.create()
+        episode.setUrlWithoutDomain(link.attr("href"))
+        val episodeLabel = element.selectFirst("b.numero-episodio")?.text().orEmpty()
+        val epNum = getNumberFromEpsString(episodeLabel)
+        episode.episode_number = epNum.toFloatOrNull() ?: 1f
+        val title = element.selectFirst("span.episodio-serie")?.text()?.trim().orEmpty()
+        episode.name = when {
+            title.isNotBlank() && episodeLabel.isNotBlank() -> "$title - ${episodeLabel.trim()}"
+            title.isNotBlank() -> title
+            episodeLabel.isNotBlank() -> episodeLabel
+            else -> link.attr("href").substringAfterLast('/').ifBlank { "Episodio" }
         }
-    } else {
-        val epNum = getNumberFromEpsString(element.select("div.flex-grow-1 p").text())
-        SEpisode.create().apply {
-            setUrlWithoutDomain(element.attr("abs:href"))
-            episode_number = when {
-                epNum.isNotEmpty() -> epNum.toFloatOrNull() ?: 1F
-                else -> 1F
-            }
-            name = element.select("div.flex-grow-1 p").text().trim()
-        }
+        return episode
     }
 
     private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     private fun fetchUrls(text: String?): List<String> {
-        if (text.isNullOrEmpty()) return listOf()
+        if (text.isNullOrEmpty()) return emptyList()
         val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
-        return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
+        return linkRegex.findAll(text)
+            .map {
+                it.value.trim()
+                    .removeSurrounding("\"")
+                    .replace("\\/", "/")
+                    .replace("\\u0026", "&")
+            }
+            .toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
-        return document.select("script:containsData(var videos)")
-            .flatMap { fetchUrls(it.data()) }
+        val scriptData = document.selectFirst("script:containsData(var allVideos)")?.data()
+        val allVideosUrls = scriptData?.let { data ->
+            val allVideosJson = ALL_VIDEOS_REGEX.find(data)?.groupValues?.get(1)
+                ?: return@let emptyList()
+
+            buildList {
+                val jsonObject = JSONObject(allVideosJson)
+                jsonObject.keys().forEach { key ->
+                    val videosArray = jsonObject.optJSONArray(key) ?: return@forEach
+                    for (index in 0 until videosArray.length()) {
+                        val videoEntry = videosArray.optJSONArray(index) ?: continue
+                        val url = videoEntry.optString(1)
+                        if (url.isNotBlank()) add(url)
+                    }
+                }
+            }
+        } ?: emptyList()
+
+        val videoUrls = allVideosUrls.ifEmpty {
+            document.select("script:containsData(var videos)")
+                .flatMap { fetchUrls(it.data()) }
+        }
+
+        return videoUrls.distinct()
             .parallelCatchingFlatMapBlocking { serverVideoResolver(it) }
     }
 
@@ -196,8 +235,18 @@ class AsiaLiveAction :
         val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
 
         return when {
-            query.isNotBlank() -> GET("$baseUrl/page/$page/?s=$query")
-            genreFilter.state != 0 -> GET("$baseUrl/tag/${genreFilter.toUriPart()}/page/$page")
+            query.isNotBlank() -> {
+                val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+                    .addQueryParameter("s", query)
+                if (page > 1) urlBuilder.addQueryParameter("pagina", page.toString())
+                GET(urlBuilder.build(), headers)
+            }
+            genreFilter.state != 0 -> {
+                val urlBuilder = "$baseUrl/navegacion/".toHttpUrl().newBuilder()
+                urlBuilder.addQueryParameter("genero[]", genreFilter.toUriPart())
+                if (page > 1) urlBuilder.addQueryParameter("pagina", page.toString())
+                GET(urlBuilder.build(), headers)
+            }
             else -> popularAnimeRequest(page)
         }
     }
@@ -264,6 +313,26 @@ class AsiaLiveAction :
         }
     }
 
+    private fun Element.imageUrl(): String? {
+        val dataSrc = absUrl("data-src").takeIf { it.isNotBlank() }
+        val src = absUrl("src").takeIf { it.isNotBlank() }
+        val rawDataSrc = attr("data-src").takeIf { it.isNotBlank() }?.toAbsoluteUrl()
+        val rawSrc = attr("src").takeIf { it.isNotBlank() }?.toAbsoluteUrl()
+        return dataSrc ?: src ?: rawDataSrc ?: rawSrc
+    }
+
+    private fun String.extractBackgroundUrl(): String? {
+        val match = """url\((['"]?)(.+?)\1\)""".toRegex().find(this) ?: return null
+        return match.groupValues[2].toAbsoluteUrl()
+    }
+
+    private fun String.toAbsoluteUrl(): String = when {
+        startsWith("http://") || startsWith("https://") -> this
+        startsWith("//") -> "https:$this"
+        startsWith("/") -> "$baseUrl$this"
+        else -> "$baseUrl/$this"
+    }
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
@@ -272,13 +341,6 @@ class AsiaLiveAction :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -288,13 +350,6 @@ class AsiaLiveAction :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }

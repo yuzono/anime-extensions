@@ -17,22 +17,27 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -65,14 +70,14 @@ class SoloLatino :
     override fun popularAnimeNextPageSelector(): String = "div.pagMovidy a"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val seasonList = doc.select("div#seasons div.se-c")
         return if (seasonList.isEmpty()) {
             SEpisode.create().apply {
                 setUrlWithoutDomain(doc.location())
                 episode_number = 1F
                 name = episodeMovieText
-                date_upload = doc.selectFirst("span.date")?.text()?.toDate() ?: 0L
+                date_upload = doc.selectFirst("span.date")?.text().let(dateFormat::tryParse)
             }.let(::listOf)
         } else {
             seasonList.flatMap(::getSeasonEpisodes).reversed()
@@ -99,7 +104,7 @@ class SoloLatino :
         val episodeName = element.selectFirst("div.epst")?.text() ?: "Sin título"
 
         episode_number = epNum.toFloatOrNull() ?: 0F
-        date_upload = element.selectFirst("span.date")?.text()?.toDate() ?: 0L
+        date_upload = element.selectFirst("span.date")?.text().let(dateFormat::tryParse)
 
         name = "T$seasonName - Episodio $epNum: $episodeName"
         setUrlWithoutDomain(href)
@@ -114,7 +119,7 @@ class SoloLatino :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val path = response.request.url.toString()
+        val path = response.use { it.request.url.toString() }
         val links = mutableListOf<Pair<String, String>>()
 
         runBlocking {
@@ -141,19 +146,12 @@ class SoloLatino :
                 .findAll(result)
                 .toList()
 
-            coroutineScope {
-                val deferredResults = linkPages.map { matchResult ->
-                    async {
-                        processLinkPage(matchResult, path)
-                    }
-                }
-                deferredResults.awaitAll().forEach { newLinks ->
-                    links.addAll(newLinks)
-                }
-            }
+            linkPages.parallelCatchingFlatMap { matchResult ->
+                processLinkPage(matchResult, path)
+            }.let(links::addAll)
 
             if (links.isEmpty()) {
-                handleEmptyLinks(result, links)
+                handleEmptyLinks(result, links, path)
             }
 
             after(links)
@@ -162,7 +160,7 @@ class SoloLatino :
         }
     }
 
-    private fun processLinkPage(matchResult: MatchResult, path: String): List<Pair<String, String>> = try {
+    private suspend fun processLinkPage(matchResult: MatchResult, path: String): List<Pair<String, String>> = try {
         val postParams = mapOf(
             "action" to "doo_player_ajax",
             "post" to (matchResult.groups[2]?.value ?: ""),
@@ -170,18 +168,18 @@ class SoloLatino :
             "type" to (matchResult.groups[1]?.value ?: ""),
         )
         val presp = httpPost("$baseUrl/wp-admin/admin-ajax.php", postParams, path)
-        val iframeUrl = getFirstMatch("""<iframe class='[^']+' src='([^']+)""".toRegex(), presp)
-        val bData = httpGet(iframeUrl)
+        val iframeUrl = getFirstMatch("""<iframe[^>]+src=['"]([^'"]+)""".toRegex(), presp)
+        val bData = httpGet(iframeUrl, path)
 
         parseLinks(bData)
     } catch (_: Exception) {
         emptyList()
     }
 
-    private fun handleEmptyLinks(result: String, links: MutableList<Pair<String, String>>) {
+    private suspend fun handleEmptyLinks(result: String, links: MutableList<Pair<String, String>>, referer: String) {
         val iframeUrl = Regex("""pframe"><iframe class="[^"]+" src="([^"]+)""").find(result)?.groups?.get(1)?.value
         iframeUrl?.let { web ->
-            val newResult = httpGet(web)
+            val newResult = httpGet(web, referer)
             links.addAll(parseLinks(newResult))
 
             if (links.isEmpty() && web.contains("xyz")) {
@@ -190,41 +188,34 @@ class SoloLatino :
         }
     }
 
-    private fun httpRequest(
-        url: String,
-        method: String,
-        params: Map<String, String>? = null,
-        referer: String? = null,
-    ): String {
-        val urlObj = URL(url)
-        val connection = urlObj.openConnection() as HttpURLConnection
-        return try {
-            with(connection) {
-                requestMethod = method
-                setRequestProperty("User-Agent", "Mozilla/5.0")
-                referer?.let { setRequestProperty("Referer", it) }
+    private suspend fun httpGet(url: String, referer: String? = null): String {
+        val headers = headersBuilder().apply {
+            referer?.let { set("Referer", it) }
+        }.build()
 
-                if (method == "POST") {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                    params?.let {
-                        val postData = it.map { entry -> "${entry.key}=${entry.value}" }.joinToString("&")
-                        outputStream.bufferedWriter().use { writer -> writer.write(postData) }
-                    }
-                }
-
-                inputStream.bufferedReader().use { it.readText() }
-            }
-        } catch (e: Exception) {
-            throw e
-        } finally {
-            connection.disconnect()
-        }
+        val request = GET(url, headers)
+        return client.newCall(request).awaitSuccess().bodyString()
     }
 
-    private fun httpGet(url: String): String = httpRequest(url, "GET")
+    private suspend fun httpPost(url: String, params: Map<String, String>, referer: String): String {
+        val formBody = FormBody.Builder().apply {
+            params.forEach { (key, value) -> add(key, value) }
+        }.build()
 
-    private fun httpPost(url: String, params: Map<String, String>, referer: String): String = httpRequest(url, "POST", params, referer)
+        val headers = headersBuilder().apply {
+            set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            set("X-Requested-With", "XMLHttpRequest")
+            set("Referer", referer)
+        }.build()
+
+        val request = Request.Builder()
+            .url(url)
+            .headers(headers)
+            .post(formBody)
+            .build()
+
+        return client.newCall(request).awaitSuccess().bodyString()
+    }
 
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -265,7 +256,7 @@ class SoloLatino :
         val links = mutableListOf<Pair<String, String>>()
         val doc: Document = Jsoup.parse(htmlContent)
 
-        extractNewExtractorLinks(htmlContent)?.let { newLinks ->
+        extractNewExtractorLinks(doc, htmlContent)?.let { newLinks ->
             newLinks.forEach { links.add(it) }
         }
         extractOldExtractorLinks(doc)?.let { oldLinks ->
@@ -275,12 +266,84 @@ class SoloLatino :
         return links
     }
 
-    private fun extractNewExtractorLinks(htmlContent: String): MutableList<Pair<String, String>>? {
-        val links = mutableListOf<Pair<String, String>>()
-        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?]);""".toRegex(), htmlContent)
-        if (jsLinksMatch.isEmpty()) return null
+    private fun resolveDataLink(rawExpression: String?): String? {
+        if (rawExpression.isNullOrBlank()) return null
 
-        val items = Json.decodeFromString<List<Item>>(jsLinksMatch)
+        var expr = rawExpression.trim().trimEnd(';')
+
+        fun String.removeOuterCall(prefix: String): String? {
+            if (!this.startsWith(prefix, ignoreCase = true) || !this.endsWith(')')) return null
+            val start = indexOf('(')
+            val end = lastIndexOf(')')
+            if (start == -1 || end == -1 || end <= start) return null
+            return substring(start + 1, end).trim()
+        }
+
+        fun String.trimMatchingQuotes(): String = if ((startsWith('"') && endsWith('"')) || (startsWith('\'') && endsWith('\''))) {
+            substring(1, length - 1)
+        } else {
+            this
+        }
+
+        while (true) {
+            when {
+                expr.removeOuterCall("JSON.parse") != null -> {
+                    expr = expr.removeOuterCall("JSON.parse")!!
+                }
+                expr.removeOuterCall("window.JSON.parse") != null -> {
+                    expr = expr.removeOuterCall("window.JSON.parse")!!
+                }
+                expr.removeOuterCall("decodeURIComponent") != null -> {
+                    val inner = expr.removeOuterCall("decodeURIComponent")!!.trimMatchingQuotes()
+                    expr = runCatching { URLDecoder.decode(inner, "UTF-8") }
+                        .getOrElse { return null }
+                }
+                expr.removeOuterCall("window.decodeURIComponent") != null -> {
+                    val inner = expr.removeOuterCall("window.decodeURIComponent")!!.trimMatchingQuotes()
+                    expr = runCatching { URLDecoder.decode(inner, "UTF-8") }
+                        .getOrElse { return null }
+                }
+                expr.removeOuterCall("atob") != null -> {
+                    val inner = expr.removeOuterCall("atob")!!.trimMatchingQuotes()
+                    expr = runCatching {
+                        String(Base64.decode(inner, Base64.DEFAULT))
+                    }.getOrElse { return null }
+                }
+                expr.removeOuterCall("window.atob") != null -> {
+                    val inner = expr.removeOuterCall("window.atob")!!.trimMatchingQuotes()
+                    expr = runCatching {
+                        String(Base64.decode(inner, Base64.DEFAULT))
+                    }.getOrElse { return null }
+                }
+                else -> break
+            }
+        }
+
+        expr = expr.trim().trimMatchingQuotes()
+
+        return expr.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractNewExtractorLinks(doc: Document, htmlContent: String): MutableList<Pair<String, String>>? {
+        val links = mutableListOf<Pair<String, String>>()
+
+        val scriptData = doc.select("script")
+            .asSequence()
+            .map(Element::data)
+            .firstOrNull { it.contains("dataLink") }
+
+        val rawExpression = scriptData?.let {
+            getFirstMatch(DATA_LINK_REGEX, it)
+        } ?: getFirstMatch(DATA_LINK_REGEX, htmlContent)
+
+        val jsonPayload = resolveDataLink(rawExpression) ?: return null
+
+        val items = runCatching {
+            jsonPayload.parseAs<List<Item>>()
+        }.getOrElse {
+            Log.e("SoloLatino", "No se pudo parsear dataLink", it)
+            return null
+        }
 
         val langs = mapOf("LAT" to "[LAT]", "ESP" to "[CAST]", "SUB" to "[SUB]")
 
@@ -288,12 +351,52 @@ class SoloLatino :
             val languageCode = langs[item.video_language] ?: "unknown"
 
             item.sortedEmbeds.forEach { embed ->
-                val decryptedLink = CryptoAES.decryptCbcIV(embed.link, "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE") ?: ""
-                links.add(Pair(decryptedLink, languageCode))
+                if (!embed.type.equals("video", ignoreCase = true)) return@forEach
+
+                val decryptedLink = decryptEmbedLink(embed.link)
+
+                decryptedLink?.let { links.add(it to languageCode) }
             }
         }
 
         return links.ifEmpty { null }
+    }
+
+    private fun decryptEmbedLink(rawLink: String?): String? {
+        if (rawLink.isNullOrBlank()) return null
+
+        val link = rawLink.trim()
+        if (link.startsWith("http", true)) return link
+
+        CryptoAES.decryptCbcIV(link, AES_KEY)?.takeIf { it.isNotBlank() }?.let { return it }
+        CryptoAES.decrypt(link, AES_KEY).takeIf { it.isNotBlank() }?.let { return it }
+
+        decodeJwtLink(link)?.takeIf { it.isNotBlank() }?.let { return it }
+
+        return null
+    }
+
+    private fun decodeJwtLink(token: String): String? {
+        val segments = token.split('.')
+        if (segments.size < 2) return null
+
+        val payload = segments[1].padBase64Url()
+
+        return runCatching {
+            val decoded = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP)
+            val element = String(decoded).parseAs<JsonElement>()
+            val obj = element.jsonObject
+
+            val link = obj["link"]?.jsonPrimitive?.contentOrNull
+            val nestedLink = obj["data"]?.jsonObject?.get("link")?.jsonPrimitive?.contentOrNull
+
+            link ?: nestedLink
+        }.getOrNull()
+    }
+
+    private fun String.padBase64Url(): String {
+        val padding = (4 - length % 4) % 4
+        return this + "=".repeat(padding)
     }
 
     private fun extractOldExtractorLinks(doc: Document): List<String>? {
@@ -407,15 +510,16 @@ class SoloLatino :
     @Serializable
     data class Item(
         val file_id: Int,
-        val video_language: String, // Campo nuevo para almacenar el idioma
+        val video_language: String,
         val sortedEmbeds: List<Embed>,
     )
 
     @Serializable
     data class Embed(
         val servername: String,
-        val link: String,
+        val link: String? = null,
         val type: String,
+        val download: String? = null,
     )
 
     // ============================= Preferences ============================
@@ -429,13 +533,6 @@ class SoloLatino :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         val langPref = ListPreference(screen.context).apply {
@@ -445,26 +542,13 @@ class SoloLatino :
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(langPref)
     }
 
     // ============================= Utilities ==============================
 
-    override fun String.toDate(): Long = try {
-        val dateFormat = SimpleDateFormat("MMM. dd, yyyy", Locale.ENGLISH)
-        val date = dateFormat.parse(this)
-        date?.time ?: 0L
-    } catch (_: Exception) {
-        0L
-    }
+    private val dateFormat = SimpleDateFormat("MMM. dd, yyyy", Locale.ENGLISH)
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
@@ -483,6 +567,8 @@ class SoloLatino :
     override val prefQualityEntries = prefQualityValues
 
     companion object {
+        private val DATA_LINK_REGEX = """dataLink\s*=\s*([^;]+);""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        private const val AES_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "[LAT]"

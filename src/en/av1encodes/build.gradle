@@ -1,0 +1,8 @@
+ext {
+    extName = 'AV1Encodes'
+    extClass = '.AV1Encodes'
+    baseUrl = 'https://av1encodes.com'
+    extVersionCode = 1
+}
+
+apply plugin: "kei.plugins.extension.legacy"

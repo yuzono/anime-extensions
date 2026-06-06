@@ -326,15 +326,30 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         val seenUrls = mutableSetOf<String>()
         val animes = mutableListOf<SAnime>()
 
-        // DLE cards are always div.shortstory; fall back to div.post / article if the
-        // theme uses different markup.  We deliberately avoid broad selectors like
-        // .content or div:has(...) because they match parent wrappers and cause
-        // duplicates and wrong thumbnail lookups.
-        val containers = document.select("div.shortstory, div.post, article")
+        // DLE renders a dedicated block when a search yields no results.
+        // Detect it early so the fallback link-scraper below never picks up
+        // category/type nav-links (ТВ, OVA, ONA, Дунхуа, …) as fake anime cards.
+        val noResults = document.selectFirst(
+            ".searchnoresult, .search_noresult, " +
+                "div:containsOwn(Ничего не найдено), " +
+                "div:containsOwn(По вашему запросу ничего не найдено), " +
+                "div:containsOwn(Извините, по вашему запросу), " +
+                "p:containsOwn(Ничего не найдено)",
+        )
+        if (noResults != null) return AnimesPage(emptyList(), false)
+
+        // DLE cards are always div.shortstory; search results may use div.searchnews /
+        // div.searchitem.  Fall back to div.post / article if the theme uses different
+        // markup.  We deliberately avoid broad selectors like .content or div:has(...)
+        // because they match parent wrappers and cause duplicates and wrong thumbnail lookups.
+        val containers = document.select("div.shortstory, div.searchnews, div.searchitem, div.post, article")
             .ifEmpty {
-                // Last-resort fallback: any div that directly wraps a /tip/ link
+                // Last-resort fallback: any div that directly wraps a /tip/ link.
+                // We require the container to have an <img> child so that bare
+                // navigation/filter links (genre, type) are not mistaken for anime cards.
                 document.select("a[href*='/tip/']")
                     .mapNotNull { it.parent() }
+                    .filter { parent -> parent.selectFirst("img") != null }
                     .distinctBy { it.cssSelector() }
             }
 
@@ -347,6 +362,21 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
             val anime = SAnime.create()
             anime.setUrlWithoutDomain(href)
 
+            // Skip bare category/type pages.
+            // 1) Short all-letter slugs (<=6 chars, no hyphens/digits) cover English
+            //    names like "tv", "ova", "ona", "film", "dunhua".
+            // 2) Known Russian/transliterated type labels that the site uses as nav-links
+            //    are blocked by an explicit denylist so they never appear as search results.
+            val slug = href.trimEnd('/').substringAfterLast('/').lowercase()
+            val categoryDenylist = setOf(
+                "tv", "tvspeshl", "tv-speshl", "special", "speshl",
+                "ova", "ona", "film", "films", "movie",
+                "dunhua", "korotkometrazhniy", "korotkometrazhnyy",
+                "polnometrazhniy", "polnometrazhnyy",
+            )
+            if (slug.length <= 6 && slug.all { it.isLetter() }) return@forEach
+            if (slug in categoryDenylist) return@forEach
+
             // Title: prefer the link title-attribute or img alt (set by the site),
             // then any heading text, then the link text itself.
             val imgInLink = link.selectFirst("img")
@@ -357,10 +387,14 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
                 .ifEmpty { "No title" }
 
             // Thumbnail: look for a poster-sized upload image in the whole card.
-            // DLE puts posters under /uploads/; we prefer that over any other img.
-            val posterUrl = container.selectFirst("img[src*='/uploads/']")
-                ?.let { img: Element -> img.attr("src").ifEmpty { img.attr("data-src") } }
-                ?: container.extractThumbnail()
+            // DLE puts posters under /uploads/; check both src and data-src to support
+            // lazy-loaded images (most common cause of blank thumbnails in search).
+            val posterUrl = container.selectFirst(
+                "img[src*='/uploads/'], img[data-src*='/uploads/']",
+            )?.let { img ->
+                img.attr("src").takeIf { "/uploads/" in it }
+                    ?: img.attr("data-src").takeIf { it.isNotEmpty() }
+            } ?: container.extractThumbnail()
 
             posterUrl?.let { src ->
                 anime.thumbnail_url = UrlUtils.fixUrl(src, baseUrl)

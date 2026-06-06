@@ -18,20 +18,22 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelFlatMapBlocking
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
 class AnimeSama :
     AnimeHttpSource(),
@@ -82,16 +84,19 @@ class AnimeSama :
             response
         }.build()
 
-    private val json: Json by injectLazy()
+    private val planning: String by lazy {
+        client.newCall(GET("$baseUrl/planning/", headers))
+            .execute().bodyString()
+    }
 
     // ============================== Popular ===============================
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val doc = response.asJsoup()
-        val page = response.request.url.fragment?.toInt() ?: 0
+        val doc = response.useAsJsoup()
+        val page = response.request.url.fragment?.toIntOrNull() ?: 0
         val chunks = doc.select("#containerPepites > div a").chunked(5)
-        val seasons = chunks.getOrNull(page - 1)?.flatMap {
+        val seasons = chunks.getOrNull(page - 1)?.parallelCatchingFlatMapBlocking {
             val animeUrl = "$baseUrl${it.attr("href")}"
-            fetchAnimeSeasons(animeUrl)
+            fetchAnimeSeasons(animeUrl, "")
         }?.toList().orEmpty()
         return AnimesPage(seasons, page < chunks.size)
     }
@@ -100,14 +105,14 @@ class AnimeSama :
 
     // =============================== Latest ===============================
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val animes = response.asJsoup()
-        val seasons = animes.select("#containerAjoutsAnimes > div").flatMap {
+        val animes = response.useAsJsoup()
+        val seasons = animes.select("#containerAjoutsAnimes > div").parallelCatchingFlatMapBlocking {
             val animeUrl = it.getElementsByTag("a").attr("abs:href").toHttpUrl()
             val url = animeUrl.newBuilder()
                 .removePathSegment(animeUrl.pathSize - 2)
                 .removePathSegment(animeUrl.pathSize - 3)
                 .build()
-            fetchAnimeSeasons(url.toString())
+            fetchAnimeSeasons(url.toString(), "")
         }.distinctBy { it.url }
         return AnimesPage(seasons, false)
     }
@@ -128,7 +133,7 @@ class AnimeSama :
         } else if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
             val animeUrl = if (id.startsWith("/")) "$baseUrl$id" else "$baseUrl/$id"
-            val seasons = fetchAnimeSeasons(animeUrl)
+            val seasons = fetchAnimeSeasons(animeUrl, "")
             return AnimesPage(seasons, false)
         }
         return super.getSearchAnime(page, query, filters)
@@ -146,9 +151,9 @@ class AnimeSama :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val anime = document.select("#list_catalog > div a").parallelFlatMapBlocking {
-            fetchAnimeSeasons(it.attr("href"))
+            fetchAnimeSeasons(it.attr("href"), "")
         }
         val page = response.request.url.queryParameterValues("page").firstOrNull()
         val hasNextPage = document.select("#list_pagination a:last-child").text() != page
@@ -156,7 +161,14 @@ class AnimeSama :
     }
 
     // =========================== Anime Details ============================
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime = anime
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val segments = anime.url.trim('/').split("/")
+        val animeUrl = "$baseUrl/${segments.take(2).joinToString("/")}/"
+        val season = segments.getOrNull(2) ?: ""
+
+        val animes = fetchAnimeSeasons(animeUrl, season)
+        return animes.firstOrNull() ?: anime
+    }
 
     override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
@@ -164,7 +176,7 @@ class AnimeSama :
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = "$baseUrl${anime.url.substringBeforeLast("/")}"
         val movie = anime.url.split("#").getOrElse(1) { "" }.toIntOrNull()
-        val players = VOICES_VALUES.map { fetchPlayers("$animeUrl/$it") }
+        val players = VOICES_VALUES.asIterable().parallelCatchingFlatMapBlocking { fetchPlayers("$animeUrl/$it").let(::listOf) }
         val episodes = playersToEpisodes(players)
         return if (movie == null) episodes.reversed() else listOf(episodes[movie])
     }
@@ -178,7 +190,7 @@ class AnimeSama :
     private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val playerUrls = json.decodeFromString<List<List<String>>>(episode.url)
+        val playerUrls = episode.url.parseAs<List<List<String>>>()
         val videos = playerUrls.flatMapIndexed { i, it ->
             val prefix = "(${VOICES_VALUES[i].uppercase()}) "
             it.parallelCatchingFlatMap { playerUrl ->
@@ -196,7 +208,7 @@ class AnimeSama :
                     }
                 }
             }
-        }
+        }.sort()
         return videos
     }
 
@@ -215,28 +227,33 @@ class AnimeSama :
         ).reversed()
     }
 
-    private fun fetchAnimeSeasons(animeUrl: String): List<SAnime> {
-        val res = client.newCall(GET(animeUrl)).execute()
-        return fetchAnimeSeasons(res)
+    private suspend fun fetchAnimeSeasons(animeUrl: String, season: String): List<SAnime> {
+        val res = client.newCall(GET(animeUrl)).awaitSuccess()
+        return fetchAnimeSeasons(res, season)
     }
 
     private val commentRegex by lazy { Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL) }
     private val seasonRegex by lazy { Regex("^\\s*panneauAnime\\(\"(.*)\", \"(.*)\"\\)", RegexOption.MULTILINE) }
+    private val movieNameRegex by lazy { Regex("^\\s*newSPF\\(\"(.*)\"\\);", RegexOption.MULTILINE) }
 
-    private fun fetchAnimeSeasons(response: Response): List<SAnime> {
-        val animeDoc = response.asJsoup()
+    private suspend fun fetchAnimeSeasons(response: Response, season: String): List<SAnime> {
+        val animeDoc = response.useAsJsoup()
         val animeUrl = response.request.url
         val animeName = animeDoc.getElementById("titreOeuvre")?.text() ?: ""
 
         val scripts = animeDoc.select("h2 + p + div > script, h2 + div > script").toString()
         val uncommented = commentRegex.replace(scripts, "")
-        val animes = seasonRegex.findAll(uncommented).flatMapIndexed { animeIndex, seasonMatch ->
+        val animes = seasonRegex.findAll(uncommented).withIndex().asIterable().parallelCatchingFlatMapBlocking { (animeIndex, seasonMatch) ->
             val (seasonName, seasonStem) = seasonMatch.destructured
+
+            if (season.isNotEmpty() && seasonStem.replace("/vostfr", "") != season) {
+                return@parallelCatchingFlatMapBlocking emptyList()
+            }
+
             if (seasonStem.contains("film", true)) {
                 val moviesUrl = "$animeUrl/$seasonStem"
-                val movies = fetchPlayers(moviesUrl).ifEmpty { return@flatMapIndexed emptyList() }
-                val movieNameRegex = Regex("^\\s*newSPF\\(\"(.*)\"\\);", RegexOption.MULTILINE)
-                val moviesDoc = client.newCall(GET(moviesUrl)).execute().body.string()
+                val movies = fetchPlayers(moviesUrl).ifEmpty { return@parallelCatchingFlatMapBlocking emptyList() }
+                val moviesDoc = client.newCall(GET(moviesUrl)).awaitSuccess().bodyString()
                 val matches = movieNameRegex.findAll(moviesDoc).toList()
                 List(movies.size) { i ->
                     val title = when {
@@ -245,10 +262,10 @@ class AnimeSama :
                         movies.size == 1 -> "$animeName Film"
                         else -> "$animeName Film ${i + 1}"
                     }
-                    Triple(title, "$moviesUrl#$i", SAnime.COMPLETED)
+                    Pair(title, "$moviesUrl#$i")
                 }
             } else {
-                listOf(Triple("$animeName $seasonName", "$animeUrl/$seasonStem", SAnime.UNKNOWN))
+                listOf(Pair("$animeName $seasonName", "$animeUrl/$seasonStem"))
             }
         }
 
@@ -259,32 +276,45 @@ class AnimeSama :
                 description = animeDoc.select("h2:contains(synopsis) + p").text()
                 genre = animeDoc.select("h2:contains(genres) + a").text().replace(" - ", ", ")
                 setUrlWithoutDomain(it.second)
-                status = it.third
+                status = parseStatus(it.second.substringBefore('#')) ?: SAnime.UNKNOWN
                 initialized = true
             }
         }.toList()
     }
 
+    private val cleanUrlRegex by lazy { "(?<!:)/{2,}".toRegex() }
+    private val statusRegex by lazy { ".*/(catalogue/[^/]+/[^/]+)".toRegex() }
+    private fun parseStatus(animeUrl: String): Int? = runCatching {
+        val cleanedUrl = animeUrl.replace(cleanUrlRegex, "/")
+        val match = statusRegex.find(cleanedUrl)
+        val searchTarget = match?.groupValues?.get(1) ?: cleanedUrl
+
+        return if (planning.contains(searchTarget)) {
+            SAnime.ONGOING
+        } else {
+            SAnime.COMPLETED
+        }
+    }.getOrNull()
+
     private fun playersToEpisodes(list: List<List<List<String>>>): List<SEpisode> = List(list.fold(0) { acc, it -> maxOf(acc, it.size) }) { episodeNumber ->
         val players = list.map { it.getOrElse(episodeNumber) { emptyList() } }
         SEpisode.create().apply {
             name = "Episode ${episodeNumber + 1}"
-            url = json.encodeToString(players)
+            url = players.toJsonString()
             episode_number = (episodeNumber + 1).toFloat()
             scanlator = players.mapIndexedNotNull { i, it -> if (it.isNotEmpty()) VOICES_VALUES[i] else null }.joinToString().uppercase()
         }
     }
 
-    private fun fetchPlayers(url: String): List<List<String>> {
+    private suspend fun fetchPlayers(url: String): List<List<String>> {
         val docUrl = "$url/episodes.js"
-        val doc = client.newCall(GET(docUrl)).execute().use {
-            if (!it.isSuccessful) return emptyList()
-            it.body.string()
-        }
+        val doc = client.newCall(GET(docUrl))
+            .awaitSuccess()
+            .bodyString()
         val urls = QuickJs.create().use { qjs ->
             qjs.evaluate(doc)
-            val res = qjs.evaluate("JSON.stringify(Array.from({length: 10}, (e,i) => this[`eps\${i}`]).filter(e => e))")
-            json.decodeFromString<List<List<String>>>(res as String)
+            val res = qjs.evaluate($$"JSON.stringify(Array.from({length: 10}, (e,i) => this[`eps${i}`]).filter(e => e))")
+            (res as String).parseAs<List<List<String>>>()
         }
 
         if (urls.isEmpty() || urls[0].isEmpty()) return emptyList()
