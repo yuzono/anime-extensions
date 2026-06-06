@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.av1encodes
 
-import android.app.Application
-import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -13,13 +11,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import okhttp3.Dispatcher
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -29,13 +29,10 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 
-@Suppress("SpellCheckingInspection")
 class AV1Encodes :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
@@ -44,11 +41,7 @@ class AV1Encodes :
     override val lang = "en"
     override val supportsLatest = true
 
-    private val json = Json { ignoreUnknownKeys = true }
-
-    private val preferences: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
-    }
+    private val preferences by getPreferencesLazy()
 
     override val baseUrl: String
         get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
@@ -77,7 +70,7 @@ class AV1Encodes :
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/stats#top-downloads", headers)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = AnimesPage(parseStatsPage(response.asJsoup()), false)
+    override fun popularAnimeParse(response: Response): AnimesPage = AnimesPage(parseStatsPage(response.useAsJsoup()), false)
 
     private fun parseStatsPage(doc: Document): List<SAnime> {
         val seen = mutableSetOf<String>()
@@ -161,7 +154,7 @@ class AV1Encodes :
     override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val animes = doc.select("article.anime-card").mapNotNull { card ->
             val a = card.selectFirst("h4 > a, .card-body a") ?: return@mapNotNull null
             val href = a.attr("href").let {
@@ -222,7 +215,7 @@ class AV1Encodes :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val url = response.request.url
         val path = url.encodedPath
         val hasQueryParams = url.querySize > 0
@@ -341,7 +334,7 @@ class AV1Encodes :
                         try {
                             client.newCall(GET(baseUrl + anime.url, headers)).execute().use { resp ->
                                 if (!resp.isSuccessful) return@use
-                                val doc = Jsoup.parse(resp.body.string())
+                                val doc = Jsoup.parse(resp.bodyString())
                                 val img = doc.selectFirst(
                                     "img.anime-poster, img.poster, .anime-hero img, " +
                                         "[class*='poster'] img, [class*='hero'] img, main img",
@@ -361,10 +354,8 @@ class AV1Encodes :
     // ANIME DETAIL
     // ══════════════════════════════════════════════════════════════════════════
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
-
     override fun animeDetailsParse(response: Response): SAnime {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         return SAnime.create().apply {
             title = doc.selectFirst(
                 ".anime-hero h1, h1.anime-title, [class*='anime-hero'] h1, [class*='detail'] h1, main h1, h1",
@@ -400,10 +391,8 @@ class AV1Encodes :
     // EPISODE LIST
     // ══════════════════════════════════════════════════════════════════════════
 
-    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
-
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = Jsoup.parse(response.body.string())
+        val doc = Jsoup.parse(response.bodyString())
         val urlPath = response.request.url.encodedPath
         val slug = urlPath.split("/").last { it.isNotBlank() }
         Log.d(TAG, "episodeListParse: slug=$slug quality=$prefQuality")
@@ -428,7 +417,7 @@ class AV1Encodes :
                     resp.close()
                     continue
                 }
-                resp.body.string()
+                resp.bodyString()
             } catch (e: Exception) {
                 Log.e(TAG, "episodeListParse: failed to fetch $epPageUrl — ${e.message}")
                 continue
@@ -494,9 +483,6 @@ class AV1Encodes :
     // VIDEO LIST
     // ══════════════════════════════════════════════════════════════════════════
 
-    override fun videoListRequest(episode: SEpisode) = GET(baseUrl + episode.url, headers)
-    override fun videoListParse(response: Response): List<Video> = emptyList()
-
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val episodeUrl = episode.url
         Log.d(TAG, "getVideoList: episode.url=$episodeUrl")
@@ -521,13 +507,13 @@ class AV1Encodes :
                 resp.close()
                 return fallbackDirectUrl(episodeUrl, filename)
             }
-            resp.body.string()
+            resp.bodyString()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: download page failed — ${e.message}")
             return fallbackDirectUrl(episodeUrl, filename)
         }
 
-        val ddlToken = Regex("""['"](A{4,}[A-Za-z0-9_\-]{10,})['""]""").find(pageHtml)
+        val ddlToken = Regex("""['"](A{4,}[A-Za-z0-9_\-]{10,})['"]""").find(pageHtml)
             ?.groupValues?.get(1)
             ?: run {
                 Log.w(TAG, "getVideoList: no ddl-token found in page, falling back")
@@ -553,7 +539,7 @@ class AV1Encodes :
                 resp.close()
                 return fallbackDirectUrl(episodeUrl, filename)
             }
-            resp.body.string()
+            resp.bodyString()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: get_ddl failed — ${e.message}")
             return fallbackDirectUrl(episodeUrl, filename)
@@ -561,7 +547,7 @@ class AV1Encodes :
         Log.d(TAG, "getVideoList: get_ddl response=$ddlRaw")
 
         val ddl = try {
-            json.decodeFromString<DdlResponse>(ddlRaw)
+            ddlRaw.parseAs<DdlResponse>()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: get_ddl parse failed — ${e.message}")
             return fallbackDirectUrl(episodeUrl, filename)
@@ -716,7 +702,7 @@ class AV1Encodes :
     // ══════════════════════════════════════════════════════════════════════════
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        buildPreferenceScreen(screen, preferences)
+        buildPreferenceScreen(screen)
     }
 
     override fun List<Video>.sort(): List<Video> = sortByPreferredQuality(preferences)

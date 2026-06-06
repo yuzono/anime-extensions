@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.av1encodes
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.net.URLDecoder
 
 internal fun extractCleanTitle(raw: String): String {
     var cleaned = raw.replace(Regex("""\s*·\s*\d+\s*downloads?.*""", RegexOption.IGNORE_CASE), "")
@@ -97,7 +98,7 @@ internal fun parseEpisodeItems(html: String): List<EpisodeItem> {
             val label = div.selectFirst("span.episode-label, [class~=episode-label]")?.text()?.trim()
                 ?: a.text().trim()
             val audio = div.selectFirst("span.audio-badge, [class~=audio-badge]")?.text()?.trim() ?: ""
-            val num = Regex("""\d+""").find(label)?.value?.toIntOrNull() ?: items.size + 1
+            val num = Regex("""\d+""").find(label)?.value?.toIntOrNull() ?: (items.size + 1)
             items.add(EpisodeItem(num = num, label = label, audio = audio, href = href))
         }
         return items
@@ -109,7 +110,7 @@ internal fun parseEpisodeItems(html: String): List<EpisodeItem> {
         val label = a.selectFirst("[class~=episode-label]")?.text()?.trim()
             ?: a.text().trim()
         val audio = a.selectFirst("[class~=audio-badge]")?.text()?.trim() ?: ""
-        val num = Regex("""\d+""").find(label)?.value?.toIntOrNull() ?: items.size + 1
+        val num = Regex("""\d+""").find(label)?.value?.toIntOrNull() ?: (items.size + 1)
         items.add(EpisodeItem(num = num, label = label, audio = audio, href = href))
     }
     return items
@@ -129,7 +130,7 @@ internal fun mkvFilenameFromDownloadUrl(downloadUrl: String): String? {
     val segment = path.substringAfterLast("/")
     if (!segment.endsWith(".mkv", ignoreCase = true)) return null
     return try {
-        java.net.URLDecoder.decode(segment, "UTF-8")
+        URLDecoder.decode(segment, "UTF-8")
     } catch (_: Exception) {
         segment
     }
@@ -161,7 +162,7 @@ internal fun extractMkvFilenameFromHtml(html: String): String? {
     val path = downloadHref.substringBefore("?").trimEnd('/')
     val segment = path.substringAfterLast("/")
     return try {
-        java.net.URLDecoder.decode(segment, "UTF-8")
+        URLDecoder.decode(segment, "UTF-8")
     } catch (_: Exception) {
         segment
     }
@@ -184,14 +185,14 @@ internal fun filenameFromPageUrl(pageUrl: String): String {
     val segment = path.trimEnd('/').substringAfterLast("/")
     val noWin = segment.substringBefore("\\")
     return try {
-        java.net.URLDecoder.decode(noWin, "UTF-8")
+        URLDecoder.decode(noWin, "UTF-8")
     } catch (_: Exception) {
         noWin
     }
 }
 
 internal fun buildEpisodeLabel(item: EpisodeItem, season: String): String {
-    val base = if (item.label.isNotBlank()) item.label else "Episode ${item.num}"
+    val base = item.label.ifBlank { "Episode ${item.num}" }
     val audioTag = item.audio.ifBlank { null }
     val seasonPrefix = if (season != "1" && season.isNotBlank()) "Season $season " else ""
     return "$seasonPrefix$base${if (audioTag != null) " [$audioTag]" else ""}"
