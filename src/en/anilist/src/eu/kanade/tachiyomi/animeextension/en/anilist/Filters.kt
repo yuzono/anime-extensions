@@ -14,7 +14,7 @@ object Filters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 

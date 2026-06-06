@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.es.flixlatam
 
+import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
@@ -24,7 +25,6 @@ import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -32,10 +32,17 @@ import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URLDecoder
 
 class FlixLatam :
     DooPlay(
@@ -60,16 +67,22 @@ class FlixLatam :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val players = document.select("ul#playeroptionsul li")
+        val referer = response.request.url.toString()
+        val embedHeaders = headersBuilder().set("Referer", referer).build()
 
-        // Iterar sobre cada player
         return players.parallelCatchingFlatMapBlocking { player ->
             val url = getPlayerUrl(player)
                 ?: return@parallelCatchingFlatMapBlocking emptyList()
             if (url.contains("embed69")) {
-                val htmlContent = client.newCall(GET(url)).awaitSuccess().bodyString()
-                val links = extractNewExtractorLinks(htmlContent) ?: return@parallelCatchingFlatMapBlocking emptyList()
+                val htmlContent = client.newCall(GET(url, embedHeaders)).awaitSuccess().bodyString()
+                if (htmlContent.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
+
+                val embedDoc = Jsoup.parse(htmlContent)
+                val links = extractNewExtractorLinks(embedDoc, htmlContent)
+                    ?: return@parallelCatchingFlatMapBlocking emptyList()
+
                 links.parallelCatchingFlatMap { (link, language) ->
                     serverVideoResolver(link, " $language")
                 }
@@ -113,26 +126,49 @@ class FlixLatam :
     private val streamSilkExtractor by lazy { StreamSilkExtractor(client) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
 
-    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> = when {
-        "voe" in url -> voeExtractor.videosFromUrl(url, "$prefix ")
-        "ok.ru" in url || "okru" in url -> okruExtractor.videosFromUrl(url, prefix)
-        "filemoon" in url || "moonplayer" in url -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
-        "amazon" in url || "amz" in url -> extractAmazonVideo(url, prefix)
-        "uqload" in url -> uqloadExtractor.videosFromUrl(url, prefix)
-        "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
-        "streamwish" in url || "wish" in url -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
-        "doodstream" in url || "dood." in url -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
-        "streamlare" in url -> streamlareExtractor.videosFromUrl(url, prefix)
-        "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
-        "burstcloud" in url -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
-        "fastream" in url -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
-        "upstream" in url -> upstreamExtractor.videosFromUrl(url, "$prefix ")
-        "streamsilk" in url -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
-        "streamtape" in url || "stp" in url -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
-        arrayOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide").any(url) -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
-        arrayOf("vembed", "guard", "listeamed", "bembed", "vgfplay").any(url) -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-        else -> emptyList()
+    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
+        val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first
+        return when (matched) {
+            "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "okru" -> okruExtractor.videosFromUrl(url, prefix)
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, "$prefix Filemoon:")
+            "amazon" -> extractAmazonVideo(url, prefix)
+            "uqload" -> uqloadExtractor.videosFromUrl(url, prefix)
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix ")
+            "streamwish" -> streamWishExtractor.videosFromUrl(url, "$prefix StreamWish:")
+            "doodstream" -> doodExtractor.videosFromUrl(url.replace("https://doodstream.com/e/", "https://d0000d.com/e/"), "$prefix DoodStream")
+            "streamlare" -> streamlareExtractor.videosFromUrl(url, prefix)
+            "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers, "$prefix ")
+            "burstcloud" -> burstCloudExtractor.videoFromUrl(url, headers, "$prefix ")
+            "fastream" -> fastreamExtractor.videosFromUrl(url, "$prefix Fastream:")
+            "upstream" -> upstreamExtractor.videosFromUrl(url, "$prefix ")
+            "streamsilk" -> streamSilkExtractor.videosFromUrl(url, "$prefix StreamSilk:")
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url, "$prefix StreamTape")
+            "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamHideVid:$it" })
+            "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
+            else -> emptyList()
+        }
     }
+
+    private val conventions = listOf(
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "okru" to listOf("ok.ru", "okru"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
+        "amazon" to listOf("amazon", "amz"),
+        "uqload" to listOf("uqload"),
+        "mp4upload" to listOf("mp4upload"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2play", "ds2video", "dooood", "d000d", "d0000d"),
+        "streamlare" to listOf("streamlare", "slmaxed"),
+        "yourupload" to listOf("yourupload", "upload"),
+        "burstcloud" to listOf("burstcloud", "burst"),
+        "fastream" to listOf("fastream"),
+        "upstream" to listOf("upstream"),
+        "streamsilk" to listOf("streamsilk"),
+        "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
+        "vidhide" to listOf("ahvsh", "streamhide", "guccihide", "streamvid", "vidhide", "kinoger", "smoothpre", "dhtpre", "peytonepre", "earnvids", "ryderjet"),
+        "vidguard" to listOf("vembed", "guard", "listeamed", "bembed", "vgfplay", "bembed"),
+    )
 
     private suspend fun extractAmazonVideo(url: String, prefix: String): List<Video> {
         val body = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
@@ -152,24 +188,122 @@ class FlixLatam :
         return listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
     }
 
-    private fun extractNewExtractorLinks(htmlContent: String): List<Pair<String, String>>? {
-        val jsLinksMatch = getFirstMatch("""dataLink = (\[.+?]);""".toRegex(), htmlContent) ?: return null
+    private fun extractNewExtractorLinks(doc: Document, htmlContent: String): List<Pair<String, String>>? {
+        val scriptData = doc.select("script")
+            .asSequence()
+            .map(Element::data)
+            .firstOrNull { it.contains("dataLink") }
 
-        val items = jsLinksMatch.parseAs<List<Item>>()
+        val rawExpression = scriptData?.let {
+            getFirstMatch(DATA_LINK_REGEX, it)
+        } ?: getFirstMatch(DATA_LINK_REGEX, htmlContent)
+
+        val jsonPayload = resolveDataLink(rawExpression) ?: return null
+
+        val items = jsonPayload.parseAs<List<Item>>()
         val idiomas = mapOf("LAT" to "[LAT]", "ESP" to "[CAST]", "SUB" to "[SUB]")
 
         return items.flatMap { item ->
-            val languageCode = idiomas[item.video_language] ?: "unknown"
+            val languageKey = item.video_language?.uppercase() ?: ""
+            val languageCode = idiomas[languageKey] ?: "unknown"
+
             item.sortedEmbeds.mapNotNull { embed ->
                 runCatching {
-                    val decryptedLink = CryptoAES.decrypt(embed.link, "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE")
-                    Pair(decryptedLink, languageCode)
+                    if (!"video".equals(embed.type, ignoreCase = true)) return@mapNotNull null
+
+                    val decryptedLink = decryptEmbedLink(embed.link)
+                    decryptedLink?.let { Pair(it, languageCode) }
                 }.getOrNull()
             }
         }.ifEmpty { null }
     }
 
     private fun getFirstMatch(regex: Regex, input: String): String? = regex.find(input)?.groupValues?.get(1)
+
+    private fun resolveDataLink(rawExpression: String?): String? {
+        if (rawExpression.isNullOrBlank()) return null
+
+        var expr = rawExpression.trim().trimEnd(';')
+
+        fun String.removeOuterCall(prefix: String): String? {
+            if (!startsWith(prefix, ignoreCase = true) || !endsWith(')')) return null
+            val start = indexOf('(')
+            val end = lastIndexOf(')')
+            if (start == -1 || end == -1 || end <= start) return null
+            return substring(start + 1, end).trim()
+        }
+
+        fun String.trimMatchingQuotes(): String = if ((startsWith('"') && endsWith('"')) || (startsWith('\'') && endsWith('\''))) {
+            substring(1, length - 1)
+        } else {
+            this
+        }
+
+        while (true) {
+            when {
+                expr.removeOuterCall("JSON.parse") != null -> expr = expr.removeOuterCall("JSON.parse")!!
+                expr.removeOuterCall("window.JSON.parse") != null -> expr = expr.removeOuterCall("window.JSON.parse")!!
+                expr.removeOuterCall("decodeURIComponent") != null -> {
+                    val inner = expr.removeOuterCall("decodeURIComponent")!!.trimMatchingQuotes()
+                    expr = runCatching { URLDecoder.decode(inner, "UTF-8") }.getOrElse { return null }
+                }
+                expr.removeOuterCall("window.decodeURIComponent") != null -> {
+                    val inner = expr.removeOuterCall("window.decodeURIComponent")!!.trimMatchingQuotes()
+                    expr = runCatching { URLDecoder.decode(inner, "UTF-8") }.getOrElse { return null }
+                }
+                expr.removeOuterCall("atob") != null -> {
+                    val inner = expr.removeOuterCall("atob")!!.trimMatchingQuotes()
+                    expr = runCatching { String(Base64.decode(inner, Base64.DEFAULT)) }.getOrElse { return null }
+                }
+                expr.removeOuterCall("window.atob") != null -> {
+                    val inner = expr.removeOuterCall("window.atob")!!.trimMatchingQuotes()
+                    expr = runCatching { String(Base64.decode(inner, Base64.DEFAULT)) }.getOrElse { return null }
+                }
+                else -> break
+            }
+        }
+
+        expr = expr.trim().trimMatchingQuotes()
+
+        return expr.takeIf { it.isNotBlank() }
+    }
+
+    private fun decryptEmbedLink(rawLink: String?): String? {
+        if (rawLink.isNullOrBlank()) return null
+
+        val link = rawLink.trim()
+        if (link.startsWith("http", true)) return link
+
+        CryptoAES.decryptCbcIV(link, AES_KEY)?.takeIf { it.isNotBlank() }?.let { return it }
+        CryptoAES.decrypt(link, AES_KEY).takeIf { it.isNotBlank() }?.let { return it }
+
+        decodeJwtLink(link)?.takeIf { it.isNotBlank() }?.let { return it }
+
+        return null
+    }
+
+    private fun decodeJwtLink(token: String): String? {
+        val segments = token.split('.')
+        if (segments.size < 2) return null
+
+        val payload = segments[1].padBase64Url()
+
+        return runCatching {
+            val decoded = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP)
+            val element = String(decoded, Charsets.UTF_8).parseAs<JsonElement>()
+            val obj = element.jsonObject
+
+            val link = obj["link"]?.jsonPrimitive?.contentOrNull
+            val nestedLink = obj["data"]?.jsonObject?.get("link")?.jsonPrimitive?.contentOrNull
+
+            link ?: nestedLink
+        }.getOrNull()
+    }
+
+    private fun String.padBase64Url(): String {
+        val padding = (4 - length % 4) % 4
+        return this + "=".repeat(padding)
+    }
 
     // ============================== Filters ===============================
     override val fetchGenres = false
@@ -216,13 +350,6 @@ class FlixLatam :
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
@@ -231,35 +358,26 @@ class FlixLatam :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
+
         screen.addPreference(langPref)
     }
 
     // ============================= Utilities ==============================
-    override fun String.toDate() = 0L
-
     @Serializable
     data class Item(
-        val file_id: Int,
-        val video_language: String, // Campo nuevo para almacenar el idioma
-        val sortedEmbeds: List<Embed>,
+        val file_id: Int? = null,
+        val video_language: String? = null,
+        val sortedEmbeds: List<Embed> = emptyList(),
     )
 
     @Serializable
     data class Embed(
-        val servername: String,
-        val link: String,
-        val type: String,
+        val servername: String? = null,
+        val link: String? = null,
+        val type: String? = null,
+        val download: String? = null,
     )
-
-    private fun Array<String>.any(url: String): Boolean = this.any { url.contains(it, ignoreCase = true) }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
@@ -286,5 +404,7 @@ class FlixLatam :
         private val PREF_LANG_ENTRIES = arrayOf("[LAT]", "[SUB]", "[CAST]")
         private val PREF_LANG_VALUES = arrayOf("[LAT]", "[SUB]", "[CAST]")
         private val SERVER_LIST = arrayOf("StreamWish", "Uqload", "VidGuard", "StreamHideVid", "Voe")
+        private const val AES_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+        private val DATA_LINK_REGEX = """dataLink\s*=\s*([^;]+);""".toRegex(RegexOption.DOT_MATCHES_ALL)
     }
 }

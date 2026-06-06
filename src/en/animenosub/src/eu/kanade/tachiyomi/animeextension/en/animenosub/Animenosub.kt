@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animenosub
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidmolyextractor.VidMolyExtractor
@@ -9,7 +9,8 @@ import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VtubeExtracto
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 import org.jsoup.nodes.Element
 
 class Animenosub :
@@ -30,9 +31,9 @@ class Animenosub :
 
     // ============================ Video Links =============================
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             listOf(
                 "bysesayeveum",
                 "filemoon",
@@ -71,32 +72,32 @@ class Animenosub :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen) // Quality preferences
 
-        val videoTypePref = ListPreference(screen.context).apply {
-            key = PREF_TYPE_KEY
-            title = PREF_TYPE_TITLE
-            entries = PREF_TYPE_VALUES
-            entryValues = PREF_TYPE_VALUES
-            setDefaultValue(PREF_TYPE_DEFAULT)
-            summary = "%s"
-        }
-        val videoServerPref = ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = PREF_SERVER_TITLE
-            entries = PREF_SERVER_VALUES
-            entryValues = PREF_SERVER_VALUES
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
-        }
-        screen.addPreference(videoTypePref)
-        screen.addPreference(videoServerPref)
+        screen.addListPreference(
+            key = PREF_TYPE_KEY,
+            title = PREF_TYPE_TITLE,
+            entries = PREF_TYPE_VALUES,
+            entryValues = PREF_TYPE_VALUES,
+            default = PREF_TYPE_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = PREF_SERVER_TITLE,
+            entries = PREF_SERVER_VALUES,
+            entryValues = PREF_SERVER_VALUES,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
     }
 
     // ============================= Utilities ==============================
+    private val SharedPreferences.typePref by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
+    private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
 
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
-        val type = preferences.getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)!!
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val quality = preferences.videoSortPref
+        val type = preferences.typePref
+        val server = preferences.serverPref
         return sortedWith(
             compareBy(
                 { it.quality.contains(type, ignoreCase = true) },
@@ -110,12 +111,12 @@ class Animenosub :
         private const val PREF_TYPE_KEY = "preferred_type"
         private const val PREF_TYPE_TITLE = "Preferred Video Type"
         private const val PREF_TYPE_DEFAULT = "SUB"
-        private val PREF_TYPE_VALUES = arrayOf("SUB", "RAW")
+        private val PREF_TYPE_VALUES = listOf("SUB", "RAW")
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_TITLE = "Preferred Video Server"
         private const val PREF_SERVER_DEFAULT = "Moon"
-        private val PREF_SERVER_VALUES = arrayOf(
+        private val PREF_SERVER_VALUES = listOf(
             "Moon",
             "StreamWish",
             "VidMoly",

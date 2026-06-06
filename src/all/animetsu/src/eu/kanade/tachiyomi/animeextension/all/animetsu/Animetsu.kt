@@ -61,14 +61,41 @@ class Animetsu :
     private val preferredServer: String
         get() = preferences.getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) ?: PREF_PREFERRED_SERVER_DEFAULT
 
+    private val excludedAudioTypes: Set<String>
+        get() = preferences.getStringSet(PREF_AUDIO_TYPE_EXCLUDE_KEY, PREF_AUDIO_TYPE_EXCLUDE_DEFAULT) ?: PREF_AUDIO_TYPE_EXCLUDE_DEFAULT
+
     private val enabledAudioTypes: Set<String>
-        get() = preferences.getStringSet(PREF_AUDIO_TYPE_KEY, PREF_AUDIO_TYPE_DEFAULT) ?: PREF_AUDIO_TYPE_DEFAULT
+        get() = AUDIO_TYPE_VALUES.toSet() - excludedAudioTypes
 
     private val preferredAudioType: String
         get() = preferences.getString(PREF_PREFERRED_AUDIO_TYPE_KEY, PREF_PREFERRED_AUDIO_TYPE_DEFAULT) ?: PREF_PREFERRED_AUDIO_TYPE_DEFAULT
 
     private val preferredQuality: String
         get() = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
+
+    private val showExtraInfo: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_EXTRA_INFO_KEY, PREF_SHOW_EXTRA_INFO_DEFAULT)
+
+    private val showRelations: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_RELATIONS_KEY, PREF_SHOW_RELATIONS_DEFAULT)
+
+    private val showCharacters: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_CHARACTERS_KEY, PREF_SHOW_CHARACTERS_DEFAULT)
+
+    private val showStaff: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_STAFF_KEY, PREF_SHOW_STAFF_DEFAULT)
+
+    private val showTags: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TAGS_KEY, PREF_SHOW_TAGS_DEFAULT)
+
+    private val showTrackers: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TRACKERS_KEY, PREF_SHOW_TRACKERS_DEFAULT)
+
+    private val showTrailer: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_TRAILER_KEY, PREF_SHOW_TRAILER_DEFAULT)
+
+    private val showEpStats: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_EP_STATS_KEY, PREF_SHOW_EP_STATS_DEFAULT)
 
     private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
         .add("Accept", "application/json, text/plain, */*")
@@ -98,7 +125,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -139,7 +166,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -150,7 +177,18 @@ class Animetsu :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/info/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(titleLanguage)!!
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<AnimetsuAnimeDto>().toSAnime(
+        titleLanguage = titleLanguage,
+        showTags = showTags,
+        tagField = TagField(
+            showExtraInfo = showExtraInfo,
+            showStaff = showStaff,
+            showCharacters = showCharacters,
+            showRelations = showRelations,
+            showTrackers = showTrackers,
+            showTrailer = showTrailer,
+        ),
+    )!!
 
     // ============================== Related ===============================
 
@@ -204,7 +242,7 @@ class Animetsu :
         ).awaitSuccess()
 
         return response.parseAs<List<AnimetsuEpisodeDto>>()
-            .mapNotNull { it.toSEpisode(animeId) }
+            .mapNotNull { it.toSEpisode(animeId, showEpStats) }
             .sortedByDescending { it.episode_number }
             .takeIf { it.isNotEmpty() } ?: throw Exception("No episodes found")
     }
@@ -246,10 +284,9 @@ class Animetsu :
                     Track(sub.url, sub.lang ?: "Unknown")
                 }.orEmpty()
 
-                // Following order: AnimePahe proxy server, Anikoto proxy server, Unknown proxy server, AnimeGG proxy server and KickAssAnime proxy server
                 val subLabel = when (server.id.lowercase()) {
-                    "pahe", "dio", "meg" -> " [Hard Subs]"
-                    "kite", "kiss" -> " [Soft Subs]"
+                    "baku", "dio", "meg" -> " [Hard Subs]"
+                    "kite" -> " [Soft Subs]"
                     else -> ""
                 }
 
@@ -270,27 +307,17 @@ class Animetsu :
                                 subtitleTracks,
                             ).let(::listOf)
                         source.type?.contains("mpegurl") == true ->
-                            if (source.oldHls) {
-                                Video(
-                                    fullUrl,
-                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                    fullUrl,
-                                    apiHeaders(watchReferer),
-                                    subtitleTracks,
-                                ).let(::listOf)
-                            } else {
-                                playlistUtils.extractFromHls(
-                                    playlistUrl = fullUrl,
-                                    videoNameGen = { quality ->
-                                        val cleanQuality = quality.substringBefore(" ").let { q ->
-                                            if (q.endsWith("P")) q.lowercase() else q
-                                        }
-                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
-                                    },
-                                    referer = "$baseUrl/",
-                                    subtitleList = subtitleTracks,
-                                )
-                            }
+                            playlistUtils.extractFromHls(
+                                playlistUrl = fullUrl,
+                                videoNameGen = { quality ->
+                                    val cleanQuality = quality.substringBefore(" ").let { q ->
+                                        if (q.endsWith("P")) q.lowercase() else q
+                                    }
+                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                },
+                                referer = "$baseUrl/",
+                                subtitleList = subtitleTracks,
+                            )
                         else -> emptyList()
                     }
                 }
@@ -365,7 +392,7 @@ class Animetsu :
 
         screen.addSetPreference(
             key = PREF_HOSTER_EXCLUDE_KEY,
-            title = "Enable/Disable Hosts",
+            title = "Exclude Hosts",
             summary = "Choose which hosts you want to exclude",
             entries = SERVER_ENTRIES,
             entryValues = SERVER_VALUES,
@@ -373,12 +400,12 @@ class Animetsu :
         )
 
         screen.addSetPreference(
-            key = PREF_AUDIO_TYPE_KEY,
-            title = "Enable/Disable Audio Types",
-            summary = "Select which audio types to show (Sub, Dub)",
+            key = PREF_AUDIO_TYPE_EXCLUDE_KEY,
+            title = "Exclude Audio Types",
+            summary = "Choose which audio types you want to exclude",
             entries = AUDIO_TYPE_ENTRIES,
             entryValues = AUDIO_TYPE_VALUES,
-            default = PREF_AUDIO_TYPE_DEFAULT,
+            default = PREF_AUDIO_TYPE_EXCLUDE_DEFAULT,
         )
 
         screen.addSwitchPreference(
@@ -386,6 +413,62 @@ class Animetsu :
             title = "Hide Adult Content",
             summary = "Hides 18+ content from browse, search, and latest updates.",
             default = PREF_HIDE_ADULT_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_EXTRA_INFO_KEY,
+            title = "Show Extra Info",
+            summary = "Shows extra information of a series in description.",
+            default = PREF_SHOW_EXTRA_INFO_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_RELATIONS_KEY,
+            title = "Show Relations",
+            summary = "Shows related anime (sequels, prequels, etc.) in description.",
+            default = PREF_SHOW_RELATIONS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_CHARACTERS_KEY,
+            title = "Show Characters",
+            summary = "Shows main characters and voice actors in description.",
+            default = PREF_SHOW_CHARACTERS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_STAFF_KEY,
+            title = "Show Staff",
+            summary = "Shows staff information in description.",
+            default = PREF_SHOW_STAFF_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TAGS_KEY,
+            title = "Show Tags in Genre",
+            summary = "Appends community tags to the genre field.",
+            default = PREF_SHOW_TAGS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TRACKERS_KEY,
+            title = "Show Tracker Links",
+            summary = "Shows AniList and MyAnimeList links in description.",
+            default = PREF_SHOW_TRACKERS_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_TRAILER_KEY,
+            title = "Show Trailer",
+            summary = "Shows YouTube trailer link in description.",
+            default = PREF_SHOW_TRAILER_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_EP_STATS_KEY,
+            title = "Show Episode Stats",
+            summary = "Shows Views, Likes, and Dislikes in the scanlator field.",
+            default = PREF_SHOW_EP_STATS_DEFAULT,
         )
     }
 
@@ -395,11 +478,17 @@ class Animetsu :
         val hostExclusion = getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
         val invalidHosters = hostExclusion.any { it !in SERVER_VALUES }
         val invalidServer = getString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT) !in PREF_PREFERRED_SERVER_VALUES
+        val oldAudioTypes = getStringSet(PREF_AUDIO_TYPE_OLD_KEY, null)
 
-        if (invalidHosters || invalidServer) {
+        if (invalidHosters || invalidServer || oldAudioTypes != null) {
             edit().also { editor ->
                 if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, hostExclusion.filter { it in SERVER_VALUES }.toSet())
                 if (invalidServer) editor.putString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT)
+                if (oldAudioTypes != null) {
+                    val newExclusion = AUDIO_TYPE_VALUES.toSet() - oldAudioTypes
+                    editor.putStringSet(PREF_AUDIO_TYPE_EXCLUDE_KEY, newExclusion)
+                    editor.remove(PREF_AUDIO_TYPE_OLD_KEY)
+                }
             }.apply()
         }
     }
@@ -416,21 +505,22 @@ class Animetsu :
 
         private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
         private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
-        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
-        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "pahe", "kite", "dio", "meg", "kiss")
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "baku", "dio", "meg", "kite")
 
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
-        private val SERVER_ENTRIES = listOf("Pahe - Fast, Multi Quality", "Kite - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kiss - Multi Language")
-        private val SERVER_VALUES = listOf("pahe", "kite", "dio", "meg", "kiss")
+        private val SERVER_ENTRIES = listOf("Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val SERVER_VALUES = listOf("baku", "dio", "meg", "kite")
 
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
         private val PREF_PREFERRED_AUDIO_TYPE_ENTRIES = listOf("None", "Sub", "Dub")
         private val PREF_PREFERRED_AUDIO_TYPE_VALUES = listOf("none", "sub", "dub")
 
-        private const val PREF_AUDIO_TYPE_KEY = "enabled_audio_types"
-        private val PREF_AUDIO_TYPE_DEFAULT = setOf("sub")
+        private const val PREF_AUDIO_TYPE_OLD_KEY = "enabled_audio_types"
+        private const val PREF_AUDIO_TYPE_EXCLUDE_KEY = "audio_type_exclusion"
+        private val PREF_AUDIO_TYPE_EXCLUDE_DEFAULT = emptySet<String>()
         private val AUDIO_TYPE_ENTRIES = listOf("Sub", "Dub")
         private val AUDIO_TYPE_VALUES = listOf("sub", "dub")
 
@@ -441,6 +531,23 @@ class Animetsu :
 
         private const val PREF_HIDE_ADULT_KEY = "hide_adult_content"
         private const val PREF_HIDE_ADULT_DEFAULT = true
+
+        private const val PREF_SHOW_EXTRA_INFO_KEY = "show_extra_info"
+        private const val PREF_SHOW_EXTRA_INFO_DEFAULT = true
+        private const val PREF_SHOW_STAFF_KEY = "show_staff"
+        private const val PREF_SHOW_STAFF_DEFAULT = true
+        private const val PREF_SHOW_RELATIONS_KEY = "show_relations"
+        private const val PREF_SHOW_RELATIONS_DEFAULT = true
+        private const val PREF_SHOW_CHARACTERS_KEY = "show_characters"
+        private const val PREF_SHOW_CHARACTERS_DEFAULT = true
+        private const val PREF_SHOW_TAGS_KEY = "show_tags_in_genre"
+        private const val PREF_SHOW_TAGS_DEFAULT = true
+        private const val PREF_SHOW_TRACKERS_KEY = "show_trackers"
+        private const val PREF_SHOW_TRACKERS_DEFAULT = true
+        private const val PREF_SHOW_TRAILER_KEY = "show_trailer"
+        private const val PREF_SHOW_TRAILER_DEFAULT = true
+        private const val PREF_SHOW_EP_STATS_KEY = "show_ep_stats"
+        private const val PREF_SHOW_EP_STATS_DEFAULT = true
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING

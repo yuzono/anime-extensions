@@ -105,7 +105,7 @@ class Pelisplusto : PelisPlus() {
                 val decode = String(Base64.decode(it.attr("data-server"), Base64.DEFAULT))
 
                 val url = if (!REGEX_LINK.containsMatchIn(decode)) {
-                    "$baseUrl/player/${String(Base64.encode(it.attr("data-server").toByteArray(), Base64.DEFAULT))}"
+                    "$baseUrl/player/${Base64.encodeToString(it.attr("data-server").toByteArray(), Base64.DEFAULT)}"
                 } else {
                     decode
                 }
