@@ -60,7 +60,7 @@ internal fun buildPreferenceScreen(screen: PreferenceScreen) {
         title = "Show Torrent Link"
         summary = "Include the torrent link as a video option."
         setDefaultValue(PREF_SHOW_TORRENT_DEFAULT)
-    }.also(screen::addPreference)
+    }
 }
 
 private val qualityRegex by lazy { Regex("""[xX]\s*(\d{3,4})""") }

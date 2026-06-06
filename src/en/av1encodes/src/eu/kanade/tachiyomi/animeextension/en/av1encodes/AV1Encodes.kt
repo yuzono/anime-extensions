@@ -70,6 +70,10 @@ class AV1Encodes :
 
     override fun popularAnimeParse(response: Response): AnimesPage = AnimesPage(parseStatsPage(response.useAsJsoup()), false)
 
+    private val seasonRegex by lazy { Regex("""\[S\d""") }
+    private val animeNameRegex by lazy { Regex("""\[S\d{1,2}(?:-E\d+)?]\s*([^\[]+?)\s*\[""") }
+    private val specialCharactersRegex by lazy { Regex("[^a-z0-9]+") }
+
     private fun parseStatsPage(doc: Document): List<SAnime> {
         val seen = mutableSetOf<String>()
         val animes = mutableListOf<SAnime>()
@@ -86,10 +90,6 @@ class AV1Encodes :
                 header.parent() ?: doc
             }
         }
-
-        val seasonRegex = Regex("""\[S\d""")
-        val animeNameRegex = Regex("""\[S\d{1,2}(?:-E\d+)?]\s*([^\[]+?)\s*\[""")
-        val specialCharactersRegex = Regex("[^a-z0-9]+")
 
         searchContext.select("a[href*='/anime/'],div[class*='card'],div[class*='item'],li")
             .filter { el ->
@@ -391,6 +391,7 @@ class AV1Encodes :
 
         val seasons = doc.select(".season-tab[data-season], .season-option[data-season], [data-season]")
             .map { it.attr("data-season") }
+            .filter { it.isNotBlank() }
             .distinct()
             .ifEmpty { listOf("1") }
         Log.d(TAG, "episodeListParse: seasons=$seasons")
@@ -607,8 +608,8 @@ class AV1Encodes :
         }
     }
 
-    private val episodeNumberRegex by lazy { Regex("""\[(?:S\d+-)?E(\d+)]""") }
-    private fun parseEpisodeNumber(filename: String): Float = episodeNumberRegex.find(filename)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
+    private val episodeSNumberRegex by lazy { Regex("""\[(?:S\d+-)?E(\d+)]""") }
+    private fun parseEpisodeNumber(filename: String): Float = episodeSNumberRegex.find(filename)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
 
     private val cleanTitleRegex1 by lazy { Regex("""\s*·\s*\d+\s*downloads?.*""", RegexOption.IGNORE_CASE) }
     private val cleanTitleRegex2 by lazy { Regex("""^\[[a-zA-Z0-9_\-]+]\s*""") }
@@ -672,7 +673,5 @@ class AV1Encodes :
         private const val TAG = "AV1Encodes"
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_DEFAULT = "1920 x 1080"
     }
 }
