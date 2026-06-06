@@ -49,10 +49,8 @@ object HstreamUtils {
     fun String.normalizeHref(): String = if (startsWith("http")) {
         try {
             val result = toHttpUrl().encodedPath
-            HstreamLogger.debug("normalizeHref", "'$this' -> '$result'")
             result
         } catch (e: Exception) {
-            HstreamLogger.error("normalizeHref", "FAILED for '$this'", e)
             this // fallback: return raw href
         }
     } else {

@@ -76,8 +76,6 @@ object HstreamFilters {
             filters.asQueryPart<OrderFilter>(),
         )
 
-        HstreamLogger.debug("getSearchParameters", "Parsed filters: genres=${params.genres.size}, blacklisted=${params.blacklisted.size}, studios=${params.studios.size}, order=${params.order}")
-
         return params
     }
 
