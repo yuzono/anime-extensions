@@ -3,25 +3,21 @@ package eu.kanade.tachiyomi.animeextension.pl.wbijam.extractors
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.parallelCatchingMapNotNull
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 class CdaPlExtractor(private val client: OkHttpClient) {
 
-    private val json: Json by injectLazy()
-
-    fun getVideosFromUrl(url: String, headers: Headers): List<Video> {
-        val videoList = mutableListOf<Video>()
-
+    suspend fun getVideosFromUrl(url: String, headers: Headers): List<Video> {
         val embedHeaders = headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
             .add("Host", url.toHttpUrl().host)
@@ -29,18 +25,16 @@ class CdaPlExtractor(private val client: OkHttpClient) {
 
         val document = client.newCall(
             GET(url, headers = embedHeaders),
-        ).execute().asJsoup()
+        ).awaitSuccess().useAsJsoup()
 
-        val data = json.decodeFromString<PlayerData>(
-            document.selectFirst("div[player_data]")!!.attr("player_data"),
-        )
+        val data = document.selectFirst("div[player_data]")!!
+            .attr("player_data")
+            .parseAs<PlayerData>()
 
-        data.video.qualities.forEach { quality ->
+        return data.video.qualities.asIterable().parallelCatchingMapNotNull { quality ->
             if (quality.value == data.video.quality) {
                 val videoUrl = decryptFile(data.video.file)
-                videoList.add(
-                    Video(videoUrl, "cda.pl - ${quality.key}", videoUrl),
-                )
+                Video(videoUrl, "cda.pl - ${quality.key}", videoUrl)
             } else {
                 val jsonBody = """
                     {
@@ -64,17 +58,11 @@ class CdaPlExtractor(private val client: OkHttpClient) {
                 )
                 val response = client.newCall(
                     POST("https://www.cda.pl/", headers = postHeaders, body = jsonBody),
-                ).execute()
-                val parsed = json.decodeFromString<PostResponse>(
-                    response.body.string(),
-                )
-                videoList.add(
-                    Video(parsed.result.resp, "cda.pl - ${quality.key}", parsed.result.resp),
-                )
+                ).awaitSuccess()
+                val parsed = response.parseAs<PostResponse>()
+                Video(parsed.result.resp, "cda.pl - ${quality.key}", parsed.result.resp)
             }
         }
-
-        return videoList
     }
 
     // Credit: https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/cda.py

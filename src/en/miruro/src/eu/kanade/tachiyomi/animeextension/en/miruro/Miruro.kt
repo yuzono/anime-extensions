@@ -162,6 +162,19 @@ class Miruro :
     // ============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            if (url.pathSegments.getOrNull(0) != "watch") {
+                throw Exception("Unsupported url")
+            }
+            val anilistId = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$anilistId", filters)
+        }
+
         if (query.startsWith(PREFIX_SEARCH)) {
             val anilistId = query.removePrefix(PREFIX_SEARCH)
             val request = buildPipeRequest("info/$anilistId", "GET")

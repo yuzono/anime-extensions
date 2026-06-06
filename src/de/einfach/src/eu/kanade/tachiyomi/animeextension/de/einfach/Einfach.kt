@@ -22,9 +22,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -73,17 +75,31 @@ class Einfach :
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val path = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$path"))
-            .awaitSuccess()
-            .use(::searchAnimeByPathParse)
-    } else {
-        super.getSearchAnime(page, query, filters)
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val type = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            val item = url.pathSegments.getOrNull(2)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$type/$item", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val path = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$path"))
+                .awaitSuccess()
+                .use(::searchAnimeByPathParse)
+        }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByPathParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -146,12 +162,12 @@ class Einfach :
         episode_number = eplnum.substringAfterLast(" ").toFloatOrNull() ?: 1F
 
         name = eplnum.ifBlank { "S1 EP 1" } + " - " + element.selectFirst(".epl-title")?.text().orEmpty()
-        date_upload = element.selectFirst(".epl-date")?.text().orEmpty().toDate()
+        date_upload = element.selectFirst(".epl-date")?.text().let(DATE_FORMATTER::tryParse)
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         val selection = preferences.getStringSet(PREF_HOSTER_SELECTION_KEY, PREF_HOSTER_SELECTION_DEFAULT)!!
 
@@ -191,7 +207,7 @@ class Einfach :
     private val vidozaExtractor by lazy { VidozaExtractor(client) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
 
-    private fun getVideosFromUrl(name: String, url: String): List<Video> = when (name) {
+    private suspend fun getVideosFromUrl(name: String, url: String): List<Video> = when (name) {
         "doodstream" -> doodExtractor.videosFromUrl(url)
         "filelions" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
         "filemoon" -> filemoonExtractor.videosFromUrl(url)
@@ -218,13 +234,6 @@ class Einfach :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -233,18 +242,10 @@ class Einfach :
             entries = PREF_HOSTER_SELECTION_ENTRIES
             entryValues = PREF_HOSTER_SELECTION_VALUES
             setDefaultValue(PREF_HOSTER_SELECTION_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
-        .getOrNull() ?: 0L
-
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 

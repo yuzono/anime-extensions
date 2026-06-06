@@ -694,7 +694,6 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import okhttp3.Response
-import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.security.SecureRandom
@@ -750,7 +749,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
                 IvParameterSpec(iv.toByteArray()),
             )
 
-            String(Base64.encode(cipher.doFinal(str.toByteArray()), 2), StandardCharsets.UTF_8)
+            Base64.encodeToString(cipher.doFinal(str.toByteArray()), 2)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -814,7 +813,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
                     key,
                 )
             }","encrypt_data":"$encryptedQuery"}"""
-        val base64Body = String(Base64.encode(newBody.toByteArray(), Base64.NO_WRAP))
+        val base64Body = Base64.encodeToString(newBody.toByteArray(), Base64.NO_WRAP)
 
         val formData: RequestBody = FormBody.Builder()
             .add("data", base64Body)
@@ -1000,7 +999,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
 
         linkData.data.list.forEach {
             if (it.path.isNullOrBlank().not()) {
-                val videoUrl = it.path?.replace("\\/", "") ?: ""
+                val videoUrl = it.path.replace("\\/", "")
                 try {
                     videoList.add(
                         Video(
@@ -1011,7 +1010,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
                             headers = headers,
                         ),
                     )
-                } catch (e: Error) {
+                } catch (_: Error) {
                     videoList.add(
                         Video(
                             videoUrl,
@@ -1033,7 +1032,7 @@ class SuperStreamAPI(private val json: Json, private val hideNsfw: Int) {
     @SuppressLint("NewApi")
     private fun base64DecodeArray(string: String): ByteArray = try {
         Base64.decode(string, Base64.DEFAULT)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         JavaBase64.getDecoder().decode(string)
     }
 

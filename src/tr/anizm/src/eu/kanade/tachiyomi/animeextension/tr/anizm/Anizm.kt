@@ -32,6 +32,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -91,12 +92,22 @@ class Anizm :
 
     override fun getFilterList(): AnimeFilterList = AnizmFilters.FILTER_LIST
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/$id"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.firstOrNull()?.takeIf(String::isNotBlank)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/$id"))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
         val params = AnizmFilters.getSearchParameters(filters).apply {
             animeName = query
         }
@@ -114,7 +125,7 @@ class Anizm :
                 }
             }
         }
-        AnimesPage(currentPage, hasNextPage)
+        return AnimesPage(currentPage, hasNextPage)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {

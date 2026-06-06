@@ -1,9 +1,9 @@
 ext {
-    extName = 'AnimesOnlineCC'
+    extName = 'Animes Online CC'
     extClass = '.AnimesOnlineCC'
     themePkg = 'dooplay'
     baseUrl = 'https://animesonlinecc.to'
-    overrideVersionCode = 2
+    overrideVersionCode = 3
     isNsfw = true
 }
 

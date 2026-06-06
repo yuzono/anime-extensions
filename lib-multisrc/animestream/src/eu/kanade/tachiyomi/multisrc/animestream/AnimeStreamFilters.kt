@@ -15,7 +15,7 @@ object AnimeStreamFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
@@ -69,13 +69,14 @@ object AnimeStreamFilters {
 
     fun filterInitialized() = ::filterElements.isInitialized
 
-    fun getPairListByIndex(index: Int) = filterElements.get(index)
-        .select("li")
-        .map { element ->
-            val key = element.selectFirst("label")!!.text()
-            val value = element.selectFirst("input")!!.attr("value")
+    fun getPairListByIndex(index: Int) = filterElements.getOrNull(index)
+        ?.select("li")
+        ?.mapNotNull { element ->
+            val key = element.selectFirst("label")?.text() ?: return@mapNotNull null
+            val value = element.selectFirst("input")?.attr("value") ?: return@mapNotNull null
             Pair(key, value)
-        }.toTypedArray()
+        }?.toTypedArray()
+        ?: arrayOf("" to "")
 
     private val GENRES_LIST by lazy { getPairListByIndex(0) }
     private val SEASON_LIST by lazy { getPairListByIndex(1) }

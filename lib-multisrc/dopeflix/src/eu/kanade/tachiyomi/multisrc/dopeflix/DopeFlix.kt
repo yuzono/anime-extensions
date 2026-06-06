@@ -187,7 +187,7 @@ abstract class DopeFlix(
     /* Both latest Movies & TV Shows are on same home page */
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home/", docHeaders, cacheControl)
 
-    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
     override fun latestUpdatesSelector() = throw UnsupportedOperationException()
     override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
 
