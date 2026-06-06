@@ -23,6 +23,7 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -47,14 +48,12 @@ class Hstream :
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
-    override val versionId = 3
+    override val versionId = 2
 
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/search?order=view-count&page=$page")
-    }
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/search?order=view-count&page=$page")
 
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
@@ -76,9 +75,7 @@ class Hstream :
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/search?order=recently-uploaded&page=$page")
-    }
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
@@ -164,7 +161,6 @@ class Hstream :
         genre = document.select("ul.list-none > li > a").eachText().joinToString()
 
         description = document.selectFirst("div.relative > p.leading-tight")?.text()
-        val genres = genre?.split(", ")?.size ?: 0
     }
 
     // ============================== Episodes ==============================
@@ -212,13 +208,11 @@ class Hstream :
 
                 if (!href.startsWith(urlPrefix)) return@mapNotNull null
 
-                val alt = element.selectFirst("img")?.attr("alt")
-                if (alt == null) return@mapNotNull null
+                val alt = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
 
                 if (!alt.contains(matchTitle, ignoreCase = true)) return@mapNotNull null
 
-                val epNum = href.extractEpisodeNumber()
-                if (epNum == null) return@mapNotNull null
+                val epNum = href.extractEpisodeNumber() ?: return@mapNotNull null
 
                 SEpisode.create().apply {
                     setUrlWithoutDomain(href)
@@ -231,7 +225,6 @@ class Hstream :
             // Fallback for single-series entries where search found no matching episodes.
             // Without this, the framework creates a default episode named "Episode (url)".
             if (episodes.isEmpty()) {
-
                 val episodeUrl = "$seriesUrl-1"
                 val fallbackEpNum = episodeUrl.extractEpisodeNumber()
 
@@ -260,9 +253,8 @@ class Hstream :
         val uploadDateText = doc.selectFirst("a:has(i.fa-upload)")?.ownText()
 
         val episode = SEpisode.create().apply {
-            date_upload = uploadDateText.toDate()
+            date_upload = DATE_FORMATTER.tryParse(uploadDateText)
             setUrlWithoutDomain(doc.location())
-
             val num = url.substringAfterLast("-").substringBefore("/")
             episode_number = num.toFloatOrNull() ?: 1F
             name = "Episode $num"
@@ -302,24 +294,20 @@ class Hstream :
         val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
 
         val resolutions = listOfNotNull("720", "1080", if (data.resolution == "4k") "2160" else null)
-        val videos = resolutions.map { resolution ->
+        return resolutions.map { resolution ->
             val url = urlBase + getVideoUrlPath(data.legacy != 0, resolution)
             Video(url, "${resolution}p", url, subtitleTracks = subtitleList)
         }
-        return videos
     }
 
-    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String {
-        val path = if (isLegacy) {
-            if (resolution.equals("720")) {
-                "/x264.720p.mp4"
-            } else {
-                "/av1.$resolution.webm"
-            }
+    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
+        if (resolution == "720") {
+            "/x264.720p.mp4"
         } else {
-            "/$resolution/manifest.mpd"
+            "/av1.$resolution.webm"
         }
-        return path
+    } else {
+        "/$resolution/manifest.mpd"
     }
 
     @Serializable
@@ -363,18 +351,12 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
-
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
-        .getOrNull() ?: 0L
-
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
-        val sorted = sortedWith(
+        return sortedWith(
             compareBy { it.quality.contains(quality) },
         ).reversed()
-
-        return sorted
     }
 
     companion object {
