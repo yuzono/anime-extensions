@@ -282,7 +282,7 @@ class Animetsu :
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
 
-        val playlistUtils = PlaylistUtils(client, videoHeaders()) // ← changed
+        val playlistUtils = PlaylistUtils(client, videoHeaders())
 
         return servers.parallelFlatMap { server ->
             sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
