@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.av1encodes
 
+import android.net.Uri
 import android.util.Log
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -26,7 +27,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -450,13 +450,7 @@ class AV1Encodes :
                     fullHref
                 }
 
-                val filename = fullHref.substringAfterLast("/").substringBefore("?").let {
-                    try {
-                        URLDecoder.decode(it, "UTF-8")
-                    } catch (_: Exception) {
-                        it
-                    }
-                }
+                val filename = Uri.decode(fullHref.substringAfterLast("/").substringBefore("?"))
 
                 allEpisodes.add(
                     SEpisode.create().apply {
@@ -481,11 +475,7 @@ class AV1Encodes :
         Log.d(TAG, "getVideoList: episode.url=$episodeUrl")
 
         val encodedFilename = episodeUrl.substringBefore("?").substringAfterLast("/")
-        val filename = try {
-            URLDecoder.decode(encodedFilename, "UTF-8")
-        } catch (_: Exception) {
-            encodedFilename
-        }
+        val filename = Uri.decode(encodedFilename)
         Log.d(TAG, "getVideoList: filename=$filename")
 
         val downloadPageUrl = baseUrl + episodeUrl
@@ -622,11 +612,7 @@ class AV1Encodes :
     private fun extractFilenames(html: String): List<String> {
         val filenames = mutableSetOf<String>()
         val addDecoded = { fn: String ->
-            val clean = try {
-                URLDecoder.decode(fn.trim(), "UTF-8")
-            } catch (_: Exception) {
-                fn.trim()
-            }
+            val clean = Uri.decode(fn.trim())
             if (clean.isNotBlank() && !clean.contains("/")) filenames.add(clean)
         }
         Jsoup.parse(html).select("a[href*='/download/']").forEach {

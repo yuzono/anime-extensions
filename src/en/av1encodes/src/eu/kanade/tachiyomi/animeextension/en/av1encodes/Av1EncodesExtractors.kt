@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.av1encodes
 
+import android.net.Uri
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
-import java.net.URLDecoder
 
 internal fun extractCleanTitle(raw: String): String {
     var cleaned = raw.replace(Regex("""\s*·\s*\d+\s*downloads?.*""", RegexOption.IGNORE_CASE), "")
@@ -129,11 +129,7 @@ internal fun mkvFilenameFromDownloadUrl(downloadUrl: String): String? {
     val path = downloadUrl.substringBefore("?").trimEnd('/')
     val segment = path.substringAfterLast("/")
     if (!segment.endsWith(".mkv", ignoreCase = true)) return null
-    return try {
-        URLDecoder.decode(segment, "UTF-8")
-    } catch (_: Exception) {
-        segment
-    }
+    return Uri.decode(segment)
 }
 
 /**
@@ -161,11 +157,7 @@ internal fun extractMkvFilenameFromHtml(html: String): String? {
 
     val path = downloadHref.substringBefore("?").trimEnd('/')
     val segment = path.substringAfterLast("/")
-    return try {
-        URLDecoder.decode(segment, "UTF-8")
-    } catch (_: Exception) {
-        segment
-    }
+    return Uri.decode(segment)
 }
 
 /**
@@ -184,11 +176,7 @@ internal fun filenameFromPageUrl(pageUrl: String): String {
     val path = unescaped.substringBefore("?")
     val segment = path.trimEnd('/').substringAfterLast("/")
     val noWin = segment.substringBefore("\\")
-    return try {
-        URLDecoder.decode(noWin, "UTF-8")
-    } catch (_: Exception) {
-        noWin
-    }
+    return Uri.decode(noWin)
 }
 
 internal fun buildEpisodeLabel(item: EpisodeItem, season: String): String {
