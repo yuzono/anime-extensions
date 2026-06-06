@@ -375,8 +375,7 @@ class Animetsu :
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(quality) }
                 .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
-                .thenByDescending { it.quality.contains(server, true) }
-                .thenByDescending { it.quality.contains(type, true) },
+                .thenByDescending { it.quality.contains(server, true) },
         )
     }
 
