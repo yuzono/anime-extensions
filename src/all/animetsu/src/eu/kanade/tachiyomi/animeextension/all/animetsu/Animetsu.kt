@@ -281,7 +281,7 @@ class Animetsu :
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
 
-        val playlistUtils = PlaylistUtils(client, videoHeaders())
+        val playlistUtils = PlaylistUtils(client, videoHeaders(watchReferer))
 
         return servers.parallelFlatMap { server ->
             sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
@@ -314,7 +314,7 @@ class Animetsu :
                                 fullUrl,
                                 "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
                                 fullUrl,
-                                videoHeaders(),
+                                videoHeaders(watchReferer),
                                 subtitleTracks,
                             ).let(::listOf)
                         source.type?.contains("mpegurl") == true ->
