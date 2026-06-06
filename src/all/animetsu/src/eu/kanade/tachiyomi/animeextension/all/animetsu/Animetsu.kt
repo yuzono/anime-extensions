@@ -550,7 +550,7 @@ class Animetsu :
                     val subUrl = lines[i + 1].trim()
                     val absoluteSubUrl = when {
                         subUrl.startsWith("http") -> subUrl
-                        subUrl.startsWith("//") -> "${fullUrl.toHttpUrl().scheme}:$subUrl" // Prevents https:////
+                        subUrl.startsWith("//") -> "${fullUrl.toHttpUrl().scheme}:$subUrl"
                         subUrl.startsWith("/") -> {
                             val httpUrl = fullUrl.toHttpUrl()
                             "${httpUrl.scheme}://${httpUrl.host}$subUrl"
@@ -604,7 +604,6 @@ class Animetsu :
                 )
             } else {
                 // If the server fails to proxy the URL, we MUST NOT add the raw URL.
-                // Adding the raw URL causes "cubes" / macroblocking.
                 Log.e("Animetsu", "Dropping Dio video due to M3U8 server failure.")
             }
         }
