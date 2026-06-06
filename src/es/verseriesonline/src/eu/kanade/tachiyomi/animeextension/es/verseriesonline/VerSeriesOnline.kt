@@ -25,6 +25,7 @@ import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Cookie
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
@@ -68,12 +69,22 @@ class VerSeriesOnline :
 
     override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = if (query.startsWith(PREFIX_SEARCH)) {
-        val id = query.removePrefix(PREFIX_SEARCH)
-        client.newCall(GET("$baseUrl/recherche?q=$id", headers))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    } else {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return client.newCall(GET("$baseUrl/recherche?q=$id", headers))
+                .awaitSuccess()
+                .use(::searchAnimeByIdParse)
+        }
         val url = buildSearchUrl(query, page, filters)
         val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
         val animeList = document.select(searchAnimeSelector()).map { element ->
@@ -83,7 +94,7 @@ class VerSeriesOnline :
             document.select(it).isNotEmpty()
         }
 
-        AnimesPage(animeList, hasNextPage)
+        return AnimesPage(animeList, hasNextPage)
     }
 
     private fun buildSearchUrl(query: String, page: Int, filters: AnimeFilterList): String {

@@ -15,9 +15,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -65,7 +65,7 @@ class AnimeBase :
 
     private val searchToken by lazy {
         client.newCall(GET("$baseUrl/searching", headers)).execute()
-            .asJsoup()
+            .useAsJsoup()
             .selectFirst("form > input[name=_token]")!!
             .attr("value")
     }
@@ -94,7 +94,7 @@ class AnimeBase :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         return when {
             doc.location().contains("/searching") -> {
@@ -138,7 +138,7 @@ class AnimeBase :
         }
     }
 
-    private fun parseStatus(status: String?) = when (status?.orEmpty()) {
+    private fun parseStatus(status: String?) = when (status.orEmpty()) {
         "Laufend" -> SAnime.ONGOING
         "Abgeschlossen" -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
@@ -183,7 +183,7 @@ class AnimeBase :
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val selector = response.request.url.queryParameter("selector")
             ?: return emptyList()
 
@@ -214,8 +214,8 @@ class AnimeBase :
     private val unpackerExtractor by lazy { UnpackerExtractor(client, headers) }
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun getVideosFromHoster(hoster: String, urlpart: String): List<Video> {
-        val url = hosterSettings.get(hoster)!! + urlpart
+    private suspend fun getVideosFromHoster(hoster: String, urlpart: String): List<Video> {
+        val url = hosterSettings[hoster]!! + urlpart
         return when (hoster) {
             "Streamwish" -> streamWishExtractor.videosFromUrl(url)
             "Voe.SX" -> voeExtractor.videosFromUrl(url)
@@ -253,13 +253,6 @@ class AnimeBase :
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -269,13 +262,6 @@ class AnimeBase :
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
