@@ -109,7 +109,6 @@ class Animetsu :
     private fun videoHeaders(referer: String = "$baseUrl/"): Headers = Headers.Builder()
         .add("Accept", "*/*")
         .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Accept-Encoding", "gzip, deflate, br, zstd")
         .add("Origin", baseUrl)
         .add("Referer", referer)
         .add("Sec-Fetch-Dest", "empty")
