@@ -4,21 +4,24 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class OgladajAnime :
     ParsedAnimeHttpSource(),
@@ -32,8 +35,6 @@ class OgladajAnime :
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
     private val apiHeaders = Headers.Builder()
         .set("Accept", "application/json, text/plain, */*")
         .set("Referer", "$baseUrl/")
@@ -45,39 +46,77 @@ class OgladajAnime :
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search/page/$page", apiHeaders)
-    override fun popularAnimeSelector(): String = "div#anime_main div.card.bg-white"
-
-    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        thumbnail_url = element.selectFirst("img")?.attr("data-srcset")
-        title = element.selectFirst("h5.card-title > a")!!.text()
+    override fun popularAnimeRequest(page: Int): Request {
+        val body = FormBody.Builder()
+            .add("page", "$page")
+            .add("search_type", "page")
+            .build()
+        return POST("$baseUrl/manager.php?action=get_search", apiHeaders, body)
     }
-    override fun popularAnimeNextPageSelector(): String = "section:has(div#anime_main)" // To nie działa zostało to tylko dlatego by ładowało ale na końcu niestety wyskakuje ze "nie znaleziono" i tak zostaje zamiast zniknać możliwe ze zle fetchuje.
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val animeParse = response.parseAs<FetchAnime>()
+
+        val cleanHtml = animeParse.data.replace(Regex("[\\t\\n\\r]+"), "")
+        var counter = 0
+        val document = Jsoup.parse(cleanHtml).select("div.anime-item div.card.bg-white").map { element ->
+            counter++
+            SAnime.create().apply {
+                setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
+                thumbnail_url = element.selectFirst("img")?.attr("data-srcset")
+                title = element.selectFirst("h5.card-title > a")!!.text()
+            }
+        }
+        val hasNextPage = counter >= 25
+
+        return AnimesPage(document, hasNextPage)
+    }
+    override fun popularAnimeSelector(): String = throw UnsupportedOperationException()
+
+    override fun popularAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
+
+    override fun popularAnimeNextPageSelector(): String = throw UnsupportedOperationException()
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search/new/$page", apiHeaders)
+    override fun latestUpdatesRequest(page: Int): Request {
+        val body = FormBody.Builder()
+            .add("page", "$page")
+            .add("search_type", "new")
+            .build()
+        return POST("$baseUrl/manager.php?action=get_search", apiHeaders, body)
+    }
 
-    override fun latestUpdatesSelector(): String = popularAnimeSelector()
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun latestUpdatesNextPageSelector(): String = popularAnimeNextPageSelector()
+    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
-    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
+
+    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/search/name/$query", apiHeaders)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val body = FormBody.Builder()
+            .add("page", "$page")
+            .add("search_type", "name")
+            .add("search", query)
+            .build()
+        return POST("$baseUrl/manager.php?action=get_search", apiHeaders, body)
+    }
 
-    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
+    override fun searchAnimeFromElement(element: Element): SAnime = throw UnsupportedOperationException()
 
-    override fun searchAnimeNextPageSelector(): String? = null
+    override fun searchAnimeSelector(): String = throw UnsupportedOperationException()
+
+    override fun searchAnimeNextPageSelector(): String = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        // status = document.selectFirst("div.toggle-content > ul > li:contains(Status)")?.let { parseStatus(it.text()) } ?: SAnime.UNKNOWN // Nie pamietam kiedyś sie to naprawi.
+        status = parseStatus(document.select("div.col-12 > p.m-0:contains(Status)").text())
         description = document.selectFirst("p#animeDesc")?.text()
         genre = document.select("div.row > div.col-12 > span.badge[href^=/search/name/]").joinToString(", ") {
             it.text()
@@ -125,12 +164,12 @@ class OgladajAnime :
         return episode
     }
 
-    // ============================ Video Links =============================
+    // ============================ Video Links ==============================
 
     override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl:8443/Player/${episode.url}", apiHeaders)
 
     override fun videoListParse(response: Response): List<Video> {
-        val players = json.decodeFromString<List<ApiPlayer>>(response.body.string())
+        val players = response.parseAs<List<ApiPlayer>>()
 
         return players.map { player ->
             val host = Regex("""https?://(?:www\.)?([^/]+)""")
@@ -169,12 +208,25 @@ class OgladajAnime :
         val youtube: String? = null,
     )
 
+    @Serializable
+    data class FetchAnime(
+        val title: String,
+        val data: String,
+        val gen_time: Int,
+    )
+
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.lowercase().contains("emitowane") -> SAnime.ONGOING
+        statusString.lowercase().contains("zakończone") -> SAnime.COMPLETED
+        statusString.lowercase().contains("zapowiedź") -> SAnime.ON_HIATUS
+        statusString.lowercase().contains("deklaracja") -> SAnime.ON_HIATUS
+        else -> SAnime.UNKNOWN
+    }
+
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString("preferred_quality", "1080")!!
         return this.sortedWith(
-            compareBy(
-                { it.quality.contains(quality) },
-            ),
+            compareBy { it.quality.contains(quality) },
         ).reversed()
     }
 
@@ -186,15 +238,7 @@ class OgladajAnime :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue("1080")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
-
         screen.addPreference(videoQualityPref)
     }
 }

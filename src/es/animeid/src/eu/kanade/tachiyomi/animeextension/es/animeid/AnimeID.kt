@@ -1,11 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.es.animeid
 
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -13,9 +10,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.getPreferencesLazy
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -24,13 +23,11 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
-import java.util.Date
+import java.util.Calendar
+import java.util.Locale
 
-class AnimeID :
-    ParsedAnimeHttpSource(),
-    ConfigurableAnimeSource {
+class AnimeID : ParsedAnimeHttpSource() {
 
     override val name = "AnimeID"
 
@@ -39,10 +36,6 @@ class AnimeID :
     override val lang = "es"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
-
-    private val preferences by getPreferencesLazy()
 
     override fun popularAnimeSelector(): String = "#result article.item"
 
@@ -62,7 +55,7 @@ class AnimeID :
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val animeId = document.select("#ord").attr("data-id")
         return episodeJsonParse(response.request.url.toString(), animeId)
     }
@@ -80,35 +73,35 @@ class AnimeID :
                 .build()
 
             val responseString = client.newCall(GET("https://www.animeid.tv/ajax/caps?id=$animeId&ord=DESC&pag=$nextPage", headers))
-                .execute().asJsoup().body()!!.toString().substringAfter("<body>").substringBefore("</body>")
-            val jObject = json.decodeFromString<JsonObject>(responseString)
+                .execute().bodyString().substringAfter("<body>").substringBefore("</body>")
+            val jObject = responseString.parseAs<JsonObject>()
             val listCaps = jObject["list"]!!.jsonArray
-            listCaps!!.forEach { cap ->
+            listCaps.forEach { cap ->
                 val capParsed = cap.jsonObject
                 val epNum = capParsed["numero"]!!.jsonPrimitive.content
                 val episode = SEpisode.create()
-                val dateUpload = manualDateParse(capParsed["date"]!!.jsonPrimitive.content!!.toString())
+                val dateUpload = manualDateParse(capParsed["date"]!!.jsonPrimitive.content)
                 episode.episode_number = epNum.toFloat()
                 episode.name = "Episodio $epNum"
                 dateUpload!!.also { episode.date_upload = it }
-                episode.setUrlWithoutDomain(baseUrl + capParsed["href"]!!.jsonPrimitive.content!!.toString())
+                episode.setUrlWithoutDomain(baseUrl + capParsed["href"]!!.jsonPrimitive.content)
                 capList.add(episode)
             }
-            if (listCaps!!.any()) nextPage += 1 else nextPage = -1
+            if (listCaps.any()) nextPage += 1 else nextPage = -1
         } while (nextPage != -1)
         return capList
     }
 
     private fun manualDateParse(stringDate: String): Long? = try {
-        val format = SimpleDateFormat("dd MMM yyyy")
-        format.parse(stringDate!!.toString()).time
-    } catch (e: Exception) {
-        var dateParsed = stringDate.split(" ")
-        val arrMonths = arrayOf("Jun", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-        val day = dateParsed[0]!!.trim().toInt()
+        val format = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH)
+        format.tryParse(stringDate)
+    } catch (_: Exception) {
+        val dateParsed = stringDate.split(" ")
+        val arrMonths = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val day = dateParsed[0].trim().toInt()
         val month = arrMonths.indexOf(dateParsed[1].trim()) + 1
-        val year = dateParsed[2]!!.trim().toInt()
-        Date(year, month, day).time
+        val year = dateParsed[2].trim().toInt()
+        Calendar.getInstance().apply { set(year, month - 1, day) }.time.time
     }
 
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
@@ -119,9 +112,8 @@ class AnimeID :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
-        document.select("#partes div.container li.subtab div.parte").forEach { script ->
+        val document = response.useAsJsoup()
+        return document.select("#partes div.container li.subtab div.parte").parallelCatchingFlatMapBlocking { script ->
             val jsonString = script.attr("data")
             val titleServer = script.closest(".subtab")?.attr("data-tab-id")?.let {
                 document.selectFirst("#mirrors [data-tab-id=\"$it\"]")?.ownText()?.trim()
@@ -129,14 +121,12 @@ class AnimeID :
             val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
             val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
             val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in titleServer.lowercase() } }?.first
-            val videos = when (matched) {
+            when (matched) {
                 "streamtape" -> streamtapeExtractor.videosFromUrl(url)
                 "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
                 else -> universalExtractor.videosFromUrl(url, headers)
             }
-            videoList.addAll(videos)
         }
-        return videoList
     }
 
     private val conventions = listOf(
@@ -162,7 +152,7 @@ class AnimeID :
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https):\\/\\/([\\w_-]+(?:(?:\\.[\\w_-]+)+))([\\w.,@?^=%&:\\/~+#-]*[\\w@?^=%&\\/~+#-])".toRegex()
+        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
@@ -362,22 +352,4 @@ class AnimeID :
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/series?sort=newest&pag=$page")
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = "preferred_quality"
-            title = "Preferred server"
-            entries = arrayOf("StreamTape")
-            entryValues = arrayOf("StreamTape")
-            setDefaultValue("StreamTape")
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-    }
 }

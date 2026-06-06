@@ -25,12 +25,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
 class MoflixStream :
     AnimeHttpSource(),
@@ -48,8 +46,6 @@ class MoflixStream :
 
     private val preferences by getPreferencesLazy()
 
-    private val json: Json by injectLazy()
-
     private val apiUrl = "$baseUrl/api/v1"
 
     // ============================== Popular ===============================
@@ -62,7 +58,7 @@ class MoflixStream :
         val pagination = response.parseAs<PopularPaginationDto>().pagination
 
         val animeList = pagination.data.parseItems()
-        val hasNextPage = pagination.current_page < pagination.next_page ?: 1
+        val hasNextPage = pagination.current_page < (pagination.next_page ?: 1)
         return AnimesPage(animeList, hasNextPage)
     }
 
@@ -100,9 +96,7 @@ class MoflixStream :
         val id = data.title.id
         val seasonsUrl = "$apiUrl/titles/$id/seasons"
 
-        val seasons = data.seasons
-
-        return when (seasons) {
+        return when (val seasons = data.seasons) {
             null -> {
                 SEpisode.create().apply {
                     name = "Film"
@@ -157,24 +151,24 @@ class MoflixStream :
         val selection = preferences.getStringSet(PREF_HOSTER_SELECTION_KEY, PREF_HOSTER_SELECTION_DEFAULT)!!
         val data = response.parseAs<VideoResponseDto>().run { episode ?: title }
 
-        return data!!.videos.flatMap { video ->
+        return data!!.videos.parallelCatchingFlatMapBlocking { video ->
             val name = video.name
             val url = video.src
-            runCatching { getVideosFromUrl(url, name, selection) }.getOrElse { emptyList() }
-        }.ifEmpty { throw Exception("No videos!") }
+            getVideosFromUrl(url, name, selection)
+        }
     }
 
-    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> = when {
+    private suspend fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> = when {
         name.contains("Streamtape") && selection.contains("stape") -> {
             streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
         }
 
         name.contains("Streamvid") && selection.contains("svid") -> {
-            runBlocking { vidHideExtractor.videosFromUrl(url) }
+            vidHideExtractor.videosFromUrl(url)
         }
 
         name.contains("Highstream") && selection.contains("hstream") -> {
-            runBlocking { vidHideExtractor.videosFromUrl(url) { "Highstream - $it" } }
+            vidHideExtractor.videosFromUrl(url) { "Highstream - $it" }
         }
 
         name.contains("VidGuard") && selection.contains("vidg") -> {
@@ -209,13 +203,6 @@ class MoflixStream :
             entryValues = PREF_HOSTER_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -224,11 +211,6 @@ class MoflixStream :
             entries = PREF_HOSTER_SELECTION_ENTRIES
             entryValues = PREF_HOSTER_SELECTION_ENTRIES
             setDefaultValue(PREF_HOSTER_SELECTION_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
     }
 

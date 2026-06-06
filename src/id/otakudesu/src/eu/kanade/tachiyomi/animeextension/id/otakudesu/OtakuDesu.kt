@@ -16,11 +16,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -78,7 +80,7 @@ class OtakuDesu :
             .toFloatOrNull() ?: 1F
         setUrlWithoutDomain(link.attr("href"))
         name = text.replace(nameRegex, "")
-        date_upload = element.selectFirst("span.zeebr")?.text().toDate()
+        date_upload = element.selectFirst("span.zeebr")?.text().let(DATE_FORMATTER::tryParse)
     }
 
     override fun episodeListSelector() = "#venkonten > div.venser > div:nth-child(8) > ul > li"
@@ -140,7 +142,7 @@ class OtakuDesu :
     private val genreSelector = ".col-anime"
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
 
         val ui = when {
             document.selectFirst(genreSelector) == null -> "search"
@@ -163,7 +165,7 @@ class OtakuDesu :
     override fun videoListSelector() = "div.mirrorstream ul li > a"
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val script = doc.selectFirst("script:containsData({action:)")!!
             .data()
 
@@ -181,7 +183,7 @@ class OtakuDesu :
             }
     }
 
-    private fun getEmbedLinks(element: Element, action: String, nonce: String): Pair<String, String> {
+    private suspend fun getEmbedLinks(element: Element, action: String, nonce: String): Pair<String, String> {
         val decodedData = element.attr("data-content").b64Decode()
             .drop(1)
             .dropLast(1)
@@ -199,8 +201,8 @@ class OtakuDesu :
         }.build()
 
         val doc = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", body = form))
-            .execute()
-            .body.string()
+            .awaitSuccess()
+            .bodyString()
             .substringAfter(":\"")
             .substringBefore('"')
             .b64Decode()
@@ -215,7 +217,7 @@ class OtakuDesu :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
-    private fun getVideosFromEmbed(quality: String, link: String): List<Video> = when {
+    private suspend fun getVideosFromEmbed(quality: String, link: String): List<Video> = when {
         "filelions" in link -> {
             filelionsExtractor.videosFromUrl(link, videoNameGen = { "FileLions - $it" })
         }
@@ -227,8 +229,8 @@ class OtakuDesu :
         }
 
         "desustream" in link -> {
-            client.newCall(GET(link, headers)).execute().let {
-                val doc = it.asJsoup()
+            client.newCall(GET(link, headers)).awaitSuccess().let {
+                val doc = it.useAsJsoup()
                 val script = doc.selectFirst("script:containsData(sources)")!!.data()
                 val videoUrl = script.substringAfter("sources:[{")
                     .substringAfter("file':'")
@@ -238,8 +240,8 @@ class OtakuDesu :
         }
 
         "mp4upload" in link -> {
-            client.newCall(GET(link, headers)).execute().let {
-                val doc = it.asJsoup()
+            client.newCall(GET(link, headers)).awaitSuccess().let {
+                val doc = it.useAsJsoup()
                 val script = doc.selectFirst("script:containsData(player.src)")!!.data()
                 val videoUrl = script.substringAfter("src: \"").substringBefore('"')
                 listOf(Video(videoUrl, "Mp4upload - $quality", videoUrl, headers))
@@ -247,7 +249,7 @@ class OtakuDesu :
         }
 
         "vidhide" in link -> {
-            runBlocking { vidHideExtractor.videosFromUrl(link) }
+            vidHideExtractor.videosFromUrl(link)
         }
 
         else -> emptyList()
@@ -257,7 +259,7 @@ class OtakuDesu :
         val form = FormBody.Builder().add("action", action).build()
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", body = form))
             .execute()
-            .body.string()
+            .bodyString()
             .substringAfter(":\"")
             .substringBefore('"')
     }
@@ -328,12 +330,6 @@ class OtakuDesu :
             entryValues = PREF_QUALITY_ENTRIES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(videoQualityPref)
     }
@@ -346,9 +342,6 @@ class OtakuDesu :
                 else -> it
             }.trim()
         }
-
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

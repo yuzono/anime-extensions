@@ -11,6 +11,16 @@ import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.roundToInt
+
+class TagField(
+    val showExtraInfo: Boolean = true,
+    val showStaff: Boolean = true,
+    val showCharacters: Boolean = true,
+    val showRelations: Boolean = true,
+    val showTrackers: Boolean = true,
+    val showTrailer: Boolean = true,
+)
 
 @Serializable
 data class AnimetsuSearchDto(
@@ -69,146 +79,183 @@ data class AnimetsuAnimeDto(
     @SerialName("clear_logo") val clearLogo: String? = null,
     val users: Int? = null,
 ) {
-    fun toSAnime(titleLanguage: String): SAnime? = SAnime.create().apply {
+    fun toSAnime(
+        titleLanguage: String,
+        showTags: Boolean,
+        tagField: TagField = TagField(),
+    ): SAnime? = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
         title = dto.title?.preferredTitle(titleLanguage) ?: return null
         thumbnail_url = dto.coverImage?.large ?: dto.coverImage?.medium
-        genre = (dto.genres.orEmpty() + dto.tags.orEmpty()).joinToString()
+
+        val genreList = dto.genres.orEmpty()
+        val tagList = if (showTags) dto.tags.orEmpty() else emptyList()
+        genre = (genreList + tagList).joinToString().takeIf { it.isNotBlank() }
+
         status = parseStatus(dto.status)
-        description = dto.buildDescription()
+        description = dto.buildDescription(tagField).takeIf { it.isNotBlank() }
         artist = dto.staff?.filter {
             it.role in listOf("Original Story", "Original Creator", "Original Character Design")
         }?.mapNotNull { it.name }?.joinToString()
-        author = dto.studios?.firstOrNull { it.isMain }?.name
-            ?: dto.studios?.joinToString { it.name }
+            ?.takeIf { it.isNotBlank() }
+        author = (
+            dto.studios?.firstOrNull { it.isMain }?.name
+                ?: dto.studios?.joinToString { it.name }
+            )
+            ?.takeIf { it.isNotBlank() }
     }
 
-    fun buildDescription(): String {
+    private fun getFancyScore(score: Int): String {
+        if (score <= 0) return ""
+        val stars = (score / 20.0).roundToInt().coerceIn(1, 5)
+        return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
+    }
+
+    fun buildDescription(tagField: TagField): String {
         val desc = StringBuilder()
 
+        averageScore?.let { score ->
+            val fancyScore = getFancyScore(score)
+            if (fancyScore.isNotEmpty()) {
+                desc.append(fancyScore)
+            }
+        }
+
         description?.cleanHtml()?.let {
+            if (desc.isNotBlank()) desc.append("\n\n")
             desc.append(it)
         }
 
-        val meta = mutableListOf<String>()
-        format?.let { meta.add(it.replace("_", " ").titleCase()) }
-        source?.let { meta.add("**Source**: ${it.replace("_", " ").titleCase()}") }
-        status?.let {
-            val statusStr = when (it) {
-                "RELEASING" -> "Airing"
-                "FINISHED" -> "Finished"
-                "NOT_YET_RELEASED" -> "Upcoming"
-                "CANCELLED" -> "Cancelled"
-                else -> it.replace("_", " ").titleCase()
-            }
-            meta.add(statusStr)
-        }
-        totalEps?.let { meta.add("**Episodes**: $it") }
-        duration?.let { meta.add("**Duration**: $it min") }
-        season?.let { season ->
-            val year = year
-            meta.add(if (year != null) "${season.titleCase()} $year" else season.titleCase())
-        }
-        country?.let { meta.add("**Country**: $it") }
-        if (meta.isNotEmpty()) {
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append(meta.joinToString(" | "))
-        }
-
-        val dates = mutableListOf<String>()
-        startDate?.let { dates.add("**Start**: $it") }
-        endDate?.let { dates.add("**End**: $it") }
-        if (dates.isNotEmpty()) {
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append(dates.joinToString(" | "))
-        }
-
-        averageScore?.let { score ->
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Score**: $score/100")
-            meanScore?.takeIf { it != score }?.let { mean ->
-                desc.append(" *(Mean: $mean/100)*")
-            }
-        }
-
-        val stats = mutableListOf<String>()
-        popularity?.let { stats.add("**Popularity**: $it") }
-        favourites?.let { stats.add("**Favourites**: $it") }
-        trending?.let { if (it > 0) stats.add("**Trending**: $it") }
-        if (stats.isNotEmpty()) {
-            if (desc.isNotBlank()) desc.append("\n")
-            desc.append(stats.joinToString(" | "))
-        }
-
-        studios?.takeIf { it.isNotEmpty() }?.let { studios ->
-            val mainStudio = studios.firstOrNull { it.isMain }?.name
-            val otherStudios = studios.filter { !it.isMain }.map { it.name }
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Studio**: ")
-            if (mainStudio != null && otherStudios.isNotEmpty()) {
-                desc.append("$mainStudio (${otherStudios.joinToString(", ")})")
-            } else {
-                desc.append(studios.joinToString(", ") { it.name })
-            }
-        }
-
-        synonyms?.takeIf { it.isNotEmpty() }?.let {
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Synonyms**: ").append(it.joinToString(", "))
-        }
-
-        hashtag?.takeIf { it.isNotBlank() }?.let {
-            if (desc.isNotBlank()) desc.append("\n")
-            desc.append("**Hashtag**: $it")
-        }
-
-        relations?.takeIf { it.isNotEmpty() }?.let { relations ->
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Relations**:")
-            relations.forEach { rel ->
-                val relTitle = rel.title?.english ?: rel.title?.romaji ?: rel.title?.native ?: "Unknown"
-                val relType = rel.relationType?.replace("_", " ")?.titleCase() ?: ""
-                val relFormat = rel.format?.replace("_", " ")?.titleCase() ?: ""
-                val relSeasonYear = buildString {
-                    rel.season?.let { append(it.titleCase()) }
-                    rel.year?.let { y ->
-                        if (isNotEmpty()) append(" ")
-                        append(y)
-                    }
+        if (tagField.showExtraInfo) {
+            val meta = mutableListOf<String>()
+            format?.let { meta.add(it.replace("_", " ").titleCase()) }
+            status?.let {
+                val statusStr = when (it) {
+                    "RELEASING" -> "Airing"
+                    "FINISHED" -> "Finished"
+                    "NOT_YET_RELEASED" -> "Upcoming"
+                    "CANCELLED" -> "Cancelled"
+                    else -> it.replace("_", " ").titleCase()
                 }
-                desc.append("\n* $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
+                meta.add(statusStr)
+            }
+            totalEps?.let { meta.add("**Episodes**: $it") }
+            duration?.let { meta.add("**Duration**: $it min") }
+            season?.let { season ->
+                val year = year
+                meta.add(if (year != null) "${season.titleCase()} $year" else season.titleCase())
+            }
+            country?.let { meta.add("**Country**: $it") }
+            source?.let { meta.add("**Source**: ${it.replace("_", " ").titleCase()}") }
+
+            if (meta.isNotEmpty()) {
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append(meta.joinToString(" | "))
+            }
+
+            val dates = mutableListOf<String>()
+            startDate?.let { dates.add("**Start**: $it") }
+            endDate?.let { dates.add("**End**: $it") }
+            if (dates.isNotEmpty()) {
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append(dates.joinToString(" | "))
+            }
+
+            synonyms?.takeIf { it.isNotEmpty() }?.let {
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("**Synonyms**: ").append(it.joinToString(", "))
+            }
+
+            hashtag?.takeIf { it.isNotBlank() }?.let {
+                if (desc.isNotBlank()) desc.append("\n")
+                desc.append("**Hashtag**: $it")
+            }
+
+            meanScore?.takeIf { it != averageScore }?.let { mean ->
+                if (desc.isNotBlank()) desc.append("\n")
+                desc.append("**Mean Score**: $mean/100")
+            }
+
+            val stats = mutableListOf<String>()
+            popularity?.let { stats.add("**Popularity**: $it") }
+            favourites?.let { stats.add("**Favourites**: $it") }
+            trending?.let { if (it > 0) stats.add("**Trending**: $it") }
+            users?.let { stats.add("**Bookmarked**: $it") }
+            if (stats.isNotEmpty()) {
+                if (desc.isNotBlank()) desc.append("\n")
+                desc.append(stats.joinToString(" | "))
+            }
+
+            studios?.takeIf { it.isNotEmpty() }?.let { studios ->
+                val mainStudio = studios.firstOrNull { it.isMain }?.name
+                val otherStudios = studios.filter { !it.isMain }.map { it.name }
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("**Studio**: ")
+                if (mainStudio != null && otherStudios.isNotEmpty()) {
+                    desc.append("$mainStudio (${otherStudios.joinToString(", ")})")
+                } else {
+                    desc.append(studios.joinToString(", ") { it.name })
+                }
             }
         }
 
-        characters?.filter { it.role == "MAIN" }?.takeIf { it.isNotEmpty() }?.let { chars ->
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Main Characters**:")
-            chars.forEach { char ->
-                val va = char.voiceActor?.let { "${it.name} (${it.language})" } ?: "Unknown"
-                desc.append("\n* ${char.name} (VA: $va)")
+        if (tagField.showRelations) {
+            relations?.takeIf { it.isNotEmpty() }?.let { relations ->
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("**Relations**:")
+                relations.forEach { rel ->
+                    val relTitle = rel.title?.english ?: rel.title?.romaji ?: rel.title?.native ?: "Unknown"
+                    val relType = rel.relationType?.replace("_", " ")?.titleCase() ?: ""
+                    val relFormat = rel.format?.replace("_", " ")?.titleCase() ?: ""
+                    val relSeasonYear = buildString {
+                        rel.season?.let { append(it.titleCase()) }
+                        rel.year?.let { y ->
+                            if (isNotEmpty()) append(" ")
+                            append(y)
+                        }
+                    }
+                    desc.append("\n* $relTitle ($relFormat${if (relSeasonYear.isNotBlank()) ", $relSeasonYear" else ""}) [$relType]")
+                }
             }
         }
 
-        staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("**Staff**:")
-            staffList.forEach { s ->
-                desc.append("\n* ${s.role}: ${s.name}")
+        if (tagField.showCharacters) {
+            characters?.filter { it.role == "MAIN" }?.takeIf { it.isNotEmpty() }?.let { chars ->
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("**Main Characters**:")
+                chars.forEach { char ->
+                    val va = char.voiceActor?.let { "${it.name} (${it.language})" } ?: "Unknown"
+                    desc.append("\n* ${char.name} (VA: $va)")
+                }
             }
         }
 
-        val ids = mutableListOf<String>()
-        anilistId?.let { ids.add("[AniList](https://anilist.co/anime/$it)") }
-        malId?.let { ids.add("[MAL](https://myanimelist.net/anime/$it)") }
-        if (ids.isNotEmpty()) {
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append(ids.joinToString(" | "))
+        if (tagField.showStaff) {
+            staff?.takeIf { it.isNotEmpty() }?.let { staffList ->
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("**Staff**:")
+                staffList.forEach { s ->
+                    desc.append("\n* ${s.role}: ${s.name}")
+                }
+            }
         }
 
-        trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
-            if (desc.isNotBlank()) desc.append("\n\n")
-            desc.append("[Trailer](https://www.youtube.com/watch?v=$it)")
+        if (tagField.showTrackers) {
+            val ids = mutableListOf<String>()
+            anilistId?.let { ids.add("[AniList](https://anilist.co/anime/$it)") }
+            malId?.let { ids.add("[MAL](https://myanimelist.net/anime/$it)") }
+            if (ids.isNotEmpty()) {
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append(ids.joinToString(" | "))
+            }
+        }
+
+        if (tagField.showTrailer) {
+            trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("[Trailer](https://www.youtube.com/watch?v=$it)")
+            }
         }
 
         return desc.toString().trim()
@@ -259,12 +306,15 @@ data class AnimetsuSeasonDto(
 
 @Serializable
 data class AnimetsuEpisodeDto(
-    @SerialName("ep_num") val epNum: Double? = null, // Was Int?
+    @SerialName("ep_num") val epNum: Double? = null,
     @SerialName("aired_at") val airedAt: String? = null,
     val desc: String? = null,
     @SerialName("is_filler") val isFiller: Boolean? = null,
     val name: String? = null,
     val id: String = "",
+    val likes: Int? = null,
+    val dislikes: Int? = null,
+    val views: Int? = null,
 ) {
     companion object {
         private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
@@ -272,14 +322,13 @@ data class AnimetsuEpisodeDto(
         }
     }
 
-    fun toSEpisode(animeId: String): SEpisode? {
+    fun toSEpisode(animeId: String, showEpStats: Boolean): SEpisode? {
         val epNum = this.epNum ?: return null
-        if (epNum <= 0.0) return null // That Time I Got Reincarnated as a Slime Season 3 has an Episode 0 that does not exist
+        if (epNum <= 0.0) return null
         val dtoName = this.name
         val dtoFiller = this.isFiller
         val dtoAiredAt = this.airedAt
 
-        // Format: 17.5 → "17.5", 1.0 → "1"; e.g. That Time I Got Reincarnated as a Slime Season 3
         val epNumStr = if (epNum % 1.0 == 0.0) epNum.toInt().toString() else epNum.toString()
 
         return SEpisode.create().apply {
@@ -290,8 +339,25 @@ data class AnimetsuEpisodeDto(
                 if (dtoFiller == true) append(" (Filler)")
             }
             episode_number = epNum.toFloat()
-            date_upload = DATE_FORMATTER.tryParse(dtoAiredAt) // Now uses the shared constant
+            date_upload = DATE_FORMATTER.tryParse(dtoAiredAt)
+
+            scanlator = if (showEpStats) {
+                val parts = mutableListOf<String>()
+                views?.let { parts.add("Views: ${formatNumber(it)}") }
+                likes?.let { parts.add("Likes: ${formatNumber(it)}") }
+                dislikes?.let { parts.add("Dislikes: ${formatNumber(it)}") }
+                parts.joinToString(" | ")
+                    .ifEmpty { "\u200B" }
+            } else {
+                "\u200B"
+            }
         }
+    }
+
+    private fun formatNumber(num: Int): String = when {
+        num >= 1_000_000 -> "${num / 100_000 / 10.0}M"
+        num >= 1_000 -> "${num / 100 / 10.0}k"
+        else -> num.toString()
     }
 }
 
