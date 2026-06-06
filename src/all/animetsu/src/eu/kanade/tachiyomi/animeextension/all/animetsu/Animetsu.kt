@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.m3u8server.M3u8ServerManager
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -18,13 +20,13 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
@@ -48,6 +50,17 @@ class Animetsu :
     override val lang = "all"
 
     override val supportsLatest = true
+
+    // Custom client for Dio to avoid HTTP/2 stream timeout and allow longer reads
+    private val dioClient by lazy {
+        client.newBuilder()
+            .readTimeout(30, TimeUnit.SECONDS)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .build()
+    }
+
+    // M3u8ServerManager uses the dioClient to ensure the local server also fetches segments via HTTP/1.1
+    private val m3u8ServerManager by lazy { M3u8ServerManager(dioClient) }
 
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
@@ -301,37 +314,139 @@ class Animetsu :
                     else -> ""
                 }
 
-                dto.sources.flatMapCatching { source ->
+                val isDio = server.id.equals("dio", ignoreCase = true)
+
+                val videos = mutableListOf<Video>()
+
+                dto.sources.forEach { source ->
                     val fullUrl = when {
                         source.needProxy -> "$proxyUrl${source.url}"
                         source.url.startsWith("http") -> source.url
                         else -> "$baseUrl${source.url}"
                     }
 
-                    when {
-                        source.type?.contains("mp4") == true ->
-                            Video(
-                                fullUrl,
-                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                fullUrl,
-                                videoHeaders(watchReferer),
-                                subtitleTracks,
-                            ).let(::listOf)
-                        source.type?.contains("mpegurl") == true ->
-                            playlistUtils.extractFromHls(
-                                playlistUrl = fullUrl,
-                                videoNameGen = { quality ->
-                                    val cleanQuality = quality.substringBefore(" ").let { q ->
+                    try {
+                        if (isDio && source.type?.contains("mpegurl") == true) {
+                            val body = dioClient.newCall(GET(fullUrl, videoHeaders(watchReferer))).awaitSuccess().body.string()
+                            val m3u8Start = body.indexOf("#EXTM3U")
+                            if (m3u8Start == -1) return@forEach
+                            val m3u8Content = body.substring(m3u8Start)
+
+                            val subPlaylists = mutableListOf<Pair<String, String>>()
+                            val lines = m3u8Content.lines()
+                            for (i in lines.indices) {
+                                if (lines[i].startsWith("#EXT-X-STREAM-INF:")) {
+                                    val resolution = Regex("RESOLUTION=(\\d+x\\d+)").find(lines[i])?.groupValues?.get(1)
+                                    val bandwidth = Regex("BANDWIDTH=(\\d+)").find(lines[i])?.groupValues?.get(1)
+                                    val name = Regex("NAME=\"(.*?)\"").find(lines[i])?.groupValues?.get(1)
+                                    val qualityStr = name ?: buildString {
+                                        if (resolution != null) {
+                                            append(resolution.substringAfter("x"))
+                                            append("p")
+                                        }
+                                        if (bandwidth != null) {
+                                            if (isNotEmpty()) append(" ")
+                                            append(bandwidth)
+                                        }
+                                        if (isEmpty()) append("Unknown")
+                                    }
+                                    if (i + 1 < lines.size && lines[i + 1].isNotBlank() && !lines[i + 1].startsWith("#")) {
+                                        val subUrl = lines[i + 1].trim()
+                                        val absoluteSubUrl = when {
+                                            subUrl.startsWith("http") -> subUrl
+                                            subUrl.startsWith("//") -> {
+                                                val httpUrl = fullUrl.toHttpUrl()
+                                                "${httpUrl.scheme}://$subUrl"
+                                            }
+                                            subUrl.startsWith("/") -> {
+                                                val httpUrl = fullUrl.toHttpUrl()
+                                                "${httpUrl.scheme}://${httpUrl.host}$subUrl"
+                                            }
+                                            else -> fullUrl.substringBeforeLast("/") + "/" + subUrl
+                                        }
+                                        subPlaylists.add(qualityStr to absoluteSubUrl)
+                                    }
+                                }
+                            }
+
+                            val dioVideos = if (subPlaylists.isEmpty()) {
+                                listOf(
+                                    Video(
+                                        fullUrl,
+                                        "${server.id.uppercase()}: Unknown ($audioLabel)$subLabel",
+                                        fullUrl,
+                                        videoHeaders(watchReferer),
+                                        subtitleTracks,
+                                    ),
+                                )
+                            } else {
+                                subPlaylists.map { (qualityStr, url) ->
+                                    val cleanQuality = qualityStr.substringBefore(" ").let { q ->
                                         if (q.endsWith("P")) q.lowercase() else q
                                     }
-                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                    Video(
+                                        url,
+                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel",
+                                        url,
+                                        videoHeaders(watchReferer),
+                                        subtitleTracks,
+                                    )
+                                }
+                            }
+                            if (!m3u8ServerManager.isRunning()) {
+                                try {
+                                    m3u8ServerManager.startServer()
+                                } catch (e: Exception) {
+                                    Log.e("Animetsu", "Failed to start M3U8 server: ${e.message}")
+                                }
+                            }
+                            videos.addAll(
+                                dioVideos.map { video ->
+                                    val processedUrl = m3u8ServerManager.processM3u8Url(video.url)
+                                    if (processedUrl != null) {
+                                        Video(
+                                            url = processedUrl,
+                                            quality = video.quality,
+                                            videoUrl = processedUrl,
+                                            headers = video.headers,
+                                            subtitleTracks = video.subtitleTracks,
+                                            audioTracks = video.audioTracks,
+                                        )
+                                    } else {
+                                        video
+                                    }
                                 },
-                                referer = "$baseUrl/",
-                                subtitleList = subtitleTracks,
                             )
-                        else -> emptyList()
+                        } else if (source.type?.contains("mp4") == true) {
+                            videos.add(
+                                Video(
+                                    fullUrl,
+                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                    fullUrl,
+                                    videoHeaders(watchReferer),
+                                    subtitleTracks,
+                                ),
+                            )
+                        } else if (source.type?.contains("mpegurl") == true) {
+                            videos.addAll(
+                                playlistUtils.extractFromHls(
+                                    playlistUrl = fullUrl,
+                                    videoNameGen = { quality ->
+                                        val cleanQuality = quality.substringBefore(" ").let { q ->
+                                            if (q.endsWith("P")) q.lowercase() else q
+                                        }
+                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                                    },
+                                    referer = "$baseUrl/",
+                                    subtitleList = subtitleTracks,
+                                ),
+                            )
+                        }
+                    } catch (_: Exception) {
                     }
                 }
+
+                videos
             }
         }
     }
