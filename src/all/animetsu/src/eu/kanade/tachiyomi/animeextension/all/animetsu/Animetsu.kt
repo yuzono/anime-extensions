@@ -120,14 +120,11 @@ class Animetsu :
         .add("Sec-Fetch-Site", "same-origin")
         .build()
 
-    private fun videoHeaders(referer: String = "$baseUrl/"): Headers = Headers.Builder()
-        .add("Accept", "*/*")
-        .add("Accept-Language", "en-US,en;q=0.9")
+    // Builds video headers from API headers, overriding only the specific fields needed for video streams
+    private fun videoHeaders(referer: String = "$baseUrl/"): Headers = apiHeaders(referer).newBuilder()
+        .set("Accept", "*/*")
+        .set("Sec-Fetch-Site", "cross-site")
         .add("Origin", baseUrl)
-        .add("Referer", referer)
-        .add("Sec-Fetch-Dest", "empty")
-        .add("Sec-Fetch-Mode", "cors")
-        .add("Sec-Fetch-Site", "cross-site")
         .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
         .build()
 
@@ -328,90 +325,9 @@ class Animetsu :
 
                     try {
                         if (isDio && source.type?.contains("mpegurl") == true) {
-                            val body = dioClient.newCall(GET(fullUrl, videoHeaders(watchReferer))).awaitSuccess().body.string()
-                            val m3u8Start = body.indexOf("#EXTM3U")
-                            if (m3u8Start == -1) return@forEach
-                            val m3u8Content = body.substring(m3u8Start)
-
-                            val subPlaylists = mutableListOf<Pair<String, String>>()
-                            val lines = m3u8Content.lines()
-                            for (i in lines.indices) {
-                                if (lines[i].startsWith("#EXT-X-STREAM-INF:")) {
-                                    val resolution = Regex("RESOLUTION=(\\d+x\\d+)").find(lines[i])?.groupValues?.get(1)
-                                    val bandwidth = Regex("BANDWIDTH=(\\d+)").find(lines[i])?.groupValues?.get(1)
-                                    val name = Regex("NAME=\"(.*?)\"").find(lines[i])?.groupValues?.get(1)
-                                    val qualityStr = name ?: buildString {
-                                        if (resolution != null) {
-                                            append(resolution.substringAfter("x"))
-                                            append("p")
-                                        }
-                                        if (bandwidth != null) {
-                                            if (isNotEmpty()) append(" ")
-                                            append(bandwidth)
-                                        }
-                                        if (isEmpty()) append("Unknown")
-                                    }
-                                    if (i + 1 < lines.size && lines[i + 1].isNotBlank() && !lines[i + 1].startsWith("#")) {
-                                        val subUrl = lines[i + 1].trim()
-                                        val absoluteSubUrl = when {
-                                            subUrl.startsWith("http") -> subUrl
-                                            subUrl.startsWith("//") -> {
-                                                val httpUrl = fullUrl.toHttpUrl()
-                                                "${httpUrl.scheme}://$subUrl"
-                                            }
-                                            subUrl.startsWith("/") -> {
-                                                val httpUrl = fullUrl.toHttpUrl()
-                                                "${httpUrl.scheme}://${httpUrl.host}$subUrl"
-                                            }
-                                            else -> fullUrl.substringBeforeLast("/") + "/" + subUrl
-                                        }
-                                        subPlaylists.add(qualityStr to absoluteSubUrl)
-                                    }
-                                }
-                            }
-
-                            val dioVideos = if (subPlaylists.isEmpty()) {
-                                listOf(
-                                    Video(
-                                        fullUrl,
-                                        "${server.id.uppercase()}: Unknown ($audioLabel)$subLabel",
-                                        fullUrl,
-                                        videoHeaders(watchReferer),
-                                        subtitleTracks,
-                                    ),
-                                )
-                            } else {
-                                subPlaylists.map { (qualityStr, url) ->
-                                    val cleanQuality = qualityStr.substringBefore(" ").let { q ->
-                                        if (q.endsWith("P")) q.lowercase() else q
-                                    }
-                                    Video(
-                                        url,
-                                        "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel",
-                                        url,
-                                        videoHeaders(watchReferer),
-                                        subtitleTracks,
-                                    )
-                                }
-                            }
-                            for (video in dioVideos) {
-                                val processedUrl = getProcessedM3u8Url(video.url)
-                                if (processedUrl != null) {
-                                    videos.add(
-                                        Video(
-                                            url = processedUrl,
-                                            quality = video.quality,
-                                            videoUrl = processedUrl,
-                                            headers = video.headers,
-                                            subtitleTracks = video.subtitleTracks,
-                                            audioTracks = video.audioTracks,
-                                        ),
-                                    )
-                                } else {
-                                    // If the server fails to proxy the URL, we MUST NOT add the raw URL.
-                                    Log.e("Animetsu", "Dropping Dio video due to M3U8 server failure.")
-                                }
-                            }
+                            videos.addAll(
+                                parseDioM3u8Playlists(fullUrl, server.id, audioLabel, subLabel, watchReferer, subtitleTracks),
+                            )
                         } else if (source.type?.contains("mp4") == true) {
                             videos.add(
                                 Video(
@@ -437,7 +353,8 @@ class Animetsu :
                                 ),
                             )
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w("Animetsu", "Failed to fetch or parse sources", e)
                     }
                 }
 
@@ -594,6 +511,106 @@ class Animetsu :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Dedicated helper for fetching, parsing, and enforcing the local M3U8 server for Dio.
+     * Extracts the complex logic out of the main video list flow.
+     */
+    private suspend fun parseDioM3u8Playlists(
+        fullUrl: String,
+        serverId: String,
+        audioLabel: String,
+        subLabel: String,
+        watchReferer: String,
+        subtitleTracks: List<Track>,
+    ): List<Video> {
+        val body = dioClient.newCall(GET(fullUrl, videoHeaders(watchReferer))).awaitSuccess().body.string()
+        val m3u8Start = body.indexOf("#EXTM3U")
+        if (m3u8Start == -1) return emptyList()
+        val m3u8Content = body.substring(m3u8Start)
+
+        val subPlaylists = mutableListOf<Pair<String, String>>()
+        val lines = m3u8Content.lines()
+        for (i in lines.indices) {
+            if (lines[i].startsWith("#EXT-X-STREAM-INF:")) {
+                val resolution = Regex("RESOLUTION=(\\d+x\\d+)").find(lines[i])?.groupValues?.get(1)
+                val bandwidth = Regex("BANDWIDTH=(\\d+)").find(lines[i])?.groupValues?.get(1)
+                val name = Regex("NAME=\"(.*?)\"").find(lines[i])?.groupValues?.get(1)
+                val qualityStr = name ?: buildString {
+                    if (resolution != null) {
+                        append(resolution.substringAfter("x"))
+                        append("p")
+                    }
+                    if (bandwidth != null) {
+                        if (isNotEmpty()) append(" ")
+                        append(bandwidth)
+                    }
+                    if (isEmpty()) append("Unknown")
+                }
+                if (i + 1 < lines.size && lines[i + 1].isNotBlank() && !lines[i + 1].startsWith("#")) {
+                    val subUrl = lines[i + 1].trim()
+                    val absoluteSubUrl = when {
+                        subUrl.startsWith("http") -> subUrl
+                        subUrl.startsWith("//") -> "${fullUrl.toHttpUrl().scheme}:$subUrl" // Prevents https:////
+                        subUrl.startsWith("/") -> {
+                            val httpUrl = fullUrl.toHttpUrl()
+                            "${httpUrl.scheme}://${httpUrl.host}$subUrl"
+                        }
+                        else -> fullUrl.substringBeforeLast("/") + "/" + subUrl
+                    }
+                    subPlaylists.add(qualityStr to absoluteSubUrl)
+                }
+            }
+        }
+
+        val dioVideos = if (subPlaylists.isEmpty()) {
+            listOf(
+                Video(
+                    fullUrl,
+                    "${serverId.uppercase()}: Unknown ($audioLabel)$subLabel",
+                    fullUrl,
+                    videoHeaders(watchReferer),
+                    subtitleTracks,
+                ),
+            )
+        } else {
+            subPlaylists.map { (qualityStr, url) ->
+                val cleanQuality = qualityStr.substringBefore(" ").let { q ->
+                    if (q.endsWith("P")) q.lowercase() else q
+                }
+                Video(
+                    url,
+                    "${serverId.uppercase()}: $cleanQuality ($audioLabel)$subLabel",
+                    url,
+                    videoHeaders(watchReferer),
+                    subtitleTracks,
+                )
+            }
+        }
+
+        // ENFORCE M3U8 SERVER FOR DIO: Force process and drop if it fails
+        val result = mutableListOf<Video>()
+        for (video in dioVideos) {
+            val processedUrl = getProcessedM3u8Url(video.url)
+            if (processedUrl != null) {
+                result.add(
+                    Video(
+                        url = processedUrl,
+                        quality = video.quality,
+                        videoUrl = processedUrl,
+                        headers = video.headers,
+                        subtitleTracks = video.subtitleTracks,
+                        audioTracks = video.audioTracks,
+                    ),
+                )
+            } else {
+                // If the server fails to proxy the URL, we MUST NOT add the raw URL.
+                // Adding the raw URL causes "cubes" / macroblocking.
+                Log.e("Animetsu", "Dropping Dio video due to M3U8 server failure.")
+            }
+        }
+        return result
+    }
 
     /**
      * Helper to enforce M3u8 Server with a robust retry mechanism.
