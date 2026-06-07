@@ -83,37 +83,42 @@ class MonosChinos :
         return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== ÚLTIMOS EPISODIOS (RECIENTES) ======================
+// ====================== ÚLTIMOS EPISODIOS (RECIENTES) ============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET(baseUrl, headers)
-    }
+override fun latestUpdatesRequest(page: Int): Request {
+    // It is assumed that pagination is done with ?page=N (if the site were to implement it) 
+    val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
+    return GET(url, headers)
+}
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-        val animeList = episodeItems.mapNotNull { item ->
-            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-            val episodeUrl = episodeLink.attr("abs:href")
+override fun latestUpdatesParse(response: Response): AnimesPage {
+    val document = response.asJsoup()
+    val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
+    val animeList = episodeItems.mapNotNull { item ->
+        val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
+        val episodeUrl = episodeLink.attr("abs:href")
 
-            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-            val animeSlugBase = episodeSlug.replace(Regex("-episodio-\\d+$"), "")
-            val animeUrl = "/anime/${animeSlugBase}-sub-espanol"
+        val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
+        val animeSlugBase = episodeSlug.replace(Regex("-episodio-\\d+$"), "")
+        val animeUrl = "/anime/${animeSlugBase}-sub-espanol"
 
-            val animeTitle = item.selectFirst("h2.fs-5")?.text()?.trim() ?: return@mapNotNull null
-            val episodeNumber = item.selectFirst("span.episode")?.text()?.trim() ?: ""
-            val genre = item.selectFirst("span.text-muted")?.text()?.trim() ?: ""
+        val animeTitle = item.selectFirst("h2.fs-5")?.text()?.trim() ?: return@mapNotNull null
+        val episodeNumber = item.selectFirst("span.episode")?.text()?.trim() ?: ""
+        val genre = item.selectFirst("span.text-muted")?.text()?.trim() ?: ""
 
-            SAnime.create().apply {
-                title = "$animeTitle - Episodio $episodeNumber"
-                setUrlWithoutDomain(animeUrl)
-                description = genre
-                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
-            }
+        SAnime.create().apply {
+            title = "$animeTitle - Episodio $episodeNumber"
+            setUrlWithoutDomain(animeUrl)
+            description = genre
+            thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
         }
-        return AnimesPage(animeList, false)
     }
 
+    // Detect pagination: Look for links containing "?page=" or "&page=" in the general pagination section of the page 
+    // Since the latest episodes are on the homepage, the pagination could be at the very bottom of the page. 
+    val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
+    return AnimesPage(animeList, nextPage)
+}
     // ====================== BÚSQUEDA ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
