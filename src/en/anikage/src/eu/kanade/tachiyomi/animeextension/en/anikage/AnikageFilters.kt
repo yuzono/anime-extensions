@@ -30,6 +30,8 @@ object AnikageFilters {
     class SortByFilter : QueryPartFilter("Sort By", AnikageFiltersData.SORT_BY)
     class TypesFilter : QueryPartFilter("Type", AnikageFiltersData.TYPES)
 
+    class StatusFilter : QueryPartFilter("Status", AnikageFiltersData.STATUS)
+
     class GenresFilter :
         CheckBoxFilterList(
             "Genres",
@@ -52,6 +54,7 @@ object AnikageFilters {
         SortByFilter(),
         AnimeFilter.Separator(),
         TypesFilter(),
+        StatusFilter(),
         GenresFilter(),
     )
 
@@ -61,6 +64,7 @@ object AnikageFilters {
         val releaseYear: String = "",
         val sortBy: String = "",
         val types: String = "",
+        val status: String = "",
         val genres: List<String> = emptyList(),
     )
 
@@ -72,6 +76,7 @@ object AnikageFilters {
             filters.asQueryPart<ReleaseYearFilter>(),
             filters.asQueryPart<SortByFilter>(),
             filters.asQueryPart<TypesFilter>(),
+            filters.asQueryPart<StatusFilter>(),
             filters.parseCheckbox<GenresFilter>(AnikageFiltersData.GENRES),
         )
     }
@@ -122,6 +127,14 @@ object AnikageFilters {
             Pair("OVA", "OVA"),
             Pair("ONA", "ONA"),
             Pair("MUSIC", "MUSIC"),
+        )
+
+        val STATUS = arrayOf(
+            Pair("ALL", "ALL"),
+            Pair("Finished", "FINISHED"),
+            Pair("Releasing", "RELEASING"),
+            Pair("Not Yet Released", "NOT_YET_RELEASED"),
+            Pair("Cancelled", "CANCELLED"),
         )
 
         val GENRES = arrayOf(

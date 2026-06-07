@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.anikage
 
 import android.content.SharedPreferences
-import android.util.Base64
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -13,27 +12,20 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
-import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.catchingFlatMap
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class Anikage :
@@ -57,17 +49,16 @@ class Anikage :
     override fun getFilterList(): AnimeFilterList = AnikageFilters.FILTER_LIST
 
     override fun popularAnimeRequest(page: Int): Request {
-        val data = buildJsonObject {
-            putJsonObject("variables") {
-                put("type", "ANIME")
-                put("page", page)
-                put("sort", "TRENDING_DESC")
-                put("isAdult", preferences.isAdult)
-            }
-            put("query", QUERY)
+        val requestUrl = ANIKAGE_API.toHttpUrl()
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("sort", "popularity")
+        requestUrl.addQueryParameter("per_page", 25.toString())
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("include_adult", true.toString())
         }
 
-        return buildPost(data)
+        return buildGet(requestUrl.build())
     }
 
     override fun popularAnimeParse(response: Response) = parseAnime(response)
@@ -78,42 +69,49 @@ class Anikage :
         filters: AnimeFilterList,
     ): Request {
         val searchParams = AnikageFilters.getSearchParameters(filters)
-        val data = buildJsonObject {
-            putJsonObject("variables") {
-                if (query != "") put("search", query)
-                if (searchParams.season != "ALL") put("season", searchParams.season)
-                if (searchParams.origin != "ALL") put("countryOfOrigin", searchParams.origin)
-                if (searchParams.types != "ALL") put("format_in", searchParams.types)
-                if (searchParams.releaseYear != "ALL") put("seasonYear", searchParams.releaseYear.toInt())
-                if (searchParams.genres.count() != 0) {
-                    putJsonArray("genre_in") {
-                        searchParams.genres.forEach {
-                            add(it)
-                        }
-                    }
-                }
-                put("page", page)
-                put("sort", searchParams.sortBy)
-                put("isAdult", preferences.isAdult)
-            }
-            put("query", QUERY)
+        val requestUrl = ANIKAGE_API.toHttpUrl()
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("per_page", 25.toString())
+        if (query != "") requestUrl.addQueryParameter("query", query)
+        if (searchParams.status != "ALL") {
+            requestUrl.addQueryParameter("status", searchParams.status)
         }
-        return buildPost(data)
+        if (searchParams.season != "ALL") {
+            requestUrl.addQueryParameter("season", searchParams.season)
+        }
+        if (searchParams.origin != "ALL") {
+            requestUrl.addQueryParameter("country", searchParams.origin)
+        }
+        if (searchParams.types != "ALL") {
+            requestUrl.addQueryParameter("format", searchParams.types)
+        }
+        if (searchParams.releaseYear != "ALL") {
+            requestUrl.addQueryParameter("seasonYear", searchParams.releaseYear)
+        }
+        if (searchParams.genres.count() != 0) {
+            requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
+        }
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("include_adult", true.toString())
+        }
+
+        return buildGet(requestUrl.build())
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseAnime(response)
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val data = buildJsonObject {
-            putJsonObject("variables") {
-                put("type", "ANIME")
-                put("page", page)
-                put("sort", "ID_DESC")
-                put("isAdult", preferences.isAdult)
-            }
-            put("query", QUERY)
+        val requestUrl = ANIKAGE_API.toHttpUrl()
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("sort", "updated")
+        requestUrl.addQueryParameter("per_page", 25.toString())
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("include_adult", true.toString())
         }
-        return buildPost(data)
+
+        return buildGet(requestUrl.build())
     }
 
     override fun latestUpdatesParse(response: Response) = parseAnime(response)
@@ -157,8 +155,7 @@ class Anikage :
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val animeId = anime.url.split("/").last().toIntOrNull() ?: throw IllegalArgumentException("Invalid anime URL: ${anime.url}")
-        val token = makeToken(animeId)
+        val animeId = anime.url.split("/").last()
         val getHeaders = headersBuilder()
             .add("Referer", "$baseUrl${anime.url}")
             .add("Origin", baseUrl)
@@ -168,7 +165,7 @@ class Anikage :
             .add("Sec-Fetch-Dest", "empty")
             .build()
 
-        val episodeListRequest = GET(token.animeEpisodeBuilder(), headers = getHeaders)
+        val episodeListRequest = GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
 
         val episodesData = client.newCall(episodeListRequest)
             .awaitSuccess()
@@ -188,12 +185,14 @@ class Anikage :
                 } else {
                     "Episode ${it.number}"
                 }
-                date_upload = 0L
+                date_upload = SimpleDateFormat(
+                    "yyyy-MM-dd",
+                    Locale.US,
+                ).parse(it.airDate)?.time ?: 0L
                 url = animeEpisodeUrlFormat(
                     animeId,
-                    provider,
                     it.number,
-                    preferences.subOrDub,
+                    it.number,
                 )
             }
         }
@@ -202,17 +201,7 @@ class Anikage :
 
     // Video Links
 
-    private fun videoListRequestUrl(episode: SEpisode, provider: String): String {
-        val animeId = episode.url.substringAfterLast("/").substringBefore("?")
-
-        val token = makeSourcesToken(
-            animeId.toIntOrNull()!!,
-            episode.episode_number.toInt(),
-            provider,
-        )
-
-        return token.episodeUrlBuilder()
-    }
+    private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val providers = if (preferences.subOrDub == "dub") {
@@ -245,21 +234,17 @@ class Anikage :
                 .awaitSuccess()
                 .parseAs<EpisodeSource>()
 
-            val providerHeaders = headers.newBuilder().apply {
-                episodeData.headers.referer?.let { set("Referer", it) }
-                episodeData.headers.origin?.let { set("Origin", it) }
-                episodeData.headers.userAgent?.let { set("User-Agent", it) }
-            }.build()
+            val providerHeaders = headers.newBuilder().build()
 
             val tracks = episodeData.subtitles.map {
-                Track(it.url, it.lang)
+                Track(it.file, it.label)
             }
 
             episodeData.sources.map {
                 Video(
-                    url = it.url,
+                    url = it.url.episodeSourceUrl(),
                     quality = "$type - $provider - ${it.quality}",
-                    videoUrl = it.url,
+                    videoUrl = it.url.episodeSourceUrl(),
                     subtitleTracks = tracks,
                     headers = providerHeaders,
                 )
@@ -269,22 +254,16 @@ class Anikage :
 
     // Utils
 
-    private fun Int.animeUrlBuilder(): String = "/anime/info/$this"
-    private fun String.animeEpisodeBuilder(): String = "$baseUrl/api/anime/episodes/$this"
-    private fun String.episodeUrlBuilder(): String = "$baseUrl/api/anime/sources/$this"
-
-    private fun animeEpisodeUrlFormat(id: Int, host: String, episodeId: Int, type: String): String = "$baseUrl/anime/watch/$id?host=$host&ep=$episodeId&type=$type"
+    private fun String.animeEpisodeBuilder(): String = "$baseUrl/api/media/anime/$this/episodes"
+    private fun String.episodeSourceUrl(): String = "https://prox.anikage.cc/m3u8/$this"
+    private fun animeEpisodeUrlFormat(id: String, episodeId: Int, number: Int): String = "$baseUrl/api/media/anime/$id/episodes/$episodeId/sources"
 
     private fun parseAnime(response: Response): AnimesPage {
-        val jsonData = response.parseAs<GraphQLResult>()
+        val jsonData = response.parseAs<AnikageResponse>()
+        val hasNextPage = jsonData.hasNextPage
 
-        val media = jsonData.data.page.media
-
-        val pageInfo = jsonData.data.page.pageInfo
-        val hasNextPage = pageInfo.hasNextPage
-
-        val animes = media.map {
-            val id = it.id
+        val animes = jsonData.results.map {
+            val id = it.slug
             val titleFormat = preferences.titleStyle
             val titleName = if (titleFormat == "english") {
                 it.title.english ?: it.title.romaji
@@ -293,10 +272,10 @@ class Anikage :
             }
 
             SAnime.create().apply {
-                setUrlWithoutDomain(id.animeUrlBuilder())
+                setUrlWithoutDomain("/anime/info/$id")
                 thumbnail_url = it.coverImage.extraLarge
                 title = titleName
-                description = it.description
+                description = it.title.english
                 status = when (it.status) {
                     "FINISHED" -> SAnime.COMPLETED
                     "RELEASING" -> SAnime.ONGOING
@@ -310,70 +289,15 @@ class Anikage :
         return AnimesPage(animes, hasNextPage)
     }
 
-    private fun makeSourcesToken(
-        animeId: Int,
-        ep: Int,
-        provider: String,
-        type: String = preferences.subOrDub,
-    ): String {
-        val payload = JSONObject().apply {
-            put("id", animeId)
-            put("epNum", ep)
-            put("host", provider)
-            put("type", type)
-            put("_t", (System.currentTimeMillis() / 1000).toString())
-        }.toString()
-
-        val raw = payload.toByteArray(Charsets.UTF_8)
-        val key = preferences.apiKey.toByteArray()
-
-        val out = ByteArray(raw.size)
-        for (i in raw.indices) {
-            out[i] = (raw[i].toInt() xor key[i % key.size].toInt()).toByte()
-        }
-
-        return Base64.encodeToString(out, Base64.NO_WRAP)
-            .replace("+", "-")
-            .replace("/", "_")
-            .replace("=", "")
-    }
-
-    private fun makeToken(animeId: Int, refresh: Boolean = false): String {
-        val payload = JSONObject().apply {
-            put("id", animeId)
-            put("refresh", refresh.toString().lowercase())
-            put("_t", (System.currentTimeMillis() / 1000).toString())
-        }.toString()
-
-        val raw = payload.toByteArray(Charsets.UTF_8)
-
-        val out = ByteArray(raw.size)
-
-        val key = preferences.apiKey.toByteArray()
-
-        for (i in raw.indices) {
-            out[i] = (raw[i].toInt() xor key[i % key.size].toInt()).toByte()
-        }
-
-        return Base64.encodeToString(out, Base64.NO_WRAP)
-            .replace("+", "-")
-            .replace("/", "_")
-            .replace("=", "")
-    }
-
-    private fun buildPost(dataObject: JsonObject): Request {
-        val payload = dataObject.toJsonRequestBody()
-
+    private fun buildGet(url: HttpUrl): Request {
         val postHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
-            add("Content-Length", payload.contentLength().toString())
-            add("Content-Type", payload.contentType().toString())
-            add("Host", ANILIST_API.toHttpUrl().host)
+            add("Host", ANIKAGE_API.toHttpUrl().host)
             add("Origin", baseUrl)
-            add("Referer", "$ANILIST_API/")
+            add("Referer", "$ANIKAGE_API/")
         }.build()
 
-        return POST(ANILIST_API, headers = postHeaders, body = payload)
+        return GET(url, headers = postHeaders)
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -391,13 +315,6 @@ class Anikage :
             title = "Enable NSFW Content",
             summary = "Show adult content in search results and popular anime",
             default = PREF_ADULT_DEFAULT,
-        )
-
-        screen.addEditTextPreference(
-            key = PREF_API_KEY,
-            title = "API key",
-            default = "",
-            summary = "Private API key",
         )
 
         screen.addListPreference(
@@ -434,9 +351,6 @@ class Anikage :
     private val SharedPreferences.isAdult
         get() = getBoolean(PREF_ADULT_KEY, PREF_ADULT_DEFAULT)
 
-    private val SharedPreferences.apiKey
-        get() = getString(PREF_API_KEY, "")?.takeIf(String::isNotBlank) ?: PREF_API_DEFAULT
-
     private val SharedPreferences.subOrDub
         get() = getString(PREF_ISSUBORDUB_SOURCE, PREF_ISSUBORDUB_DEFAULT)!!
 
@@ -448,44 +362,30 @@ class Anikage :
 
     companion object {
 
-        private const val ANILIST_API = "https://graphql.anilist.co"
+        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/advanced-search"
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 
-        private const val PREF_API_KEY = "private_api_key"
-        private const val PREF_API_DEFAULT = "x9f2k7m4q1w8e3r6t5y0"
-
         private val SUB_PROVIDER = listOf(
-            "uwu",
-            "beep",
-            "mochi",
-            "miku",
-            "mimi",
-            "vee",
-            "kiwi",
-            "yuki",
-
-            "kami",
-            "shiro",
-            "wave",
-            "zaza",
+            "megg",
+            "miko",
+            "anya",
+            "verse",
+            "neko",
         )
         private val DUB_PROVIDER = listOf(
-            "mochi",
-            "miku",
-            "mimi",
-            "kiwi",
-            "yuki",
-
-            "uwu",
-            "kami",
+            "megg",
+            "miko",
+            "anya",
+            "verse",
+            "neko",
         )
 
         private const val PREF_SUB_SOURCE = "preferred_sub_source"
-        private const val PREF_SUB_DEFAULT = "uwu"
+        private const val PREF_SUB_DEFAULT = "megg"
 
         private const val PREF_DUB_SOURCE = "preferred_dub_source"
-        private const val PREF_DUB_DEFAULT = "miku"
+        private const val PREF_DUB_DEFAULT = "megg"
 
         private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
         private const val PREF_ISSUBORDUB_DEFAULT = "sub"
