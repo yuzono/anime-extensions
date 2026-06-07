@@ -150,92 +150,106 @@ class MonosChinos :
 
     // ====================== LISTA DE EPISODIOS ======================
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
-        val referer = document.location()
+override fun episodeListParse(response: Response): List<SEpisode> {
+    val document = response.asJsoup()
+    val referer = document.location()
 
-        val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-            if (it.startsWith("http")) it else baseUrl + it
-        } ?: return emptyList()
+    val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
+        if (it.startsWith("http")) it else baseUrl + it
+    } ?: return emptyList()
 
-        val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
+    val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-        val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
-            ?.substringAfter("/ver/")
-            ?.substringBefore("-episodio-")
-            ?: run {
-                val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(Regex("-sub-espanol$"), "")
-            }
-        if (episodeSlug.isBlank()) return emptyList()
+    val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
+        ?.substringAfter("/ver/")
+        ?.substringBefore("-episodio-")
+        ?: run {
+            val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
+            animeSlug.replace(Regex("-sub-espanol$"), "")
+        }
+    if (episodeSlug.isBlank()) return emptyList()
 
-        val episodes = mutableListOf<SEpisode>()
-        var currentPage = 1
-        var hasMore = true
-        val maxPages = 200
+    val episodes = mutableListOf<SEpisode>()
+    var currentPage = 1
+    var hasMore = true
+    val maxPages = 200
 
-        while (hasMore && currentPage <= maxPages) {
-            val paginatedUrl = if (currentPage == 1) {
-                ajaxUrl
-            } else {
-                val separator = if (ajaxUrl.contains("?")) "&" else "?"
-                "$ajaxUrl${separator}page=$currentPage"
-            }
-
-            val formBody = FormBody.Builder()
-                .add("_token", csrfToken)
-                .build()
-
-            val request = Request.Builder()
-                .url(paginatedUrl)
-                .post(formBody)
-                .header("Referer", referer)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                .build()
-
-            val responseBody = try {
-                client.newCall(request).execute().use { it.body?.string() ?: "" }
-            } catch (_: Exception) {
-                break
-            }
-
-            if (responseBody.isBlank()) break
-
-            val json = try {
-                JSONObject(responseBody)
-            } catch (_: Exception) {
-                break
-            }
-
-            val epsArray = try {
-                json.getJSONArray("eps")
-            } catch (_: Exception) {
-                break
-            }
-
-            val perpage = json.optInt("perpage", 0)
-
-            for (i in 0 until epsArray.length()) {
-                val num = epsArray.getJSONObject(i).getInt("num")
-                episodes.add(SEpisode.create().apply {
-                    name = "Episodio $num"
-                    episode_number = num.toFloat()
-                    setUrlWithoutDomain("/ver/$episodeSlug-episodio-$num")
-                })
-            }
-
-            if (perpage == 0 || epsArray.length() < perpage) {
-                hasMore = false
-            } else {
-                Thread.sleep(100)
-                currentPage++
-            }
+    while (hasMore && currentPage <= maxPages) {
+        val paginatedUrl = if (currentPage == 1) {
+            ajaxUrl
+        } else {
+            val separator = if (ajaxUrl.contains("?")) "&" else "?"
+            "$ajaxUrl${separator}page=$currentPage"
         }
 
-        return episodes.sortedByDescending { it.episode_number }
+        val formBody = FormBody.Builder()
+            .add("_token", csrfToken)
+            .build()
+
+        val request = Request.Builder()
+            .url(paginatedUrl)
+            .post(formBody)
+            .header("Referer", referer)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .build()
+
+        val responseBody = try {
+            client.newCall(request).execute().use { it.body?.string() ?: "" }
+        } catch (_: Exception) {
+            break
+        }
+
+        if (responseBody.isBlank()) break
+
+        val json = try {
+            JSONObject(responseBody)
+        } catch (_: Exception) {
+            break
+        }
+
+        val epsArray = try {
+            json.getJSONArray("eps")
+        } catch (_: Exception) {
+            break
+        }
+
+        val perpage = json.optInt("perpage", 0)
+
+        for (i in 0 until epsArray.length()) {
+            val obj = epsArray.getJSONObject(i)
+            val numStr = obj.optString("num", "")
+            if (numStr.isBlank()) continue
+
+            val episodeNumber = runCatching { numStr.toFloat() }.getOrNull() ?: continue
+
+            val urlNumber = if (episodeNumber % 1 == 0f) {
+                episodeNumber.toInt().toString()
+            } else {
+                numStr
+            }
+
+            episodes.add(SEpisode.create().apply {
+                name = if (episodeNumber % 1 == 0f) {
+                    "Episodio ${episodeNumber.toInt()}"
+                } else {
+                    "Episodio $numStr"
+                }
+                episode_number = episodeNumber
+                setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+            })
+        }
+
+        if (perpage == 0 || epsArray.length() < perpage) {
+            hasMore = false
+        } else {
+            Thread.sleep(100)
+            currentPage++
+        }
     }
 
+    return episodes.sortedByDescending { it.episode_number }
+}
     // ====================== VIDEOS ======================
 
     override fun videoListParse(response: Response): List<Video> {
