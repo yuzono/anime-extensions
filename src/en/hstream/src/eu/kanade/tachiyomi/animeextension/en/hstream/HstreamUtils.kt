@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.hstream
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * URL and string parsing utilities for Hstream extension.
@@ -46,14 +47,5 @@ object HstreamUtils {
      * If the href is an absolute URL, extract just the encoded path.
      * If it's already a relative path, return it as-is.
      */
-    fun String.normalizeHref(): String = if (startsWith("http")) {
-        try {
-            val result = toHttpUrl().encodedPath
-            result
-        } catch (e: Exception) {
-            this // fallback: return raw href
-        }
-    } else {
-        this
-    }
+    fun String.normalizeHref(): String = toHttpUrlOrNull()?.encodedPath?.takeIf { startsWith("http") } ?: this
 }
