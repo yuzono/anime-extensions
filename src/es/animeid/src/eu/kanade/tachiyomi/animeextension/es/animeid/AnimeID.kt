@@ -56,7 +56,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 val newReq = original.newBuilder()
                     .header(
                         "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
                     )
                     .header("Accept-Language", "es-ES,es;q=0.9")
                     .build()
@@ -250,7 +250,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return anime
     }
 
-    // ============================== Episodes (paginación AJAX) ===============================
+    // ============================== Episodes  ===============================
     override fun episodeListSelector(): String = "ul.epis li"
 
     override fun episodeFromElement(element: Element): SEpisode {
@@ -309,7 +309,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    // ============================== Videos (Voe, Mp4upload, Uqload, StreamWish, Universal) ===============================
+    // ============================== Videos  ==================================
     private fun serverVideoResolverBlocking(url: String): List<Video> {
         // Determine host to detect server switch
         val host = runCatching { url.toHttpUrlOrNull()?.host }.getOrNull()
@@ -345,7 +345,6 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         val document = Jsoup.parse(body, baseUrl)
         val videos = mutableListOf<Video>()
 
-        // Servidores vía AJAX
         val optElement = document.selectFirst("ul.opt[data-encrypt]")
         if (optElement != null) {
             val encryptedId = optElement.attr("data-encrypt")
@@ -359,7 +358,6 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             }
         }
 
-        // Fallback antiguo
         if (videos.isEmpty()) {
             document.select("#partes div.container li.subtab div.parte").forEach { script ->
                 val jsonString = script.attr("data")
@@ -374,12 +372,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return orderVideosByPreferences(videos)
     }
 
-    /**
-     * Reordena (no filtra) la lista de videos para:
-     *  - Mostrar primero las fuentes del servidor preferido (si existen)
-     *  - Priorizar la calidad preferida dentro de cada servidor
-     *  - Mantener todas las demás fuentes disponibles en el selector del reproductor
-     */
+     
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
         val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
@@ -450,9 +443,9 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         ListPreference(screen.context).apply {
             key = "animeid_preferred_quality"
             title = "Calidad preferida"
-            entries = arrayOf("Cualquiera", "480p", "720p", "1080p")
-            entryValues = arrayOf("any", "480", "720", "1080")
-            setDefaultValue("any")
+            entries = arrayOf("Automático", "480p", "720p", "1080p")
+            entryValues = arrayOf("automatic", "480", "720", "1080")
+            setDefaultValue("automatic")
             summary = "%s"
         }.also(screen::addPreference)
     }
