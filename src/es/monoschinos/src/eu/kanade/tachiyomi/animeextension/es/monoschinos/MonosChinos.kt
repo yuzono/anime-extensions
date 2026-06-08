@@ -24,7 +24,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -66,8 +65,7 @@ class MonosChinos :
 
     // ====================== POPULAR / BÚSQUEDA ======================
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/animes?p=$page", headers)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/animes?p=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -83,42 +81,42 @@ class MonosChinos :
         return AnimesPage(animeList, nextPage)
     }
 
-// ====================== ÚLTIMOS EPISODIOS (RECIENTES) ============================
+    // ====================== ÚLTIMOS EPISODIOS (RECIENTES) ======================
 
-override fun latestUpdatesRequest(page: Int): Request {
-    // It is assumed that pagination is done with ?page=N (if the site were to implement it) 
-    val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
-    return GET(url, headers)
-}
-
-override fun latestUpdatesParse(response: Response): AnimesPage {
-    val document = response.asJsoup()
-    val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-    val animeList = episodeItems.mapNotNull { item ->
-        val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-        val episodeUrl = episodeLink.attr("abs:href")
-
-        val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-        val animeSlugBase = episodeSlug.replace(Regex("-episodio-\\d+$"), "")
-        val animeUrl = "/anime/${animeSlugBase}-sub-espanol"
-
-        val animeTitle = item.selectFirst("h2.fs-5")?.text()?.trim() ?: return@mapNotNull null
-        val episodeNumber = item.selectFirst("span.episode")?.text()?.trim() ?: ""
-        val genre = item.selectFirst("span.text-muted")?.text()?.trim() ?: ""
-
-        SAnime.create().apply {
-            title = "$animeTitle - Episodio $episodeNumber"
-            setUrlWithoutDomain(animeUrl)
-            description = genre
-            thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
-        }
+    override fun latestUpdatesRequest(page: Int): Request {
+        // It is assumed that pagination is done with ?page=N (if the site were to implement it)
+        val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
+        return GET(url, headers)
     }
 
-    // Detect pagination: Look for links containing "?page=" or "&page=" in the general pagination section of the page 
-    // Since the latest episodes are on the homepage, the pagination could be at the very bottom of the page. 
-    val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-    return AnimesPage(animeList, nextPage)
-}
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
+        val animeList = episodeItems.mapNotNull { item ->
+            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
+            val episodeUrl = episodeLink.attr("abs:href")
+
+            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
+            val animeSlugBase = episodeSlug.replace(Regex("-episodio-\\d+$"), "")
+            val animeUrl = "/anime/${animeSlugBase}-sub-espanol"
+
+            val animeTitle = item.selectFirst("h2.fs-5")?.text()?.trim() ?: return@mapNotNull null
+            val episodeNumber = item.selectFirst("span.episode")?.text()?.trim() ?: ""
+            val genre = item.selectFirst("span.text-muted")?.text()?.trim() ?: ""
+
+            SAnime.create().apply {
+                title = "$animeTitle - Episodio $episodeNumber"
+                setUrlWithoutDomain(animeUrl)
+                description = genre
+                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
+            }
+        }
+
+        // Detect pagination (if any)
+        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
+        return AnimesPage(animeList, nextPage)
+    }
+
     // ====================== BÚSQUEDA ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -155,106 +153,107 @@ override fun latestUpdatesParse(response: Response): AnimesPage {
 
     // ====================== LISTA DE EPISODIOS ======================
 
-override fun episodeListParse(response: Response): List<SEpisode> {
-    val document = response.asJsoup()
-    val referer = document.location()
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val referer = document.location()
 
-    val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-        if (it.startsWith("http")) it else baseUrl + it
-    } ?: return emptyList()
+        val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
+            if (it.startsWith("http")) it else baseUrl + it
+        } ?: return emptyList()
 
-    val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
+        val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-    val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
-        ?.substringAfter("/ver/")
-        ?.substringBefore("-episodio-")
-        ?: run {
-            val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-            animeSlug.replace(Regex("-sub-espanol$"), "")
-        }
-    if (episodeSlug.isBlank()) return emptyList()
+        val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
+            ?.substringAfter("/ver/")
+            ?.substringBefore("-episodio-")
+            ?: run {
+                val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
+                animeSlug.replace(Regex("-sub-espanol$"), "")
+            }
+        if (episodeSlug.isBlank()) return emptyList()
 
-    val episodes = mutableListOf<SEpisode>()
-    var currentPage = 1
-    var hasMore = true
-    val maxPages = 200
+        val episodes = mutableListOf<SEpisode>()
+        var currentPage = 1
+        var hasMore = true
+        val maxPages = 200
 
-    while (hasMore && currentPage <= maxPages) {
-        val paginatedUrl = if (currentPage == 1) {
-            ajaxUrl
-        } else {
-            val separator = if (ajaxUrl.contains("?")) "&" else "?"
-            "$ajaxUrl${separator}page=$currentPage"
-        }
-
-        val formBody = FormBody.Builder()
-            .add("_token", csrfToken)
-            .build()
-
-        val request = Request.Builder()
-            .url(paginatedUrl)
-            .post(formBody)
-            .header("Referer", referer)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .build()
-
-        val responseBody = try {
-            client.newCall(request).execute().use { it.body?.string() ?: "" }
-        } catch (_: Exception) {
-            break
-        }
-
-        if (responseBody.isBlank()) break
-
-        val json = try {
-            JSONObject(responseBody)
-        } catch (_: Exception) {
-            break
-        }
-
-        val epsArray = try {
-            json.getJSONArray("eps")
-        } catch (_: Exception) {
-            break
-        }
-
-        val perpage = json.optInt("perpage", 0)
-
-        for (i in 0 until epsArray.length()) {
-            val obj = epsArray.getJSONObject(i)
-            val numStr = obj.optString("num", "")
-            if (numStr.isBlank()) continue
-
-            val episodeNumber = runCatching { numStr.toFloat() }.getOrNull() ?: continue
-
-            val urlNumber = if (episodeNumber % 1 == 0f) {
-                episodeNumber.toInt().toString()
+        while (hasMore && currentPage <= maxPages) {
+            val paginatedUrl = if (currentPage == 1) {
+                ajaxUrl
             } else {
-                numStr
+                val separator = if (ajaxUrl.contains("?")) "&" else "?"
+                "$ajaxUrl${separator}page=$currentPage"
             }
 
-            episodes.add(SEpisode.create().apply {
-                name = if (episodeNumber % 1 == 0f) {
-                    "Episodio ${episodeNumber.toInt()}"
+            val formBody = FormBody.Builder()
+                .add("_token", csrfToken)
+                .build()
+
+            val request = Request.Builder()
+                .url(paginatedUrl)
+                .post(formBody)
+                .header("Referer", referer)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .build()
+
+            val responseBody = try {
+                client.newCall(request).execute().use { it.body?.string() ?: "" }
+            } catch (_: Exception) {
+                break
+            }
+
+            if (responseBody.isBlank()) break
+
+            val json = try {
+                JSONObject(responseBody)
+            } catch (_: Exception) {
+                break
+            }
+
+            val epsArray = try {
+                json.getJSONArray("eps")
+            } catch (_: Exception) {
+                break
+            }
+
+            val perpage = json.optInt("perpage", 0)
+
+            for (i in 0 until epsArray.length()) {
+                val obj = epsArray.getJSONObject(i)
+                val numStr = obj.optString("num", "")
+                if (numStr.isBlank()) continue
+
+                val episodeNumber = runCatching { numStr.toFloat() }.getOrNull() ?: continue
+
+                val urlNumber = if (episodeNumber % 1 == 0f) {
+                    episodeNumber.toInt().toString()
                 } else {
-                    "Episodio $numStr"
+                    numStr
                 }
-                episode_number = episodeNumber
-                setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
-            })
+
+                episodes.add(SEpisode.create().apply {
+                    name = if (episodeNumber % 1 == 0f) {
+                        "Episodio ${episodeNumber.toInt()}"
+                    } else {
+                        "Episodio $numStr"
+                    }
+                    episode_number = episodeNumber
+                    setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                })
+            }
+
+            if (perpage == 0 || epsArray.length() < perpage) {
+                hasMore = false
+            } else {
+                Thread.sleep(100)
+                currentPage++
+            }
         }
 
-        if (perpage == 0 || epsArray.length() < perpage) {
-            hasMore = false
-        } else {
-            Thread.sleep(100)
-            currentPage++
-        }
+        return episodes.sortedByDescending { it.episode_number }
     }
 
-    return episodes.sortedByDescending { it.episode_number }
-}
     // ====================== VIDEOS ======================
 
     override fun videoListParse(response: Response): List<Video> {
@@ -285,31 +284,32 @@ override fun episodeListParse(response: Response): List<SEpisode> {
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-  private suspend fun serverVideoResolver(url: String): List<Video> {
-    val embedUrl = url.lowercase()
-    return when {
-        embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
-        embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-        embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
-        embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") ||
-        embedUrl.contains("moviesm4u") || embedUrl.contains("files.im") ->
-            filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-        embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
+    private suspend fun serverVideoResolver(url: String): List<Video> {
+        val embedUrl = url.lowercase()
+        return when {
+            embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
+            embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
+            embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
+            embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") ||
+            embedUrl.contains("moviesm4u") || embedUrl.contains("files.im") ->
+                filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+            embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
                 doodExtractor.videosFromUrl(url)
-        embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
-            streamTapeExtractor.videosFromUrl(url)
-        embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
-        embedUrl.contains("mixdrop") -> mixdropExtractor.videosFromUrl(url)
-        embedUrl.contains("wishembed") || embedUrl.contains("streamwish") ||
-        embedUrl.contains("strwish") || embedUrl.contains("wish") ||
-        embedUrl.contains("kswplayer") || embedUrl.contains("swhoi") ||
-        embedUrl.contains("multimovies") || embedUrl.contains("uqloads") ||
-        embedUrl.contains("neko-stream") || embedUrl.contains("swdyu") ||
-        embedUrl.contains("iplayerhls") || embedUrl.contains("streamgg") ->
-            streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
-        else -> universalExtractor.videosFromUrl(url, headers)
+            embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
+                streamTapeExtractor.videosFromUrl(url)
+            embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
+            embedUrl.contains("mixdrop") -> mixdropExtractor.videosFromUrl(url)
+            embedUrl.contains("wishembed") || embedUrl.contains("streamwish") ||
+            embedUrl.contains("strwish") || embedUrl.contains("wish") ||
+            embedUrl.contains("kswplayer") || embedUrl.contains("swhoi") ||
+            embedUrl.contains("multimovies") || embedUrl.contains("uqloads") ||
+            embedUrl.contains("neko-stream") || embedUrl.contains("swdyu") ||
+            embedUrl.contains("iplayerhls") || embedUrl.contains("streamgg") ->
+                streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+            else -> universalExtractor.videosFromUrl(url, headers)
+        }
     }
-}
+
     // ====================== ORDENAR VIDEOS ======================
 
     override fun List<Video>.sort(): List<Video> {
