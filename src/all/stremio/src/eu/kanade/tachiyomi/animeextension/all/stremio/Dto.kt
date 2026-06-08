@@ -67,7 +67,7 @@ data class MetaDto(
     @Serializable(with = ObjectToListSerializer::class)
     val director: List<String>? = null,
     val cast: List<String>? = null,
-    val year: String? = null,
+    val releaseInfo: String? = null,
 
     // Episodes
     val videos: List<VideoDto>? = null,
@@ -87,12 +87,12 @@ data class MetaDto(
         description = buildString {
             append(this@MetaDto.description ?: "")
             append("\n\n")
-            year?.let {
+            releaseInfo?.let {
                 append("Release year: ")
                 append(it)
             }
         }.trim()
-        year?.let {
+        releaseInfo?.let {
             status = if (it.last().isDigit()) {
                 SAnime.COMPLETED
             } else {
