@@ -16,9 +16,10 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
-import keiyoushi.utils.catchingFlatMap
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -154,7 +155,7 @@ class Anikage :
 
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListRequest(anime: SAnime): Request {
         val animeId = anime.url.split("/").last()
         val getHeaders = headersBuilder()
             .add("Referer", "$baseUrl${anime.url}")
@@ -165,17 +166,15 @@ class Anikage :
             .add("Sec-Fetch-Dest", "empty")
             .build()
 
-        val episodeListRequest = GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
+        return GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
+    }
 
-        val episodesData = client.newCall(episodeListRequest)
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val animeId = anime.url.split("/").last()
+
+        val episodesData = client.newCall(episodeListRequest(anime))
             .awaitSuccess()
             .parseAs<List<EpisodeResult>>()
-
-        val provider = if (preferences.subOrDub == "dub") {
-            preferences.dubSource
-        } else {
-            preferences.subSource
-        }
 
         val episode = episodesData.reversed().map {
             SEpisode.create().apply {
@@ -185,12 +184,12 @@ class Anikage :
                 } else {
                     "Episode ${it.number}"
                 }
-                date_upload = runCatching {
-                    SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(it.airDate)?.time
-                }.getOrNull() ?: 0L
-                url = animeEpisodeUrlFormat(
-                    animeId,
-                    it.number,
+                date_upload = DATE_FORMAT.tryParse(it.airDate)
+                setUrlWithoutDomain(
+                    animeEpisodeUrlFormat(
+                        animeId,
+                        it.number,
+                    ),
                 )
             }
         }
@@ -199,7 +198,7 @@ class Anikage :
 
     // Video Links
 
-    private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
+    private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "$baseUrl${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val providers = if (preferences.subOrDub == "dub") {
@@ -217,7 +216,7 @@ class Anikage :
         }
 
         val getHeaders = headersBuilder()
-            .add("Referer", episode.url)
+            .add("Referer", "$baseUrl${episode.url}")
             .add("Origin", baseUrl)
             .add("Accept", "*/*")
             .add("Sec-Fetch-Site", "same-origin")
@@ -225,7 +224,7 @@ class Anikage :
             .add("Sec-Fetch-Dest", "empty")
             .build()
 
-        return providers.toList().catchingFlatMap { (type, provider) ->
+        return providers.toList().parallelCatchingFlatMap { (type, provider) ->
             val episodeData = client.newCall(
                 GET(videoListRequestUrl(episode, provider), getHeaders),
             )
@@ -359,6 +358,7 @@ class Anikage :
         get() = getString(PREF_DUB_SOURCE, PREF_DUB_DEFAULT)!!
 
     companion object {
+        private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
 
         private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/advanced-search"
         private const val PREF_ADULT_KEY = "nsfw"
