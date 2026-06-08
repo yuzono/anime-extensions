@@ -3,14 +3,13 @@ package eu.kanade.tachiyomi.animeextension.en.onetwothreeanime
 import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
 class OneThreeTwoAnimeExtractor(
     private val client: OkHttpClient,
-    private val json: Json,
     private val baseUrl: String,
     private val preferredPlayer: String = PLAYER_JW,
 ) {
@@ -76,7 +75,7 @@ class OneThreeTwoAnimeExtractor(
             response.body.string()
         }
         val svJson = runCatching {
-            json.decodeFromString<SvResponseDto>(body)
+            body.parseAs<SvResponseDto>()
         }.getOrElse {
             Log.e(TAG, "fetchServerIds: JSON parse failed, body=${body.take(200)}", it)
             return emptyList()
@@ -107,7 +106,7 @@ class OneThreeTwoAnimeExtractor(
             return null
         } ?: return null
         return runCatching {
-            json.decodeFromString<EpisodeInfoDto>(body)
+            body.parseAs<EpisodeInfoDto>()
         }.getOrElse {
             Log.e(TAG, "fetchEpisodeInfo: JSON parse failed", it)
             null
@@ -296,7 +295,7 @@ class OneThreeTwoAnimeExtractor(
         Log.d(TAG, "resolveLegacyPlayer: sourcesJson=$sourcesJson")
         if (!sourcesJson.isNullOrBlank()) {
             val streamUrl = runCatching {
-                json.decodeFromString<SourcesDto>(sourcesJson).sources.trim()
+                sourcesJson.parseAs<SourcesDto>().sources.trim()
             }.getOrElse {
                 Log.e(TAG, "resolveLegacyPlayer: SourcesDto parse failed", it)
                 null
@@ -359,7 +358,7 @@ class OneThreeTwoAnimeExtractor(
             val body = resp.body.string()
 
             if (resp.isSuccessful && body.isNotBlank()) {
-                json.decodeFromString<SourcesDto>(body)
+                body.parseAs<SourcesDto>()
                     .sources
                     .trim()
                     .takeIf { it.isNotBlank() }

@@ -50,12 +50,9 @@ class OneThreeTwoAnime :
 
     private val preferences by getPreferencesLazy()
 
-    private val json: Json by injectLazy()
-
     private val extractor: OneThreeTwoAnimeExtractor
         get() = OneThreeTwoAnimeExtractor(
             client,
-            json,
             baseUrl,
             preferences.getString(PREF_PLAYER_KEY, PREF_PLAYER_DEFAULT)!!,
         )

@@ -10,7 +10,7 @@ object OneThreeTwoAnimeFilters {
     // ------------------------------------------------------------------ //
 
     /** A single named checkbox value. */
-    class CheckBoxOption(val displayName: String, val queryValue: String, state: Boolean = false) : AnimeFilter.CheckBox(displayName, state)
+    class CheckBoxOption(displayName: String, val queryValue: String, state: Boolean = false) : AnimeFilter.CheckBox(displayName, state)
 
     open class CheckBoxGroup(name: String, val queryParam: String, items: List<CheckBoxOption>) : AnimeFilter.Group<CheckBoxOption>(name, items) {
 
