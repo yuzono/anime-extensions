@@ -45,7 +45,7 @@ class MundoDonghua :
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst(".md-card-title")!!.text()
+        title = element.selectFirst(".md-card-title")?.text().orEmpty()
         thumbnail_url = element.selectFirst("div.md-card-img img")?.attr("abs:src")
     }
 
@@ -120,30 +120,36 @@ class MundoDonghua :
                         }
                     }
                     if (unpack.contains("vhide_tab")) {
-                        fetchUrls(unpack).forEach { url ->
-                            try {
-                                if (url.contains("vidhide")) {
-                                    val newHeaders = headers.newBuilder()
-                                        .add("authority", url.toHttpUrl().host)
-                                        .add("referer", "$baseUrl/")
-                                        .add("Origin", baseUrl)
-                                        .build()
-                                    runBlocking {
+                        val vidhideUrls = fetchUrls(unpack).filter { it.contains("vidhide") }
+                        if (vidhideUrls.isNotEmpty()) {
+                            runBlocking {
+                                vidhideUrls.forEach { url ->
+                                    try {
+                                        val newHeaders = headers.newBuilder()
+                                            .add("authority", url.toHttpUrl().host)
+                                            .add("referer", "$baseUrl/")
+                                            .add("Origin", baseUrl)
+                                            .build()
                                         VidHideExtractor(client, newHeaders).videosFromUrl(url) { "VidHide:$it" }.also(videoList::addAll)
-                                    }
+                                    } catch (_: Exception) {}
                                 }
-                            } catch (_: Exception) {}
+                            }
                         }
                     }
                     if (unpack.contains("swish_tab")) {
-                        fetchUrls(unpack).forEach { url ->
-                            try {
-                                if (url.contains("embedwish")) {
-                                    runBlocking {
-                                        StreamWishExtractor(client, headers).videosFromUrl(url, "StreamWish:").also(videoList::addAll)
-                                    }
+                        val swishUrls = fetchUrls(unpack).filter { it.contains("embedwish") }
+                        if (swishUrls.isNotEmpty()) {
+                            runBlocking {
+                                swishUrls.forEach { url ->
+                                    try {
+                                        val newHeaders = headers.newBuilder()
+                                            .add("referer", "$baseUrl/")
+                                            .add("Origin", baseUrl)
+                                            .build()
+                                        StreamWishExtractor(client, newHeaders).videosFromUrl(url, "StreamWish:").also(videoList::addAll)
+                                    } catch (_: Exception) {}
                                 }
-                            } catch (_: Exception) {}
+                            }
                         }
                     }
                     if (unpack.contains("asura_tab")) {
@@ -153,7 +159,7 @@ class MundoDonghua :
                                     val newHeaders = headers.newBuilder()
                                         .add("authority", "www.mdnemonicplayer.xyz")
                                         .add("accept", "*/*")
-                                        .add("origin", baseUrl)
+                                        .add("Origin", baseUrl)
                                         .add("referer", "$baseUrl/")
                                         .build()
                                     PlaylistUtils(client, newHeaders).extractFromHls(url, videoNameGen = { "Asura:$it" }).let { videoList.addAll(it) }
