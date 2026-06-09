@@ -185,7 +185,7 @@ class Anikage :
                 } else {
                     "Episode ${it.number}"
                 }
-                date_upload = DATE_FORMAT.tryParse(it.airDate)
+                date_upload = DATE_FORMAT.get()!!.tryParse(it.airDate)
                 setUrlWithoutDomain(
                     animeEpisodeUrlFormat(
                         animeId,
