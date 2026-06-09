@@ -51,25 +51,20 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
                 } else {
                     script
                 }
-            }
+            } ?: return emptyList()
 
-        val masterUrl = scriptBody?.let {
-            M3U8_REGEX.find(it)?.value
-        }
+        val masterUrl = M3U8_REGEX.find(scriptBody)?.value ?: return emptyList()
 
-        if (masterUrl != null) {
-            val subtitleList = extractSubtitles(scriptBody)
+        val subtitleList = extractSubtitles(scriptBody)
 
-            return playlistUtils.extractFromHls(
-                playlistUrl = masterUrl,
-                referer = masterUrl.toHttpUrlOrNull()
-                    ?.let { "${it.scheme}://${it.host}/" }
-                    ?: "https://${url.toHttpUrl().host}/",
-                videoNameGen = videoNameGen,
-                subtitleList = playlistUtils.fixSubtitles(subtitleList),
-            )
-        }
-        return emptyList()
+        return playlistUtils.extractFromHls(
+            playlistUrl = masterUrl,
+            referer = masterUrl.toHttpUrlOrNull()
+                ?.let { "${it.scheme}://${it.host}/" }
+                ?: "https://${url.toHttpUrl().host}/",
+            videoNameGen = videoNameGen,
+            subtitleList = playlistUtils.fixSubtitles(subtitleList),
+        )
     }
 
     private fun getEmbedUrl(url: String): String = if (url.contains("/f/")) {
