@@ -91,7 +91,7 @@ class Anikage :
         if (searchParams.releaseYear != "ALL") {
             requestUrl.addQueryParameter("seasonYear", searchParams.releaseYear)
         }
-        if (searchParams.genres.count() != 0) {
+        if (searchParams.genres.isNotEmpty()) {
             requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
         }
         if (preferences.isAdult) {
