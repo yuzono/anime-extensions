@@ -55,9 +55,9 @@ class Anikage :
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "popularity")
-        requestUrl.addQueryParameter("per_page", 25.toString())
+        requestUrl.addQueryParameter("per_page", "25")
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", true.toString())
+            requestUrl.addQueryParameter("include_adult", "true")
         }
 
         return buildGet(requestUrl.build())
