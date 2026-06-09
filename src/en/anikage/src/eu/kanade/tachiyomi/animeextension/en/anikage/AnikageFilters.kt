@@ -59,12 +59,12 @@ object AnikageFilters {
     )
 
     data class FilterSearchParams(
-        val origin: String = "",
-        val season: String = "",
-        val releaseYear: String = "",
-        val sortBy: String = "",
-        val types: String = "",
-        val status: String = "",
+        val origin: String = "ALL",
+        val season: String = "ALL",
+        val releaseYear: String = "ALL",
+        val sortBy: String = "TRENDING_DESC",
+        val types: String = "ALL",
+        val status: String = "ALL",
         val genres: List<String> = emptyList(),
     )
 

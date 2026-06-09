@@ -57,7 +57,7 @@ data class EpisodeResult(
     val title: String?,
     val description: String?,
     val img: String?,
-    val airDate: String,
+    val airDate: String?,
     val isFiller: Boolean,
     val rating: Float?,
     val updatedAt: Long,
