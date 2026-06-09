@@ -38,8 +38,6 @@ class OneThreeTwoAnime :
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private fun freshHeaders() = headersBuilder().build()
-
     private val preferences by getPreferencesLazy()
 
     private val extractor: OneThreeTwoAnimeExtractor
@@ -70,7 +68,7 @@ class OneThreeTwoAnime :
     //  Popular anime  (top-ranked "Day" tab on /home ranking widget)
     // ==================================================================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/home", freshHeaders())
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/home", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val doc = response.useAsJsoup()
@@ -92,7 +90,7 @@ class OneThreeTwoAnime :
     //    • Sub+Dub   → use the PREF_LATEST_TAB setting
     // ==================================================================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home", freshHeaders())
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/home", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val doc = response.useAsJsoup()
@@ -147,7 +145,7 @@ class OneThreeTwoAnime :
             }
         }.build().toString()
 
-        return GET(url, freshHeaders())
+        return GET(url, headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -161,7 +159,7 @@ class OneThreeTwoAnime :
     //  Anime details  –  GET /anime/{slug}
     // ==================================================================
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(baseUrl + anime.url, freshHeaders())
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.useAsJsoup()
@@ -189,7 +187,7 @@ class OneThreeTwoAnime :
 
     override fun episodeListRequest(anime: SAnime): Request {
         val slug = anime.url.removePrefix("/anime/")
-        return GET("$baseUrl/ajax/film/sv?id=$slug", freshHeaders())
+        return GET("$baseUrl/ajax/film/sv?id=$slug", headers)
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -215,7 +213,7 @@ class OneThreeTwoAnime :
 
     // episode.url is stored as "{animeSlug}/{epNum}" e.g. "aoki-hagane.../1"
     // We make a minimal request here; the body is ignored — fetchVideos() does all the work.
-    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl/ajax/episode/info?epr=${episode.url}/0", freshHeaders())
+    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl/ajax/episode/info?epr=${episode.url}/0", headers)
 
     override fun videoListParse(response: Response): List<Video> {
         // epr param = "animeSlug/epNum/0" — drop trailing "/0" (the dummy serverId)
