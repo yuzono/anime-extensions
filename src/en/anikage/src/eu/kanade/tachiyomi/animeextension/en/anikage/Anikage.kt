@@ -362,6 +362,7 @@ class Anikage :
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
 
         private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/advanced-search"
+        private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 
