@@ -8,9 +8,7 @@ class AniWave :
         "AniWave (Unoriginal)",
         domainEntries = listOf(
             "animewave.to",
-            "aniwave.id",
-            "aniwave.best",
-            "aniwave.ro",
+            "aniwave.cz",
         ),
         hosterNames = listOf("HD", "Vidstream", "VidCloud", "Kiwi-Stream"), // seed/fallback only
     )
