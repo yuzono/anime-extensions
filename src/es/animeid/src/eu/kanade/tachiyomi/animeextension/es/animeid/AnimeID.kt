@@ -101,30 +101,32 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun popularAnimeNextPageSelector(): String = "ul.pag li a:contains(Siguiente)"
 
-    // ============================== Latest ===============================
-    override fun latestUpdatesSelector(): String = "div.ul.hm article.li"
+// ============================== Latest ===============================
+override fun latestUpdatesSelector(): String = "div.ul.hm article.li"
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
+override fun latestUpdatesRequest(page: Int): Request {
+    val url = if (page == 1) baseUrl else "$baseUrl?pag=$page"
+    return GET(url, headers)
+}
 
-    override fun latestUpdatesFromElement(element: Element): SAnime {
-        val anime = SAnime.create()
-        val linkElement = element.select("a").first()
-        val href = linkElement?.attr("href") ?: ""
-        val animeSlug = href.substringAfter("/ver/").substringBeforeLast("-")
-        anime.setUrlWithoutDomain("/$animeSlug")
-        anime.title = linkElement?.select("span")?.text()?.trim() ?: ""
+override fun latestUpdatesFromElement(element: Element): SAnime {
+    val anime = SAnime.create()
+    val linkElement = element.select("a").first()
+    val href = linkElement?.attr("href") ?: ""
+    val animeSlug = href.substringAfter("/ver/").substringBeforeLast("-")
+    anime.setUrlWithoutDomain("/$animeSlug")
+    anime.title = linkElement?.select("span")?.text()?.trim() ?: ""
 
-        val imgElement = element.select("figure.i img").first()
-        var imgUrl = imgElement?.attr("data-src")
-        if (imgUrl.isNullOrEmpty()) imgUrl = imgElement?.attr("src")
-        if (!imgUrl.isNullOrEmpty()) {
-            anime.thumbnail_url = if (imgUrl.startsWith("http")) imgUrl else baseUrl + imgUrl
-        }
-        return anime
+    val imgElement = element.select("figure.i img").first()
+    var imgUrl = imgElement?.attr("data-src")
+    if (imgUrl.isNullOrEmpty()) imgUrl = imgElement?.attr("src")
+    if (!imgUrl.isNullOrEmpty()) {
+        anime.thumbnail_url = if (imgUrl.startsWith("http")) imgUrl else baseUrl + imgUrl
     }
+    return anime
+}
 
-    override fun latestUpdatesNextPageSelector(): String? = null
-
+override fun latestUpdatesNextPageSelector(): String? = "ul.pag li a:contains(Siguiente)"
     // ============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
