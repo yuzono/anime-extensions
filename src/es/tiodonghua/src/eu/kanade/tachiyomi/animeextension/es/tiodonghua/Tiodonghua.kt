@@ -24,7 +24,7 @@ class Tiodonghua :
         "Okru" -> okruExtractor.videosFromUrl(url)
         "Voe" -> voeExtractor.videosFromUrl(url)
         "YourUpload" -> youruploadExtractor.videoFromUrl(url, headers)
-        "MixDrop" -> mixdropExtractor.videosFromUrl(url)
+        "MixDrop" -> mixdropExtractor.videoFromUrl(url)
         else -> emptyList()
     }
 

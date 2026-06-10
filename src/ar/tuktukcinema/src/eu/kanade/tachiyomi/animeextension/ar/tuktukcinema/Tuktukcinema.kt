@@ -141,8 +141,8 @@ class Tuktukcinema :
             }
         }
 
-        "mixdrop" in server -> {
-            mixDropExtractor.videosFromUrl(url, "Ar", customQuality?.let { "$it " } ?: "")
+        mixDropExtractor.canHandleUrl(url) -> {
+            mixDropExtractor.videoFromUrl(url, customQuality ?: "")
         }
 
         "dood" in server -> {

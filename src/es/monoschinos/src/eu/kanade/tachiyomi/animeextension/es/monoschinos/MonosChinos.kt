@@ -210,7 +210,7 @@ class MonosChinos :
             embedUrl.contains("doodstream") || embedUrl.contains("dood.") || embedUrl.contains("ds2play") || embedUrl.contains("doods.") -> doodExtractor.videosFromUrl(url)
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
             embedUrl.contains("mp4upload") || embedUrl.contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
-            embedUrl.contains("mix") -> mixdropExtractor.videosFromUrl(url)
+            embedUrl.contains("mix") -> mixdropExtractor.videoFromUrl(url)
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     }

@@ -212,7 +212,7 @@ class Einfach :
         "filelions" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
         "filemoon" -> filemoonExtractor.videosFromUrl(url)
         "lulustream" -> lulustreamExtractor.videosFromUrl(url, "LuLuStream")
-        "mixdrop" -> mixdropExtractor.videosFromUrl(url)
+        "mixdrop" -> mixdropExtractor.videoFromUrl(url)
         "streamtape" -> streamtapeExtractor.videosFromUrl(url)
         "streamwish" -> streamwishExtractor.videosFromUrl(url)
         "vidoza" -> vidozaExtractor.videosFromUrl(url)

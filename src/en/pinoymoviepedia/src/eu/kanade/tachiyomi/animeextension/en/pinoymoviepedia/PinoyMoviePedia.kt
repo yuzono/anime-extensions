@@ -57,7 +57,7 @@ class PinoyMoviePedia :
 
     private fun extractVideos(url: String, lang: String): List<Video> = when {
         "dood" in url -> doodExtractor.videosFromUrl(url, lang)
-        "mixdrop" in url -> mixDropExtractor.videosFromUrl(url, lang)
+        "mixdrop" in url -> mixDropExtractor.videoFromUrl(url, lang)
         else -> null
     } ?: emptyList()
 
