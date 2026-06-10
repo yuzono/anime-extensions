@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.jsunpacker.JsUnpacker
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 import java.net.URLDecoder
 
@@ -18,7 +19,15 @@ class MixDropExtractor(private val client: OkHttpClient) {
         prefix: String = "",
         externalSubs: List<Track> = emptyList(),
     ): List<Video> {
-        val doc = client.newCall(GET(url)).execute().asJsoup()
+        val headers = Headers.headersOf(
+            "Referer",
+            url,
+            "Upgrade-Insecure-Requests",
+            "1",
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0",
+        )
+        val doc = client.newCall(GET(url, headers = headers)).execute().asJsoup()
         val unpacked = doc.selectFirst("script:containsData(eval):containsData(MDCore)")
             ?.data()
             ?.let(JsUnpacker::unpackAndCombine)
@@ -33,7 +42,7 @@ class MixDropExtractor(private val client: OkHttpClient) {
 
         val quality = "${prefix}MixDrop: ${quality.ifBlank { "Mirror" }}"
 
-        return Video(videoUrl, quality, videoUrl, subtitleTracks = subs + externalSubs).let(::listOf)
+        return Video(videoUrl, quality, videoUrl, headers = headers, subtitleTracks = subs + externalSubs).let(::listOf)
     }
 
     companion object {
