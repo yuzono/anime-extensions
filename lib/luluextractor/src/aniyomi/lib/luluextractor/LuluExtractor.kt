@@ -33,7 +33,7 @@ class LuluExtractor(private val client: OkHttpClient, private val headers: Heade
             playlistUrl = masterUrl,
             referer = masterUrl.toHttpUrlOrNull()
                 ?.let { "${it.scheme}://${it.host}/" }
-                ?: "https://${url.toHttpUrl().host}/",
+                ?: url.toHttpUrl().let { "${it.scheme}://${it.host}/" },
             videoNameGen = { "${prefix.ifBlank { "LuluStream" }}: $it" },
         )
     }
