@@ -221,7 +221,7 @@ class Zonaleros :
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions:$it" })
             embedUrl.contains("mp4upload") || embedUrl.contains("mp4") -> mp4uploadExtractor.videosFromUrl(url, headers)
             embedUrl.contains("vidhide") || embedUrl.contains("vid.") || embedUrl.contains("nika") -> vidHideExtractor.videosFromUrl(url) { "VidHide:$it" }
-            embedUrl.contains("mix") -> mixdropExtractor.videosFromUrl(url)
+            embedUrl.contains("mix") -> mixdropExtractor.videoFromUrl(url)
             else -> emptyList()
         }
     }

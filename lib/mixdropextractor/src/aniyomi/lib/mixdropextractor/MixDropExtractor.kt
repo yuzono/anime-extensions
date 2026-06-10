@@ -12,9 +12,10 @@ class MixDropExtractor(private val client: OkHttpClient) {
 
     fun canHandleUrl(url: String) = MIX_DROP_REGEX.containsMatchIn(url)
 
-    fun videosFromUrl(
+    fun videoFromUrl(
         url: String,
         quality: String = "",
+        prefix: String = "",
         externalSubs: List<Track> = emptyList(),
     ): List<Video> {
         val doc = client.newCall(GET(url)).execute().asJsoup()
@@ -30,7 +31,7 @@ class MixDropExtractor(private val client: OkHttpClient) {
             ?.let { listOf(Track(URLDecoder.decode(it, "utf-8"), "sub")) }
             ?: emptyList()
 
-        val quality = "MixDrop: ${quality.ifBlank { "Mirror" }}"
+        val quality = "${prefix}MixDrop: ${quality.ifBlank { "Mirror" }}"
 
         return Video(videoUrl, quality, videoUrl, subtitleTracks = subs + externalSubs).let(::listOf)
     }

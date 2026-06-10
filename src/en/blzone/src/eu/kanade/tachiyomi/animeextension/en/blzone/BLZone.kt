@@ -237,7 +237,7 @@ class BLZone :
     private fun serverVideoResolver(url: String): List<Video> = when {
         url.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, "FileMoon")
         url.contains("streamtape") -> streamtapeExtractor.videosFromUrl(url, "StreamTape")
-        url.contains("mixdrop") -> mixDropExtractor.videosFromUrl(url, "MixDrop")
+        url.contains("mixdrop") -> mixDropExtractor.videoFromUrl(url)
         url.contains("vgembed") -> vidGuardExtractor.videosFromUrl(url, "VidGuard")
         else -> emptyList()
     }
