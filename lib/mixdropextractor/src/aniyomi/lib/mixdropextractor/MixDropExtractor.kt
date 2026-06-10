@@ -33,7 +33,8 @@ class MixDropExtractor(private val client: OkHttpClient) {
             ?.let(JsUnpacker::unpackAndCombine)
             ?: return emptyList()
 
-        val videoUrl = "https:" + VIDEO_URL_REGEX.find(unpacked)?.value
+        val videoUrl = VIDEO_URL_REGEX.find(unpacked)?.value?.let { "https:$it" }
+            ?: return emptyList()
 
         val subs = unpacked.substringAfter("Core.remotesub=\"").substringBefore('"')
             .takeIf(String::isNotBlank)
