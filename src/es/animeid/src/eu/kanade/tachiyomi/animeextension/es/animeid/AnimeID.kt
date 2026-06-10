@@ -251,19 +251,24 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     // ============================== Episodes  ===============================
-    override fun episodeListSelector(): String = "ul.epis li"
+// ============================== Episodes ===============================
+override fun episodeListSelector(): String = "ul.epis li"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        val episode = SEpisode.create()
-        val linkElement = element.select("a").first()
-        val href = linkElement?.attr("href") ?: ""
-        val episodeNumber = href.substringAfterLast("-").toFloatOrNull() ?: 1f
-        episode.setUrlWithoutDomain(href)
-        episode.name = "Episodio ${episodeNumber.toInt()}"
-        episode.episode_number = episodeNumber
-        return episode
+override fun episodeFromElement(element: Element): SEpisode {
+    val episode = SEpisode.create()
+    val linkElement = element.select("a").first()
+    val href = linkElement?.attr("href") ?: ""
+    val episodeNumber = href.substringAfterLast("-").toFloatOrNull() ?: 1f
+    episode.setUrlWithoutDomain(href)
+    val episodeDisplay = if (episodeNumber == episodeNumber.toInt().toFloat()) {
+        episodeNumber.toInt().toString()
+    } else {
+        episodeNumber.toString()
     }
-
+    episode.name = "Episodio $episodeDisplay"
+    episode.episode_number = episodeNumber
+    return episode
+}
     override fun episodeListParse(response: Response): List<SEpisode> {
         val initialHtml = response.body?.string() ?: return emptyList()
         val doc = Jsoup.parse(initialHtml, baseUrl)
