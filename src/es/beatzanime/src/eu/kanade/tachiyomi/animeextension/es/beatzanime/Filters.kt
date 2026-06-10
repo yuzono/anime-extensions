@@ -31,7 +31,6 @@ class StatusFilter :
             Pair("Todos", ""),
             Pair("En Emision", "En Emision"),
             Pair("Finalizado", "Finalizado"),
-            Pair("En Proceso", "En Proceso"),
         ),
     )
 
