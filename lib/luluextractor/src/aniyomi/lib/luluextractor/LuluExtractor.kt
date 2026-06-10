@@ -1,107 +1,45 @@
 package aniyomi.lib.luluextractor
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.lib.autoUnpacker
-import keiyoushi.utils.bodyString
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.jsunpacker.JsUnpacker
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
-import java.util.regex.Pattern
 
-class LuluExtractor(private val client: OkHttpClient, headers: Headers) {
+class LuluExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
-    private val headers = headers.newBuilder()
-        .add("Referer", "https://luluvdo.com/")
-        .add("Origin", "https://luluvdo.com")
-        .build()
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    // Credit: https://github.com/skoruppa/docchi-stremio-addon/blob/main/app/players/lulustream.py
-    fun videosFromUrl(url: String, prefix: String): List<Video> {
-        val videos = mutableListOf<Video>()
+    fun canHandleUrl(url: String): Boolean = LULU_REGEX.containsMatchIn(url)
 
-        try {
-            val html = client.newCall(GET(url, headers)).execute().bodyString()
-            val m3u8Url = extractM3u8Url(html) ?: return emptyList()
-            val fixedUrl = fixM3u8Link(m3u8Url)
-            val quality = getResolution(fixedUrl)
-
-            videos.add(Video(fixedUrl, "${prefix}Lulu - $quality", fixedUrl, headers))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        return videos
-    }
-
-    private fun extractM3u8Url(html: String): String? {
-        return when {
-            html.contains("eval(function(p,a,c,k,e") -> {
-                val unpacked = autoUnpacker(html) ?: return null
-                Pattern.compile("sources:\\[\\{file:\"([^\"]+)\"")
-                    .matcher(unpacked)
-                    .takeIf { it.find() }
-                    ?.group(1)
-            }
-            else -> {
-                Pattern.compile("sources: \\[\\{file:\"(https?://[^\"]+)\"")
-                    .matcher(html)
-                    .takeIf { it.find() }
-                    ?.group(1)
-            }
-        }
-    }
-
-    private fun fixM3u8Link(link: String): String {
-        val paramOrder = listOf("t", "s", "e", "f")
-        val params = Pattern.compile("[?&]([^=]*)=([^&]*)").matcher(link).let { matcher ->
-            generateSequence { if (matcher.find()) matcher.group(1) to matcher.group(2) else null }.toList()
-        }
-
-        val paramDict = mutableMapOf<String, String>()
-        val extraParams = mutableMapOf<String, String>()
-
-        params.forEachIndexed { index, (key, value) ->
-            if (key.isNullOrEmpty()) {
-                if (index < paramOrder.size) {
-                    if (value != null) {
-                        paramDict[paramOrder[index]] = value
-                    }
+    suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
+        val document = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+        val scriptBody = document.selectFirst("script:containsData(m3u8)")?.data()
+            ?.let { script ->
+                if (script.contains("eval(function(p,a,c")) {
+                    JsUnpacker.unpackAndCombine(script)
+                } else {
+                    script
                 }
-            } else {
-                if (value != null) {
-                    extraParams[key] = value
-                }
-            }
-        }
+            } ?: return emptyList()
 
-        extraParams["i"] = "0.3"
-        extraParams["sp"] = "0"
-
-        val baseUrl = link.split("?")[0]
-
-        val fixedLink = baseUrl.toHttpUrl().newBuilder()
-        paramOrder.filter { paramDict.containsKey(it) }.forEach { key ->
-            fixedLink.addQueryParameter(key, paramDict[key])
-        }
-        extraParams.forEach { (key, value) ->
-            fixedLink.addQueryParameter(key, value)
-        }
-
-        return fixedLink.build().toString()
+        val masterUrl = M3U8_REGEX.find(scriptBody)?.value ?: return emptyList()
+        return playlistUtils.extractFromHls(
+            playlistUrl = masterUrl,
+            referer = masterUrl.toHttpUrlOrNull()
+                ?.let { "${it.scheme}://${it.host}/" }
+                ?: "https://${url.toHttpUrl().host}/",
+            videoNameGen = { "${prefix.ifBlank { "LuluStream" }}: $it" },
+        )
     }
 
-    private fun getResolution(m3u8Url: String): String = try {
-        val content = client.newCall(GET(m3u8Url, headers)).execute()
-            .bodyString()
-
-        Pattern.compile("RESOLUTION=\\d+x(\\d+)")
-            .matcher(content)
-            .takeIf { it.find() }
-            ?.group(1)
-            ?.let { "${it}p" }
-            ?: "Unknown"
-    } catch (_: Exception) {
-        "Unknown"
+    companion object {
+        private val LULU_REGEX by lazy { Regex("""(?://|\.)((?:lulu(?:stream|vi*do*)?|732eg54de642sa|cdn1|streamhihi|d00ds)\.(?:com|sbs|si?te?))/(?:e/|d/)?([0-9a-zA-Z]+)""") }
+        private val M3U8_REGEX by lazy { Regex("""https[^"]*m3u8[^"]*""") }
     }
 }
