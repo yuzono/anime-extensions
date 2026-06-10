@@ -2,11 +2,11 @@ package eu.kanade.tachiyomi.animeextension.es.animeid
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.universalextractor.UniversalExtractor
-import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -20,11 +20,10 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.FormBody
-import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -101,32 +100,33 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
     override fun popularAnimeNextPageSelector(): String = "ul.pag li a:contains(Siguiente)"
 
-// ============================== Latest ===============================
-override fun latestUpdatesSelector(): String = "div.ul.hm article.li"
+    // ============================== Latest ===============================
+    override fun latestUpdatesSelector(): String = "div.ul.hm article.li"
 
-override fun latestUpdatesRequest(page: Int): Request {
-    val url = if (page == 1) baseUrl else "$baseUrl?pag=$page"
-    return GET(url, headers)
-}
-
-override fun latestUpdatesFromElement(element: Element): SAnime {
-    val anime = SAnime.create()
-    val linkElement = element.select("a").first()
-    val href = linkElement?.attr("href") ?: ""
-    val animeSlug = href.substringAfter("/ver/").substringBeforeLast("-")
-    anime.setUrlWithoutDomain("/$animeSlug")
-    anime.title = linkElement?.select("span")?.text()?.trim() ?: ""
-
-    val imgElement = element.select("figure.i img").first()
-    var imgUrl = imgElement?.attr("data-src")
-    if (imgUrl.isNullOrEmpty()) imgUrl = imgElement?.attr("src")
-    if (!imgUrl.isNullOrEmpty()) {
-        anime.thumbnail_url = if (imgUrl.startsWith("http")) imgUrl else baseUrl + imgUrl
+    override fun latestUpdatesRequest(page: Int): Request {
+        val url = if (page == 1) baseUrl else "$baseUrl?pag=$page"
+        return GET(url, headers)
     }
-    return anime
-}
 
-override fun latestUpdatesNextPageSelector(): String? = "ul.pag li a:contains(Siguiente)"
+    override fun latestUpdatesFromElement(element: Element): SAnime {
+        val anime = SAnime.create()
+        val linkElement = element.select("a").first()
+        val href = linkElement?.attr("href") ?: ""
+        val animeSlug = href.substringAfter("/ver/").substringBeforeLast("-")
+        anime.setUrlWithoutDomain("/$animeSlug")
+        anime.title = linkElement?.select("span")?.text()?.trim() ?: ""
+
+        val imgElement = element.select("figure.i img").first()
+        var imgUrl = imgElement?.attr("data-src")
+        if (imgUrl.isNullOrEmpty()) imgUrl = imgElement?.attr("src")
+        if (!imgUrl.isNullOrEmpty()) {
+            anime.thumbnail_url = if (imgUrl.startsWith("http")) imgUrl else baseUrl + imgUrl
+        }
+        return anime
+    }
+
+    override fun latestUpdatesNextPageSelector(): String? = "ul.pag li a:contains(Siguiente)"
+
     // ============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
@@ -252,25 +252,25 @@ override fun latestUpdatesNextPageSelector(): String? = "ul.pag li a:contains(Si
         return anime
     }
 
-    // ============================== Episodes  ===============================
-// ============================== Episodes ===============================
-override fun episodeListSelector(): String = "ul.epis li"
+    // ============================== Episodes ===============================
+    override fun episodeListSelector(): String = "ul.epis li"
 
-override fun episodeFromElement(element: Element): SEpisode {
-    val episode = SEpisode.create()
-    val linkElement = element.select("a").first()
-    val href = linkElement?.attr("href") ?: ""
-    val episodeNumber = href.substringAfterLast("-").toFloatOrNull() ?: 1f
-    episode.setUrlWithoutDomain(href)
-    val episodeDisplay = if (episodeNumber == episodeNumber.toInt().toFloat()) {
-        episodeNumber.toInt().toString()
-    } else {
-        episodeNumber.toString()
+    override fun episodeFromElement(element: Element): SEpisode {
+        val episode = SEpisode.create()
+        val linkElement = element.select("a").first()
+        val href = linkElement?.attr("href") ?: ""
+        val episodeNumber = href.substringAfterLast("-").toFloatOrNull() ?: 1f
+        episode.setUrlWithoutDomain(href)
+        val episodeDisplay = if (episodeNumber == episodeNumber.toInt().toFloat()) {
+            episodeNumber.toInt().toString()
+        } else {
+            episodeNumber.toString()
+        }
+        episode.name = "Episodio $episodeDisplay"
+        episode.episode_number = episodeNumber
+        return episode
     }
-    episode.name = "Episodio $episodeDisplay"
-    episode.episode_number = episodeNumber
-    return episode
-}
+
     override fun episodeListParse(response: Response): List<SEpisode> {
         val initialHtml = response.body?.string() ?: return emptyList()
         val doc = Jsoup.parse(initialHtml, baseUrl)
@@ -289,7 +289,9 @@ override fun episodeFromElement(element: Element): SEpisode {
             currentPage++
             try {
                 Thread.sleep(500)
-            } catch (_: InterruptedException) { /* ignore */ }
+            } catch (_: InterruptedException) {
+                // ignore
+            }
         }
         return allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
@@ -316,7 +318,7 @@ override fun episodeFromElement(element: Element): SEpisode {
         }
     }
 
-    // ============================== Videos  ==================================
+    // ============================== Videos ===============================
     private fun serverVideoResolverBlocking(url: String): List<Video> {
         // Determine host to detect server switch
         val host = runCatching { url.toHttpUrlOrNull()?.host }.getOrNull()
@@ -324,7 +326,9 @@ override fun episodeFromElement(element: Element): SEpisode {
         if (lastServerHost == null || lastServerHost != host) {
             try {
                 customClient.connectionPool.evictAll()
-            } catch (_: Exception) { /* ignore */ }
+            } catch (_: Exception) {
+                // ignore
+            }
             lastServerHost = host
         }
         return runBlocking {
@@ -379,7 +383,6 @@ override fun episodeFromElement(element: Element): SEpisode {
         return orderVideosByPreferences(videos)
     }
 
-     
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
         val preferredServer = preferences.getString("animeid_preferred_server", "Voe")?.lowercase()
         val preferredQuality = preferences.getString("animeid_preferred_quality", "any")?.lowercase()
