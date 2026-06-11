@@ -313,8 +313,8 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "baku", "dio", "meg" -> " [Hard Subs]"
-                    "kite" -> " [Soft Subs]"
+                    "baku", "dio", "meg" -> "[Hard Subs]"
+                    "kite" -> "[Soft Subs]"
                     else -> ""
                 }
 
@@ -322,7 +322,7 @@ class Animetsu :
                     val cleanQuality = quality.substringBefore(" ").let { q ->
                         if (q.endsWith("P")) q.lowercase() else q
                     }
-                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                    "${server.id.uppercase()}: $cleanQuality ($audioLabel) $subLabel"
                 }
 
                 dto.sources.parallelCatchingFlatMap { source ->
