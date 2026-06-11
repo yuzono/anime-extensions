@@ -109,6 +109,9 @@ class Animetsu :
     private val showTrailer: Boolean
         get() = preferences.getBoolean(PREF_SHOW_TRAILER_KEY, PREF_SHOW_TRAILER_DEFAULT)
 
+    private val showBanner: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_BANNER_KEY, PREF_SHOW_BANNER_DEFAULT)
+
     private val showEpStats: Boolean
         get() = preferences.getBoolean(PREF_SHOW_EP_STATS_KEY, PREF_SHOW_EP_STATS_DEFAULT)
 
@@ -210,6 +213,7 @@ class Animetsu :
             showRelations = showRelations,
             showTrackers = showTrackers,
             showTrailer = showTrailer,
+            showBanner = showBanner,
         ),
     )!!
 
@@ -365,7 +369,6 @@ class Animetsu :
     override fun List<Video>.sort(): List<Video> {
         val quality = preferredQuality
         val server = preferredServer
-        val type = preferredAudioType
         val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
 
         return sortedWith(
@@ -498,6 +501,13 @@ class Animetsu :
         )
 
         screen.addSwitchPreference(
+            key = PREF_SHOW_BANNER_KEY,
+            title = "Show Banner",
+            summary = "Shows anime banner image in description.",
+            default = PREF_SHOW_BANNER_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
             key = PREF_SHOW_EP_STATS_KEY,
             title = "Show Episode Stats",
             summary = "Shows Views, Likes, and Dislikes in the scanlator field.",
@@ -626,7 +636,7 @@ class Animetsu :
         if (invalidHosters || invalidServer || oldAudioTypes != null) {
             edit().also { editor ->
                 if (invalidHosters) editor.putStringSet(PREF_HOSTER_EXCLUDE_KEY, hostExclusion.filter { it in SERVER_VALUES }.toSet())
-                if (invalidServer) editor.putStringSet(PREF_PREFERRED_SERVER_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)
+                if (invalidServer) editor.putString(PREF_PREFERRED_SERVER_KEY, PREF_PREFERRED_SERVER_DEFAULT)
                 if (oldAudioTypes != null) {
                     val newExclusion = AUDIO_TYPE_VALUES.toSet() - oldAudioTypes
                     editor.putStringSet(PREF_AUDIO_TYPE_EXCLUDE_KEY, newExclusion)
@@ -691,6 +701,8 @@ class Animetsu :
         private const val PREF_SHOW_TRAILER_DEFAULT = true
         private const val PREF_SHOW_EP_STATS_KEY = "show_ep_stats"
         private const val PREF_SHOW_EP_STATS_DEFAULT = true
+        private const val PREF_SHOW_BANNER_KEY = "show_banner"
+        private const val PREF_SHOW_BANNER_DEFAULT = true
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING

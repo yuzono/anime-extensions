@@ -20,6 +20,7 @@ class TagField(
     val showRelations: Boolean = true,
     val showTrackers: Boolean = true,
     val showTrailer: Boolean = true,
+    val showBanner: Boolean = true,
 )
 
 @Serializable
@@ -38,6 +39,13 @@ data class AnimetsuRecentDto(
 )
 
 @Serializable
+data class AnimetsuNextAiringEpisodeDto(
+    @SerialName("airing_at") val airingAt: Long? = null,
+    @SerialName("ep_num") val epNum: Int? = null,
+    @SerialName("time_left") val timeLeft: Long? = null,
+)
+
+@Serializable
 data class AnimetsuAnimeDto(
     val id: String,
     val type: String? = null,
@@ -50,6 +58,8 @@ data class AnimetsuAnimeDto(
     @SerialName("total_eps") val totalEps: Int? = null,
     @SerialName("start_date") val startDate: String? = null,
     @SerialName("end_date") val endDate: String? = null,
+    @SerialName("next_airing_ep") val nextAiringEp: AnimetsuNextAiringEpisodeDto? = null,
+    val rank: Int? = null,
     val year: Int? = null,
     val format: String? = null,
     val duration: Int? = null,
@@ -112,6 +122,18 @@ data class AnimetsuAnimeDto(
         return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
     }
 
+    private fun formatTimeLeft(seconds: Long): String {
+        val days = seconds / 86400
+        val hours = (seconds % 86400) / 3600
+        val minutes = (seconds % 3600) / 60
+
+        return buildString {
+            if (days > 0) append("${days}d ")
+            if (hours > 0) append("${hours}h ")
+            if (minutes > 0 && days == 0L) append("${minutes}m")
+        }.trim()
+    }
+
     fun buildDescription(tagField: TagField): String {
         val desc = StringBuilder()
 
@@ -121,6 +143,8 @@ data class AnimetsuAnimeDto(
                 desc.append(fancyScore)
             }
         }
+        rank?.let { desc.append(" #$it") }
+        trending?.takeIf { it > 0 }?.let { desc.append(" Trending") }
 
         description?.cleanHtml()?.let {
             if (desc.isNotBlank()) desc.append("\n\n")
@@ -154,12 +178,24 @@ data class AnimetsuAnimeDto(
                 desc.append(meta.joinToString(" | "))
             }
 
-            val dates = mutableListOf<String>()
-            startDate?.let { dates.add("**Start**: $it") }
-            endDate?.let { dates.add("**End**: $it") }
-            if (dates.isNotEmpty()) {
+            val scheduleInfo = buildString {
+                val dates = mutableListOf<String>()
+                startDate?.let { dates.add("**Start**: $it") }
+                endDate?.let { dates.add("**End**: $it") }
+                if (dates.isNotEmpty()) append(dates.joinToString(" | ")).append("\n")
+
+                nextAiringEp?.let { next ->
+                    next.epNum?.let { epNum ->
+                        val timeStr = next.timeLeft?.let { formatTimeLeft(it) } ?: ""
+                        val nextText = if (timeStr.isNotEmpty()) "Ep. $epNum in $timeStr" else "Ep. $epNum"
+                        append("**Next Episode**: $nextText")
+                    }
+                }
+            }.trimEnd()
+
+            if (scheduleInfo.isNotBlank()) {
                 if (desc.isNotBlank()) desc.append("\n\n")
-                desc.append(dates.joinToString(" | "))
+                desc.append(scheduleInfo)
             }
 
             synonyms?.takeIf { it.isNotEmpty() }?.let {
@@ -180,7 +216,6 @@ data class AnimetsuAnimeDto(
             val stats = mutableListOf<String>()
             popularity?.let { stats.add("**Popularity**: $it") }
             favourites?.let { stats.add("**Favourites**: $it") }
-            trending?.let { if (it > 0) stats.add("**Trending**: $it") }
             users?.let { stats.add("**Bookmarked**: $it") }
             if (stats.isNotEmpty()) {
                 if (desc.isNotBlank()) desc.append("\n")
@@ -255,6 +290,18 @@ data class AnimetsuAnimeDto(
             trailer?.takeIf { it.isNotBlank() && it != "-" }?.let {
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("[Trailer](https://www.youtube.com/watch?v=$it)")
+            }
+        }
+
+        if (tagField.showBanner) {
+            banner?.takeIf { it.isNotBlank() }?.let {
+                val bannerUrl = when {
+                    it.startsWith("http") -> it
+                    it.startsWith("/") -> "https://animetsu.net$it"
+                    else -> "https://animetsu.net/$it"
+                }
+                if (desc.isNotBlank()) desc.append("\n\n")
+                desc.append("![Banner]($bannerUrl)")
             }
         }
 
