@@ -234,8 +234,6 @@ class Samehadaku :
             }
     }
 
-    private fun getBloggerVideos(server: String, link: String): List<Video> = bloggerExtractor.videosFromUrl(link, headers, server)
-
     private suspend fun getVideosFromEmbed(server: String, link: String): List<Video> {
         val videoHeaders = headers.newBuilder()
             .set("User-Agent", USER_AGENT)
@@ -266,9 +264,7 @@ class Samehadaku :
             }
 
             // Blogger — now delegates entirely to BloggerExtractor
-            "blogger" in link -> {
-                getBloggerVideos(server, link)
-            }
+            "blogger" in link -> bloggerExtractor.videosFromUrl(link, headers, server)
 
             else -> {
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()

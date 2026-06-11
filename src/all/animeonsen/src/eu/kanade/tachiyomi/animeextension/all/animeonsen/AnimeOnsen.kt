@@ -17,14 +17,17 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.Headers
+import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
 class AnimeOnsen :
     AnimeHttpSource(),
@@ -36,19 +39,20 @@ class AnimeOnsen :
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
 
+    private val searchUrl = "https://search.animeonsen.xyz"
+
     override val lang = "all"
 
     override val supportsLatest = false
 
     override val client by lazy {
         network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client))
+            .addInterceptor(AOAPIInterceptor(network.client, apiUrl))
+            .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
             .build()
     }
 
     private val preferences by getPreferencesLazy()
-
-    private val json: Json by injectLazy()
 
     override fun headersBuilder() = Headers.Builder().add("user-agent", AO_USER_AGENT)
 
@@ -70,10 +74,16 @@ class AnimeOnsen :
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$apiUrl/search/$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val postBody = buildJsonObject {
+            put("q", query)
+        }.toJsonRequestBody()
+
+        return POST("$searchUrl/indexes/content/search", body = postBody)
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val searchResult = response.parseAs<SearchResponse>().result
+        val searchResult = response.parseAs<SearchResponse>().hits
         val results = searchResult.map { it.toSAnime() }
         return AnimesPage(results, false)
     }
@@ -139,13 +149,6 @@ class AnimeOnsen :
             entryValues = PREF_SUB_VALUES
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

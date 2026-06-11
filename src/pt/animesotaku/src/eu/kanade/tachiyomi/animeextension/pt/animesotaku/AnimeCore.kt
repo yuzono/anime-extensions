@@ -13,9 +13,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -34,7 +34,7 @@ class AnimeCore : AnimeHttpSource() {
 
     override val name = "AnimeCore"
 
-    override val baseUrl = "https://animecore.to"
+    override val baseUrl = "https://animecore.net"
 
     override val lang = "pt-BR"
 
@@ -148,7 +148,7 @@ class AnimeCore : AnimeHttpSource() {
     private val episodeToAnimeUrlRegex by lazy { Regex("""/watch/([^/]+)-episodio-\d+/?""") }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val script = document.selectFirst("script:containsData(current_post_data_id)") ?: return emptyList()
         val animeId = regexId.find(script.data())?.groupValues?.get(1) ?: return emptyList()
         val recommendedResponseDto = client.newCall(
@@ -183,18 +183,18 @@ class AnimeCore : AnimeHttpSource() {
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(response: Response) = SAnime.create().apply {
-        val document = getRealDoc(response.asJsoup())
+        val document = getRealDoc(response.useAsJsoup())
 
         setUrlWithoutDomain(document.location())
         thumbnail_url = document.selectFirst("img.wp-post-image")?.attr("abs:src")
-        title = document.selectFirst("title")!!.text().cleanTitle()
+        document.selectFirst("title")?.text()?.let { title = it.cleanTitle() }
         genre = document.select("div.flex a.hover\\:text-white").joinToString { it.text() }
         description = document.selectFirst("section p")?.text()
     }
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = getRealDoc(response.asJsoup())
+        val document = getRealDoc(response.useAsJsoup())
         val animeId = document.selectFirst("#seasonContent")!!.attr("data-season")
 
         return client.newCall(
@@ -211,12 +211,12 @@ class AnimeCore : AnimeHttpSource() {
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val players = document.select("div.episode-player-box iframe")
         return players.parallelCatchingFlatMapBlocking(::getPlayerVideos)
     }
 
-    private fun getPlayerVideos(player: Element): List<Video> {
+    private suspend fun getPlayerVideos(player: Element): List<Video> {
         val url = player.attr("abs:src")
 
         return when {
@@ -235,7 +235,7 @@ class AnimeCore : AnimeHttpSource() {
     private fun getRealDoc(document: Document): Document {
         val menu = document.selectFirst("div.anime-information h4 a") ?: return document
         val originalUrl = menu.attr("abs:href").ifBlank { return document }
-        return client.newCall(GET(originalUrl, headers)).execute().use { it.asJsoup() }
+        return client.newCall(GET(originalUrl, headers)).execute().useAsJsoup()
     }
 
     private fun String.cleanTitle(): String = this.replace(titleCleanRegex, "")

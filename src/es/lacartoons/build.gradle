@@ -1,7 +1,7 @@
 ext {
     extName = 'LACartoons'
     extClass = '.Lacartoons'
-    extVersionCode = 23
+    extVersionCode = 25
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -12,5 +12,6 @@ dependencies {
     implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:voeextractor'))
     implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:sendvidextractor'))
     implementation(project(':lib:universalextractor'))
 }

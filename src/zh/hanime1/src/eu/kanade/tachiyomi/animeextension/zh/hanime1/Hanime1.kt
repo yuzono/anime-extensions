@@ -13,26 +13,22 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -46,36 +42,33 @@ enum class FilterUpdateState {
 class Hanime1 :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-    override val baseUrl: String
-        get() = "https://hanime1.me"
-    override val lang: String
-        get() = "zh"
-    override val name: String
-        get() = "Hanime1.me"
+    override val baseUrl = "https://hanime1.me"
+    override val lang = "zh"
+    override val name = "Hanime1.me"
     override val supportsLatest: Boolean
         get() = true
 
-    override val client =
-        network.client.newBuilder().addInterceptor(::checkFiltersInterceptor).build()
+    override val client = network.client.newBuilder()
+        .addInterceptor(::checkFiltersInterceptor)
+        .build()
 
     private val preferences by getPreferencesLazy()
-    private val json by injectLazy<Json>()
+
     private var filterUpdateState = FilterUpdateState.NONE
+
     private val uploadDateFormat: SimpleDateFormat by lazy {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.getDefault())
+        SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         return SAnime.create().apply {
             genre = doc.select(".single-video-tag").not("[data-toggle]").eachText().joinToString()
             author = doc.select("#video-artist-name").text()
-            doc.select("script[type=application/ld+json]").first()?.data()?.let {
-                val info = json.decodeFromString<JsonElement>(it).jsonObject
-                title = info["name"]!!.jsonPrimitive.content
-                description = info["description"]?.jsonPrimitive?.content
-                thumbnail_url = info["thumbnailUrl"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.content
-            }
+            val realTitle = doc.select("div.video-description-panel > div:nth-child(2)").text()
+            title = realTitle.appendInvisibleChar()
+            description = doc.select("div.video-description-panel > div:nth-child(3)").text()
+            thumbnail_url = doc.select("video[poster]").attr("poster")
             val type = doc.select("a#video-artist-name + a").text().trim()
             if (type == "裏番" || type == "泡麵番") {
                 // Use the series cover image for bangumi entries instead of the episode image.
@@ -84,12 +77,12 @@ class Hanime1 :
                         val animesPage =
                             getSearchAnime(
                                 1,
-                                title,
+                                realTitle,
                                 AnimeFilterList(GenreFilter(arrayOf("", type)).apply { state = 1 }),
                             )
                         thumbnail_url = animesPage.animes.firstOrNull()?.thumbnail_url
                     } catch (e: Exception) {
-                        Log.e(name, "Failed to get bangumi cover image")
+                        Log.e(name, "Failed to get bangumi cover image", e)
                     }
                 }
             }
@@ -97,7 +90,7 @@ class Hanime1 :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsoup = response.asJsoup()
+        val jsoup = response.useAsJsoup()
         val nodes = jsoup.select("#playlist-scroll").first()!!.select(">div")
         return nodes.mapIndexed { index, element ->
             SEpisode.create().apply {
@@ -107,34 +100,28 @@ class Hanime1 :
                 name = element.select("div.card-mobile-title").text()
                 if (href == response.request.url.toString()) {
                     // current video
-                    jsoup.select("script[type=application/ld+json]").first()?.data()?.let {
-                        val info = json.decodeFromString<JsonElement>(it).jsonObject
-                        info["uploadDate"]?.jsonPrimitive?.content?.let { date ->
-                            date_upload =
-                                runCatching { uploadDateFormat.parse(date)?.time }.getOrNull() ?: 0L
-                        }
-                    }
+                    val timeStr =
+                        jsoup.select("div.video-description-panel > div:first-child").text()
+                            .split(" ").last()
+                    date_upload = uploadDateFormat.tryParse(timeStr)
                 }
             }
         }
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val sourceList = doc.select("video source")
         val preferQuality = preferences.getString(PREF_KEY_VIDEO_QUALITY, DEFAULT_QUALITY)
         return sourceList.map {
             val quality = it.attr("size")
             val url = it.attr("src")
             Video(url, "${quality}P", videoUrl = url)
-        }.filterNot { it.videoUrl?.startsWith("blob") == true }
-            .sortedByDescending { preferQuality == it.quality }
+        }.sortedByDescending { preferQuality == it.quality }
             .ifEmpty {
                 // Try to find the source from the script content.
-                val videoUrl = doc.select("script[type=application/ld+json]").first()!!.data().let {
-                    val info = json.decodeFromString<JsonElement>(it).jsonObject
-                    info["contentUrl"]!!.jsonPrimitive.content
-                }
+                val videoUrl = doc.select("script:containsData(source)").first()!!.data()
+                    .substringAfter("source = '").substringBefore("'")
                 listOf(Video(videoUrl, "Raw", videoUrl = videoUrl))
             }
     }
@@ -154,15 +141,15 @@ class Hanime1 :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val jsoup = response.asJsoup()
-        val nodes = jsoup.select("div.search-doujin-videos.hidden-xs:not(:has(a[target=_blank]))")
+        val jsoup = response.useAsJsoup()
+        val nodes = jsoup.select(".horizontal-row .video-item-container:not(:has(a.video-link[target]))")
         val list = if (nodes.isNotEmpty()) {
             nodes.map {
                 SAnime.create().apply {
-                    setUrlWithoutDomain(it.select("a[class=overlay]").attr("href"))
-                    thumbnail_url = it.select("img + img").attr("src")
-                    title = it.select("div.card-mobile-title").text().appendInvisibleChar()
-                    author = it.select(".card-mobile-user").text()
+                    setUrlWithoutDomain(it.select("a.video-link").attr("href"))
+                    thumbnail_url = it.select(".main-thumb").attr("abs:src")
+                    title = it.select(".title").text().appendInvisibleChar()
+                    author = it.select(".subtitle").text().split("•").getOrNull(0)?.trim()
                 }
             }
         } else {
@@ -183,6 +170,7 @@ class Hanime1 :
         if (query.isNotEmpty()) {
             searchUrl.addQueryParameter("query", query)
         }
+        val timeFilters = mutableListOf<TimeFilter>()
         filters.list.flatMap {
             when (it) {
                 is TagsFilter -> {
@@ -219,7 +207,17 @@ class Hanime1 :
                     }
                 }
 
+                is TimeFilter -> {
+                    timeFilters.add(it)
+                }
+
                 else -> {}
+            }
+        }
+        if (timeFilters.isNotEmpty()) {
+            timeFilters.sort()
+            timeFilters.joinToString(separator = "") { it.selected }.let {
+                searchUrl.addEncodedQueryParameter("date", it)
             }
         }
         if (page > 1) {
@@ -242,13 +240,13 @@ class Hanime1 :
         val exceptionHandler =
             CoroutineExceptionHandler { _, _ -> filterUpdateState = FilterUpdateState.FAILED }
         scope.launch(exceptionHandler) {
-            val jsoup = client.newCall(GET("$baseUrl/search")).awaitSuccess().asJsoup()
+            val jsoup = client.newCall(GET("$baseUrl/search")).awaitSuccess().useAsJsoup()
             val genreList = jsoup.select("div.genre-option div.hentai-sort-options").eachText()
             val sortList =
                 jsoup.select("div.hentai-sort-options-wrapper div.hentai-sort-options").eachText()
-            val yearList = jsoup.select("select#year option").eachAttr("value")
+            val yearList = jsoup.select("select#date-year option").eachAttr("value")
                 .map { it.ifEmpty { "全部年份" } }
-            val monthList = jsoup.select("select#month option").eachAttr("value")
+            val monthList = jsoup.select("select#date-month option").eachAttr("value")
                 .map { it.ifEmpty { "全部月份" } }
             val categoryDict = mutableMapOf<String, MutableList<String>>()
             var currentKey = ""
@@ -269,12 +267,15 @@ class Hanime1 :
                 .putString(PREF_KEY_SORT_LIST, sortList.joinToString())
                 .putString(PREF_KEY_YEAR_LIST, yearList.joinToString())
                 .putString(PREF_KEY_MONTH_LIST, monthList.joinToString())
-                .putString(PREF_KEY_CATEGORY_LIST, json.encodeToString(categoryDict)).apply()
+                .putString(PREF_KEY_CATEGORY_LIST, categoryDict.toJsonString()).apply()
             filterUpdateState = FilterUpdateState.COMPLETED
         }
     }
 
-    private fun <T : QueryFilter> createFilter(prefKey: String, block: (Array<String>) -> T): T {
+    private fun <T : AnimeFilter.Select<*>> createFilter(
+        prefKey: String,
+        block: (Array<String>) -> T,
+    ): T {
         val savedOptions = preferences.getString(prefKey, "")
         if (savedOptions.isNullOrEmpty()) {
             return block(emptyArray())
@@ -290,7 +291,7 @@ class Hanime1 :
         if (savedCategories.isNullOrEmpty()) {
             return result
         }
-        json.decodeFromString<Map<String, List<String>>>(savedCategories).forEach {
+        savedCategories.parseAs<Map<String, List<String>>>().forEach {
             result.add(CategoryFilter(it.key, it.value.map { value -> TagFilter("tags[]", value) }))
         }
         return result
