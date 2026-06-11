@@ -1,11 +1,14 @@
 package eu.kanade.tachiyomi.animeextension.all.googledrive
 
 import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Build
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
@@ -34,13 +37,13 @@ import okhttp3.Response
 import okio.ProtocolException
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
-import java.net.URLEncoder
 import java.security.MessageDigest
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
+@RequiresApi(Build.VERSION_CODES.O)
 class GoogleDrive :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
@@ -119,7 +122,7 @@ class GoogleDrive :
                 parsePage(req, page)
             } else {
                 val parentId = req.url.pathSegments.last()
-                val cleanQuery = URLEncoder.encode(query, "UTF-8")
+                val cleanQuery = Uri.encode(query)
                 val genMultiFormReq = searchReq(parentId, cleanQuery)
 
                 parsePage(req, page, genMultiFormReq)
@@ -165,9 +168,8 @@ class GoogleDrive :
     private fun getDomains(): Array<Pair<String, String>> {
         if (preferences.domainList.isBlank()) return emptyArray()
         return preferences.domainList.split(";").map {
-            val name = DRIVE_FOLDER_REGEX.matchEntire(it)!!.groups["name"]?.let {
-                it.value.substringAfter("[").substringBeforeLast("]")
-            }
+            val name = DRIVE_FOLDER_REGEX.matchEntire(it)!!.groups["name"]
+                ?.value?.substringAfter("[")?.substringBeforeLast("]")
             Pair(name ?: it.toHttpUrl().encodedPath, it)
         }.toTypedArray()
     }
@@ -194,7 +196,7 @@ class GoogleDrive :
 
         val driveDocument = try {
             client.newCall(GET(parsed.url, headers = getHeaders)).execute().asJsoup()
-        } catch (a: ProtocolException) {
+        } catch (_: ProtocolException) {
             null
         } ?: return anime
 
@@ -240,11 +242,11 @@ class GoogleDrive :
         }
 
         val match = DRIVE_FOLDER_REGEX.matchEntire(parsed.url)!! // .groups["id"]!!.value
-        val maxRecursionDepth = match.groups["depth"]?.let {
-            it.value.substringAfter("#").substringBefore(",").toInt()
-        } ?: 2
-        val (start, stop) = match.groups["range"]?.let {
-            it.value.substringAfter(",").split(",").map { it.toInt() }
+        val maxRecursionDepth = match.groups["depth"]
+            ?.value?.substringAfter("#")?.substringBefore(",")?.toInt()
+            ?: 2
+        val (start, stop) = match.groups["range"]?.let { range ->
+            range.value.substringAfter(",").split(",").map { it.toInt() }
         } ?: listOf(null, null)
 
         fun traverseFolder(folderUrl: String, path: String, recursionDepth: Int = 0) {
@@ -254,7 +256,7 @@ class GoogleDrive :
 
             val driveDocument = try {
                 client.newCall(GET(folderUrl, headers = getHeaders)).execute().asJsoup()
-            } catch (a: ProtocolException) {
+            } catch (_: ProtocolException) {
                 throw Exception("Unable to get items, check webview")
             }
 
@@ -392,7 +394,7 @@ class GoogleDrive :
 
         val postUrl = buildString {
             append("https://clients6.google.com/batch/drive/v2internal")
-            append("?${'$'}ct=multipart/mixed; boundary=\"$BOUNDARY\"")
+            append($$"?$ct=multipart/mixed; boundary=\"$$BOUNDARY\"")
             append("&key=$key")
         }
 
@@ -418,7 +420,7 @@ class GoogleDrive :
 
         val driveDocument = try {
             client.newCall(request).execute().asJsoup()
-        } catch (a: ProtocolException) {
+        } catch (_: ProtocolException) {
             throw Exception("Unable to get items, check webview")
         }
 
@@ -451,32 +453,32 @@ class GoogleDrive :
             }
             .toMap()
 
-        parsed.items.forEach {
-            if (it.isSupportedEpisodeFile()) {
+        parsed.items.forEach { item ->
+            if (item.isSupportedEpisodeFile()) {
                 animeList.add(
                     SAnime.create().apply {
-                        title = if (preferences.trimAnimeInfo) it.title.trimInfo() else it.title
+                        title = if (preferences.trimAnimeInfo) item.title.trimInfo() else item.title
                         url = LinkData(
-                            "https://drive.google.com/uc?id=${it.id}",
+                            "https://drive.google.com/uc?id=${item.id}",
                             "single",
                             LinkDataInfo(
-                                it.title,
-                                it.fileSize?.toLongOrNull()?.let { formatBytes(it) } ?: "",
+                                item.title,
+                                item.fileSize?.toLongOrNull()?.let { formatBytes(it) } ?: "",
                             ),
                         ).toJsonString()
                         thumbnail_url = ""
                     },
                 )
             }
-            if (it.mimeType.endsWith(".folder")) {
+            if (item.mimeType.endsWith(".folder")) {
                 animeList.add(
                     SAnime.create().apply {
-                        title = if (preferences.trimAnimeInfo) it.title.trimInfo() else it.title
+                        title = if (preferences.trimAnimeInfo) item.title.trimInfo() else item.title
                         url = LinkData(
-                            "https://drive.google.com/drive/folders/${it.id}$recurDepth",
+                            "https://drive.google.com/drive/folders/${item.id}$recurDepth",
                             "multi",
                         ).toJsonString()
-                        thumbnail_url = coverUrlsByFolderId[it.id] ?: ""
+                        thumbnail_url = coverUrlsByFolderId[item.id] ?: ""
                     },
                 )
             }
@@ -489,21 +491,21 @@ class GoogleDrive :
 
     // https://github.com/yt-dlp/yt-dlp/blob/8f0be90ecb3b8d862397177bb226f17b245ef933/yt_dlp/extractor/youtube.py#L573
     private fun generateSapisidhashHeader(
-        SAPISID: String,
+        sapishId: String,
         origin: String = "https://drive.google.com",
     ): String {
         val timeNow = System.currentTimeMillis() / 1000
         // SAPISIDHASH algorithm from https://stackoverflow.com/a/32065323
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
-            .digest("$timeNow $SAPISID $origin".toByteArray())
+            .digest("$timeNow $sapishId $origin".toByteArray())
             .joinToString("") { "%02x".format(it) }
         return "SAPISIDHASH ${timeNow}_$sapisidhash"
     }
 
     private fun String.trimInfo(): String {
-        var newString = this.replaceFirst("""^\[\w+\] ?""".toRegex(), "")
-        val regex = """( ?\[[\s\w-]+\]| ?\([\s\w-]+\))(\.mkv|\.mp4|\.avi)?${'$'}""".toRegex()
+        var newString = this.replaceFirst("""^\[\w+] ?""".toRegex(), "")
+        val regex = """( ?\[[\s\w-]+]| ?\([\s\w-]+\))(\.mkv|\.mp4|\.avi)?$""".toRegex()
 
         while (regex.containsMatchIn(newString)) {
             newString = regex.replace(newString) { matchResult ->
@@ -690,7 +692,7 @@ class GoogleDrive :
         private const val SCANLATOR_ORDER_DEFAULT = false
 
         private val DRIVE_FOLDER_REGEX = Regex(
-            """(?<name>\[[^\[\];]+\])?https?:\/\/(?:docs|drive)\.google\.com\/drive(?:\/[^\/]+)*?\/folders\/(?<id>[\w-]{28,})(?:\?[^;#]+)?(?<depth>#\d+(?<range>,\d+,\d+)?)?${'$'}""",
+            """(?<name>\[[^\[\];]+])?https?://(?:docs|drive)\.google\.com/drive(?:/[^/]+)*?/folders/(?<id>[\w-]{28,})(?:\?[^;#]+)?(?<depth>#\d+(?<range>,\d+,\d+)?)?$""",
         )
         private val KEY_REGEX = Regex(""""(\w{39})"""")
         private val VERSION_REGEX = Regex(""""([^"]+web-frontend[^"]+)"""")
