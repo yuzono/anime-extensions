@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.all.torrentio
 
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -22,14 +21,13 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -50,7 +48,6 @@ class Torrentio :
 
     private val preferences by getPreferencesLazy()
 
-    private val context = Injekt.get<Application>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== JustWatch API Request ===================
@@ -379,7 +376,7 @@ class Torrentio :
             when {
                 token.isNullOrBlank() && debridProvider != "none" -> {
                     handler.post {
-                        context.let {
+                        applicationContext.let {
                             Toast.makeText(
                                 it,
                                 "Kindly input the debrid token in the extension settings.",
