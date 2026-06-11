@@ -90,12 +90,6 @@ class HentaiHaven :
         val sortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()
 
         val browseUrl = genreFilter?.browseUrl(baseUrl) ?: tagFilter?.browseUrl(baseUrl)
-        if (browseUrl != null) {
-            val urlBuilder = browseUrl.toHttpUrl().newBuilder()
-            if (page > 1) urlBuilder.addPathSegments("page/$page/")
-            return GET(urlBuilder.build().toString(), headers)
-        }
-
         if (query.isNotBlank()) {
             val url = baseUrl.toHttpUrl().newBuilder()
                 .addQueryParameter("s", query)
@@ -104,10 +98,16 @@ class HentaiHaven :
             return GET(url.toString(), headers)
         }
 
-        val url = "$baseUrl/page/$page/".toHttpUrl().newBuilder()
-            .addQueryParameter("m_orderby", sortFilter?.urlValue ?: "latest")
-            .build()
-        return GET(url.toString(), headers)
+        val genreFilter = filters.filterIsInstance<GenreFilter>().firstOrNull()
+        val tagFilter = filters.filterIsInstance<TagFilter>().firstOrNull()
+        val sortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()
+
+        val browseUrl = genreFilter?.browseUrl(baseUrl) ?: tagFilter?.browseUrl(baseUrl)
+        if (browseUrl != null) {
+            val urlBuilder = browseUrl.toHttpUrl().newBuilder()
+            if (page > 1) urlBuilder.addPathSegments("page/$page/")
+            return GET(urlBuilder.build().toString(), headers)
+        }
     }
 
     override fun searchAnimeSelector() = "div.c-tabs-item, div.page-item-detail.video"
