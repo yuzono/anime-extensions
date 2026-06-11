@@ -394,7 +394,6 @@ class CinebyExtractor(
                 "Yoru",
                 "https://api.videasy.to",
                 "cdn",
-                movieOnly = true,
                 mayHave4K = true,
                 audioLabel = "Original",
             ),
