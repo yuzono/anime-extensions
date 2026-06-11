@@ -140,7 +140,7 @@ class OctopusExtractor(private val client: OkHttpClient) {
                     .post(requestBody)
                     .headers(apiHeaders)
                     .build(),
-            ).execute().use { response ->
+            ).awaitSuccess().use { response ->
                 response.body?.string()
             }
         } catch (e: Exception) {
