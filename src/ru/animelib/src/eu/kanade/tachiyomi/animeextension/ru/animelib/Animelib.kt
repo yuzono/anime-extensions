@@ -544,12 +544,7 @@ class Animelib :
 
             // Build absolute URL for the video; `href` may be absolute or relative
             val href = it.href.trim()
-            val url = when {
-                href.startsWith("http://", true) || href.startsWith("https://", true) -> href
-                href.startsWith("//") -> "https:$href"
-                href.startsWith("/") -> "$serverUrl$href"
-                else -> "$serverUrl/$href"
-            }
+            val url = UrlUtils.fixUrl(href, serverUrl) ?: return@mapNotNull null
 
             val quality = "${videoInfo.team.name} (${it.quality}p Animelib)"
 
@@ -629,14 +624,7 @@ class Animelib :
         if (url.isNullOrBlank()) return null
         val trimmed = url.trim()
 
-        return when {
-            trimmed.startsWith("http://", true) || trimmed.startsWith("https://", true) -> trimmed
-            trimmed.startsWith("//") -> "https:$trimmed"
-            trimmed.startsWith("/") -> "https://${defaultCoverDomain}$trimmed"
-            // If the URL contains the cover domain but lacks scheme
-            trimmed.contains(defaultCoverDomain) -> if (trimmed.startsWith("http")) trimmed else "https://$trimmed"
-            else -> "https://$defaultCoverDomain/$trimmed"
-        }
+        return UrlUtils.fixUrl(trimmed, "https://$defaultCoverDomain")
     }
 
     private fun AnimeData.toSAnime() = SAnime.create().apply {
