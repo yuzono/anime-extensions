@@ -23,12 +23,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.commonEmptyRequestBody
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -36,7 +36,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.ProtocolException
 import org.jsoup.nodes.Document
-import uy.kohesive.injekt.injectLazy
 import java.security.MessageDigest
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
@@ -62,8 +61,6 @@ class GoogleDrive :
     override val lang = "all"
 
     override val supportsLatest = false
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -183,19 +180,19 @@ class GoogleDrive :
     // =========================== Anime Details ============================
 
     override fun animeDetailsRequest(anime: SAnime): Request {
-        val parsed = json.decodeFromString<LinkData>(anime.url)
+        val parsed = anime.url.parseAs<LinkData>()
         return GET(parsed.url, headers = getHeaders)
     }
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val parsed = json.decodeFromString<LinkData>(anime.url)
+        val parsed = anime.url.parseAs<LinkData>()
 
         if (parsed.type == "single") return anime
 
         val folderId = DRIVE_FOLDER_REGEX.matchEntire(parsed.url)!!.groups["id"]!!.value
 
         val driveDocument = try {
-            client.newCall(GET(parsed.url, headers = getHeaders)).execute().asJsoup()
+            client.newCall(GET(parsed.url, headers = getHeaders)).execute().useAsJsoup()
         } catch (_: ProtocolException) {
             null
         } ?: return anime
@@ -227,7 +224,7 @@ class GoogleDrive :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val episodeList = mutableListOf<SEpisode>()
-        val parsed = json.decodeFromString<LinkData>(anime.url)
+        val parsed = anime.url.parseAs<LinkData>()
 
         if (parsed.type == "single") {
             return listOf(
@@ -255,7 +252,7 @@ class GoogleDrive :
             val folderId = DRIVE_FOLDER_REGEX.matchEntire(folderUrl)!!.groups["id"]!!.value
 
             val driveDocument = try {
-                client.newCall(GET(folderUrl, headers = getHeaders)).execute().asJsoup()
+                client.newCall(GET(folderUrl, headers = getHeaders)).execute().useAsJsoup()
             } catch (_: ProtocolException) {
                 throw Exception("Unable to get items, check webview")
             }
@@ -419,7 +416,7 @@ class GoogleDrive :
         val folderId = DRIVE_FOLDER_REGEX.matchEntire(request.url.toString())!!.groups["id"]!!.value
 
         val driveDocument = try {
-            client.newCall(request).execute().asJsoup()
+            client.newCall(request).execute().useAsJsoup()
         } catch (_: ProtocolException) {
             throw Exception("Unable to get items, check webview")
         }
@@ -574,10 +571,10 @@ class GoogleDrive :
         ).execute().use { response ->
             if (!response.isSuccessful) return null
 
-            val responseBody = response.body.string()
+            val responseBody = response.bodyString()
             val jsonBody = JSON_REGEX.find(responseBody)?.groupValues?.get(1) ?: return null
 
-            json.decodeFromString<DownloadResponse>(jsonBody)
+            jsonBody.parseAs<DownloadResponse>()
         }
 
         val downloadHeaders = headers.newBuilder().apply {
@@ -590,7 +587,7 @@ class GoogleDrive :
         client.newCall(
             GET(newResponse.downloadUrl, headers = downloadHeaders),
         ).execute().use { response ->
-            if (response.isSuccessful) response.body.string() else null
+            if (response.isSuccessful) response.bodyString() else null
         }
     }.getOrNull()
 
@@ -622,9 +619,7 @@ class GoogleDrive :
         return parse(date, position)?.takeIf { position.index == date.length }
     }
 
-    private inline fun <reified T> String?.parseJsonOrNull(): T? = this?.let { runCatching { json.decodeFromString<T>(it) }.getOrNull() }
-
-    private fun LinkData.toJsonString(): String = json.encodeToString(this)
+    private inline fun <reified T> String?.parseJsonOrNull(): T? = this?.let { runCatching { it.parseAs<T>() }.getOrNull() }
 
     private fun isFolder(text: String) = DRIVE_FOLDER_REGEX matches text
 
