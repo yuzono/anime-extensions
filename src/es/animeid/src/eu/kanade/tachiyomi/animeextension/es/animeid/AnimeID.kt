@@ -39,12 +39,12 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
     private val preferences by getPreferencesLazy()
 
     /**
-     * Custom OkHttpClient independent from the global `client`.
-     * - Mobile Chrome User-Agent
-     * - Own ConnectionPool and ConnectionSpec to avoid sharing TLS sessions
+     * Custom OkHttpClient based on the app's global client.
+     * - Inherits cookies, cache, and default interceptors.
+     * - Adds custom timeout, connection pool, and mobile Chrome User-Agent.
      */
     private val customClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        client.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -64,14 +64,14 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
             .build()
     }
 
-    // Use the same customClient for all extractors to keep behavior consistent
+    // Extractors using the custom client for consistency
     private val voeExtractor by lazy { VoeExtractor(customClient, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(customClient) }
     private val uqloadExtractor by lazy { UqloadExtractor(customClient) }
     private val streamWishExtractor by lazy { StreamWishExtractor(customClient, headers) }
     private val universalExtractor by lazy { UniversalExtractor(customClient) }
 
-    // Track last host used to evict connection pool when switching servers
+    // Track last host to evict connection pool when switching servers
     private var lastServerHost: String? = null
 
     // ============================== Popular ===============================
@@ -279,7 +279,9 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
 
         val allEpisodes = mutableListOf<SEpisode>()
         var currentPage = 1
-        while (true) {
+        val maxPages = 200 // Safety limit to avoid infinite loops
+
+        while (currentPage <= maxPages) {
             val pageHtml = fetchEpisodesPage(animeId, animeSlug, currentPage)
             if (pageHtml.isBlank()) break
             val pageDoc = Jsoup.parse(pageHtml)
@@ -311,8 +313,9 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 .addHeader("X-Requested-With", "XMLHttpRequest")
                 .addHeader("Referer", baseUrl)
                 .build()
-            val response = customClient.newCall(request).execute()
-            response.body?.string() ?: ""
+            customClient.newCall(request).execute().use { response ->
+                response.body?.string() ?: ""
+            }
         } catch (e: Exception) {
             ""
         }
@@ -381,6 +384,59 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }
 
         return orderVideosByPreferences(videos)
+    }
+
+    private fun fetchServerList(encryptId: String): String {
+        return try {
+            val request = Request.Builder()
+                .url("$baseUrl/id")
+                .post(
+                    FormBody.Builder()
+                        .add("acc", "opt")
+                        .add("i", encryptId)
+                        .build()
+                )
+                .addHeader("X-Requested-With", "XMLHttpRequest")
+                .addHeader("Referer", baseUrl)
+                .build()
+            customClient.newCall(request).execute().use { response ->
+                response.body?.string() ?: ""
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    private fun parseServerUrls(html: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        val document = Jsoup.parse(html)
+        val serverItems = document.select("li")
+        for (item in serverItems) {
+            val encryptedUrl = item.attr("encrypt")
+            if (encryptedUrl.isNotEmpty()) {
+                val decodedUrl = hexToString(encryptedUrl)
+                val serverName = item.select("span").first()?.text()?.trim() ?: "Servidor"
+                if (decodedUrl.isNotEmpty()) {
+                    result.add(Pair(serverName, decodedUrl))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun hexToString(hex: String): String {
+        return try {
+            val output = StringBuilder()
+            var i = 0
+            while (i < hex.length) {
+                val str = hex.substring(i, minOf(i + 2, hex.length))
+                output.append(str.toInt(16).toChar())
+                i += 2
+            }
+            output.toString()
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
@@ -460,59 +516,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         }.also(screen::addPreference)
     }
 
-    // ============================== Utilidades ===============================
-    private fun fetchServerList(encryptId: String): String {
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/id")
-                .post(
-                    FormBody.Builder()
-                        .add("acc", "opt")
-                        .add("i", encryptId)
-                        .build()
-                )
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("Referer", baseUrl)
-                .build()
-            val response = customClient.newCall(request).execute()
-            response.body?.string() ?: ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
-
-    private fun parseServerUrls(html: String): List<Pair<String, String>> {
-        val result = mutableListOf<Pair<String, String>>()
-        val document = Jsoup.parse(html)
-        val serverItems = document.select("li")
-        for (item in serverItems) {
-            val encryptedUrl = item.attr("encrypt")
-            if (encryptedUrl.isNotEmpty()) {
-                val decodedUrl = hexToString(encryptedUrl)
-                val serverName = item.select("span").first()?.text()?.trim() ?: "Servidor"
-                if (decodedUrl.isNotEmpty()) {
-                    result.add(Pair(serverName, decodedUrl))
-                }
-            }
-        }
-        return result
-    }
-
-    private fun hexToString(hex: String): String {
-        return try {
-            val output = StringBuilder()
-            var i = 0
-            while (i < hex.length) {
-                val str = hex.substring(i, minOf(i + 2, hex.length))
-                output.append(str.toInt(16).toChar())
-                i += 2
-            }
-            output.toString()
-        } catch (e: Exception) {
-            ""
-        }
-    }
-
+    // ============================== Utilities ===============================
     private fun unescapeJava(escaped: String): String {
         var escapedVar = escaped
         if (escapedVar.indexOf("\\u") == -1) return escapedVar
