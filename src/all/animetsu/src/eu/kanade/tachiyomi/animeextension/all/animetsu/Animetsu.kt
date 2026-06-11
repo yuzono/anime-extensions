@@ -151,7 +151,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -192,7 +192,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -215,6 +215,7 @@ class Animetsu :
             showTrailer = showTrailer,
             showBanner = showBanner,
         ),
+        baseUrl = baseUrl,
     )!!
 
     // ============================== Related ===============================

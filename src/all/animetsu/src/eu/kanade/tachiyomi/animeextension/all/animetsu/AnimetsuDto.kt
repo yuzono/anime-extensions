@@ -93,6 +93,7 @@ data class AnimetsuAnimeDto(
         titleLanguage: String,
         showTags: Boolean,
         tagField: TagField = TagField(),
+        baseUrl: String = "",
     ): SAnime? = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
@@ -104,7 +105,7 @@ data class AnimetsuAnimeDto(
         genre = (genreList + tagList).joinToString().takeIf { it.isNotBlank() }
 
         status = parseStatus(dto.status)
-        description = dto.buildDescription(tagField).takeIf { it.isNotBlank() }
+        description = dto.buildDescription(tagField, baseUrl).takeIf { it.isNotBlank() }
         artist = dto.staff?.filter {
             it.role in listOf("Original Story", "Original Creator", "Original Character Design")
         }?.mapNotNull { it.name }?.joinToString()
@@ -134,7 +135,7 @@ data class AnimetsuAnimeDto(
         }.trim()
     }
 
-    fun buildDescription(tagField: TagField): String {
+    fun buildDescription(tagField: TagField, baseUrl: String = ""): String {
         val desc = StringBuilder()
 
         averageScore?.let { score ->
@@ -297,8 +298,8 @@ data class AnimetsuAnimeDto(
             banner?.takeIf { it.isNotBlank() }?.let {
                 val bannerUrl = when {
                     it.startsWith("http") -> it
-                    it.startsWith("/") -> "https://animetsu.net$it"
-                    else -> "https://animetsu.net/$it"
+                    it.startsWith("/") -> "$baseUrl$it"
+                    else -> "$baseUrl/$it"
                 }
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("![Banner]($bannerUrl)")
