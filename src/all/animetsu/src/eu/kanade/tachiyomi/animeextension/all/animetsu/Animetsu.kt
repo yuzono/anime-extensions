@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.m3u8server.M3u8ServerManager
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -15,7 +16,6 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
@@ -62,6 +62,9 @@ class Animetsu :
 
     // M3u8ServerManager uses the m3u8Client to ensure the local server also fetches segments via HTTP/1.1
     private val m3u8ServerManager by lazy { M3u8ServerManager(m3u8Client) }
+
+    // PlaylistUtils uses m3u8Client for HTTP/1.1 and to handle potential garbage prefix in responses
+    private val playlistUtils by lazy { PlaylistUtils(m3u8Client) }
 
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
@@ -290,8 +293,8 @@ class Animetsu :
         val allServers = serverResponse.parseAs<List<AnimetsuServerDto>>()
 
         val servers = allServers
-            .filter { server -> server.id !in excludedHosts }
-            .sortedByDescending { server -> server.id == preferredServer }
+            .filter { server -> server.id.lowercase() !in excludedHosts }
+            .sortedByDescending { server -> server.id.equals(preferredServer, ignoreCase = true) }
 
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
@@ -310,8 +313,8 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "baku", "dio", "meg" -> "[Hard Subs]"
-                    "kite" -> "[Soft Subs]"
+                    "baku", "dio", "meg" -> " [Hard Subs]"
+                    "kite" -> " [Soft Subs]"
                     else -> ""
                 }
 
@@ -319,7 +322,7 @@ class Animetsu :
                     val cleanQuality = quality.substringBefore(" ").let { q ->
                         if (q.endsWith("P")) q.lowercase() else q
                     }
-                    "${server.id.uppercase()}: $cleanQuality ($audioLabel) $subLabel"
+                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
                 }
 
                 dto.sources.parallelCatchingFlatMap { source ->
@@ -506,11 +509,11 @@ class Animetsu :
     // ============================= Utilities ==============================
 
     /**
-     * Dedicated helper for fetching, parsing, and enforcing the local M3U8 server for all HLS sources.
+     * Fetches and parses HLS playlists using PlaylistUtils with m3u8Client (HTTP/1.1),
+     * then enforces local M3U8 server proxying for all extracted videos.
      *
-     * Some server responses may have non-M3U8 content before the actual playlist (garbage prefix),
-     * which standard extractors cannot handle since they fetch URLs internally.
-     * This method pre-fetches with m3u8Client, strips any garbage, then parses manually.
+     * PlaylistUtils' parsing naturally handles any garbage prefix before the actual M3U8
+     * content since it uses `substringAfter("#EXT-X-STREAM-INF:")` internally.
      */
     private suspend fun processHls(
         fullUrl: String,
@@ -518,22 +521,16 @@ class Animetsu :
         watchReferer: String,
         subtitleTracks: List<Track>,
     ): List<Video> {
-        val body = m3u8Client.newCall(GET(fullUrl, videoHeaders(watchReferer)))
-            .awaitSuccess().body.string()
-        val m3u8Start = body.indexOf("#EXTM3U")
-        if (m3u8Start == -1) return emptyList()
+        val vidHeaders = videoHeaders(watchReferer)
 
-        val m3u8Content = body.substring(m3u8Start)
-        val headers = videoHeaders(watchReferer)
-        val subPlaylists = parseSubPlaylists(m3u8Content, fullUrl)
-
-        val videos = if (subPlaylists.isEmpty()) {
-            listOf(Video(fullUrl, videoNameGen("Unknown"), fullUrl, headers, subtitleTracks))
-        } else {
-            subPlaylists.map { (quality, url) ->
-                Video(url, videoNameGen(quality), url, headers, subtitleTracks)
-            }
-        }
+        val videos = playlistUtils.extractFromHls(
+            playlistUrl = fullUrl,
+            referer = watchReferer,
+            masterHeaders = vidHeaders,
+            videoHeaders = vidHeaders,
+            videoNameGen = videoNameGen,
+            subtitleList = subtitleTracks,
+        )
 
         // ENFORCE M3U8 SERVER: proxy through local server, drop if it fails
         return videos.mapNotNull { video ->
@@ -547,42 +544,6 @@ class Animetsu :
                 audioTracks = video.audioTracks,
             )
         }
-    }
-
-    /**
-     * Parses sub-playlists from an M3U8 master playlist.
-     */
-    private fun parseSubPlaylists(m3u8Content: String, baseUrl: String): List<Pair<String, String>> {
-        val lines = m3u8Content.lines()
-        val result = mutableListOf<Pair<String, String>>()
-
-        for (i in lines.indices) {
-            if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue
-
-            val line = lines[i]
-            val name = M3U8_NAME_REGEX.find(line)?.groupValues?.get(1)
-            val resolution = M3U8_RESOLUTION_REGEX.find(line)?.groupValues?.get(1)
-            val bandwidth = M3U8_BANDWIDTH_REGEX.find(line)?.groupValues?.get(1)
-
-            val qualityStr = name ?: buildString {
-                resolution?.let { append(it.substringAfter("x")).append("p") }
-                bandwidth?.let {
-                    if (isNotEmpty()) append(" ")
-                    append(it)
-                }
-                if (isEmpty()) append("Unknown")
-            }
-
-            if (i + 1 < lines.size) {
-                val subUrl = lines[i + 1].trim()
-                if (subUrl.isNotBlank() && !subUrl.startsWith("#")) {
-                    val absoluteUrl = UrlUtils.fixUrl(subUrl, baseUrl) ?: continue
-                    result.add(qualityStr to absoluteUrl)
-                }
-            }
-        }
-
-        return result
     }
 
     /**
@@ -698,10 +659,6 @@ class Animetsu :
             "NOT_YET_RELEASED" -> SAnime.UNKNOWN
             else -> SAnime.UNKNOWN
         }
-
-        private val M3U8_NAME_REGEX by lazy { Regex("""NAME="(.*?)"""") }
-        private val M3U8_RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=(\d+x\d+)""") }
-        private val M3U8_BANDWIDTH_REGEX by lazy { Regex("""BANDWIDTH=(\d+)""") }
 
         val newLineRegex by lazy { Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE) }
         val textStyleRegex by lazy { Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE) }
