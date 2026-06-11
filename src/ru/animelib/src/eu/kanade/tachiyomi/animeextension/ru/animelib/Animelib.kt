@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ru.animelib
 
+import android.net.Uri
 import android.util.Base64
 import android.widget.Toast
 import androidx.preference.EditTextPreference
@@ -26,6 +27,7 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -35,7 +37,6 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -245,13 +246,7 @@ class Animelib :
     }
 
     // =============================== Video List ===============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
-        .awaitSuccess()
-        .use { response ->
-            videoListParseAsync(response)
-        }
-
-    private suspend fun videoListParseAsync(response: Response): List<Video> {
+    override fun videoListParse(response: Response): List<Video> = runBlocking {
         val episodeData = response.parseAs<EpisodeVideoData>()
         val videoServer = fetchPreferredVideoServer()
         val teams = preferences.getString(PREF_DUB_TEAM_KEY, "")?.split(',')
@@ -274,7 +269,8 @@ class Animelib :
         } ?: preferredTeams
 
         val ignoreSubs = preferences.getBoolean(PREF_IGNORE_SUBS_KEY, PREF_IGNORE_SUBS_DEFAULT)
-        return videoInfoList?.parallelCatchingFlatMap { videoInfo ->
+
+        return@runBlocking videoInfoList?.parallelCatchingFlatMap { videoInfo ->
             if (ignoreSubs && videoInfo.translationInfo.id == 1) {
                 return@parallelCatchingFlatMap emptyList()
             }
@@ -416,11 +412,11 @@ class Animelib :
         val kodikDomain = formData.pd
         val formBody = FormBody.Builder()
         formBody.add("d", formData.d)
-        formBody.add("d_sign", URLDecoder.decode(formData.dSign, "utf-8"))
+        formBody.add("d_sign", Uri.decode(formData.dSign))
         formBody.add("pd", formData.pd)
-        formBody.add("pd_sign", URLDecoder.decode(formData.pdSign, "utf-8"))
-        formBody.add("ref", URLDecoder.decode(formData.ref, "utf-8"))
-        formBody.add("ref_sign", URLDecoder.decode(formData.refSign, "utf-8"))
+        formBody.add("pd_sign", Uri.decode(formData.pdSign))
+        formBody.add("ref", Uri.decode(formData.ref))
+        formBody.add("ref_sign", Uri.decode(formData.refSign))
 
         val urlParts = playerUrl.split('/')
         formBody.add("type", urlParts[3])
@@ -593,15 +589,16 @@ class Animelib :
                         sb.append(" ")
                     }
                 }
-                else -> {}
             }
         }
 
         recurse(element)
 
-        val result = sb.toString().replace(Regex("\\s+"), " ").trim()
-        return if (result.isEmpty()) null else result
+        val result = sb.toString().replace(spaceRegex, " ").trim()
+        return result.ifEmpty { null }
     }
+
+    private val spaceRegex by lazy { Regex("\\s+") }
 
     // Normalize cover URL which can be absolute, protocol-relative, or relative path
     private fun normalizeCoverUrl(url: String?): String? {
@@ -612,7 +609,7 @@ class Animelib :
     }
 
     private fun AnimeData.toSAnime() = SAnime.create().apply {
-        url = href
+        setUrlWithoutDomain(href)
         title = rusName ?: engName ?: run {
             when (otherNames) {
                 is JsonArray -> otherNames.firstOrNull()?.let { if (it is JsonPrimitive) it.content else null }
@@ -628,9 +625,9 @@ class Animelib :
     }
 
     private fun EpisodeInfo.toSEpisode() = SEpisode.create().apply {
-        url = "api/episodes/$id"
+        setUrlWithoutDomain("api/episodes/$id")
         name = "Сезон $season Серия $number $episodeName"
-        episode_number = number.toFloat()
+        episode_number = number.toFloatOrNull() ?: 0f
         date_upload = dateFormatter.tryParse(date)
     }
 }
