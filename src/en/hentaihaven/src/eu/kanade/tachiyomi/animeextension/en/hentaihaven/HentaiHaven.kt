@@ -251,9 +251,10 @@ class HentaiHaven :
             ?: "$baseUrl/wp-content/plugins/player-logic/api.php"
 
         val videos = extractor.getVideosFromPayload(apiUrl, playerDataB64, episodeUrl)
-        if (videos.isEmpty()) return emptyList()
-
-        val preferred = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        val apiUrl = Regex(""""api_url"\s*:\s*"([^"]+)"""")
+            .find(playerLogicScript)?.groupValues?.get(1)
+            ?.replace("\\/", "/")
+            ?: "$baseUrl/wp-content/plugins/player-logic/api.php"
         return videos.sortedWith(compareByDescending { it.quality == preferred })
     }
 
