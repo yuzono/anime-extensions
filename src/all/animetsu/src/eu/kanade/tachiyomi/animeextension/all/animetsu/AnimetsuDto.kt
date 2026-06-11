@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.parseS
 import eu.kanade.tachiyomi.animeextension.all.animetsu.Animetsu.Companion.textStyleRegex
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.tryParse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -93,7 +94,7 @@ data class AnimetsuAnimeDto(
         titleLanguage: String,
         showTags: Boolean,
         tagField: TagField = TagField(),
-        baseUrl: String = "",
+        baseUrl: String,
     ): SAnime? = SAnime.create().apply {
         val dto = this@AnimetsuAnimeDto
         url = dto.id
@@ -135,7 +136,7 @@ data class AnimetsuAnimeDto(
         }.trim()
     }
 
-    fun buildDescription(tagField: TagField, baseUrl: String = ""): String {
+    fun buildDescription(tagField: TagField, baseUrl: String): String {
         val desc = StringBuilder()
 
         averageScore?.let { score ->
@@ -296,11 +297,7 @@ data class AnimetsuAnimeDto(
 
         if (tagField.showBanner) {
             banner?.takeIf { it.isNotBlank() }?.let {
-                val bannerUrl = when {
-                    it.startsWith("http") -> it
-                    it.startsWith("/") -> "$baseUrl$it"
-                    else -> "$baseUrl/$it"
-                }
+                val bannerUrl = UrlUtils.fixUrl(it, baseUrl) ?: return@let
                 if (desc.isNotBlank()) desc.append("\n\n")
                 desc.append("![Banner]($bannerUrl)")
             }

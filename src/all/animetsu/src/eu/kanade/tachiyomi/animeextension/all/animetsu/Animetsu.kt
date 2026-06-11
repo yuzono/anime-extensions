@@ -4,7 +4,6 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.m3u8server.M3u8ServerManager
-import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -53,16 +52,16 @@ class Animetsu :
 
     override val supportsLatest = true
 
-    // Custom client for Dio to avoid HTTP/2 stream timeout and allow longer reads
-    private val dioClient by lazy {
+    // Custom client to avoid HTTP/2 stream timeout and allow longer reads
+    private val m3u8Client by lazy {
         client.newBuilder()
             .readTimeout(30, TimeUnit.SECONDS)
             .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
 
-    // M3u8ServerManager uses the dioClient to ensure the local server also fetches segments via HTTP/1.1
-    private val m3u8ServerManager by lazy { M3u8ServerManager(dioClient) }
+    // M3u8ServerManager uses the m3u8Client to ensure the local server also fetches segments via HTTP/1.1
+    private val m3u8ServerManager by lazy { M3u8ServerManager(m3u8Client) }
 
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
@@ -115,21 +114,20 @@ class Animetsu :
     private val showEpStats: Boolean
         get() = preferences.getBoolean(PREF_SHOW_EP_STATS_KEY, PREF_SHOW_EP_STATS_DEFAULT)
 
-    private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
-        .add("Accept", "application/json, text/plain, */*")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Referer", referer)
-        .add("Sec-Fetch-Dest", "empty")
-        .add("Sec-Fetch-Mode", "cors")
-        .add("Sec-Fetch-Site", "same-origin")
+    private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = headersBuilder()
+        .set("Accept", "application/json, text/plain, */*")
+        .set("Accept-Language", "en-US,en;q=0.9")
+        .set("Referer", referer)
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "same-origin")
         .build()
 
     // Builds video headers from API headers, overriding only the specific fields needed for video streams
     private fun videoHeaders(referer: String = "$baseUrl/"): Headers = apiHeaders(referer).newBuilder()
         .set("Accept", "*/*")
         .set("Sec-Fetch-Site", "cross-site")
-        .add("Origin", baseUrl)
-        .add("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36")
+        .set("Origin", baseUrl)
         .build()
 
     private val rateLimit = 5
@@ -298,12 +296,9 @@ class Animetsu :
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
 
-        val playlistUtils = PlaylistUtils(client, videoHeaders(watchReferer))
-
         return servers.parallelFlatMap { server ->
             sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
                 val audioLabel = sourceType.uppercase()
-                val isDio = server.id.equals("dio", ignoreCase = true)
 
                 val sourceResponse = client.newCall(
                     GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
@@ -315,8 +310,8 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "baku", "dio", "meg" -> " [Hard Subs]"
-                    "kite" -> " [Soft Subs]"
+                    "baku", "dio", "meg" -> "[Hard Subs]"
+                    "kite" -> "[Soft Subs]"
                     else -> ""
                 }
 
@@ -324,7 +319,7 @@ class Animetsu :
                     val cleanQuality = quality.substringBefore(" ").let { q ->
                         if (q.endsWith("P")) q.lowercase() else q
                     }
-                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
+                    "${server.id.uppercase()}: $cleanQuality ($audioLabel) $subLabel"
                 }
 
                 dto.sources.parallelCatchingFlatMap { source ->
@@ -335,9 +330,6 @@ class Animetsu :
                     }
 
                     when {
-                        isDio && source.type?.contains("mpegurl") == true ->
-                            processDioHls(fullUrl, hlsNameGen, watchReferer, subtitleTracks)
-
                         source.type?.contains("mp4") == true ->
                             listOf(
                                 Video(
@@ -350,12 +342,7 @@ class Animetsu :
                             )
 
                         source.type?.contains("mpegurl") == true ->
-                            playlistUtils.extractFromHls(
-                                playlistUrl = fullUrl,
-                                videoNameGen = hlsNameGen,
-                                referer = "$baseUrl/",
-                                subtitleList = subtitleTracks,
-                            )
+                            processHls(fullUrl, hlsNameGen, watchReferer, subtitleTracks)
 
                         else -> emptyList()
                     }
@@ -519,28 +506,28 @@ class Animetsu :
     // ============================= Utilities ==============================
 
     /**
-     * Dedicated helper for fetching, parsing, and enforcing the local M3U8 server for Dio.
+     * Dedicated helper for fetching, parsing, and enforcing the local M3U8 server for all HLS sources.
      *
-     * Dio responses have non-M3U8 content before the actual playlist (garbage prefix),
-     * which PlaylistUtils.extractFromHls cannot handle since it fetches URLs internally.
-     * This method pre-fetches with dioClient, strips the garbage, then parses manually.
+     * Some server responses may have non-M3U8 content before the actual playlist (garbage prefix),
+     * which standard extractors cannot handle since they fetch URLs internally.
+     * This method pre-fetches with m3u8Client, strips any garbage, then parses manually.
      */
-    private suspend fun processDioHls(
+    private suspend fun processHls(
         fullUrl: String,
         videoNameGen: (String) -> String,
         watchReferer: String,
         subtitleTracks: List<Track>,
     ): List<Video> {
-        val body = dioClient.newCall(GET(fullUrl, videoHeaders(watchReferer)))
+        val body = m3u8Client.newCall(GET(fullUrl, videoHeaders(watchReferer)))
             .awaitSuccess().body.string()
         val m3u8Start = body.indexOf("#EXTM3U")
         if (m3u8Start == -1) return emptyList()
 
         val m3u8Content = body.substring(m3u8Start)
         val headers = videoHeaders(watchReferer)
-        val subPlaylists = parseDioSubPlaylists(m3u8Content, fullUrl)
+        val subPlaylists = parseSubPlaylists(m3u8Content, fullUrl)
 
-        val dioVideos = if (subPlaylists.isEmpty()) {
+        val videos = if (subPlaylists.isEmpty()) {
             listOf(Video(fullUrl, videoNameGen("Unknown"), fullUrl, headers, subtitleTracks))
         } else {
             subPlaylists.map { (quality, url) ->
@@ -548,8 +535,8 @@ class Animetsu :
             }
         }
 
-        // ENFORCE M3U8 SERVER FOR DIO: proxy through local server, drop if it fails
-        return dioVideos.mapNotNull { video ->
+        // ENFORCE M3U8 SERVER: proxy through local server, drop if it fails
+        return videos.mapNotNull { video ->
             val processedUrl = getProcessedM3u8Url(video.url) ?: return@mapNotNull null
             Video(
                 url = processedUrl,
@@ -563,9 +550,9 @@ class Animetsu :
     }
 
     /**
-     * Parses sub-playlists from a Dio M3U8 master playlist.
+     * Parses sub-playlists from an M3U8 master playlist.
      */
-    private fun parseDioSubPlaylists(m3u8Content: String, baseUrl: String): List<Pair<String, String>> {
+    private fun parseSubPlaylists(m3u8Content: String, baseUrl: String): List<Pair<String, String>> {
         val lines = m3u8Content.lines()
         val result = mutableListOf<Pair<String, String>>()
 
@@ -573,9 +560,9 @@ class Animetsu :
             if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue
 
             val line = lines[i]
-            val name = DIO_NAME_REGEX.find(line)?.groupValues?.get(1)
-            val resolution = DIO_RESOLUTION_REGEX.find(line)?.groupValues?.get(1)
-            val bandwidth = DIO_BANDWIDTH_REGEX.find(line)?.groupValues?.get(1)
+            val name = M3U8_NAME_REGEX.find(line)?.groupValues?.get(1)
+            val resolution = M3U8_RESOLUTION_REGEX.find(line)?.groupValues?.get(1)
+            val bandwidth = M3U8_BANDWIDTH_REGEX.find(line)?.groupValues?.get(1)
 
             val qualityStr = name ?: buildString {
                 resolution?.let { append(it.substringAfter("x")).append("p") }
@@ -712,9 +699,9 @@ class Animetsu :
             else -> SAnime.UNKNOWN
         }
 
-        private val DIO_NAME_REGEX by lazy { Regex("""NAME="(.*?)"""") }
-        private val DIO_RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=(\d+x\d+)""") }
-        private val DIO_BANDWIDTH_REGEX by lazy { Regex("""BANDWIDTH=(\d+)""") }
+        private val M3U8_NAME_REGEX by lazy { Regex("""NAME="(.*?)"""") }
+        private val M3U8_RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=(\d+x\d+)""") }
+        private val M3U8_BANDWIDTH_REGEX by lazy { Regex("""BANDWIDTH=(\d+)""") }
 
         val newLineRegex by lazy { Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE) }
         val textStyleRegex by lazy { Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE) }
