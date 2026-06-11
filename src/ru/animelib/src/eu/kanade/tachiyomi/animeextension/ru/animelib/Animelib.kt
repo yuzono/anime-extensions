@@ -496,18 +496,9 @@ class Animelib :
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
             val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
 
-            // Use explicit headers for Kodik HLS requests to avoid 403s
-            val kodikHeaders = Headers.Builder().apply {
-                set("Accept", "*/*")
-                set("Referer", "$baseUrl/")
-                set("Origin", "https://$domain")
-                set("User-Agent", "Mozilla/5.0 (Android)")
-            }.build()
-
             playlistUtils.extractFromHls(
                 playlistUrl,
-                masterHeaders = kodikHeaders,
-                videoHeaders = kodikHeaders,
+
                 videoNameGen = { "$teamName (${quality}p Kodik)" },
             )
         }
@@ -548,14 +539,7 @@ class Animelib :
 
             val quality = "${videoInfo.team.name} (${it.quality}p Animelib)"
 
-            // Some servers require Referer/Origin headers for HLS to work; add them to the Video headers
-            val videoHeaders = Headers.Builder().apply {
-                set("Accept", "*/*")
-                set("Referer", "$baseUrl/")
-                set("Origin", "https://$domain")
-                set("User-Agent", "Mozilla/5.0 (Android)")
-            }.build()
-            Video(url, quality, url, headers = videoHeaders, subtitleTracks = subtitles)
+            Video(url, quality, url, subtitleTracks = subtitles)
         }
 
         return videoList
