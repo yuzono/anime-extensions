@@ -412,7 +412,7 @@ open class MhdFlix :
             lowerServer.contains("uqload") -> uqloadExtractor.videosFromUrl(url, prefix = nameBuilder("Uqload", null))
             lowerServer.contains("streamtape") -> streamTapeExtractor.videosFromUrl(url, quality = nameBuilder("StreamTape", null))
             lowerServer.contains("dood") -> doodExtractor.videosFromUrl(url, quality = nameBuilder("Doodstream", null))
-            lowerServer.contains("mixdrop") -> mixDropExtractor.videosFromUrl(url, prefix = prefixLabel)
+            lowerServer.contains("mixdrop") -> mixDropExtractor.videoFromUrl(url, prefix = prefixLabel)
             lowerServer.contains("filemoon") -> filemoonExtractor.videosFromUrl(url, nameBuilder("Filemoon", null), headers)
             lowerServer.contains("lulu") || lowerServer.contains("luluvdo") -> luluExtractor.videosFromUrl(url, prefixLabel)
             else -> universalExtractor.videosFromUrl(url, headers, prefix = nameBuilder(serverLabel.ifBlank { "Mirror" }, null))

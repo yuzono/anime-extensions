@@ -320,7 +320,7 @@ class Latanime :
                         "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
                         "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
                         "vidguard" -> vidGuardExtractor.videosFromUrl(url, prefix = "$prefix ")
-                        "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = prefix)
+                        "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = prefix)
                         else -> emptyList()
                     }
                 }

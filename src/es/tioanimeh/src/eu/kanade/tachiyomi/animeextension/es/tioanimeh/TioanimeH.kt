@@ -108,7 +108,7 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
                 "vidguard" -> vidGuardExtractor.videosFromUrl(serverUrl)
                 "okru" -> okruExtractor.videosFromUrl(serverUrl)
                 "yourupload" -> yourUploadExtractor.videoFromUrl(serverUrl, headers = headers)
-                "mixdrop" -> mixDropExtractor.videosFromUrl(serverUrl)
+                "mixdrop" -> mixDropExtractor.videoFromUrl(serverUrl)
                 else -> universalExtractor.videosFromUrl(serverUrl, headers)
             }
         }

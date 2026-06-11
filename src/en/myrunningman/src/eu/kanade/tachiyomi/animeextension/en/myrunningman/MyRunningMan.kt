@@ -175,7 +175,7 @@ class MyRunningMan : ParsedAnimeHttpSource() {
             .parallelCatchingFlatMapBlocking { url ->
                 when {
                     url.contains("dooo") -> doodExtractor.videosFromUrl(url)
-                    url.contains("mixdro") -> mixdropExtractor.videoFromUrl(url, referer = doc.location())
+                    url.contains("mixdro") -> mixdropExtractor.videoFromUrl(url)
                     url.contains("streamtape.com") -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
                     else -> null
                 }.orEmpty()

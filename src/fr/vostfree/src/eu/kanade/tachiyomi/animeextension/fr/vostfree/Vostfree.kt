@@ -166,7 +166,7 @@ class Vostfree :
             val content = document.selectFirst("div#content_$id")?.text() ?: return@parallelCatchingFlatMap emptyList()
             when (server) {
                 "doodstream" -> doodExtractor.videosFromUrl(content, "DoodStream")
-                "mixdrop" -> mixdropExtractor.videosFromUrl(content)
+                "mixdrop" -> mixdropExtractor.videoFromUrl(content)
                 "ok" -> okruExtractor.videosFromUrl(hostPrefixes[server] + content)
                 "sibnet" -> sibnetExtractor.videosFromUrl(hostPrefixes[server] + content)
                 "uqload" -> uqloadExtractor.videosFromUrl(hostPrefixes[server] + content + ".html")
