@@ -211,6 +211,7 @@ data class JikanEpisodesDto(
     data class JikanEpisodeDataDto(
         @SerialName("mal_id") val number: Int,
         val filler: Boolean,
+        val title: String = "",
     )
 
     @Serializable

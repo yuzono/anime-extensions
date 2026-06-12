@@ -75,6 +75,7 @@ class Miruro :
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
+    private val SharedPreferences.preferredEpisodeTitles by preferences.delegate(PREF_EPISODE_TITLES_KEY, PREF_EPISODE_TITLES_DEFAULT)
 
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
@@ -433,6 +434,12 @@ class Miruro :
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
 
+        private const val PREF_EPISODE_TITLES_KEY = "preferred_episode_titles"
+        private const val PREF_EPISODE_TITLES_TITLE = "Episode Title Source"
+        private val PREF_EPISODE_TITLES_ENTRIES = listOf("MAL (Jikan)", "Provider")
+        private val PREF_EPISODE_TITLES_VALUES = listOf("mal", "provider")
+        private const val PREF_EPISODE_TITLES_DEFAULT = "mal"
+
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
 
@@ -741,6 +748,12 @@ class Miruro :
             emptySet()
         }
 
+        val episodeTitles = if (preferences.preferredEpisodeTitles != "provider") {
+            resolveEpisodeTitles(anilistId, providers, preferredProvider)
+        } else {
+            emptyMap()
+        }
+
         val availableProviders = providers.keys().asSequence().toList()
         Log.d(TAG, "episodeListParse: available providers from response: $availableProviders")
         val providerOrder = getProviderOrder()
@@ -816,10 +829,11 @@ class Miruro :
                 .forEach { (number, providerEpMap) ->
                     if (seenNumbers.add(number)) {
                         val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                        val resolvedTitle = episodeTitles[number] ?: title
                         val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
                         episodes.add(
                             buildMergedEpisode(
-                                rawNumber, title, providerKey, preferredSubType,
+                                rawNumber, resolvedTitle, providerKey, preferredSubType,
                                 providerEpMap[providerKey] ?: emptyMap(),
                                 providerSubTypesMap[providerKey] ?: emptyList(),
                                 fillerEpisodes, showProvider,
@@ -930,6 +944,7 @@ class Miruro :
         var malId: Int? = null,
         @Volatile var fillerEpisodes: Set<Float>? = null,
         @Volatile var airingSchedule: Map<Float, Long>? = null,
+        @Volatile var episodeTitles: Map<Float, String>? = null,
     )
 
     private val animeMetaCache = java.util.Collections.synchronizedMap(
@@ -1191,6 +1206,15 @@ class Miruro :
         )
 
         screen.addListPreference(
+            key = PREF_EPISODE_TITLES_KEY,
+            title = PREF_EPISODE_TITLES_TITLE,
+            entries = PREF_EPISODE_TITLES_ENTRIES,
+            entryValues = PREF_EPISODE_TITLES_VALUES,
+            default = PREF_EPISODE_TITLES_DEFAULT,
+            summary = "Uses MAL episode titles instead of low-quality provider titles.",
+        )
+
+        screen.addListPreference(
             key = PREF_EPISODE_SORT_KEY,
             title = PREF_EPISODE_SORT_TITLE,
             entries = PREF_EPISODE_SORT_ENTRIES,
@@ -1258,11 +1282,57 @@ class Miruro :
 
         Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId → malId=$malId")
         val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
-        val fillers = fetchFillerEpisodes(malId, maxEp)
+        val result = fetchJikanEpisodeData(malId, maxEp)
 
-        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, found ${fillers.size} filler episodes (maxEp=$maxEp)")
-        getMeta(anilistId)?.let { it.fillerEpisodes = fillers }
-        return fillers
+        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, found ${result.fillerEpisodes.size} filler episodes (maxEp=$maxEp)")
+        val metaToUpdate = getMeta(anilistId)
+        metaToUpdate?.let {
+            it.fillerEpisodes = result.fillerEpisodes
+            if (result.episodeTitles.isNotEmpty()) {
+                it.episodeTitles = result.episodeTitles
+            }
+        }
+        return result.fillerEpisodes
+    }
+
+    private fun resolveEpisodeTitles(anilistId: Int?, providers: JSONObject, preferredProvider: String): Map<Float, String> {
+        if (anilistId == null) return emptyMap()
+
+        val meta = getMeta(anilistId)
+        if (meta != null && meta.anilistId == anilistId && meta.episodeTitles != null) {
+            Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, cached ${meta.episodeTitles!!.size} titles")
+            return meta.episodeTitles!!
+        }
+
+        val existing = meta?.takeIf { it.anilistId == anilistId }
+        val malId = existing?.malId
+            ?: fetchMalId(anilistId)
+
+        if (existing != null) {
+            existing.malId = malId
+        } else if (malId != null) {
+            getOrCreateMeta(anilistId, malId)
+        }
+
+        if (malId == null) {
+            Log.w(TAG, "resolveEpisodeTitles: anilistId=$anilistId, could not resolve MAL ID")
+            existing?.let { it.episodeTitles = emptyMap() }
+            return emptyMap()
+        }
+
+        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId → malId=$malId")
+        val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
+        val result = fetchJikanEpisodeData(malId, maxEp)
+
+        val metaToUpdate = getMeta(anilistId)
+        metaToUpdate?.let {
+            it.episodeTitles = result.episodeTitles
+            if (it.fillerEpisodes == null) {
+                it.fillerEpisodes = result.fillerEpisodes
+            }
+        }
+        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, resolved ${result.episodeTitles.size} titles from Jikan")
+        return result.episodeTitles
     }
 
     private fun findMaxEpisodeNumber(providers: JSONObject, preferredProvider: String): Float {
@@ -1390,9 +1460,15 @@ class Miruro :
         return schedule
     }
 
-    private fun fetchFillerEpisodes(malId: Int, maxEpisode: Float = Float.MAX_VALUE): Set<Float> {
-        Log.d(TAG, "fetchFillerEpisodes: malId=$malId, maxEpisode=$maxEpisode")
+    private data class JikanEpisodeResult(
+        val fillerEpisodes: Set<Float>,
+        val episodeTitles: Map<Float, String>,
+    )
+
+    private fun fetchJikanEpisodeData(malId: Int, maxEpisode: Float = Float.MAX_VALUE): JikanEpisodeResult {
+        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, maxEpisode=$maxEpisode")
         val fillerEpisodes = mutableSetOf<Float>()
+        val episodeTitles = mutableMapOf<Float, String>()
         var page = 1
         var hasNextPage = true
         val maxPages = 10
@@ -1422,6 +1498,9 @@ class Miruro :
                 if (ep.filler) {
                     fillerEpisodes.add(num)
                 }
+                if (ep.title.isNotEmpty()) {
+                    episodeTitles[num] = ep.title
+                }
             }
 
             if (hasNextPage) {
@@ -1430,8 +1509,8 @@ class Miruro :
             }
         }
 
-        Log.d(TAG, "fetchFillerEpisodes: malId=$malId, found ${fillerEpisodes.size} filler episodes across $page pages")
-        return fillerEpisodes
+        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, found ${fillerEpisodes.size} filler episodes, ${episodeTitles.size} titles across $page pages")
+        return JikanEpisodeResult(fillerEpisodes, episodeTitles)
     }
 
     // ============================== Pipe API ===============================
