@@ -45,7 +45,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class Miruro :
     AnimeHttpSource(),
@@ -88,6 +88,11 @@ class Miruro :
         FAILED,
     }
 
+    private data class MirrorCache(
+        val entries: List<String>, // display names e.g. "miruro.tv" — only UP mirrors
+        val values: List<String>, // full URLs e.g. "https://www.miruro.tv" — only UP mirrors
+    )
+
     private data class ProviderConfigCache(
         val displayNames: Map<String, String>, // alias → base name, e.g. "kiwi" → "AnimePahe"
         val entries: List<String>, // full UI labels, e.g. "AnimePahe (Sub, Download)"
@@ -107,6 +112,17 @@ class Miruro :
     private var fetchState = ConfigFetchState.NOT_FETCHED
 
     private var fetchAttempts = 0
+
+    @Volatile
+    private var mirrorCache = MirrorCache(
+        entries = DEFAULT_MIRROR_ENTRIES,
+        values = DEFAULT_MIRROR_VALUES,
+    )
+
+    @Volatile
+    private var mirrorFetchState = ConfigFetchState.NOT_FETCHED
+
+    private var mirrorFetchAttempts = 0
 
     private fun providerDisplayName(alias: String): String = configCache.displayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
 
@@ -271,6 +287,125 @@ class Miruro :
         return result
     }
 
+    // ============================== Mirror Fetch ==============================
+
+    private fun launchMirrorFetch(forceRefresh: Boolean = false, onSuccess: (() -> Unit)? = null) {
+        if (!forceRefresh) {
+            if (mirrorFetchState == ConfigFetchState.FETCHED || mirrorFetchState == ConfigFetchState.FETCHING) return
+            if (mirrorFetchState == ConfigFetchState.FAILED && mirrorFetchAttempts >= MAX_FETCH_ATTEMPTS) {
+                Log.d(TAG, "launchMirrorFetch: skipping, $mirrorFetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed")
+                return
+            }
+        }
+
+        Log.d(TAG, "launchMirrorFetch: forceRefresh=$forceRefresh, currentState=$mirrorFetchState, attempts=$mirrorFetchAttempts")
+        mirrorFetchState = ConfigFetchState.FETCHING
+        if (forceRefresh) mirrorFetchAttempts = 0
+
+        scope.launch(
+            CoroutineExceptionHandler { _, throwable ->
+                Log.e(TAG, "Mirror fetch failed with exception", throwable)
+            },
+        ) {
+            try {
+                val statusJson = statusPageClient.newCall(
+                    GET("$STATUS_PAGE_API_URL/status-page/miruro"),
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Mirror status page returned ${response.code}, keeping defaults")
+                        mirrorFetchAttempts++
+                        mirrorFetchState = ConfigFetchState.FAILED
+                        return@launch
+                    }
+                    response.body.string()
+                }
+
+                val statusPage = jsonParser.decodeFromString<StatusPageDto>(statusJson)
+
+                val websitesGroup = statusPage.publicGroupList.firstOrNull { it.name == "Websites" }
+                if (websitesGroup == null) {
+                    Log.w(TAG, "launchMirrorFetch: no 'Websites' group in status page, keeping defaults")
+                    mirrorFetchAttempts++
+                    mirrorFetchState = ConfigFetchState.FAILED
+                    return@launch
+                }
+
+                // Fetch heartbeat data to determine which mirrors are UP
+                val heartbeatJson = statusPageClient.newCall(
+                    GET("$STATUS_PAGE_API_URL/status-page/heartbeat/miruro"),
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Mirror heartbeat page returned ${response.code}, using all mirrors without status check")
+                        null
+                    } else {
+                        response.body.string()
+                    }
+                }
+
+                val upMirrorIds: Set<String>? = heartbeatJson?.let { json ->
+                    val heartbeats = jsonParser.decodeFromString<StatusHeartbeatDto>(json)
+                    heartbeats.heartbeatList.mapValues { (_, beats) ->
+                        beats.lastOrNull()?.status == 1
+                    }.filterValues { it }.keys.toSet()
+                }
+
+                val knownStreamingDomains = setOf("miruro.com")
+                val mirrors = if (upMirrorIds != null) {
+                    websitesGroup.monitorList
+                        .filter { it.id.toString() in upMirrorIds && it.name !in knownStreamingDomains }
+                } else {
+                    websitesGroup.monitorList
+                        .filter { it.name !in knownStreamingDomains }
+                }
+
+                if (mirrors.isEmpty()) {
+                    Log.w(TAG, "launchMirrorFetch: no UP mirrors found, keeping defaults")
+                    mirrorFetchAttempts++
+                    mirrorFetchState = ConfigFetchState.FAILED
+                    return@launch
+                }
+
+                val entries = mirrors.map { it.name }
+                val values = mirrors.map { "https://www.${it.name}" }
+
+                mirrorCache = MirrorCache(entries = entries, values = values)
+                saveMirrorsToPrefs(entries, values)
+                mirrorFetchState = ConfigFetchState.FETCHED
+
+                val currentMirror = preferences.preferredMirror
+                if (currentMirror !in values) {
+                    val newDefault = PREF_MIRROR_DEFAULT.takeIf { it in values }
+                        ?: values.firstOrNull()
+                        ?: currentMirror
+                    Log.i(TAG, "Preferred mirror '$currentMirror' no longer available, resetting to '$newDefault'")
+                    preferences.edit().putString(PREF_MIRROR_KEY, newDefault).apply()
+                    baseUrl = newDefault
+                }
+
+                Log.i(TAG, "Fetched mirrors: ${mirrors.size} UP mirrors from status page: $entries")
+
+                onSuccess?.let { handler.post(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch mirrors: ${e.message}, keeping defaults")
+                mirrorFetchAttempts++
+                mirrorFetchState = ConfigFetchState.FAILED
+            }
+        }
+    }
+
+    private fun getMirrorsSync(): MirrorCache {
+        if (mirrorFetchState == ConfigFetchState.NOT_FETCHED) {
+            Log.d(TAG, "getMirrorsSync: state=NOT_FETCHED, attempting prefs load then async fetch")
+            loadMirrorsFromPrefs()?.let { cached ->
+                mirrorCache = cached
+                mirrorFetchState = ConfigFetchState.FETCHED
+                Log.d(TAG, "getMirrorsSync: loaded cached mirrors from prefs (${cached.values.size} mirrors)")
+            }
+            launchMirrorFetch()
+        }
+        return mirrorCache
+    }
+
     private fun getProviderOrder(): List<String> {
         val config = getConfigSync()
         val result = config.providerOrder.filter { key ->
@@ -307,6 +442,31 @@ class Miruro :
             )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load cached config from preferences: ${e.message}")
+            null
+        }
+    }
+
+    private fun saveMirrorsToPrefs(entries: List<String>, values: List<String>) {
+        try {
+            val json = jsonParser.encodeToString(
+                CachedMirrorsDto(entries = entries, values = values),
+            )
+            preferences.edit().putString(PREF_CACHED_MIRRORS_KEY, json).apply()
+            Log.d(TAG, "saveMirrorsToPrefs: persisted mirrors (${entries.size} mirrors)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist mirrors to preferences: ${e.message}")
+        }
+    }
+
+    private fun loadMirrorsFromPrefs(): MirrorCache? {
+        return try {
+            val json = preferences.getString(PREF_CACHED_MIRRORS_KEY, null) ?: return null
+            Log.d(TAG, "loadMirrorsFromPrefs: found cached mirrors (${json.length} bytes)")
+            val cached = jsonParser.decodeFromString<CachedMirrorsDto>(json)
+            if (cached.entries.isEmpty() || cached.values.isEmpty()) return null
+            MirrorCache(entries = cached.entries, values = cached.values)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load cached mirrors from preferences: ${e.message}")
             null
         }
     }
@@ -445,9 +605,11 @@ class Miruro :
 
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
-        private val MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
-        private val MIRROR_VALUES = MIRROR_ENTRIES.map { "https://www.$it" }
-        private val PREF_MIRROR_DEFAULT = MIRROR_VALUES.first()
+        private val DEFAULT_MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
+        private val DEFAULT_MIRROR_VALUES = DEFAULT_MIRROR_ENTRIES.map { "https://www.$it" }
+        private val PREF_MIRROR_DEFAULT = DEFAULT_MIRROR_VALUES.first()
+        private const val PREF_CACHED_MIRRORS_KEY = "cached_mirrors_json"
+        private const val STATUS_PAGE_API_URL = "https://status.miruro.com/api"
 
         private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
         private val CLOSE_P_REGEX = Regex("</p>", RegexOption.IGNORE_CASE)
@@ -459,11 +621,15 @@ class Miruro :
     }
 
     private val jikanClient: OkHttpClient = network.client.newBuilder()
-        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1, unit = TimeUnit.SECONDS)
+        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1.seconds)
         .build()
 
     private val anilistClient: OkHttpClient = network.client.newBuilder()
-        .rateLimitHost("$ANILIST_GRAPHQL_URL/".toHttpUrl(), permits = 2, period = 1, unit = TimeUnit.SECONDS)
+        .rateLimitHost("$ANILIST_GRAPHQL_URL/".toHttpUrl(), permits = 2, period = 1.seconds)
+        .build()
+
+    private val statusPageClient: OkHttpClient = network.client.newBuilder()
+        .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
         .build()
 
     // ============================== Trending ===============================
@@ -1076,28 +1242,40 @@ class Miruro :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         Log.d(TAG, "setupPreferenceScreen: fetchState=$fetchState, cacheProviders=${configCache.values}")
         getConfigSync()
+        getMirrorsSync()
 
-        screen.addListPreference(
+        val mirrorPref = screen.getListPreference(
             key = PREF_MIRROR_KEY,
             title = PREF_MIRROR_TITLE,
-            entries = MIRROR_ENTRIES,
-            entryValues = MIRROR_VALUES,
+            entries = mirrorCache.entries,
+            entryValues = mirrorCache.values,
             default = PREF_MIRROR_DEFAULT,
             summary = "%s",
-        ) {
-            Log.d(TAG, "Mirror changed: $baseUrl → $it, invalidating config cache")
-            baseUrl = it
-            configCache = ProviderConfigCache(
-                displayNames = KNOWN_DISPLAY_NAMES,
-                entries = DEFAULT_PROVIDER_ENTRIES,
-                values = DEFAULT_PROVIDER_VALUES,
-                config = null,
-            )
-            fetchState = ConfigFetchState.NOT_FETCHED
-            fetchAttempts = 0
-            preferences.edit().remove(PREF_CACHED_CONFIG_KEY).apply()
-            launchConfigFetch(forceRefresh = true)
-        }
+            onChange = { pref, value ->
+                Log.d(TAG, "Mirror changed: $baseUrl → $value, invalidating config cache")
+                baseUrl = value
+                configCache = ProviderConfigCache(
+                    displayNames = KNOWN_DISPLAY_NAMES,
+                    entries = DEFAULT_PROVIDER_ENTRIES,
+                    values = DEFAULT_PROVIDER_VALUES,
+                    config = null,
+                )
+                fetchState = ConfigFetchState.NOT_FETCHED
+                fetchAttempts = 0
+                preferences.edit().remove(PREF_CACHED_CONFIG_KEY).apply()
+                launchConfigFetch(forceRefresh = true)
+                pref.summary = value
+                true
+            },
+        )
+        screen.addPreference(mirrorPref)
+
+        launchMirrorFetch(onSuccess = {
+            Log.d(TAG, "setupPreferenceScreen: async mirror fetch completed, updating mirror pref (${mirrorCache.entries.size} entries)")
+            mirrorPref.entries = mirrorCache.entries.toTypedArray()
+            mirrorPref.entryValues = mirrorCache.values.toTypedArray()
+            mirrorPref.summary = preferences.preferredMirror
+        })
 
         val providerPref = screen.getListPreference(
             key = PREF_PROVIDER_KEY,

@@ -219,3 +219,38 @@ data class JikanEpisodesDto(
         @SerialName("has_next_page") val hasNextPage: Boolean,
     )
 }
+
+@Serializable
+data class StatusPageDto(
+    val publicGroupList: List<StatusPageGroupDto> = emptyList(),
+) {
+    @Serializable
+    data class StatusPageGroupDto(
+        val name: String = "",
+        val monitorList: List<StatusMonitorDto> = emptyList(),
+    )
+
+    @Serializable
+    data class StatusMonitorDto(
+        val id: Int = 0,
+        val name: String = "",
+    )
+}
+
+@Serializable
+data class StatusHeartbeatDto(
+    val heartbeatList: Map<String, List<StatusHeartbeatEntryDto>> = emptyMap(),
+) {
+    @Serializable
+    data class StatusHeartbeatEntryDto(
+        val status: Int = 0,
+        val ping: Int = 0,
+        val time: String = "",
+    )
+}
+
+@Serializable
+data class CachedMirrorsDto(
+    val entries: List<String> = emptyList(),
+    val values: List<String> = emptyList(),
+)
