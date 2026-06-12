@@ -1012,7 +1012,14 @@ class Miruro :
 
         val airingSchedule = if (anilistId != null && anilistId > 0) fetchAiringSchedule(anilistId) else emptyMap()
 
-        val result = if (preferences.episodeSortOrder == "ascending") episodes else episodes.reversed()
+        val episodeZero = episodes.filter { it.episode_number.toInt() == 0 }
+        val episodeRest = episodes.filter { it.episode_number.toInt() != 0 }
+
+        val result = if (preferences.episodeSortOrder == "ascending") {
+            episodeZero + episodeRest
+        } else {
+            episodeZero + episodeRest.reversed()
+        }
         for (ep in result) {
             airingSchedule[ep.episode_number]?.let { ep.date_upload = it }
         }
