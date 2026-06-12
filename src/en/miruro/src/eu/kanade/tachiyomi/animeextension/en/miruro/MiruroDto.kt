@@ -174,7 +174,7 @@ data class ConfigResponseDto(
             val json = decoder.decodeSerializableValue(JsonElement.serializer())
             return when {
                 json is JsonPrimitive && json.booleanOrNull != null -> ProxyConfigDto(rotate = false)
-                json is JsonObject -> Json.decodeFromJsonElement(ProxyConfigDto.serializer(), json)
+                json is JsonObject -> jsonParser.decodeFromJsonElement(ProxyConfigDto.serializer(), json)
                 else -> ProxyConfigDto()
             }
         }
