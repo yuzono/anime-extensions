@@ -23,6 +23,7 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.get
+import keiyoushi.utils.getListPreference
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -34,6 +35,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -69,15 +73,19 @@ class Stremio : Source() {
     // ============================== Popular ===============================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
-        val popularCatalog = addons().firstNotNullOfOrNull { addon ->
+        try {
+            setCatalogList(addons())
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to load catalogs for popular fallback", e)
+        }
+
+        val preferredPopularCatalog = getDefaultPopularCatalog()
+
+        val popularCatalog = preferredPopularCatalog ?: addons().firstNotNullOfOrNull { addon ->
             addon.manifest.catalogs.firstOrNull { catalog ->
                 catalog.extra.orEmpty().none { it.isRequired == true }
             }?.copy(transportUrl = addon.getTransportUrl().toString())
         } ?: throw Exception("No valid catalog addons found")
-
-        try {
-            setCatalogList(addons())
-        } catch (_: Exception) { }
 
         return getSearchAnime(
             page,
@@ -108,11 +116,31 @@ class Stremio : Source() {
             }
         }
 
-        val catalogFilter = filterList.filterIsInstance<CatalogFilter>().firstOrNull()
-            ?: throw Exception("No catalog selected. Select one in filters")
+        if (catalogList == null) {
+            try {
+                setCatalogList(addons())
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Failed to load catalogs for search fallback", e)
+            }
+        }
 
-        selectedCatalogIndex = catalogFilter.state
-        val selectedCatalog = catalogFilter.getSelection()
+        val preferredCatalog = getDefaultCatalog()
+        val catalogFilter = filterList.filterIsInstance<CatalogFilter>().firstOrNull()
+
+        val selectedCatalog: CatalogDto = when {
+            preferredCatalog != null && (query.isNotBlank() || !preferredCatalog.hasRequired(ExtraType.SEARCH)) -> {
+                preferredCatalog
+            }
+            catalogFilter != null -> {
+                selectedCatalogIndex = catalogFilter.state
+                catalogFilter.getSelection()
+            }
+            else -> throw Exception(
+                "No catalog selected. Set a default in extension settings, " +
+                    "or select one in filters",
+            )
+        }
+
         setGenreList(selectedCatalog)
 
         val selectedGenre = filters.filterIsInstance<GenreFilter>().firstOrNull()
@@ -285,6 +313,65 @@ class Stremio : Source() {
                     genreOptions.map { it to it },
                 )
             }.toTypedArray()
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Resolves the default catalog preference to a CatalogDto.
+     * Also updates [selectedCatalogIndex] so the filter dropdown
+     * reflects the choice on the next filter rebuild.
+     *
+     * Must be called after [catalogList] has been populated.
+     */
+    private fun getDefaultCatalog(): CatalogDto? {
+        val value = preferences.defaultCatalog
+        if (value.isBlank()) return null
+
+        val pref = try {
+            Json.decodeFromString<CatalogPref>(value)
+        } catch (_: Exception) {
+            // Fallback for old pipe-delimited format or corrupt data
+            return null
+        }
+
+        val list = catalogList ?: return null
+
+        val idx = list.indexOfFirst {
+            it.second.transportUrl == pref.transportUrl &&
+                it.second.type == pref.type &&
+                it.second.id == pref.id
+        }
+
+        if (idx >= 0) {
+            selectedCatalogIndex = idx
+            return list[idx].second
+        }
+
+        return null
+    }
+
+    private fun getDefaultPopularCatalog(): CatalogDto? {
+        val value = preferences.defaultPopularCatalog
+        if (value.isBlank()) return null
+
+        val pref = try {
+            Json.decodeFromString<CatalogPref>(value)
+        } catch (_: Exception) {
+            return null
+        }
+
+        val list = catalogList ?: return null
+
+        val idx = list.indexOfFirst {
+            it.second.transportUrl == pref.transportUrl &&
+                it.second.type == pref.type &&
+                it.second.id == pref.id
+        }
+
+        return if (idx >= 0) {
+            list[idx].second
         } else {
             null
         }
@@ -582,6 +669,11 @@ class Stremio : Source() {
         const val ADDONS_KEY = "addons"
         const val ADDONS_DEFAULT = ""
 
+        private const val DEFAULT_POPULAR_CATALOG_KEY = "default_popular_catalog"
+        private const val DEFAULT_POPULAR_CATALOG_DEFAULT = ""
+        private const val DEFAULT_CATALOG_KEY = "default_catalog"
+        private const val DEFAULT_CATALOG_DEFAULT = ""
+
         private const val EMAIL_KEY = "email"
         private const val EMAIL_DEFAULT = ""
 
@@ -631,6 +723,8 @@ class Stremio : Source() {
     private val SharedPreferences.serverUrl by preferences.delegate(SERVER_URL_KEY, SERVER_URL_DEFAULT)
     private val SharedPreferences.email by preferences.delegate(EMAIL_KEY, EMAIL_DEFAULT)
     private val SharedPreferences.password by preferences.delegate(PASSWORD_KEY, PASSWORD_DEFAULT)
+    private val SharedPreferences.defaultPopularCatalog by preferences.delegate(DEFAULT_POPULAR_CATALOG_KEY, DEFAULT_POPULAR_CATALOG_DEFAULT)
+    private val SharedPreferences.defaultCatalog by preferences.delegate(DEFAULT_CATALOG_KEY, DEFAULT_CATALOG_DEFAULT)
     private val SharedPreferences.nameTemplate by preferences.delegate(
         PREF_EPISODE_NAME_TEMPLATE_KEY,
         PREF_EPISODE_NAME_TEMPLATE_DEFAULT,
@@ -750,6 +844,86 @@ class Stremio : Source() {
                 "'$invalidUrl' is not a valid stremio addon"
             },
         )
+
+        val defaultPopularCatalogPref = screen.getListPreference(
+            key = DEFAULT_POPULAR_CATALOG_KEY,
+            title = "Default popular catalog",
+            summary = "Catalog used for Popular (browsable catalogs with genres or no extras)",
+            entries = listOf("Loading catalogs…"),
+            entryValues = listOf(""),
+            default = DEFAULT_POPULAR_CATALOG_DEFAULT,
+        )
+
+        val defaultCatalogPref = screen.getListPreference(
+            key = DEFAULT_CATALOG_KEY,
+            title = "Default search catalog",
+            summary = "Catalog used when searching without filter selection",
+            entries = listOf("Loading catalogs…"),
+            entryValues = listOf(""),
+            default = DEFAULT_CATALOG_DEFAULT,
+        )
+
+        scope.launch {
+            try {
+                val loadedAddons = addons()
+                setCatalogList(loadedAddons)
+
+                val loaded = catalogList ?: emptyArray()
+                handler.post {
+                    // Popular Catalogs: Allow (g), (G), (GS), (gs) and catalogs with no Search/Genre extras
+                    val popularCatalogs = loaded.filter { pair ->
+                        val extras = pair.second.extra.orEmpty()
+                        val hasGenre = extras.any { it.type == ExtraType.GENRE }
+                        val hasNoSearchOrGenre = extras.none { it.type == ExtraType.SEARCH || it.type == ExtraType.GENRE }
+                        hasGenre || hasNoSearchOrGenre
+                    }
+
+                    if (popularCatalogs.isNotEmpty()) {
+                        defaultPopularCatalogPref.entries = arrayOf("None") +
+                            popularCatalogs.map { it.first }.toTypedArray()
+                        defaultPopularCatalogPref.entryValues = arrayOf("") +
+                            popularCatalogs.map {
+                                Json.encodeToString(
+                                    CatalogPref(it.second.transportUrl, it.second.type, it.second.id),
+                                )
+                            }.toTypedArray()
+                    } else {
+                        defaultPopularCatalogPref.entries = arrayOf("No popular catalogs available")
+                        defaultPopularCatalogPref.entryValues = arrayOf("")
+                    }
+
+                    // Search Catalogs: Allow (s), (S), (GS), (gs)
+                    val searchCatalogs = loaded.filter { pair ->
+                        pair.second.extra.orEmpty().any { it.type == ExtraType.SEARCH }
+                    }
+
+                    if (searchCatalogs.isNotEmpty()) {
+                        defaultCatalogPref.entries = arrayOf("None") +
+                            searchCatalogs.map { it.first }.toTypedArray()
+                        defaultCatalogPref.entryValues = arrayOf("") +
+                            searchCatalogs.map {
+                                Json.encodeToString(
+                                    CatalogPref(it.second.transportUrl, it.second.type, it.second.id),
+                                )
+                            }.toTypedArray()
+                    } else {
+                        defaultCatalogPref.entries = arrayOf("No search catalogs available")
+                        defaultCatalogPref.entryValues = arrayOf("")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Failed to load catalogs for preference UI", e)
+                handler.post {
+                    defaultPopularCatalogPref.entries = arrayOf("Failed to load catalogs")
+                    defaultPopularCatalogPref.entryValues = arrayOf("")
+                    defaultCatalogPref.entries = arrayOf("Failed to load catalogs")
+                    defaultCatalogPref.entryValues = arrayOf("")
+                }
+            }
+        }
+
+        screen.addPreference(defaultPopularCatalogPref)
+        screen.addPreference(defaultCatalogPref)
 
         fun onCompleteLogin(result: Boolean) {
             logOutPref.setEnabled(result)
@@ -875,4 +1049,7 @@ class Stremio : Source() {
         screen.addPreference(logOutPref)
         screen.addPreference(getLibraryPref)
     }
+
+    @Serializable
+    data class CatalogPref(val transportUrl: String, val type: String, val id: String)
 }
