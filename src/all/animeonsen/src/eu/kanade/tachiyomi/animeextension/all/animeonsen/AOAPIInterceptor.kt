@@ -1,8 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.animeonsen
 
+import eu.kanade.tachiyomi.animeextension.all.animeonsen.AnimeOnsen.Companion.AO_USER_AGENT
 import eu.kanade.tachiyomi.network.POST
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
@@ -53,14 +54,14 @@ class AOAPIInterceptor(private val client: OkHttpClient, apiUrl: String) : Inter
                 ),
             ).execute()
 
-            val responseBody = response.body.string()
+            val responseBody = response.bodyString()
 
             // If we still get an HTML page (Cloudflare block or wrong endpoint), fail gracefully
             if (responseBody.isBlank() || responseBody.trimStart().startsWith("<")) {
                 return null
             }
 
-            val tokenObject = Json.decodeFromString<JsonObject>(responseBody)
+            val tokenObject = responseBody.parseAs<JsonObject>()
             tokenObject["access_token"]?.jsonPrimitive?.content
         } catch (_: Throwable) {
             // Silently fail so we don't break endpoints that don't require auth (like Search)

@@ -156,13 +156,11 @@ class AnimeOnsen :
         val subsList = try {
             val epsResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/episodes", headers)).execute()
             val epsJson = epsResponse.parseAs<Map<String, EpisodeDto>>()
-            epsResponse.close()
 
             val firstEpNum = epsJson.keys.firstOrNull()
             if (firstEpNum != null) {
                 val videoResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/video/$firstEpNum", headers)).execute()
                 val videoData = videoResponse.parseAs<VideoData>()
-                videoResponse.close()
                 videoData.metadata.subtitles.values
             } else {
                 emptyList()
@@ -194,13 +192,14 @@ class AnimeOnsen :
     override fun episodeListRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/episodes", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val contentId = response.request.url.toString().substringBeforeLast("/episodes")
+        val contentId = response.request.url.toString().removeSuffix("/")
+            .substringBeforeLast("/episodes")
             .substringAfterLast("/")
         val responseJson = response.parseAs<Map<String, EpisodeDto>>()
         return responseJson.map { (epNum, item) ->
             SEpisode.create().apply {
                 url = "$contentId/video/$epNum"
-                episode_number = epNum.toFloat()
+                episode_number = epNum.toFloatOrNull() ?: -1f
                 name = when (preferredTitle) {
                     "english" -> "Episode $epNum: ${item.nameEn ?: item.nameJp ?: ""}"
                     else -> "Episode $epNum: ${item.nameJp ?: item.nameEn ?: ""}"
@@ -215,8 +214,8 @@ class AnimeOnsen :
         val videoUrl = videoData.uri.stream
         val subtitleLangs = videoData.metadata.subtitles
 
-        val subs = videoData.uri.subtitles.sortSubs().map { (langPrefix, subUrl) ->
-            val language = subtitleLangs[langPrefix]!!
+        val subs = videoData.uri.subtitles.sortSubs().mapNotNull { (langPrefix, subUrl) ->
+            val language = subtitleLangs[langPrefix] ?: return@mapNotNull null
             Track(subUrl, language)
         }
 
@@ -237,11 +236,6 @@ class AnimeOnsen :
             entryValues = PREF_TITLE_VALUES
             setDefaultValue(PREF_TITLE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                preferences.edit().putString(key, selected).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -251,13 +245,6 @@ class AnimeOnsen :
             entryValues = PREF_SUB_VALUES
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 
@@ -284,28 +271,30 @@ class AnimeOnsen :
             compareBy { it.key.contains(sub) },
         ).reversed()
     }
+
+    companion object {
+        const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.3"
+
+        // Title and episode name preferences
+        private const val PREF_TITLE_KEY = "preferred_title"
+        private const val PREF_TITLE_TITLE = "Preferred Title Language"
+        private const val PREF_TITLE_DEFAULT = "romaji"
+        private val PREF_TITLE_ENTRIES = arrayOf("Romaji", "English")
+        private val PREF_TITLE_VALUES = arrayOf("romaji", "english")
+
+        // Subtitle preferences
+        private const val PREF_SUB_KEY = "preferred_subLang"
+        private const val PREF_SUB_TITLE = "Preferred sub language"
+        const val PREF_SUB_DEFAULT = "en-US"
+        private val PREF_SUB_ENTRIES = arrayOf(
+            "العربية", "Deutsch", "English", "Español (Spain)",
+            "Español (Latin)", "Français", "Italiano",
+            "Português (Brasil)", "Русский",
+        )
+        private val PREF_SUB_VALUES = arrayOf(
+            "ar-ME", "de-DE", "en-US", "es-ES",
+            "es-LA", "fr-FR", "it-IT",
+            "pt-BR", "ru-RU",
+        )
+    }
 }
-
-const val AO_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.3"
-
-// Title and episode name preferences
-private const val PREF_TITLE_KEY = "preferred_title"
-private const val PREF_TITLE_TITLE = "Preferred Title Language"
-private const val PREF_TITLE_DEFAULT = "romaji"
-private val PREF_TITLE_ENTRIES = arrayOf("Romaji", "English")
-private val PREF_TITLE_VALUES = arrayOf("romaji", "english")
-
-// Subtitle preferences
-private const val PREF_SUB_KEY = "preferred_subLang"
-private const val PREF_SUB_TITLE = "Preferred sub language"
-const val PREF_SUB_DEFAULT = "en-US"
-private val PREF_SUB_ENTRIES = arrayOf(
-    "العربية", "Deutsch", "English", "Español (Spain)",
-    "Español (Latin)", "Français", "Italiano",
-    "Português (Brasil)", "Русский",
-)
-private val PREF_SUB_VALUES = arrayOf(
-    "ar-ME", "de-DE", "en-US", "es-ES",
-    "es-LA", "fr-FR", "it-IT",
-    "pt-BR", "ru-RU",
-)
