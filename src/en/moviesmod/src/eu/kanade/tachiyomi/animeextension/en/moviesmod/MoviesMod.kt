@@ -26,7 +26,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
@@ -80,7 +79,8 @@ class MoviesMod :
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.select("a").attr("abs:href"))
-        thumbnail_url = element.select("div.featured-thumbnail > img").attr("abs:src")
+        val img = element.select("div.featured-thumbnail > img")
+        thumbnail_url = img.attr("abs:data-src").ifEmpty { img.attr("abs:src") }
         title = element.select("a").attr("title")
             .replace("Download", "").trim()
     }
@@ -142,7 +142,7 @@ class MoviesMod :
             }
 
             val episodePageUrl = row.selectFirst("a[href]")?.attr("href")!!
-            val episodePageDocument = Jsoup.connect(extractChildUrl(episodePageUrl)).get()
+            val episodePageDocument = client.newCall(GET(extractChildUrl(episodePageUrl), headers)).execute().asJsoup()
 
             episodePageDocument.select("div.timed-content-client_show_0_5_0 a").asSequence()
                 .mapIndexedNotNull { index, linkElement ->
@@ -185,19 +185,18 @@ class MoviesMod :
     }
 
     private fun extractChildUrl(mainUrl: String): String {
-        // Parse the URL
-        val parsedUrl = URL(mainUrl)
+        return runCatching {
+            val parsedUrl = URL(mainUrl)
+            val query = parsedUrl.query ?: return mainUrl
 
-        // Get query parameters
-        val queryParams = parsedUrl.query.split("&").associate {
-            val (key, value) = it.split("=")
-            key to value
-        }
+            val queryParams = query.split("&").associate {
+                val parts = it.split("=")
+                if (parts.size == 2) parts[0] to parts[1] else it to ""
+            }
 
-        // Decode the Base64 string
-        val decodedUrl = String(Base64.decode(queryParams["url"], 1))
-
-        return decodedUrl
+            val urlParam = queryParams["url"] ?: return mainUrl
+            String(Base64.decode(urlParam, 1))
+        }.getOrDefault(mainUrl)
     }
 
     override fun episodeListSelector(): String = "p:has(a.maxbutton-episode-links)"
@@ -424,7 +423,7 @@ class MoviesMod :
 
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
         private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.red"
+        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.army"
         private const val PREF_DOMAIN_DIALOG_TITLE = PREF_DOMAIN_TITLE
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
