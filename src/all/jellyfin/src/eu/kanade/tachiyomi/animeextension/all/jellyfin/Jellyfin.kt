@@ -58,7 +58,6 @@ import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import org.apache.commons.text.StringSubstitutor
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
@@ -868,17 +867,14 @@ class Jellyfin(private val suffix: String) :
             "typeShort" to "",
             "seriesTitle" to "",
             "seasonTitle" to "",
-            "number" to "",
+            "number" to 0,
             "createdDate" to "",
             "releaseDate" to "",
             "size" to "",
-            "sizeBytes" to "",
+            "sizeBytes" to 0L,
             "runtime" to "",
-            "runtimeS" to "",
+            "runtimeS" to 0L,
         )
-        private val STRING_SUBSTITUTOR = StringSubstitutor(SUBSTITUTE_VALUES, "{", "}").apply {
-            isEnableUndefinedVariableException = true
-        }
 
         private const val LOG_TAG = "Jellyfin"
     }
@@ -1117,7 +1113,7 @@ class Jellyfin(private val suffix: String) :
             inputType = InputType.TYPE_CLASS_TEXT,
             validate = {
                 try {
-                    STRING_SUBSTITUTOR.replace(it)
+                    format(SUBSTITUTE_VALUES, it)
                     true
                 } catch (_: IllegalArgumentException) {
                     false
