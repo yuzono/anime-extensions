@@ -190,7 +190,7 @@ class MoviesMod :
             val query = parsedUrl.query ?: return mainUrl
 
             val queryParams = query.split("&").associate {
-                val parts = it.split("=")
+                val parts = it.split("=", limit = 2)
                 if (parts.size == 2) parts[0] to parts[1] else it to ""
             }
 
