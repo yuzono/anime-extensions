@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.jellyfin.dto
 
+import eu.kanade.tachiyomi.animeextension.all.jellyfin.format
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.getImageUrl
 import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -7,7 +8,6 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.formatBytes
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.apache.commons.text.StringSubstitutor
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -172,15 +172,14 @@ data class ItemDto(
             "typeShort" to type.name.replace("Episode", "Ep."),
             "seriesTitle" to (seriesName ?: ""),
             "seasonTitle" to (seasonName ?: ""),
-            "number" to (indexNumber?.toString() ?: ""),
+            "number" to (indexNumber ?: 1),
             "createdDate" to (dateCreated?.substringBefore("T") ?: ""),
             "releaseDate" to (premiereDate?.substringBefore("T") ?: ""),
             "size" to (size ?: ""),
-            "sizeBytes" to (mediaSources?.first()?.size?.toString() ?: ""),
+            "sizeBytes" to (mediaSources?.first()?.size ?: 0L),
             "runtime" to (runTime ?: ""),
-            "runtimeS" to (runtimeInSec?.toString() ?: ""),
+            "runtimeS" to (runtimeInSec ?: 0L),
         )
-        val sub = StringSubstitutor(values, "{", "}")
         val extraInfo = buildList {
             if (epDetails.contains("Overview") && overview != null && type == ItemType.Episode) {
                 add(overview)
@@ -193,7 +192,7 @@ data class ItemDto(
             }
         }
 
-        name = sub.replace(episodeTemplate).trim()
+        name = format(values, episodeTemplate).trim()
             .removeSuffix("-")
             .removePrefix("-")
             .trim()
@@ -203,9 +202,6 @@ data class ItemDto(
         preview_url = imageTags.primary?.getImageUrl(baseUrl, id)
         premiereDate?.let {
             date_upload = parseDateTime(it.removeSuffix("Z"))
-        }
-        indexNumber?.let {
-            episode_number = it.toFloat()
         }
         if (type == ItemType.Movie) {
             episode_number = 1F

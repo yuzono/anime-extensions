@@ -4,8 +4,13 @@ import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.DeviceProfileDto
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonNamingStrategy
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.apache.commons.text.StringSubstitutor
+import org.apache.commons.text.lookup.StringLookup
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.floor
 
 private val NEWLINE_REGEX = Regex("""\n""")
 
@@ -181,4 +186,61 @@ fun getDeviceProfile(
         codecProfiles = emptyList(),
         subtitleProfiles = subtitleProfilesList,
     )
+}
+
+fun format(values: Map<String, Any>, input: String): String {
+    val exprRegex = Regex("""^(\w+)(?:\s*([+\-*/])\s*([\d.]+))?(?::(.+))?$""")
+    val lookup = StringLookup { key ->
+        val match = exprRegex.find(key)
+            ?: throw IllegalArgumentException("Invalid format: $key")
+
+        val (valueKey, operator, operand, formatStr) = match.destructured
+        val result = when (val value = values[valueKey]) {
+            is String -> value
+
+            is Number if operator.isEmpty() -> value
+
+            is Number -> {
+                val op1 = value.toDouble()
+                val op2 = operand.toDouble()
+                when (operator) {
+                    "+" -> op1 + op2
+                    "-" -> op1 - op2
+                    "*" -> op1 * op2
+                    "/" -> op1 / op2
+                    else -> throw IllegalStateException("Unsupported operator: $operator")
+                }
+            }
+
+            else -> throw IllegalStateException("Unsupported value: ${value!!::class.java}")
+        }
+
+        val format = "%$formatStr"
+        when (result) {
+            is String -> {
+                if (formatStr.isEmpty()) result else String.format(Locale.US, format, result)
+            }
+
+            is Number -> {
+                if (formatStr.isEmpty()) {
+                    if (ceil(result.toDouble()) == floor(result.toDouble())) {
+                        result.toLong().toString()
+                    } else {
+                        result.toString()
+                    }
+                } else {
+                    if ("dox".any { format.endsWith(it, true) }) {
+                        String.format(Locale.US, format, result.toLong())
+                    } else {
+                        String.format(Locale.US, format, result.toDouble())
+                    }
+                }
+            }
+
+            else -> throw IllegalStateException("Unsupported value: ${operator::class.java}")
+        }
+    }
+
+    val substitutor = StringSubstitutor(lookup, "{", "}", '\\')
+    return substitutor.replace(input)
 }
