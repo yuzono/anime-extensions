@@ -182,21 +182,12 @@ class MoviesMod :
 
         if (episodeList.isEmpty()) throw Exception("Only Zip Pack Available")
         return episodeList.reversed()
-    }
-
     private fun extractChildUrl(mainUrl: String): String {
         return runCatching {
-            val parsedUrl = URL(mainUrl)
-            val query = parsedUrl.query ?: return mainUrl
-
-            val queryParams = query.split("&").associate {
-                val parts = it.split("=", limit = 2)
-                if (parts.size == 2) parts[0] to parts[1] else it to ""
-            }
-
-            val urlParam = queryParams["url"] ?: return mainUrl
-            String(Base64.decode(urlParam, 1))
+            val urlParam = mainUrl.toHttpUrl().queryParameter("url") ?: return mainUrl
+            String(Base64.decode(urlParam, Base64.NO_PADDING))
         }.getOrDefault(mainUrl)
+    }
     }
 
     override fun episodeListSelector(): String = "p:has(a.maxbutton-episode-links)"
