@@ -1,8 +1,12 @@
 ext {
     extName = 'AnimesOnlineVip'
     extClass = '.AnimesOnlineVip'
-    extVersionCode = 3
+    extVersionCode = 4
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:bloggerextractor'))
+}

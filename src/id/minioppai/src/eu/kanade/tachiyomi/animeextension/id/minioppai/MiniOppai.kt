@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
@@ -49,11 +50,11 @@ class MiniOppai :
             }
         }
         element.selectFirst(".epl-sub")?.text()?.let { scanlator = it }
-        date_upload = element.selectFirst(".epl-date")?.text().toDate()
+        date_upload = element.selectFirst(".epl-date")?.text().let { dateFormatter.tryParse(it) }
     }
 
     // ============================ Video Links =============================
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         return when {
             "gdriveplayer" in url -> {
                 val playerUrl = buildString {

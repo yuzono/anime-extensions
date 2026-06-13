@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.animexin
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -10,7 +10,8 @@ import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.VidstreamingEx
 import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.YouTubeExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
 
 class AnimeXin :
     AnimeStream(
@@ -28,9 +29,9 @@ class AnimeXin :
     private val vidstreamingExtractor by lazy { VidstreamingExtractor(client) }
     private val youTubeExtractor by lazy { YouTubeExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> = runBlocking {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
-        when {
+        return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix)
 
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
@@ -57,27 +58,22 @@ class AnimeXin :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen) // Quality preferences
 
-        ListPreference(screen.context).apply {
-            key = PREF_LANG_KEY
-            title = PREF_LANG_TITLE
-            entries = PREF_LANG_VALUES
-            entryValues = PREF_LANG_VALUES
-            setDefaultValue(PREF_LANG_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_LANG_KEY,
+            title = PREF_LANG_TITLE,
+            entries = PREF_LANG_VALUES,
+            entryValues = PREF_LANG_VALUES,
+            default = PREF_LANG_DEFAULT,
+            summary = "%s",
+        )
     }
+
+    private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
-        val language = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        val quality = preferences.videoSortPref
+        val language = preferences.langPref
 
         return sortedWith(
             compareBy(
@@ -91,7 +87,7 @@ class AnimeXin :
         private const val PREF_LANG_KEY = "preferred_language"
         private const val PREF_LANG_TITLE = "Preferred Video Language"
         private const val PREF_LANG_DEFAULT = "All Sub"
-        private val PREF_LANG_VALUES = arrayOf(
+        private val PREF_LANG_VALUES = listOf(
             "All Sub", "Arabic", "English", "German", "Indonesia", "Italian",
             "Polish", "Portuguese", "Spanish", "Thai", "Turkish",
         )

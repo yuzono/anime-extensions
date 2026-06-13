@@ -1,15 +1,17 @@
 package eu.kanade.tachiyomi.animeextension.all.lmanime
 
-import androidx.preference.ListPreference
-import androidx.preference.MultiSelectListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 
 class LMAnime :
@@ -19,12 +21,11 @@ class LMAnime :
         "https://lmanime.com",
     ) {
     // ============================ Video Links =============================
-    override val prefQualityValues = arrayOf("144p", "288p", "480p", "720p", "1080p")
-    override val prefQualityEntries = prefQualityValues
+    override val prefQualityValues = listOf("144p", "288p", "480p", "720p", "1080p")
 
     override fun videoListParse(response: Response): List<Video> {
-        val items = response.asJsoup().select(videoListSelector())
-        val allowed = preferences.getStringSet(PREF_ALLOWED_LANGS_KEY, PREF_ALLOWED_LANGS_DEFAULT)!!
+        val items = response.useAsJsoup().select(videoListSelector())
+        val allowed = preferences.allowedLangsPref
         return items
             .filter { element ->
                 val text = element.text()
@@ -40,11 +41,11 @@ class LMAnime :
     private val dailyExtractor by lazy { DailymotionExtractor(client, headers) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "($name) - "
         return when {
             "dailymotion" in url -> dailyExtractor.videosFromUrl(url, "Dailymotion ($name)")
-            "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, "$prefix")
+            "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers, prefix)
             "filelions" in url -> streamwishExtractor.videosFromUrl(url, "StreamWish ($name)")
             else -> emptyList()
         }
@@ -55,38 +56,32 @@ class LMAnime :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen) // Quality preferences
 
-        ListPreference(screen.context).apply {
-            key = PREF_LANG_KEY
-            title = PREF_LANG_TITLE
-            entries = PREF_LANG_ENTRIES
-            entryValues = PREF_LANG_ENTRIES
-            setDefaultValue(PREF_LANG_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_LANG_KEY,
+            title = PREF_LANG_TITLE,
+            entries = PREF_LANG_ENTRIES,
+            entryValues = PREF_LANG_ENTRIES,
+            default = PREF_LANG_DEFAULT,
+            summary = "%s",
+        )
 
-        MultiSelectListPreference(screen.context).apply {
-            key = PREF_ALLOWED_LANGS_KEY
-            title = PREF_ALLOWED_LANGS_TITLE
-            entries = PREF_ALLOWED_LANGS_ENTRIES
-            entryValues = PREF_ALLOWED_LANGS_ENTRIES
-            setDefaultValue(PREF_ALLOWED_LANGS_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addSetPreference(
+            key = PREF_ALLOWED_LANGS_KEY,
+            title = PREF_ALLOWED_LANGS_TITLE,
+            entries = PREF_ALLOWED_LANGS_ENTRIES,
+            entryValues = PREF_ALLOWED_LANGS_ENTRIES,
+            default = PREF_ALLOWED_LANGS_DEFAULT,
+            summary = "",
+        )
     }
+
+    private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
+    private val SharedPreferences.allowedLangsPref by preferences.delegate(PREF_ALLOWED_LANGS_KEY, PREF_ALLOWED_LANGS_DEFAULT)
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
-        val lang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        val quality = preferences.videoSortPref
+        val lang = preferences.langPref
         return sortedWith(
             compareBy(
                 { it.quality.contains(quality) },
@@ -99,7 +94,7 @@ class LMAnime :
         private const val PREF_LANG_KEY = "pref_language"
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "English"
-        private val PREF_LANG_ENTRIES = arrayOf(
+        private val PREF_LANG_ENTRIES = listOf(
             "English",
             "Español",
             "Indonesian",

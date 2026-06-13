@@ -18,13 +18,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.i18n.Intl
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -76,23 +77,23 @@ class Tuktukcinema :
     override fun episodeListSelector(): String = "section.allseasonss div.Block--Item"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val url = response.request.url.toString()
         val seasonsDOM = document.select(episodeListSelector())
-        return if (seasonsDOM.isNullOrEmpty()) {
+        return if (seasonsDOM.isEmpty()) {
             SEpisode.create().apply {
                 setUrlWithoutDomain(url)
                 name = "مشاهدة"
             }.let(::listOf)
         } else {
             val selectedSeason = document.selectFirst("div#mpbreadcrumbs a span:contains(الموسم)")?.text().orEmpty()
-            seasonsDOM.reversed().flatMap { season ->
+            seasonsDOM.reversed().parallelCatchingFlatMapBlocking { season ->
                 val seasonText = season.select("h3").text()
-                val seasonUrl = season.selectFirst("a")?.attr("abs:href") ?: return@flatMap emptyList()
+                val seasonUrl = season.selectFirst("a")?.attr("abs:href") ?: return@parallelCatchingFlatMapBlocking emptyList()
                 val seasonDoc = if (selectedSeason == seasonText) {
                     document
                 } else {
-                    client.newCall(GET(seasonUrl)).execute().asJsoup()
+                    client.newCall(GET(seasonUrl)).awaitSuccess().useAsJsoup()
                 }
                 val seasonNum = if (seasonsDOM.size == 1) "1" else seasonText.filter { it.isDigit() }.ifEmpty { "0" }
                 seasonDoc.select("section.allepcont a").mapIndexed { index, episode ->
@@ -115,7 +116,7 @@ class Tuktukcinema :
     override fun videoListSelector(): String = "ul li.server--item"
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select(videoListSelector()).parallelCatchingFlatMapBlocking {
             val url = it.attr("data-link").substringBefore("0REL0Y").reversed()
             extractVideos(String(Base64.decode(url, Base64.DEFAULT), Charsets.UTF_8), it.text())
@@ -129,7 +130,7 @@ class Tuktukcinema :
     private val vidBomExtractor by lazy { VidBomExtractor(client) }
     private val vidLandExtractor by lazy { VidLandExtractor(client) }
 
-    private fun extractVideos(
+    private suspend fun extractVideos(
         url: String,
         server: String,
         customQuality: String? = null,
@@ -153,7 +154,7 @@ class Tuktukcinema :
         }
 
         "krakenfiles" in server -> {
-            val page = client.newCall(GET(url, headers)).execute().asJsoup()
+            val page = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
             page.select("source").map {
                 Video(it.attr("src"), "Kraken" + customQuality?.let { q -> ": $q" }.orEmpty(), it.attr("src"))
             }

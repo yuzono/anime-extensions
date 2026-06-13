@@ -23,7 +23,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.toJsonBody
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -54,7 +54,7 @@ class Torrentio :
     private fun makeGraphQLRequest(query: String, variables: String): Request {
         val requestBody = """
         {"query": "${query.replace("\n", "")}", "variables": $variables}
-        """.trimIndent().toJsonRequestBody()
+        """.trimIndent().toJsonBody()
 
         val request = Request.Builder()
             .url("https://apis.justwatch.com/graphql")
