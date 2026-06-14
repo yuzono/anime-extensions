@@ -20,7 +20,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
-import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -80,12 +80,10 @@ class Flixer :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val preferredLatest = preferences.latestPref
         val types = if (preferredLatest == "movie") listOf("movie", "tv") else listOf("tv", "movie")
-        return types.parallelMapNotNull { mediaType ->
-            runCatching {
-                client.newCall(latestUpdatesRequest(page, mediaType))
-                    .awaitSuccess()
-                    .use { latestUpdatesParse(it) }
-            }.getOrNull()
+        return types.parallelCatchingMapNotNull { mediaType ->
+            client.newCall(latestUpdatesRequest(page, mediaType))
+                .awaitSuccess()
+                .use { latestUpdatesParse(it) }
         }.let { animePages ->
             val animes = animePages.flatMap { it.animes }
             val hasNextPage = animePages.any { it.hasNextPage }
@@ -94,7 +92,7 @@ class Flixer :
     }
 
     private fun latestUpdatesRequest(page: Int, mediaType: String): Request {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val date = DATE_FORMATTER.format(Date())
         val url = apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("discover")
             addPathSegment(mediaType)
@@ -117,12 +115,10 @@ class Flixer :
         if (query.isNotBlank()) {
             val preferredLatest = preferences.latestPref
             val types = if (preferredLatest == "movie") listOf("movie", "tv") else listOf("tv", "movie")
-            return types.parallelMapNotNull { mediaType ->
-                runCatching {
-                    client.newCall(searchAnimeRequest(page, query, mediaType))
-                        .awaitSuccess()
-                        .use { searchAnimeParse(it) }
-                }.getOrNull()
+            return types.parallelCatchingMapNotNull { mediaType ->
+                client.newCall(searchAnimeRequest(page, query, mediaType))
+                    .awaitSuccess()
+                    .use { searchAnimeParse(it) }
             }.let { animePages ->
                 val animes = animePages.flatMap { it.animes }
                 val hasNextPage = animePages.any { it.hasNextPage }
@@ -144,12 +140,12 @@ class Flixer :
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val type = filters.filterIsInstance<FlixerFilters.TypeFilter>().first().state.let {
+        val type = filters.filterIsInstance<FlixerFilters.TypeFilter>().firstOrNull()?.state?.let {
             if (it == 0) "movie" else "tv"
-        }
+        } ?: "movie"
 
-        val sortFilter = filters.filterIsInstance<FlixerFilters.SortFilter>().first()
-        val sortBy = sortFilter.state?.run {
+        val sortFilter = filters.filterIsInstance<FlixerFilters.SortFilter>().firstOrNull()
+        val sortBy = sortFilter?.state?.run {
             when (index) {
                 0 -> "popularity"
                 1 -> "vote_average"
@@ -158,8 +154,8 @@ class Flixer :
         } ?: "popularity.desc"
 
         val genreMap = if (type == "movie") FlixerFilters.MOVIE_GENRE_MAP else FlixerFilters.TV_GENRE_MAP
-        val genres = filters.filterIsInstance<FlixerFilters.GenreFilter>().first()
-            .state.filter { it.state }.mapNotNull { genreMap[it.name] }.joinToString(",")
+        val genres = filters.filterIsInstance<FlixerFilters.GenreFilter>().firstOrNull()
+            ?.state?.filter { it.state }?.mapNotNull { genreMap[it.name] }?.joinToString(",").orEmpty()
 
         val url = apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("discover")
@@ -365,9 +361,10 @@ class Flixer :
         val extraDataEncoded = episode.url.substringAfterLast("#")
         val epData = json.decodeFromString<EpisodeData>(extraDataEncoded)
 
-        val apiKey = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }
-            .joinToString("") { "%02x".format(it) }
+        // 1. Generate unique key
+        val apiKey = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }.toHex()
 
+        // 2. Build Target URL
         val requestUrl = when (epData.type) {
             "movie" -> "$apiUrl/movie/${epData.tmdbId}/images"
             "tv" -> "$apiUrl/tv/${epData.tmdbId}/season/${epData.season}/episode/${epData.episode}/images"
@@ -386,7 +383,7 @@ class Flixer :
         val encryptedText = client.newCall(GET(requestUrl, videoHeaders))
             .awaitSuccess().use { it.body.string().trim('"', ' ', '\n', '\r') }
 
-        if (encryptedText.length < 50) {
+        if (encryptedText.isBlank() || encryptedText.startsWith("{")) {
             throw Exception("Failed to fetch stream data. Payload may be blocked or invalid.")
         }
 
@@ -509,10 +506,33 @@ class Flixer :
         )
     }
 
-    companion object {
+    // ============================= Utilities ==============================
 
+    private fun parseMediaPage(response: Response): AnimesPage {
+        val pageDto = response.parseAs<PageDto<MediaItemDto>>()
+        val hasNextPage = pageDto.page < pageDto.totalPages
+        val animeList = pageDto.results.map(::mediaItemToSAnime)
+        return AnimesPage(animeList, hasNextPage)
+    }
+
+    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
+        title = media.realTitle
+        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
+        url = "/?$type=${title.toSlug()}&id=${media.id}"
+        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+    }
+
+    private fun String.toSlug(): String = this.lowercase(Locale.getDefault())
+        .replace(Regex("[^a-z0-9]+"), "-")
+        .trim('-')
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+    companion object {
         private val SECURE_RANDOM by lazy { SecureRandom() }
         private const val FINGERPRINT_LITE = "e9136c41504646444"
+
+        private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
         private const val PREF_DOMAIN_KEY = "pref_domain"
         private val DOMAIN_ENTRIES = arrayOf("flixer.su", "flixer.cx")
@@ -559,26 +579,7 @@ class Flixer :
         }
 
         fun parseDate(dateStr: String?): Long = runCatching {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
+            DATE_FORMATTER.parse(dateStr ?: "")?.time ?: 0L
         }.getOrDefault(0L)
     }
-
-    // ============================= Utilities ==============================
-    private fun parseMediaPage(response: Response): AnimesPage {
-        val pageDto = response.parseAs<PageDto<MediaItemDto>>()
-        val hasNextPage = pageDto.page < pageDto.totalPages
-        val animeList = pageDto.results.map(::mediaItemToSAnime)
-        return AnimesPage(animeList, hasNextPage)
-    }
-
-    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
-        title = media.realTitle
-        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
-        url = "/?$type=${title.toSlug()}&id=${media.id}"
-        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-    }
-
-    private fun String.toSlug(): String = this.lowercase(Locale.getDefault())
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
 }
