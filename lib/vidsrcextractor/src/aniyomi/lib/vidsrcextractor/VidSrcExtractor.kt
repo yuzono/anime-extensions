@@ -6,25 +6,21 @@ import aniyomi.lib.vidsrcextractor.MediaResponseBody.Result
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
-@OptIn(ExperimentalSerializationApi::class)
 class VidsrcExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private val json: Json by injectLazy()
 
-    fun videosFromUrl(
+    suspend fun videosFromUrl(
         embedLink: String,
         hosterName: String,
         type: String = "",
@@ -33,11 +29,11 @@ class VidsrcExtractor(private val client: OkHttpClient, private val headers: Hea
         val host = embedLink.toHttpUrl().host
         val apiUrl = getApiUrl(embedLink)
 
-        val response = client.newCall(GET(apiUrl)).execute()
+        val response = client.newCall(GET(apiUrl)).awaitSuccess()
         val data = response.parseAs<MediaResponseBody>()
 
         val decrypted = vrfDecrypt(data.result)
-        val result = json.decodeFromString<Result>(decrypted)
+        val result = decrypted.parseAs<Result>()
 
         return playlistUtils.extractFromHls(
             playlistUrl = result.sources.first().file,
