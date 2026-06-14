@@ -2,7 +2,9 @@ package eu.kanade.tachiyomi.animeextension.en.flixer
 
 import android.content.SharedPreferences
 import android.text.InputType
+import android.util.Log
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.m3u8server.M3u8ServerManager
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -22,12 +24,14 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.delay
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -36,6 +40,7 @@ import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class Flixer :
     AnimeHttpSource(),
@@ -58,7 +63,16 @@ class Flixer :
     private val decryptionApiUrl = "https://enc-dec.app/api/dec-hexa"
     private val subtitleUrl = "https://sub.wyzie.io"
 
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val m3u8Client by lazy {
+        client.newBuilder()
+            .readTimeout(30, TimeUnit.SECONDS)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .build()
+    }
+
+    private val m3u8ServerManager by lazy { M3u8ServerManager(m3u8Client) }
+
+    private val playlistUtils by lazy { PlaylistUtils(m3u8Client, headers) }
 
     // ============================== Popular ===============================
 
@@ -361,52 +375,99 @@ class Flixer :
         val extraDataEncoded = episode.url.substringAfterLast("#")
         val epData = json.decodeFromString<EpisodeData>(extraDataEncoded)
 
-        // 1. Generate unique key
+        // 1. Generate a unique 32-byte hex key required for the decryption handshake
         val apiKey = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }.toHex()
 
-        // 2. Build Target URL
-        val requestUrl = when (epData.type) {
+        val serverRequestUrl = when (epData.type) {
             "movie" -> "$apiUrl/movie/${epData.tmdbId}/images"
             "tv" -> "$apiUrl/tv/${epData.tmdbId}/season/${epData.season}/episode/${epData.episode}/images"
             else -> throw Exception("Invalid media type.")
         }
 
-        // required headers to get encrypted data
-        val videoHeaders = headers.newBuilder()
+        // 2. Fetch the encrypted server list (Notice the "bw90agfmywth" header specifically for servers)
+        val serverHeaders = headers.newBuilder()
             .add("Origin", baseUrl)
             .add("Referer", "$baseUrl/")
-            .add("x-api-key", apiKey)
-            .add("x-fingerprint-lite", FINGERPRINT_LITE)
+            .add("X-Api-Key", apiKey)
+            .add("X-Fingerprint-Lite", FINGERPRINT_LITE)
+            .add("bw90agfmywth", "1")
             .add("Accept", "text/plain")
             .build()
 
-        val encryptedText = client.newCall(GET(requestUrl, videoHeaders))
+        val serverEncryptedText = client.newCall(GET(serverRequestUrl, serverHeaders))
             .awaitSuccess().use { it.body.string().trim('"', ' ', '\n', '\r') }
 
-        if (encryptedText.isBlank() || encryptedText.startsWith("{")) {
-            throw Exception("Failed to fetch stream data. Payload may be blocked or invalid.")
+        if (serverEncryptedText.length < 50) {
+            throw Exception("Failed to fetch server data. Payload may be blocked or invalid.")
         }
 
-        // Decryption via api
-        val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText, "key" to apiKey))
-        val decRequestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
+        // 3. Decrypt the server list via external API
+        val serverDecryptionPayload = json.encodeToString(mapOf("text" to serverEncryptedText, "key" to apiKey))
+        val serverDecRequestBody = serverDecryptionPayload.toRequestBody("application/json".toMediaType())
 
-        val decResponse = client.newCall(POST(decryptionApiUrl, headers = headers, body = decRequestBody))
+        val serverDecResponse = client.newCall(POST(decryptionApiUrl, headers = headers, body = serverDecRequestBody))
             .awaitSuccess().use { it.parseAs<DecryptionResponseDto>() }
 
-        val resultElement = decResponse.result as? JsonObject
-            ?: throw Exception("Server failed to decrypt the video payload.")
+        val serverResultElement = serverDecResponse.result as? JsonObject
+            ?: throw Exception("Failed to decrypt the server payload.")
 
-        val extractorData = json.decodeFromJsonElement<ExtractorResultDto>(resultElement)
+        val serverData = json.decodeFromJsonElement<ExtractorResultDto>(serverResultElement)
+        val availableServers = serverData.sources ?: emptyList()
+
+        if (availableServers.isEmpty()) {
+            throw Exception("No servers found.")
+        }
+
         val subtitles = getSubtitles(epData)
 
-        val videos = extractorData.sources.parallelCatchingFlatMap { source ->
-            playlistUtils.extractFromHls(
-                playlistUrl = source.url,
-                videoNameGen = { quality -> "Server: ${source.server} - $quality" },
-                subtitleList = subtitles,
-                referer = "$baseUrl/",
-            )
+        // 4. Concurrently fetch and decrypt video links for each available server
+        val videos = availableServers.parallelCatchingFlatMap { source ->
+            // The video stream request replaces "bw90agfmywth" with the "x-server" header
+            val videoHeaders = headers.newBuilder()
+                .add("Origin", baseUrl)
+                .add("Referer", "$baseUrl/")
+                .add("X-Api-Key", apiKey)
+                .add("X-Fingerprint-Lite", FINGERPRINT_LITE)
+                .add("X-Server", source.server)
+                .add("Accept", "text/plain")
+                .build()
+
+            val videoEncryptedText = client.newCall(GET(serverRequestUrl, videoHeaders))
+                .awaitSuccess().use { it.body.string().trim('"', ' ', '\n', '\r') }
+
+            if (videoEncryptedText.length < 50) {
+                return@parallelCatchingFlatMap emptyList()
+            }
+
+            val videoDecryptionPayload = json.encodeToString(mapOf("text" to videoEncryptedText, "key" to apiKey))
+            val videoDecRequestBody = videoDecryptionPayload.toRequestBody("application/json".toMediaType())
+
+            val videoDecResponse = client.newCall(POST(decryptionApiUrl, headers = headers, body = videoDecRequestBody))
+                .awaitSuccess().use { it.parseAs<DecryptionResponseDto>() }
+
+            val videoResultElement = videoDecResponse.result as? JsonObject
+                ?: return@parallelCatchingFlatMap emptyList<Video>()
+
+            val extractorData = json.decodeFromJsonElement<ExtractorResultDto>(videoResultElement)
+
+            extractorData.sources?.parallelCatchingFlatMap { videoSource ->
+                playlistUtils.extractFromHls(
+                    playlistUrl = videoSource.url,
+                    videoNameGen = { quality -> "Server: ${videoSource.server} - $quality" },
+                    subtitleList = subtitles,
+                    referer = "$baseUrl/",
+                ).mapNotNull { video ->
+                    // 5. Route the M3U8 through our local proxy to automatically strip fake image headers
+                    val processedUrl = getProcessedM3u8Url(video.url) ?: return@mapNotNull null
+                    Video(
+                        url = processedUrl,
+                        quality = video.quality,
+                        videoUrl = processedUrl,
+                        headers = video.headers,
+                        subtitleTracks = subtitles,
+                    )
+                }
+            } ?: emptyList()
         }
 
         if (videos.isEmpty()) {
@@ -415,6 +476,32 @@ class Flixer :
 
         val preferredQuality = preferences.videoQualityPref
         return videos.sortedByDescending { it.quality.contains(preferredQuality) }
+    }
+
+    private suspend fun getProcessedM3u8Url(originalUrl: String): String? {
+        // Starts local proxy server to clean corrupted MPEG-TS segments with 3 retry attempts
+        repeat(3) { attempt ->
+            try {
+                if (!m3u8ServerManager.isRunning()) {
+                    m3u8ServerManager.startServer()
+                    delay(200L)
+                }
+
+                val processedUrl = m3u8ServerManager.processM3u8Url(originalUrl)
+                if (processedUrl != null) return processedUrl
+
+                Log.w("Flixer", "M3U8 server process returned null on attempt ${attempt + 1}, restarting...")
+                m3u8ServerManager.stopServer()
+                delay(500L)
+            } catch (e: Exception) {
+                Log.e("Flixer", "M3U8 server start failed on attempt ${attempt + 1}: ${e.message}")
+                m3u8ServerManager.stopServer()
+                delay(500L)
+            }
+        }
+
+        Log.e("Flixer", "M3U8 server failed to process URL after 3 attempts. Dropping video to prevent cubes.")
+        return null
     }
 
     private suspend fun getSubtitles(data: EpisodeData): List<Track> {
