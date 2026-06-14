@@ -41,7 +41,6 @@ class YummyAnime : AnimeHttpSource() {
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Android)")
         .add("Accept", "application/json")
         .add("X-Application", appToken)
 
@@ -205,7 +204,6 @@ class YummyAnime : AnimeHttpSource() {
     private fun kodikVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
         val kodikHeaders = Headers.Builder()
             .add("Referer", "$baseUrl/")
-            .add("User-Agent", "Mozilla/5.0 (Android)")
             .add("X-Application", appToken)
             .build()
 
@@ -245,7 +243,6 @@ class YummyAnime : AnimeHttpSource() {
         val postHeaders = Headers.Builder()
             .add("Referer", "$baseUrl/")
             .add("Origin", baseUrl)
-            .add("User-Agent", "Mozilla/5.0 (Android)")
             .add("X-Application", appToken)
             .build()
 
@@ -262,7 +259,6 @@ class YummyAnime : AnimeHttpSource() {
         val hlsHeaders = Headers.Builder()
             .add("Referer", "$baseUrl/")
             .add("Origin", baseUrl)
-            .add("User-Agent", "Mozilla/5.0 (Android)")
             .add("X-Application", appToken)
             .build()
 
@@ -394,7 +390,6 @@ class YummyAnime : AnimeHttpSource() {
             val videoHeaders = Headers.Builder()
                 .add("Referer", iframeUrl)
                 .add("Origin", iframeUrl.toOrigin())
-                .add("User-Agent", "Mozilla/5.0 (Android)")
                 .add("X-Application", appToken)
                 .build()
 
@@ -412,7 +407,6 @@ class YummyAnime : AnimeHttpSource() {
         val videoHeaders = Headers.Builder()
             .add("Referer", iframeUrl)
             .add("Origin", iframeUrl.toOrigin())
-            .add("User-Agent", "Mozilla/5.0 (Android)")
             .add("X-Application", appToken)
             .build()
 
