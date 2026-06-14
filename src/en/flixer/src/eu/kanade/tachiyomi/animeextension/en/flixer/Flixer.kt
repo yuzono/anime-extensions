@@ -511,26 +511,39 @@ class Flixer :
                 addQueryParameter("season", data.season)
                 addQueryParameter("episode", data.episode)
             }
-            addQueryParameter("format", "srt")
+            addQueryParameter("source", "opensubtitles,subdl") // query best sources simultaneously
             addQueryParameter("key", "wyzie-7kkv6r8dp0mlc10nsr2i7zn50fi55tmu")
         }.build()
 
-        return try {
-            val preferredSubLang = preferences.subLangPref
-            val subLimit = preferences.subLimitPref.toIntOrNull() ?: PREF_SUB_LIMIT_DEFAULT.toInt()
+        val preferredSubLang = preferences.subLangPref
+        val subLimit = preferences.subLimitPref.toIntOrNull() ?: PREF_SUB_LIMIT_DEFAULT.toInt()
 
-            client.newCall(GET(subtitleRequestUrl, headers)).awaitSuccess()
+        // 1. Attempt to fetch VTT (Modern, strict UTF-8, prevents MPV crashes)
+        val vttUrl = subtitleRequestUrl.newBuilder().addQueryParameter("format", "vtt").build()
+        var subs = try {
+            client.newCall(GET(vttUrl, headers)).awaitSuccess()
                 .use { it.parseAs<List<SubtitleDto>>() }
-                .take(subLimit)
-                .map { sub ->
-                    val langLabel = sub.display ?: sub.language
-                    val ccLabel = if (sub.isHearingImpaired) "$langLabel (CC)" else langLabel
-                    Track(sub.url, ccLabel)
-                }
-                .sortedByDescending { it.lang.startsWith(preferredSubLang) }
         } catch (_: Exception) {
             emptyList()
         }
+
+        // 2. Fallback to SRT if VTT fails or returns zero results
+        if (subs.isEmpty()) {
+            val srtUrl = subtitleRequestUrl.newBuilder().addQueryParameter("format", "srt").build()
+            subs = try {
+                client.newCall(GET(srtUrl, headers)).awaitSuccess()
+                    .use { it.parseAs<List<SubtitleDto>>() }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        // 3. Format and sort whichever list succeeded
+        return subs.take(subLimit).map { sub ->
+            val langLabel = sub.display ?: sub.language
+            val ccLabel = if (sub.isHearingImpaired) "$langLabel (CC)" else langLabel
+            Track(sub.url, ccLabel)
+        }.sortedByDescending { it.lang.startsWith(preferredSubLang) }
     }
 
     // ============================== Settings ==============================
