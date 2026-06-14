@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import androidx.preference.PreferenceScreen
@@ -20,12 +22,17 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.decodeHex
 import keiyoushi.utils.delegate
+import keiyoushi.utils.getListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getSwitchPreference
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -37,8 +44,8 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
-import java.util.zip.GZIPInputStream
+import java.io.IOException
+import kotlin.time.Duration.Companion.seconds
 
 class Miruro :
     AnimeHttpSource(),
@@ -63,18 +70,495 @@ class Miruro :
     private val SharedPreferences.preferredTitleStyle by preferences.delegate(PREF_TITLE_STYLE_KEY, PREF_TITLE_STYLE_DEFAULT)
     private val SharedPreferences.preferredProvider by preferences.delegate(PREF_PROVIDER_KEY, PREF_PROVIDER_DEFAULT)
     private val SharedPreferences.preferredSubType by preferences.delegate(PREF_SUB_TYPE_KEY, PREF_SUB_TYPE_DEFAULT)
+    private val SharedPreferences.preferredStreamType by preferences.delegate(PREF_STREAM_TYPE_KEY, PREF_STREAM_TYPE_DEFAULT)
     private val SharedPreferences.preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+    private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
+    private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
+    private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
+    private val SharedPreferences.preferredEpisodeTitles by preferences.delegate(PREF_EPISODE_TITLES_KEY, PREF_EPISODE_TITLES_DEFAULT)
+
+    private val extractor by lazy {
+        MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
+    }
+
+    private enum class ConfigFetchState {
+        NOT_FETCHED,
+        FETCHING,
+        FETCHED,
+        FAILED,
+    }
+
+    private data class MirrorCache(
+        val entries: List<String>, // display names e.g. "miruro.tv" — only UP mirrors
+        val values: List<String>, // full URLs e.g. "https://www.miruro.tv" — only UP mirrors
+    )
+
+    private data class ProviderConfigCache(
+        val displayNames: Map<String, String>, // alias → base name, e.g. "kiwi" → "AnimePahe"
+        val entries: List<String>, // full UI labels, e.g. "AnimePahe (Sub, Download)"
+        val values: List<String>,
+        val config: ConfigResponseDto?,
+    )
+
+    @Volatile
+    private var configCache = ProviderConfigCache(
+        displayNames = KNOWN_DISPLAY_NAMES,
+        entries = DEFAULT_PROVIDER_ENTRIES,
+        values = DEFAULT_PROVIDER_VALUES,
+        config = null,
+    )
+
+    @Volatile
+    private var fetchState = ConfigFetchState.NOT_FETCHED
+
+    private var fetchAttempts = 0
+
+    @Volatile
+    private var mirrorCache = MirrorCache(
+        entries = DEFAULT_MIRROR_ENTRIES,
+        values = DEFAULT_MIRROR_VALUES,
+    )
+
+    @Volatile
+    private var mirrorFetchState = ConfigFetchState.NOT_FETCHED
+
+    private var mirrorFetchAttempts = 0
+
+    private fun providerDisplayName(alias: String): String = configCache.displayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
+
+    private fun buildProviderBaseName(
+        alias: String,
+        providerConfig: ConfigResponseDto.ProviderConfigDto?,
+    ): String {
+        val baseName = KNOWN_DISPLAY_NAMES[alias] ?: alias.replaceFirstChar { it.uppercase() }
+        val parent = providerConfig?.parent
+        val relationship = providerConfig?.relationship
+        return if (parent != null && relationship == "embed") {
+            val parentName = KNOWN_DISPLAY_NAMES[parent] ?: parent.replaceFirstChar { it.uppercase() }
+            "$baseName (via $parentName)"
+        } else {
+            baseName
+        }
+    }
+
+    private fun buildCapabilityLabel(caps: ConfigResponseDto.ProviderCapabilitiesDto?): String {
+        if (caps == null) return ""
+        val labels = mutableListOf<String>()
+        if (caps.sub) labels.add("Sub")
+        if (caps.dub) labels.add("Dub")
+        if (caps.ssub) labels.add("Soft Sub")
+        if (caps.download) labels.add("Download")
+        return if (labels.isNotEmpty()) " (${labels.joinToString(", ")})" else ""
+    }
+
+    private fun buildProviderLists(
+        config: ConfigResponseDto,
+    ): Triple<Map<String, String>, List<String>, List<String>> {
+        val visibleNativeProviders = config.providerOrder.filter { key ->
+            val pc = config.streaming[key]
+            pc != null && pc.visible && pc.relationship != "embed"
+        }
+
+        val displayNames = mutableMapOf<String, String>()
+        displayNames.putAll(KNOWN_DISPLAY_NAMES)
+        for (key in visibleNativeProviders) {
+            if (key !in displayNames) {
+                displayNames[key] = key.replaceFirstChar { it.uppercase() }
+            }
+            val pc = config.streaming[key]
+            if (pc != null) {
+                displayNames[key] = buildProviderBaseName(key, pc)
+            }
+        }
+
+        val entries = visibleNativeProviders.map { alias ->
+            val baseName = displayNames[alias] ?: alias.replaceFirstChar { it.uppercase() }
+            val caps = config.streaming[alias]?.capabilities
+            baseName + buildCapabilityLabel(caps)
+        }
+        val values = visibleNativeProviders.ifEmpty { DEFAULT_PROVIDER_VALUES }
+
+        return Triple(displayNames, entries, values)
+    }
+
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
+    private val scope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+    private var configFetchJob: Job? = null
+
+    /**
+     * Trigger an async config fetch if not already fetched/fetching.
+     * Non-blocking — returns immediately. Results are available via [configCache] when done.
+     * [onSuccess] is invoked on the main thread after a successful fetch, useful for
+     * updating preference UI dynamically.
+     */
+    private fun launchConfigFetch(forceRefresh: Boolean = false, onSuccess: (() -> Unit)? = null) {
+        if (!forceRefresh) {
+            if (fetchState == ConfigFetchState.FETCHED || fetchState == ConfigFetchState.FETCHING) return
+            if (fetchState == ConfigFetchState.FAILED && fetchAttempts >= MAX_FETCH_ATTEMPTS) {
+                Log.d(TAG, "launchConfigFetch: skipping, $fetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed")
+                return
+            }
+        }
+
+        Log.d(TAG, "launchConfigFetch: forceRefresh=$forceRefresh, currentState=$fetchState, attempts=$fetchAttempts")
+        fetchState = ConfigFetchState.FETCHING
+        if (forceRefresh) fetchAttempts = 0
+        configFetchJob?.cancel()
+
+        configFetchJob = scope.launch(
+            CoroutineExceptionHandler { _, throwable ->
+                Log.e(TAG, "Config fetch failed with exception", throwable)
+            },
+        ) {
+            try {
+                val request = buildPipeRequest("config", "GET")
+                val json = client.newCall(request).awaitSuccess().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Config endpoint returned ${response.code}, keeping defaults")
+                        fetchAttempts++
+                        fetchState = ConfigFetchState.FAILED
+                        return@launch
+                    }
+                    extractor.decryptResponse(response)
+                }
+                if (json.isEmpty()) {
+                    Log.w(TAG, "Config response was empty, keeping defaults")
+                    fetchAttempts++
+                    fetchState = ConfigFetchState.FAILED
+                    return@launch
+                }
+
+                val config = jsonParser.decodeFromString<ConfigResponseDto>(json)
+                val (newDisplayNames, newEntries, newValues) = buildProviderLists(config)
+
+                configCache = ProviderConfigCache(
+                    displayNames = newDisplayNames,
+                    entries = if (newValues != DEFAULT_PROVIDER_VALUES) newEntries else DEFAULT_PROVIDER_ENTRIES,
+                    values = newValues,
+                    config = config,
+                )
+                saveConfigToPrefs(config)
+                fetchState = ConfigFetchState.FETCHED
+
+                val visibleNative = config.providerOrder.filter { key ->
+                    val pc = config.streaming[key]
+                    pc != null && pc.visible && pc.relationship != "embed"
+                }
+                if (visibleNative.isNotEmpty()) {
+                    val currentProvider = preferences.preferredProvider
+                    if (currentProvider !in visibleNative) {
+                        val newDefault = PREF_PROVIDER_DEFAULT.takeIf { it in visibleNative }
+                            ?: visibleNative.firstOrNull()
+                            ?: currentProvider
+                        Log.i(TAG, "Preferred provider '$currentProvider' no longer available, resetting to '$newDefault'")
+                        preferences.edit().putString(PREF_PROVIDER_KEY, newDefault).apply()
+                    }
+                }
+
+                Log.i(TAG, "Fetched site config: ${config.providerOrder.size} providers (${visibleNative.size} visible+native), order=$visibleNative")
+
+                onSuccess?.let { handler.post(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch config: ${e.message}, keeping defaults")
+                fetchAttempts++
+                fetchState = ConfigFetchState.FAILED
+            }
+        }
+    }
+
+    /**
+     * Returns the cached [ConfigResponseDto] synchronously.
+     * If not yet fetched, tries loading from SharedPreferences first,
+     * then triggers a background fetch and returns the default config.
+     * Never blocks — always returns immediately.
+     */
+    private fun getConfigSync(): ConfigResponseDto {
+        if (fetchState == ConfigFetchState.NOT_FETCHED) {
+            Log.d(TAG, "getConfigSync: state=NOT_FETCHED, attempting prefs load then async fetch")
+            loadConfigFromPrefs()?.let { cached ->
+                configCache = cached
+                fetchState = ConfigFetchState.FETCHED
+                Log.d(TAG, "getConfigSync: loaded cached config from prefs (${cached.values.size} providers)")
+            }
+            launchConfigFetch()
+        }
+        val result = configCache.config ?: defaultConfig
+        Log.d(TAG, "getConfigSync: returning ${if (configCache.config != null) "fetched" else "default"} config")
+        return result
+    }
+
+    // ============================== Mirror Fetch ==============================
+
+    private fun launchMirrorFetch(forceRefresh: Boolean = false, onSuccess: (() -> Unit)? = null) {
+        if (!forceRefresh) {
+            if (mirrorFetchState == ConfigFetchState.FETCHED || mirrorFetchState == ConfigFetchState.FETCHING) return
+            if (mirrorFetchState == ConfigFetchState.FAILED && mirrorFetchAttempts >= MAX_FETCH_ATTEMPTS) {
+                Log.d(TAG, "launchMirrorFetch: skipping, $mirrorFetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed")
+                return
+            }
+        }
+
+        Log.d(TAG, "launchMirrorFetch: forceRefresh=$forceRefresh, currentState=$mirrorFetchState, attempts=$mirrorFetchAttempts")
+        mirrorFetchState = ConfigFetchState.FETCHING
+        if (forceRefresh) mirrorFetchAttempts = 0
+
+        scope.launch(
+            CoroutineExceptionHandler { _, throwable ->
+                Log.e(TAG, "Mirror fetch failed with exception", throwable)
+            },
+        ) {
+            try {
+                val statusJson = statusPageClient.newCall(
+                    GET("$STATUS_PAGE_API_URL/status-page/miruro"),
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Mirror status page returned ${response.code}, keeping defaults")
+                        mirrorFetchAttempts++
+                        mirrorFetchState = ConfigFetchState.FAILED
+                        return@launch
+                    }
+                    response.body.string()
+                }
+
+                val statusPage = jsonParser.decodeFromString<StatusPageDto>(statusJson)
+
+                val websitesGroup = statusPage.publicGroupList.firstOrNull { it.name == "Websites" }
+                if (websitesGroup == null) {
+                    Log.w(TAG, "launchMirrorFetch: no 'Websites' group in status page, keeping defaults")
+                    mirrorFetchAttempts++
+                    mirrorFetchState = ConfigFetchState.FAILED
+                    return@launch
+                }
+
+                // Fetch heartbeat data to determine which mirrors are UP
+                val heartbeatJson = statusPageClient.newCall(
+                    GET("$STATUS_PAGE_API_URL/status-page/heartbeat/miruro"),
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Mirror heartbeat page returned ${response.code}, using all mirrors without status check")
+                        null
+                    } else {
+                        response.body.string()
+                    }
+                }
+
+                val upMirrorIds: Set<String>? = heartbeatJson?.let { json ->
+                    val heartbeats = jsonParser.decodeFromString<StatusHeartbeatDto>(json)
+                    heartbeats.heartbeatList.mapValues { (_, beats) ->
+                        beats.lastOrNull()?.status == 1
+                    }.filterValues { it }.keys.toSet()
+                }
+
+                val knownStreamingDomains = setOf("miruro.com")
+                val mirrors = if (upMirrorIds != null) {
+                    websitesGroup.monitorList
+                        .filter { it.id.toString() in upMirrorIds && it.name !in knownStreamingDomains }
+                } else {
+                    websitesGroup.monitorList
+                        .filter { it.name !in knownStreamingDomains }
+                }
+
+                if (mirrors.isEmpty()) {
+                    Log.w(TAG, "launchMirrorFetch: no UP mirrors found, keeping defaults")
+                    mirrorFetchAttempts++
+                    mirrorFetchState = ConfigFetchState.FAILED
+                    return@launch
+                }
+
+                val entries = mirrors.map { it.name }
+                val values = mirrors.map { "https://www.${it.name}" }
+
+                mirrorCache = MirrorCache(entries = entries, values = values)
+                saveMirrorsToPrefs(entries, values)
+                mirrorFetchState = ConfigFetchState.FETCHED
+
+                val currentMirror = preferences.preferredMirror
+                if (currentMirror !in values) {
+                    val newDefault = PREF_MIRROR_DEFAULT.takeIf { it in values }
+                        ?: values.firstOrNull()
+                        ?: currentMirror
+                    Log.i(TAG, "Preferred mirror '$currentMirror' no longer available, resetting to '$newDefault'")
+                    preferences.edit().putString(PREF_MIRROR_KEY, newDefault).apply()
+                    baseUrl = newDefault
+                }
+
+                Log.i(TAG, "Fetched mirrors: ${mirrors.size} UP mirrors from status page: $entries")
+
+                onSuccess?.let { handler.post(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch mirrors: ${e.message}, keeping defaults")
+                mirrorFetchAttempts++
+                mirrorFetchState = ConfigFetchState.FAILED
+            }
+        }
+    }
+
+    private fun getMirrorsSync(): MirrorCache {
+        if (mirrorFetchState == ConfigFetchState.NOT_FETCHED) {
+            Log.d(TAG, "getMirrorsSync: state=NOT_FETCHED, attempting prefs load then async fetch")
+            loadMirrorsFromPrefs()?.let { cached ->
+                mirrorCache = cached
+                mirrorFetchState = ConfigFetchState.FETCHED
+                Log.d(TAG, "getMirrorsSync: loaded cached mirrors from prefs (${cached.values.size} mirrors)")
+            }
+            launchMirrorFetch()
+        }
+        return mirrorCache
+    }
+
+    private fun getProviderOrder(): List<String> {
+        val config = getConfigSync()
+        val result = config.providerOrder.filter { key ->
+            val pc = config.streaming[key]
+            pc != null && pc.visible && pc.relationship != "embed"
+        }.ifEmpty { configCache.values }
+        Log.d(TAG, "getProviderOrder: ${result.size} providers: $result")
+        return result
+    }
+
+    // ============================== Config Persistence ==============================
+
+    private fun saveConfigToPrefs(config: ConfigResponseDto) {
+        try {
+            val json = jsonParser.encodeToString(config)
+            preferences.edit().putString(PREF_CACHED_CONFIG_KEY, json).apply()
+            Log.d(TAG, "saveConfigToPrefs: persisted config (${json.length} bytes, ${config.providerOrder.size} providers)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist config to preferences: ${e.message}")
+        }
+    }
+
+    private fun loadConfigFromPrefs(): ProviderConfigCache? {
+        return try {
+            val json = preferences.getString(PREF_CACHED_CONFIG_KEY, null) ?: return null
+            Log.d(TAG, "loadConfigFromPrefs: found cached config (${json.length} bytes)")
+            val config = jsonParser.decodeFromString<ConfigResponseDto>(json)
+            val (displayNames, entries, values) = buildProviderLists(config)
+            ProviderConfigCache(
+                displayNames = displayNames,
+                entries = if (values != DEFAULT_PROVIDER_VALUES) entries else DEFAULT_PROVIDER_ENTRIES,
+                values = values,
+                config = config,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load cached config from preferences: ${e.message}")
+            null
+        }
+    }
+
+    private fun saveMirrorsToPrefs(entries: List<String>, values: List<String>) {
+        try {
+            val json = jsonParser.encodeToString(
+                CachedMirrorsDto(entries = entries, values = values),
+            )
+            preferences.edit().putString(PREF_CACHED_MIRRORS_KEY, json).apply()
+            Log.d(TAG, "saveMirrorsToPrefs: persisted mirrors (${entries.size} mirrors)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist mirrors to preferences: ${e.message}")
+        }
+    }
+
+    private fun loadMirrorsFromPrefs(): MirrorCache? {
+        return try {
+            val json = preferences.getString(PREF_CACHED_MIRRORS_KEY, null) ?: return null
+            Log.d(TAG, "loadMirrorsFromPrefs: found cached mirrors (${json.length} bytes)")
+            val cached = jsonParser.decodeFromString<CachedMirrorsDto>(json)
+            if (cached.entries.isEmpty() || cached.values.isEmpty()) return null
+            MirrorCache(entries = cached.entries, values = cached.values)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load cached mirrors from preferences: ${e.message}")
+            null
+        }
+    }
+
+    private val defaultConfig = ConfigResponseDto(
+        streaming = mapOf(
+            "kiwi" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
+            ),
+            "bee" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
+            ),
+            "bonk" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true, download = true, skipTimes = true),
+            ),
+            "ally" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
+            ),
+            "moo" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, download = true),
+            ),
+            "hop" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true, thumbnails = true),
+            ),
+            "pewe" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+            ),
+            "nun" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                relationship = "embed",
+            ),
+            "bun" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true),
+                relationship = "embed",
+            ),
+            "twin" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
+                relationship = "embed",
+            ),
+            "cog" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                relationship = "embed",
+            ),
+        ),
+        providerOrder = DEFAULT_PROVIDER_VALUES,
+    )
 
     companion object {
         const val PREFIX_SEARCH = "miruro:"
+        private const val TAG = "Miruro"
+
+        private const val MAX_FETCH_ATTEMPTS = 3
+        private const val PREF_CACHED_CONFIG_KEY = "cached_config_json"
 
         private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
-        private val PREF_PROVIDER_ENTRIES = listOf("Kiwi", "Bee")
-        private val PREF_PROVIDER_VALUES = listOf("kiwi", "bee")
+
+        private val DEFAULT_PROVIDER_ENTRIES = listOf(
+            "AnimePahe (Sub, Download)",
+            "Anikoto (Sub, Soft Sub)",
+            "AniDao (Soft Sub, Download)",
+            "9Anime (Sub, Download)",
+            "Moon (Sub, Download)",
+            "Zoro (Soft Sub)",
+            "Pewe (Hard Sub)",
+            "Nun (Hard Sub, Embed)",
+            "Bun (Soft Sub, Embed)",
+            "Twin (Soft Sub, Embed)",
+            "Cog (Hard Sub, Embed)",
+        )
+        private val DEFAULT_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "pewe", "nun", "bun", "twin", "cog")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
+
+        private val KNOWN_DISPLAY_NAMES = mapOf(
+            "kiwi" to "AnimePahe",
+            "bee" to "Anikoto",
+            "hop" to "Zoro",
+            "ally" to "9Anime",
+            "bonk" to "AniDao",
+            "pewe" to "Pewe",
+            "nun" to "Nun",
+            "bun" to "Bun",
+            "twin" to "Twin",
+            "moo" to "Moon",
+            "cog" to "Cog",
+            "dune" to "Dune",
+            "kuz" to "Kuz",
+        )
+
+        fun providerDisplayName(alias: String): String = alias.replaceFirstChar { it.uppercase() }
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
         private const val PREF_SUB_TYPE_TITLE = "Preferred Sub/Dub"
@@ -82,11 +566,17 @@ class Miruro :
         private val PREF_SUB_TYPE_VALUES = listOf("sub", "dub", "ssub")
         private const val PREF_SUB_TYPE_DEFAULT = "sub"
 
+        private const val PREF_STREAM_TYPE_KEY = "preferred_stream_type"
+        private const val PREF_STREAM_TYPE_TITLE = "Preferred Stream Type"
+        private val PREF_STREAM_TYPE_ENTRIES = listOf("HLS", "Embed", "All")
+        private val PREF_STREAM_TYPE_VALUES = listOf("hls", "embed", "all")
+        private const val PREF_STREAM_TYPE_DEFAULT = "hls"
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
-        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
-        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
-        private const val PREF_QUALITY_DEFAULT = "1080"
+        private val PREF_QUALITY_ENTRIES = listOf("Highest Available", "1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("0", "1080", "720", "480", "360")
+        private const val PREF_QUALITY_DEFAULT = "0"
 
         private const val PREF_TITLE_STYLE_KEY = "preferred_title_style"
         private const val PREF_TITLE_STYLE_TITLE = "Title Display Style"
@@ -114,24 +604,65 @@ class Miruro :
         private const val PREF_MERGE_PROVIDERS_TITLE = "Merge episodes across providers"
         private const val PREF_MERGE_PROVIDERS_DEFAULT = true
 
+        private const val PREF_EPISODE_SORT_KEY = "episode_sort_order"
+        private const val PREF_EPISODE_SORT_TITLE = "Episode List Order"
+        private val PREF_EPISODE_SORT_ENTRIES = listOf("Descending (Newest First)", "Ascending (Oldest First)")
+        private val PREF_EPISODE_SORT_VALUES = listOf("descending", "ascending")
+        private const val PREF_EPISODE_SORT_DEFAULT = "descending"
+
+        private const val PREF_DESCRIPTION_TRUNCATE_KEY = "description_truncation"
+        private const val PREF_DESCRIPTION_TRUNCATE_TITLE = "Description Truncation"
+        private val PREF_DESCRIPTION_TRUNCATE_ENTRIES = listOf("No Limit", "750 characters", "500 characters", "300 characters", "150 characters", "75 characters")
+        private val PREF_DESCRIPTION_TRUNCATE_VALUES = listOf("0", "750", "500", "300", "150", "75")
+        private const val PREF_DESCRIPTION_TRUNCATE_DEFAULT = "0"
+
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
+        private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
+
+        private const val PREF_EPISODE_TITLES_KEY = "preferred_episode_titles"
+        private const val PREF_EPISODE_TITLES_TITLE = "Episode Title Source"
+        private val PREF_EPISODE_TITLES_ENTRIES = listOf("MAL (Jikan)", "Provider")
+        private val PREF_EPISODE_TITLES_VALUES = listOf("mal", "provider")
+        private const val PREF_EPISODE_TITLES_DEFAULT = "mal"
+
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
 
-        // Mirror domains are fetched from https://miruro.com/
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
-        private val MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
-        private val MIRROR_VALUES = MIRROR_ENTRIES.map { "https://www.$it" }
-        private val PREF_MIRROR_DEFAULT = MIRROR_VALUES.first()
+        private val DEFAULT_MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
+        private val DEFAULT_MIRROR_VALUES = DEFAULT_MIRROR_ENTRIES.map { "https://www.$it" }
+        private val PREF_MIRROR_DEFAULT = DEFAULT_MIRROR_VALUES.first()
+        private const val PREF_CACHED_MIRRORS_KEY = "cached_mirrors_json"
+        private const val STATUS_PAGE_API_URL = "https://status.miruro.com/api"
+
+        private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
+        private val CLOSE_P_REGEX = Regex("</p>", RegexOption.IGNORE_CASE)
+        private val HTML_TAG_REGEX = Regex("<[^>]+>")
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+        val SCANLATOR_SUB_TYPES = setOf("sub", "dub")
+        val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub")
     }
 
     private val jikanClient: OkHttpClient = network.client.newBuilder()
-        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1, unit = TimeUnit.SECONDS)
+        .rateLimitHost("$JIKAN_API_URL/".toHttpUrl(), permits = 1, period = 1.seconds)
+        .build()
+
+    private val anilistClient: OkHttpClient = network.client.newBuilder()
+        .rateLimitHost("$ANILIST_GRAPHQL_URL/".toHttpUrl(), permits = 2, period = 1.seconds)
+        .build()
+
+    private val statusPageClient: OkHttpClient = network.client.newBuilder()
+        .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
         .build()
 
     // ============================== Trending ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
+        Log.d(TAG, "popularAnimeRequest: page=$page")
+        launchConfigFetch()
         val query = buildPipeQuery(
             "type" to "ANIME",
             "status" to "RELEASING",
@@ -147,6 +678,7 @@ class Miruro :
     // ============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
+        Log.d(TAG, "latestUpdatesRequest: page=$page")
         val query = buildPipeQuery(
             "type" to "ANIME",
             "status" to "RELEASING",
@@ -162,6 +694,7 @@ class Miruro :
     // ============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        Log.d(TAG, "getSearchAnime: query='${query.take(80)}', page=$page")
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
             if (url.host != baseUrl.toHttpUrl().host) {
@@ -177,18 +710,19 @@ class Miruro :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val anilistId = query.removePrefix(PREFIX_SEARCH)
+            Log.d(TAG, "getSearchAnime: prefix search for anilistId=$anilistId")
             val request = buildPipeRequest("info/$anilistId", "GET")
             val jsonObj = client.newCall(request).awaitSuccess().use { response ->
-                JSONObject(response.use(::decryptResponse))
+                JSONObject(extractor.decryptResponse(response))
             }
 
             val media = jsonObj.optJSONObject("media") ?: jsonObj
 
             val id = media.optInt("id", 0)
             val malId = media.optInt("idMal", 0).takeIf { it > 0 }
-            if (id > 0) cachedAnimeMeta = AnimeMeta(id, malId)
+            if (id > 0) getOrCreateMeta(id, malId)
 
-            val anime = parseAnimeFromMedia(media)
+            val anime = parseAnimeFromMediaObj(media)
             return AnimesPage(listOf(anime), false)
         }
 
@@ -198,7 +732,9 @@ class Miruro :
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        launchConfigFetch()
         if (query.isNotEmpty()) {
+            Log.d(TAG, "searchAnimeRequest: text query='$query', page=$page")
             val perPage = 20
             val queryParams = buildPipeQuery(
                 "q" to query,
@@ -217,7 +753,6 @@ class Miruro :
             "perPage" to 20,
         )
 
-        // Apply filters — only add non-default values
         if (params.sort != "all") queryParams.put("sort", params.sort)
         if (params.season != "all") queryParams.put("season", params.season)
         if (params.year != "all") queryParams.put("year", params.year.toInt())
@@ -226,6 +761,11 @@ class Miruro :
             val genresArray = JSONArray()
             params.genres.forEach { genresArray.put(it) }
             queryParams.put("genre", genresArray)
+        }
+        if (params.excludedGenres.isNotEmpty()) {
+            val excludedGenresArray = JSONArray()
+            params.excludedGenres.forEach { excludedGenresArray.put(it) }
+            queryParams.put("excludedGenre", excludedGenresArray)
         }
         if (params.formats.isNotEmpty()) {
             val formatsArray = JSONArray()
@@ -237,6 +777,12 @@ class Miruro :
             params.tags.forEach { tagsArray.put(it) }
             queryParams.put("tag", tagsArray)
         }
+        if (params.excludedTags.isNotEmpty()) {
+            val excludedTagsArray = JSONArray()
+            params.excludedTags.forEach { excludedTagsArray.put(it) }
+            queryParams.put("excludedTag", excludedTagsArray)
+        }
+        if (params.dubLanguage != "all") queryParams.put("dub", params.dubLanguage)
 
         return buildPipeRequest("search/browse", "GET", query = queryParams)
     }
@@ -248,21 +794,71 @@ class Miruro :
     override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
-        val media = jsonObj.optJSONObject("media") ?: jsonObj
-        val titleObj = media.optJSONObject("title") ?: JSONObject()
+        val json = validateResponse(response).use { extractor.decryptResponse(it) }
+        Log.d(TAG, "animeDetailsParse: response length=${json.length}")
+        // /info/{id} wraps anime data under a "media" key alongside tvdb/tmdb/schedule/mappings
+        val mediaJson = try {
+            val jsonObj = JSONObject(json)
+            jsonObj.optJSONObject("media")?.toString() ?: json
+        } catch (_: Exception) {
+            json
+        }
+        val dto = try {
+            jsonParser.decodeFromString<AnimeMediaDto>(mediaJson)
+        } catch (_: Exception) {
+            val jsonObj = JSONObject(mediaJson)
+            val mediaObj = jsonObj.optJSONObject("media") ?: jsonObj
+            return parseAnimeDetailsFromJsonObj(mediaObj)
+        }
 
-        val anilistId = media.optInt("id", 0)
-        val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+        val anilistId = dto.id
         if (anilistId > 0) {
-            val existing = cachedAnimeMeta
-            if (existing != null && existing.anilistId == anilistId) {
-                if (malId != null) existing.malId = malId
-            } else {
-                cachedAnimeMeta = AnimeMeta(anilistId, malId)
+            val existing = getMeta(anilistId)
+            if (existing != null && dto.malId != null) {
+                existing.malId = dto.malId
+            } else if (existing == null) {
+                getOrCreateMeta(anilistId, dto.malId)
             }
         }
 
+        val titleStyle = preferences.preferredTitleStyle
+        val title = resolveTitleFromDto(dto.title, titleStyle)
+
+        val coverUrl = dto.coverImage?.let { cover ->
+            cover.extraLarge?.ifEmpty { null }
+                ?: cover.large?.ifEmpty { null }
+                ?: cover.medium?.ifEmpty { null }
+        } ?: dto.bannerImage?.ifEmpty { null } ?: ""
+
+        val rawDescription = dto.description ?: ""
+        val description = if (preferences.stripHtml) stripHtml(rawDescription) else rawDescription
+        val truncatedDescription = truncateDescription(description)
+
+        val genres = dto.genres.takeIf { it.isNotEmpty() }?.joinToString()
+
+        val status = when (dto.status?.uppercase()) {
+            "RELEASING" -> SAnime.ONGOING
+            "FINISHED" -> SAnime.COMPLETED
+            "CANCELLED" -> SAnime.CANCELLED
+            else -> SAnime.UNKNOWN
+        }
+
+        val studio = dto.studios?.edges
+            ?.firstOrNull { it.isMain }
+            ?.node?.name?.ifEmpty { null } ?: ""
+
+        return SAnime.create().apply {
+            title.takeIf(String::isNotBlank)?.let { this.title = it }
+            thumbnail_url = coverUrl
+            this.description = truncatedDescription
+            genre = genres
+            this.status = status
+            author = studio
+        }
+    }
+
+    private fun parseAnimeDetailsFromJsonObj(media: JSONObject): SAnime {
+        val titleObj = media.optJSONObject("title") ?: JSONObject()
         val titleStyle = preferences.preferredTitleStyle
         val title = resolveTitle(titleObj, titleStyle)
 
@@ -270,15 +866,9 @@ class Miruro :
         val bannerImage = extractBannerImage(media.opt("bannerImage"))
         val coverUrl = thumbnail.ifEmpty { bannerImage }
 
-        val description = if (preferences.stripHtml) {
-            media.optString("description", "")
-                .replace("<br\\s*/?>".toRegex(RegexOption.IGNORE_CASE), "\n")
-                .replace("</p>".toRegex(RegexOption.IGNORE_CASE), "\n")
-                .replace("<[^>]+>".toRegex(), "")
-                .trim()
-        } else {
-            media.optString("description", "")
-        }
+        val rawDescription = media.optString("description", "")
+        val description = if (preferences.stripHtml) stripHtml(rawDescription) else rawDescription
+        val truncatedDescription = truncateDescription(description)
 
         val genresArray = media.optJSONArray("genres")
         val genres = if (genresArray != null) {
@@ -291,17 +881,27 @@ class Miruro :
         val status = when (statusStr.uppercase()) {
             "RELEASING" -> SAnime.ONGOING
             "FINISHED" -> SAnime.COMPLETED
-            "NOT_YET_RELEASED" -> SAnime.UNKNOWN
             "CANCELLED" -> SAnime.CANCELLED
             else -> SAnime.UNKNOWN
         }
 
         val studio = extractMainStudio(media.opt("studios"))
 
+        val anilistId = media.optInt("id", 0)
+        val malId = media.optInt("idMal", 0).takeIf { it > 0 }
+        if (anilistId > 0) {
+            val existing = getMeta(anilistId)
+            if (existing != null && malId != null) {
+                existing.malId = malId
+            } else if (existing == null) {
+                getOrCreateMeta(anilistId, malId)
+            }
+        }
+
         return SAnime.create().apply {
             title.takeIf(String::isNotBlank)?.let { this.title = it }
             thumbnail_url = coverUrl
-            this.description = description
+            this.description = truncatedDescription
             genre = genres
             this.status = status
             author = studio
@@ -311,8 +911,8 @@ class Miruro :
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request {
-        val anilistId = anime.url.toInt()
-        currentAnilistId = anilistId
+        val anilistId = anime.url.toIntOrNull()
+            ?: throw IOException("Invalid anime URL: ${anime.url}")
         val query = buildPipeQuery(
             "anilistId" to anilistId,
         )
@@ -320,14 +920,19 @@ class Miruro :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
+        val jsonObj = JSONObject(validateResponse(response).use { extractor.decryptResponse(it) })
 
-        val providers = jsonObj.optJSONObject("providers") ?: return emptyList()
+        val providers = jsonObj.optJSONObject("providers") ?: run {
+            Log.w(TAG, "episodeListParse: no 'providers' object in response")
+            return emptyList()
+        }
         val preferredProvider = preferences.preferredProvider
         val preferredSubType = preferences.preferredSubType
         val mergeAcrossProviders = preferences.mergeAcrossProviders
+        val showProvider = preferences.showProviderInScanlator
 
-        val anilistId = currentAnilistId ?: extractAnilistIdFromPipeRequest(response.request.url.toString())
+        val anilistId = extractAnilistIdFromPipeRequest(response.request.url.toString())
+        Log.d(TAG, "episodeListParse: anilistId=$anilistId, preferred=$preferredProvider, subType=$preferredSubType, merge=$mergeAcrossProviders")
 
         val fillerEpisodes = if (preferences.markFillers || preferences.hideFillers) {
             resolveFillerEpisodes(anilistId, providers, preferredProvider)
@@ -335,84 +940,122 @@ class Miruro :
             emptySet()
         }
 
-        val episodes = mutableListOf<SEpisode>()
-
-        val providerData = providers.optJSONObject(preferredProvider)
-        if (providerData != null) {
-            episodes.addAll(parseEpisodesFromProvider(providerData, preferredProvider, preferredSubType, fillerEpisodes))
+        val episodeTitles = if (preferences.preferredEpisodeTitles != "provider") {
+            resolveEpisodeTitles(anilistId, providers, preferredProvider)
+        } else {
+            emptyMap()
         }
 
-        if (mergeAcrossProviders && episodes.isNotEmpty()) {
-            val preferredNumbers = episodes.map { it.episode_number }.toSet()
-            for (providerKey in providers.keys()) {
-                if (providerKey == preferredProvider || providerKey == "hop") continue
-                val otherProviderData = providers.getJSONObject(providerKey)
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
-                for (ep in otherEpisodes) {
-                    if (ep.episode_number !in preferredNumbers) {
-                        episodes.add(ep)
+        val availableProviders = providers.keys().asSequence().toList()
+        Log.d(TAG, "episodeListParse: available providers from response: $availableProviders")
+        val providerOrder = getProviderOrder()
+        val primaryProvider = if (providers.optJSONObject(preferredProvider)?.optJSONObject("episodes") != null) {
+            preferredProvider
+        } else {
+            providerOrder.firstOrNull { it in availableProviders && providers.optJSONObject(it)?.optJSONObject("episodes") != null }
+                ?: availableProviders.firstOrNull { key -> providers.optJSONObject(key)?.optJSONObject("episodes") != null }
+                ?: run {
+                    Log.w(TAG, "episodeListParse: no provider has episodes, returning empty list")
+                    return emptyList()
+                }
+        }
+
+        if (primaryProvider != preferredProvider) {
+            Log.d(TAG, "episodeListParse: preferred '$preferredProvider' has no episodes, fell back to '$primaryProvider'")
+        }
+
+        val crossProviderMap = mutableMapOf<Float, MutableMap<String, MutableMap<String, String>>>()
+        val episodeMetaMap = mutableMapOf<Float, Pair<Double, String>>()
+        val providerSubTypesMap = mutableMapOf<String, List<String>>()
+
+        for (providerKey in availableProviders) {
+            val providerData = providers.optJSONObject(providerKey) ?: continue
+            val episodesObj = providerData.optJSONObject("episodes") ?: continue
+            val subTypes = episodesObj.keys().asSequence().toList()
+            providerSubTypesMap[providerKey] = subTypes
+
+            for (subType in subTypes) {
+                val typeEpisodes = episodesObj.optJSONArray(subType) ?: continue
+                for (i in 0 until typeEpisodes.length()) {
+                    val epJson = typeEpisodes.getJSONObject(i)
+                    val number = epJson.optDouble("number", 0.0).toFloat()
+                    val id = epJson.optString("id", "")
+                    val title = epJson.optString("title", "")
+
+                    val providerEpIds = crossProviderMap.getOrPut(number) { mutableMapOf() }
+                        .getOrPut(providerKey) { mutableMapOf<String, String>() }
+                    providerEpIds[subType] = id
+
+                    if (number !in episodeMetaMap) {
+                        episodeMetaMap[number] = epJson.optDouble("number", 0.0) to title
                     }
                 }
             }
-        } else if (episodes.isEmpty()) {
-            for (providerKey in providers.keys()) {
-                if (providerKey == preferredProvider || providerKey == "hop") continue
-                val otherProviderData = providers.getJSONObject(providerKey)
-                val otherEpisodes = parseEpisodesFromProvider(otherProviderData, providerKey, preferredSubType, fillerEpisodes)
-                if (otherEpisodes.isNotEmpty()) {
-                    episodes.addAll(otherEpisodes)
-                    break
-                }
+        }
+
+        val episodes = mutableListOf<SEpisode>()
+        val seenNumbers = mutableSetOf<Float>()
+
+        val providersToProcess = mutableListOf<String>()
+        providersToProcess.add(primaryProvider)
+        for (providerKey in providerOrder) {
+            if (providerKey != primaryProvider && providerKey in availableProviders) {
+                providersToProcess.add(providerKey)
+            }
+        }
+        for (providerKey in availableProviders) {
+            if (providerKey != primaryProvider && providerKey !in providersToProcess) {
+                providersToProcess.add(providerKey)
             }
         }
 
-        val result = episodes.reversed()
-        return if (preferences.hideFillers) {
+        for (providerKey in providersToProcess) {
+            if (providerKey != primaryProvider) {
+                if (mergeAcrossProviders && episodes.isEmpty()) continue
+                if (!mergeAcrossProviders && episodes.isNotEmpty()) break
+            }
+
+            crossProviderMap.entries
+                .filter { it.value.containsKey(providerKey) }
+                .sortedBy { it.key }
+                .forEach { (number, providerEpMap) ->
+                    if (seenNumbers.add(number)) {
+                        val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
+                        val resolvedTitle = episodeTitles[number] ?: title
+                        val fallbackProviders = providerEpMap.filterKeys { it != providerKey }
+                        episodes.add(
+                            buildMergedEpisode(
+                                rawNumber, resolvedTitle, providerKey, preferredSubType,
+                                providerEpMap[providerKey] ?: emptyMap(),
+                                providerSubTypesMap[providerKey] ?: emptyList(),
+                                fillerEpisodes, showProvider,
+                                fallbackProviders, providerSubTypesMap, anilistId,
+                            ),
+                        )
+                    }
+                }
+        }
+
+        val airingSchedule = if (anilistId != null && anilistId > 0) fetchAiringSchedule(anilistId) else emptyMap()
+
+        val episodeZero = episodes.filter { it.episode_number.toInt() == 0 }
+        val episodeRest = episodes.filter { it.episode_number.toInt() != 0 }
+
+        val result = if (preferences.episodeSortOrder == "ascending") {
+            episodeZero + episodeRest
+        } else {
+            episodeZero + episodeRest.reversed()
+        }
+        for (ep in result) {
+            airingSchedule[ep.episode_number]?.let { ep.date_upload = it }
+        }
+        val finalResult = if (preferences.hideFillers) {
             result.filter { !it.scanlator.orEmpty().contains("Filler") }
         } else {
             result
         }
-    }
-
-    private fun parseEpisodesFromProvider(
-        providerData: JSONObject,
-        provider: String,
-        preferredSubType: String,
-        fillerEpisodes: Set<Float> = emptySet(),
-    ): List<SEpisode> {
-        val episodesObj = providerData.optJSONObject("episodes") ?: return emptyList()
-
-        val subTypes = when (provider) {
-            "kiwi" -> listOf("sub", "dub")
-            "bee" -> listOf("ssub", "sub", "dub")
-            else -> listOf("sub", "dub")
-        }
-
-        val episodeMap = mutableMapOf<Float, MutableMap<String, String>>()
-        val episodeMeta = mutableMapOf<Float, Pair<Double, String>>()
-
-        for (subType in subTypes) {
-            val typeEpisodes = episodesObj.optJSONArray(subType) ?: continue
-            for (i in 0 until typeEpisodes.length()) {
-                val epJson = typeEpisodes.getJSONObject(i)
-                val number = epJson.optDouble("number", 0.0).toFloat()
-                val id = epJson.optString("id", "")
-                val title = epJson.optString("title", "")
-
-                episodeMap.getOrPut(number) { mutableMapOf() }[subType] = id
-                if (number !in episodeMeta) {
-                    episodeMeta[number] = epJson.optDouble("number", 0.0) to title
-                }
-            }
-        }
-
-        if (episodeMap.isEmpty()) return emptyList()
-
-        return episodeMap.keys.mapNotNull { number ->
-            val subTypeIds = episodeMap[number] ?: return@mapNotNull null
-            val (rawNumber, title) = episodeMeta[number] ?: return@mapNotNull null
-            buildMergedEpisode(rawNumber, title, provider, preferredSubType, subTypeIds, subTypes, fillerEpisodes)
-        }
+        Log.d(TAG, "episodeListParse: ${finalResult.size} episodes (from ${episodes.size} before filter), sort=${preferences.episodeSortOrder}, hideFillers=${preferences.hideFillers}")
+        return finalResult
     }
 
     private fun buildMergedEpisode(
@@ -423,6 +1066,10 @@ class Miruro :
         subTypeIds: Map<String, String>,
         allSubTypes: List<String>,
         fillerEpisodes: Set<Float>,
+        showProvider: Boolean = true,
+        fallbackProviders: Map<String, Map<String, String>> = emptyMap(),
+        providerSubTypesMap: Map<String, List<String>> = emptyMap(),
+        anilistId: Int? = null,
     ): SEpisode {
         val defaultSubType = subTypeIds.keys.firstOrNull { it == preferredSubType }
             ?: allSubTypes.firstOrNull { it in subTypeIds }
@@ -434,160 +1081,224 @@ class Miruro :
             put("provider", provider)
             put("defaultSubType", defaultSubType)
             put("subTypes", JSONObject(subTypeIds))
+            if (fallbackProviders.isNotEmpty()) {
+                val fallbackObj = JSONObject()
+                for ((fbProvider, fbSubTypes) in fallbackProviders) {
+                    fallbackObj.put(fbProvider, JSONObject(fbSubTypes))
+                }
+                put("fallbackProviders", fallbackObj)
+            }
+            val fbProviderSubTypes = JSONObject()
+            for ((fbProvider, fbSubTypeList) in providerSubTypesMap) {
+                if (fbProvider == provider || fbProvider !in fallbackProviders) continue
+                val arr = JSONArray()
+                fbSubTypeList.forEach { arr.put(it) }
+                fbProviderSubTypes.put(fbProvider, arr)
+            }
+            if (fbProviderSubTypes.length() > 0) {
+                put("fallbackProviderSubTypes", fbProviderSubTypes)
+            }
+            anilistId?.let { put("anilistId", it) }
         }
 
-        val audioLabels = subTypeIds.keys.map { subType ->
-            when (subType) {
-                "sub" -> "Sub"
-                "dub" -> "Dub"
-                "ssub" -> "Soft Sub"
-                else -> subType.replaceFirstChar { it.uppercase() }
-            }
-        }.sortedWith(compareBy { mapOf("Sub" to 0, "Dub" to 1)[it] ?: 2 })
-        val scanlatorLabel = audioLabels.joinToString(" & ")
+        val allAvailableSubTypes = mutableSetOf<String>()
+        allAvailableSubTypes.addAll(subTypeIds.keys)
+        for ((_, fbSubTypes) in fallbackProviders) {
+            allAvailableSubTypes.addAll(fbSubTypes.keys)
+        }
+
+        val scanlatorLabel = allAvailableSubTypes
+            .filter { it in SCANLATOR_SUB_TYPES }
+            .sortedBy { SUB_TYPE_DISPLAY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }
+            .joinToString(", ") { formatSubTypeLabel(it) }
 
         val isFiller = fillerEpisodes.contains(number.toFloat())
+
+        val providerLabel = buildString {
+            append(providerDisplayName(provider))
+            if (fallbackProviders.isNotEmpty()) {
+                fallbackProviders.keys.forEach { fbKey ->
+                    append(", ")
+                    append(providerDisplayName(fbKey))
+                }
+            }
+        }
 
         return SEpisode.create().apply {
             episode_number = number.toFloat()
             name = if (title.isNotEmpty()) "Episode ${number.toInt()}: $title" else "Episode ${number.toInt()}"
             setUrlWithoutDomain(episodeIdObj.toString())
-            scanlator = scanlatorLabel + if (isFiller) " • Filler" else ""
+            scanlator = buildString {
+                if (showProvider) append("$providerLabel \u2022 ")
+                append(scanlatorLabel)
+                if (isFiller) append(" \u2022 Filler")
+            }
         }
     }
 
     // ============================ Video Links ============================
 
-    @Volatile
-    private var currentEpisodeData: JSONObject? = null
-
-    @Volatile
-    private var currentAnilistId: Int? = null
-
-    private data class AnimeMeta(
+    private class AnimeMeta(
         val anilistId: Int,
         var malId: Int? = null,
-        var fillerEpisodes: Set<Float>? = null,
+        @Volatile var fillerEpisodes: Set<Float>? = null,
+        @Volatile var airingSchedule: Map<Float, Long>? = null,
+        @Volatile var episodeTitles: Map<Float, String>? = null,
     )
 
-    @Volatile
-    private var cachedAnimeMeta: AnimeMeta? = null
+    private val animeMetaCache = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<Int, AnimeMeta>(8, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnimeMeta>?): Boolean = size > 16
+        },
+    )
+
+    private fun getOrCreateMeta(anilistId: Int, malId: Int? = null): AnimeMeta = synchronized(animeMetaCache) {
+        animeMetaCache.getOrPut(anilistId) { AnimeMeta(anilistId, malId) }
+    }
+
+    private fun getMeta(anilistId: Int): AnimeMeta? = synchronized(animeMetaCache) {
+        animeMetaCache[anilistId]
+    }
 
     override fun videoListRequest(episode: SEpisode): Request {
         val episodeData = JSONObject(episode.url)
-        currentEpisodeData = episodeData
         val query = buildPipeQuery(
             "episodeId" to episodeData.getString("episodeId"),
             "provider" to episodeData.getString("provider"),
             "category" to episodeData.getString("defaultSubType"),
+            "_ep" to episode.url,
         )
         return buildPipeRequest("sources", "GET", query = query)
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val episodeData = currentEpisodeData
+        val episodeData = extractEpisodeDataFromPipeRequest(response.request.url.toString())
         val provider = episodeData?.optString("provider", "") ?: ""
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
-
-        val videos = mutableListOf<Video>()
-        videos.addAll(parseStreamsFromResponse(response, defaultSubType))
-
-        if (!preferences.includeAllSubTypes || subTypesObj == null || subTypesObj.length() <= 1) return videos
-
-        val requests = mutableListOf<Pair<String, Request>>()
-        for (subTypeKey in subTypesObj.keys()) {
-            if (subTypeKey == defaultSubType) continue
-            val episodeId = subTypesObj.optString(subTypeKey, "")
-            if (episodeId.isEmpty()) continue
-
-            val query = buildPipeQuery(
-                "episodeId" to episodeId,
-                "provider" to provider,
-                "category" to subTypeKey,
-            )
-            requests.add(subTypeKey to buildPipeRequest("sources", "GET", query = query))
-        }
-
-        videos.addAll(
-            requests.parallelCatchingFlatMapBlocking { (subTypeKey, request) ->
-                client.newCall(request).awaitSuccess().use { resp ->
-                    parseStreamsFromResponse(resp, subTypeKey)
-                }
-            },
-        )
-
-        return videos
-    }
-
-    private fun parseStreamsFromResponse(response: Response, subType: String?): List<Video> {
-        val jsonObj = JSONObject(response.use(::decryptResponse))
-        val streamsArray = jsonObj.optJSONArray("streams") ?: return emptyList()
-
-        val subTypeLabel = when (subType) {
-            "sub" -> "Sub"
-            "dub" -> "Dub"
-            "ssub" -> "Soft Sub"
-            null -> null
-            else -> subType.replaceFirstChar { it.uppercase() }
-        }
+        val fallbackProvidersObj = episodeData?.optJSONObject("fallbackProviders")
+        Log.d(TAG, "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}, hasFallbacks=${fallbackProvidersObj != null}")
 
         val videos = mutableListOf<Video>()
 
-        for (i in 0 until streamsArray.length()) {
-            val stream = streamsArray.getJSONObject(i)
-            val type = stream.optString("type", "")
-            if (type != "hls") continue
+        val primaryVideos = extractor.parseStreamsFromResponse(response, defaultSubType, provider)
+        Log.d(TAG, "videoListParse: ${primaryVideos.size} primary streams (subType=$defaultSubType, provider=$provider)")
+        videos.addAll(primaryVideos)
 
-            val url = stream.optString("url", "")
-            if (url.isEmpty()) continue
-
-            val qualityStr = stream.optString("quality", "")
-            val quality = qualityStr.toIntOrNull() ?: 0
-            val resolution = stream.optJSONObject("resolution")
-            val width = resolution?.optInt("width", 0) ?: 0
-            val height = resolution?.optInt("height", 0) ?: 0
-            val codec = stream.optString("codec", "")
-            val audio = stream.optString("audio", "")
-            val fansub = stream.optString("fansub", "")
-            val referer = stream.optString("referer", "https://kwik.cx/")
-
-            val qualityLabel = buildString {
-                append("${quality}p")
-                if (subTypeLabel != null) append(" $subTypeLabel")
-                if (width > 0 && height > 0) append(" - ${width}x$height")
-                if (codec.isNotEmpty()) append(" $codec")
-                if (audio.isNotEmpty()) append(" $audio")
-                if (fansub.isNotEmpty()) append(" $fansub")
+        if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
+            val requests = mutableListOf<Pair<String, String>>()
+            for (subTypeKey in subTypesObj.keys()) {
+                if (subTypeKey == defaultSubType) continue
+                val subEpId = subTypesObj.optString(subTypeKey, "")
+                if (subEpId.isEmpty()) continue
+                requests.add(subTypeKey to subEpId)
             }
+            Log.d(TAG, "videoListParse: fetching ${requests.size} additional sub-types: ${requests.map { it.first }}")
 
-            val videoHeaders = headers.newBuilder().set("Referer", referer).build()
-            videos.add(Video(url, qualityLabel, url, videoHeaders))
+            videos.addAll(
+                requests.parallelCatchingFlatMapBlocking { (subTypeKey, subEpId) ->
+                    val query = buildPipeQuery(
+                        "episodeId" to subEpId,
+                        "provider" to provider,
+                        "category" to subTypeKey,
+                    )
+                    client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
+                        extractor.parseStreamsFromResponse(resp, subTypeKey, provider)
+                    }
+                },
+            )
         }
 
+        if (videos.isEmpty() && fallbackProvidersObj != null && fallbackProvidersObj.length() > 0) {
+            Log.d(TAG, "videoListParse: primary provider '$provider' returned no videos, trying ${fallbackProvidersObj.length()} fallback providers")
+            val fallbackResults = fallbackProvidersObj.keys().asSequence().toList().parallelCatchingFlatMapBlocking { fbProvider ->
+                val fbSubTypes = fallbackProvidersObj.optJSONObject(fbProvider) ?: return@parallelCatchingFlatMapBlocking emptyList()
+                val fbRequests = mutableListOf<Pair<String, String>>()
+                for (subTypeKey in fbSubTypes.keys()) {
+                    val fbEpId = fbSubTypes.optString(subTypeKey, "")
+                    if (fbEpId.isEmpty()) continue
+                    fbRequests.add(subTypeKey to fbEpId)
+                }
+                Log.d(TAG, "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types")
+                fbRequests.flatMap { (subTypeKey, fbEpId) ->
+                    val query = buildPipeQuery(
+                        "episodeId" to fbEpId,
+                        "provider" to fbProvider,
+                        "category" to subTypeKey,
+                    )
+                    try {
+                        client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
+                            extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
+                        emptyList()
+                    }
+                }
+            }
+            if (fallbackResults.isNotEmpty()) {
+                Log.d(TAG, "videoListParse: fallback providers returned ${fallbackResults.size} videos")
+                videos.addAll(fallbackResults)
+            } else {
+                Log.w(TAG, "videoListParse: all fallback providers returned no videos")
+            }
+        }
+
+        Log.d(TAG, "videoListParse: returning ${videos.size} total videos")
         return videos
     }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.preferredQuality
-        val subTypeLabel = when (preferences.preferredSubType) {
-            "sub" -> "Sub"
-            "dub" -> "Dub"
-            "ssub" -> "Soft Sub"
-            else -> preferences.preferredSubType.replaceFirstChar { it.uppercase() }
+        val subTypeLabel = formatSubTypeLabel(preferences.preferredSubType)
+        val providerName = providerDisplayName(preferences.preferredProvider)
+        val qualityInt = quality.toIntOrNull() ?: 0
+        val streamTypePref = preferences.preferredStreamType
+
+        val filtered: List<Video> = when (streamTypePref) {
+            "hls" -> filter { it.quality.contains("HLS") }
+            "embed" -> filter { it.quality.contains("EMBED") }
+            else -> this
         }
 
-        return sortedWith(
-            compareBy(
-                { it.quality.contains(subTypeLabel) },
-                { it.quality.contains(quality) },
-            ),
-        ).reversed()
+        if (filtered.isEmpty()) {
+            Log.d(TAG, "video.sort: streamType='$streamTypePref' filtered out all $size videos, returning unsorted")
+            return this
+        }
+
+        val sorted = filtered.sortedWith(
+            compareByDescending<Video> { it.quality.contains("HLS") }
+                .thenByDescending { it.quality.contains(providerName) }
+                .thenByDescending { it.quality.contains(subTypeLabel) }
+                .thenByDescending {
+                    val q = QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    when {
+                        qualityInt == 0 -> q
+                        q == qualityInt -> 100000
+                        q > 0 -> q
+                        it.quality.contains(quality) -> 99999
+                        else -> 0
+                    }
+                },
+        )
+        Log.d(TAG, "video.sort: $size → ${filtered.size} after streamType='$streamTypePref' filter → ${sorted.size} sorted (quality=$quality, provider=$providerName, subType=$subTypeLabel)")
+        return sorted
     }
 
     // ============================== URL ==============================
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/watch/${anime.url}"
+
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        val episodeData = try {
+            JSONObject(episode.url)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse episode URL data: ${e.message}")
+            return baseUrl
+        }
+        val anilistId = episodeData.optInt("anilistId", 0)
+        return if (anilistId > 0) "$baseUrl/watch/$anilistId" else baseUrl
+    }
 
     // ============================== Filters ==============================
 
@@ -596,25 +1307,64 @@ class Miruro :
     // ============================== Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
+        Log.d(TAG, "setupPreferenceScreen: fetchState=$fetchState, cacheProviders=${configCache.values}")
+        getConfigSync()
+        getMirrorsSync()
+
+        val mirrorPref = screen.getListPreference(
             key = PREF_MIRROR_KEY,
             title = PREF_MIRROR_TITLE,
-            entries = MIRROR_ENTRIES,
-            entryValues = MIRROR_VALUES,
+            entries = mirrorCache.entries,
+            entryValues = mirrorCache.values,
             default = PREF_MIRROR_DEFAULT,
             summary = "%s",
-        ) {
-            baseUrl = it
-        }
+            onChange = { pref, value ->
+                Log.d(TAG, "Mirror changed: $baseUrl → $value, invalidating config cache")
+                baseUrl = value
+                configCache = ProviderConfigCache(
+                    displayNames = KNOWN_DISPLAY_NAMES,
+                    entries = DEFAULT_PROVIDER_ENTRIES,
+                    values = DEFAULT_PROVIDER_VALUES,
+                    config = null,
+                )
+                fetchState = ConfigFetchState.NOT_FETCHED
+                fetchAttempts = 0
+                preferences.edit().remove(PREF_CACHED_CONFIG_KEY).apply()
+                launchConfigFetch(forceRefresh = true)
+                pref.summary = value
+                true
+            },
+        )
+        screen.addPreference(mirrorPref)
 
-        screen.addListPreference(
+        launchMirrorFetch(onSuccess = {
+            Log.d(TAG, "setupPreferenceScreen: async mirror fetch completed, updating mirror pref (${mirrorCache.entries.size} entries)")
+            mirrorPref.entries = mirrorCache.entries.toTypedArray()
+            mirrorPref.entryValues = mirrorCache.values.toTypedArray()
+            mirrorPref.summary = preferences.preferredMirror
+        })
+
+        val providerPref = screen.getListPreference(
             key = PREF_PROVIDER_KEY,
             title = PREF_PROVIDER_TITLE,
-            entries = PREF_PROVIDER_ENTRIES,
-            entryValues = PREF_PROVIDER_VALUES,
+            entries = configCache.entries,
+            entryValues = configCache.values,
             default = PREF_PROVIDER_DEFAULT,
-            summary = "%s",
+            summary = providerDisplayName(preferences.preferredProvider),
+            onChange = { pref, value ->
+                pref.summary = providerDisplayName(value)
+                true
+            },
         )
+        screen.addPreference(providerPref)
+
+        launchConfigFetch(onSuccess = {
+            Log.d(TAG, "setupPreferenceScreen: async fetch completed, updating provider pref (${configCache.entries.size} entries)")
+            providerPref.entries = configCache.entries.toTypedArray()
+            providerPref.entryValues = configCache.values.toTypedArray()
+            val currentProvider = preferences.preferredProvider
+            providerPref.summary = providerDisplayName(currentProvider)
+        })
 
         screen.addListPreference(
             key = PREF_SUB_TYPE_KEY,
@@ -622,6 +1372,15 @@ class Miruro :
             entries = PREF_SUB_TYPE_ENTRIES,
             entryValues = PREF_SUB_TYPE_VALUES,
             default = PREF_SUB_TYPE_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_STREAM_TYPE_KEY,
+            title = PREF_STREAM_TYPE_TITLE,
+            entries = PREF_STREAM_TYPE_ENTRIES,
+            entryValues = PREF_STREAM_TYPE_VALUES,
+            default = PREF_STREAM_TYPE_DEFAULT,
             summary = "%s",
         )
 
@@ -683,17 +1442,70 @@ class Miruro :
             default = PREF_MERGE_PROVIDERS_DEFAULT,
             summary = "Adds episodes from other providers that are missing from the preferred provider.",
         )
+
+        screen.addSwitchPreference(
+            key = PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY,
+            title = PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE,
+            default = PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT,
+            summary = "Shows the provider name in the episode scanlator field.",
+        )
+
+        screen.addListPreference(
+            key = PREF_EPISODE_TITLES_KEY,
+            title = PREF_EPISODE_TITLES_TITLE,
+            entries = PREF_EPISODE_TITLES_ENTRIES,
+            entryValues = PREF_EPISODE_TITLES_VALUES,
+            default = PREF_EPISODE_TITLES_DEFAULT,
+            summary = "Uses MAL episode titles instead of low-quality provider titles.",
+        )
+
+        screen.addListPreference(
+            key = PREF_EPISODE_SORT_KEY,
+            title = PREF_EPISODE_SORT_TITLE,
+            entries = PREF_EPISODE_SORT_ENTRIES,
+            entryValues = PREF_EPISODE_SORT_VALUES,
+            default = PREF_EPISODE_SORT_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_DESCRIPTION_TRUNCATE_KEY,
+            title = PREF_DESCRIPTION_TRUNCATE_TITLE,
+            entries = PREF_DESCRIPTION_TRUNCATE_ENTRIES,
+            entryValues = PREF_DESCRIPTION_TRUNCATE_VALUES,
+            default = PREF_DESCRIPTION_TRUNCATE_DEFAULT,
+            summary = "%s",
+        )
     }
 
     // ============================== Helpers ==============================
 
+    private fun truncateDescription(description: String): String {
+        val limit = preferences.descriptionTruncation.toIntOrNull() ?: 0
+        if (limit <= 0 || description.length <= limit) return description
+        val cutIndex = description.lastIndexOf(' ', limit)
+        return if (cutIndex > limit * 2 / 3) {
+            description.substring(0, cutIndex) + "\u2026"
+        } else {
+            description.substring(0, limit) + "\u2026"
+        }
+    }
+
+    private fun formatSubTypeLabel(subType: String): String = when (subType) {
+        "sub" -> "Sub"
+        "dub" -> "Dub"
+        "ssub" -> "Soft Sub"
+        "h-sub" -> "Hard Sub"
+        else -> subType.replaceFirstChar { it.uppercase() }
+    }
     // ============================== Filler ===============================
 
     private fun resolveFillerEpisodes(anilistId: Int?, providers: JSONObject, preferredProvider: String): Set<Float> {
         if (anilistId == null) return emptySet()
 
-        val meta = cachedAnimeMeta
+        val meta = getMeta(anilistId)
         if (meta != null && meta.anilistId == anilistId && meta.fillerEpisodes != null) {
+            Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, cached ${meta.fillerEpisodes!!.size} filler episodes")
             return meta.fillerEpisodes!!
         }
 
@@ -704,42 +1516,94 @@ class Miruro :
         if (existing != null) {
             existing.malId = malId
         } else if (malId != null) {
-            cachedAnimeMeta = AnimeMeta(anilistId, malId)
+            getOrCreateMeta(anilistId, malId)
         }
 
         if (malId == null) {
+            Log.w(TAG, "resolveFillerEpisodes: anilistId=$anilistId, could not resolve MAL ID")
             existing?.let { it.fillerEpisodes = emptySet() }
             return emptySet()
         }
 
+        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId → malId=$malId")
         val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
-        val fillers = fetchFillerEpisodes(malId, maxEp)
+        val result = fetchJikanEpisodeData(malId, maxEp)
 
-        cachedAnimeMeta?.takeIf { it.anilistId == anilistId }?.let { it.fillerEpisodes = fillers }
-        return fillers
+        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, found ${result.fillerEpisodes.size} filler episodes (maxEp=$maxEp)")
+        val metaToUpdate = getMeta(anilistId)
+        metaToUpdate?.let {
+            it.fillerEpisodes = result.fillerEpisodes
+            if (result.episodeTitles.isNotEmpty()) {
+                it.episodeTitles = result.episodeTitles
+            }
+        }
+        return result.fillerEpisodes
+    }
+
+    private fun resolveEpisodeTitles(anilistId: Int?, providers: JSONObject, preferredProvider: String): Map<Float, String> {
+        if (anilistId == null) return emptyMap()
+
+        val meta = getMeta(anilistId)
+        if (meta != null && meta.anilistId == anilistId && meta.episodeTitles != null) {
+            Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, cached ${meta.episodeTitles!!.size} titles")
+            return meta.episodeTitles!!
+        }
+
+        val existing = meta?.takeIf { it.anilistId == anilistId }
+        val malId = existing?.malId
+            ?: fetchMalId(anilistId)
+
+        if (existing != null) {
+            existing.malId = malId
+        } else if (malId != null) {
+            getOrCreateMeta(anilistId, malId)
+        }
+
+        if (malId == null) {
+            Log.w(TAG, "resolveEpisodeTitles: anilistId=$anilistId, could not resolve MAL ID")
+            existing?.let { it.episodeTitles = emptyMap() }
+            return emptyMap()
+        }
+
+        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId → malId=$malId")
+        val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
+        val result = fetchJikanEpisodeData(malId, maxEp)
+
+        val metaToUpdate = getMeta(anilistId)
+        metaToUpdate?.let {
+            it.episodeTitles = result.episodeTitles
+            if (it.fillerEpisodes == null) {
+                it.fillerEpisodes = result.fillerEpisodes
+            }
+        }
+        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, resolved ${result.episodeTitles.size} titles from Jikan")
+        return result.episodeTitles
     }
 
     private fun findMaxEpisodeNumber(providers: JSONObject, preferredProvider: String): Float {
-        val providerData = providers.optJSONObject(preferredProvider) ?: return 0f
-        val episodesObj = providerData.optJSONObject("episodes") ?: return 0f
+        val providerKeys = listOf(preferredProvider) + providers.keys().asSequence().toList().filter { it != preferredProvider }
         var max = 0f
-        for (key in episodesObj.keys()) {
-            val arr = episodesObj.optJSONArray(key) ?: continue
-            for (i in 0 until arr.length()) {
-                val num = arr.optJSONObject(i)?.optDouble("number", 0.0)?.toFloat() ?: continue
-                if (num > max) max = num
+        for (providerKey in providerKeys) {
+            val episodesObj = providers.optJSONObject(providerKey)?.optJSONObject("episodes") ?: continue
+            for (key in episodesObj.keys()) {
+                val arr = episodesObj.optJSONArray(key) ?: continue
+                for (i in 0 until arr.length()) {
+                    val num = arr.optJSONObject(i)?.optDouble("number", 0.0)?.toFloat() ?: continue
+                    if (num > max) max = num
+                }
             }
+            if (max > 0f) break
         }
         return max
     }
 
     private fun anilistMalIdRequest(anilistId: Int): Request {
-        val query = $$"""
-        query media($id: Int, $type: MediaType) {
-            Media(id: $id, type: $type) {
-                idMal
+        val query = """
+            query media(${'$'}id: Int, ${'$'}type: MediaType) {
+                Media(id: ${'$'}id, type: ${'$'}type) {
+                    idMal
+                }
             }
-        }
         """.trimIndent()
         val variables = buildJsonObject {
             put("id", anilistId)
@@ -753,15 +1617,103 @@ class Miruro :
     }
 
     private fun fetchMalId(anilistId: Int): Int? = try {
-        client.newCall(anilistMalIdRequest(anilistId)).execute()
-            .parseAs<AnilistMalIdResponse>().data.media.idMal
+        anilistClient.newCall(anilistMalIdRequest(anilistId)).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Anilist MAL ID request failed: ${response.code}")
+                return null
+            }
+            response.parseAs<AnilistMalIdResponse>().data.media.idMal
+        }
     } catch (e: Exception) {
-        Log.e("Miruro", "Failed to resolve MAL ID: ${e.message}")
+        Log.e(TAG, "Failed to resolve MAL ID: ${e.message}")
         null
     }
 
-    private fun fetchFillerEpisodes(malId: Int, maxEpisode: Float = Float.MAX_VALUE): Set<Float> {
+    private fun anilistAiringScheduleRequest(anilistId: Int): Request {
+        val query = """
+            query media(${'$'}id: Int) {
+                Media(id: ${'$'}id, type: ANIME) {
+                    nextAiringEpisode { episode airingAt }
+                    airingSchedule(notYetAired: false) {
+                        nodes { episode airingAt }
+                    }
+                }
+            }
+        """.trimIndent()
+        val variables = buildJsonObject {
+            put("id", anilistId)
+        }
+        val body = FormBody.Builder()
+            .add("query", query)
+            .add("variables", kotlinx.serialization.json.Json.encodeToString(variables))
+            .build()
+        return POST(ANILIST_GRAPHQL_URL, body = body)
+    }
+
+    private fun fetchAiringSchedule(anilistId: Int): Map<Float, Long> {
+        val existing = anilistId.takeIf { it > 0 }?.let { getMeta(it) }?.takeIf { it.anilistId == anilistId }
+        if (existing?.airingSchedule != null) {
+            Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, cached ${existing.airingSchedule!!.size} entries")
+            return existing.airingSchedule!!
+        }
+
+        Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, fetching from Anilist")
+
+        val result = try {
+            anilistClient.newCall(anilistAiringScheduleRequest(anilistId)).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Anilist airing schedule request failed: ${response.code}")
+                    return emptyMap()
+                }
+                response.body.string()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch airing schedule: ${e.message}")
+            return emptyMap()
+        }
+
+        val jsonObj = try {
+            JSONObject(result)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse airing schedule JSON: ${e.message}")
+            return emptyMap()
+        }
+        val mediaObj = jsonObj.optJSONObject("data")?.optJSONObject("Media") ?: return emptyMap()
+
+        val schedule = mutableMapOf<Float, Long>()
+
+        mediaObj.optJSONObject("nextAiringEpisode")?.let { next ->
+            val ep = next.optInt("episode", -1)
+            val airingAt = next.optLong("airingAt", 0)
+            if (ep > 0 && airingAt > 0) {
+                schedule[ep.toFloat()] = airingAt * 1000L
+            }
+        }
+
+        val nodes = mediaObj.optJSONObject("airingSchedule")?.optJSONArray("nodes") ?: return schedule
+        for (i in 0 until nodes.length()) {
+            val node = nodes.optJSONObject(i) ?: continue
+            val ep = node.optInt("episode", -1)
+            val airingAt = node.optLong("airingAt", 0)
+            if (ep > 0 && airingAt > 0 && !schedule.containsKey(ep.toFloat())) {
+                schedule[ep.toFloat()] = airingAt * 1000L
+            }
+        }
+
+        getMeta(anilistId)?.let { it.airingSchedule = schedule }
+        Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, ${schedule.size} airing dates resolved")
+        return schedule
+    }
+
+    private data class JikanEpisodeResult(
+        val fillerEpisodes: Set<Float>,
+        val episodeTitles: Map<Float, String>,
+    )
+
+    private fun fetchJikanEpisodeData(malId: Int, maxEpisode: Float = Float.MAX_VALUE): JikanEpisodeResult {
+        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, maxEpisode=$maxEpisode")
         val fillerEpisodes = mutableSetOf<Float>()
+        val episodeTitles = mutableMapOf<Float, String>()
         var page = 1
         var hasNextPage = true
         val maxPages = 10
@@ -770,10 +1722,15 @@ class Miruro :
             val result = try {
                 jikanClient.newCall(
                     GET("$JIKAN_API_URL/anime/$malId/episodes?page=$page"),
-                ).execute()
-                    .parseAs<JikanEpisodesDto>()
+                ).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "Jikan episodes request failed: ${response.code}")
+                        break
+                    }
+                    response.parseAs<JikanEpisodesDto>()
+                }
             } catch (e: Exception) {
-                Log.e("Miruro", "Failed to fetch/parse Jikan episodes: ${e.message}")
+                Log.e(TAG, "Failed to fetch/parse Jikan episodes: ${e.message}")
                 break
             }
 
@@ -786,6 +1743,9 @@ class Miruro :
                 if (ep.filler) {
                     fillerEpisodes.add(num)
                 }
+                if (ep.title.isNotEmpty()) {
+                    episodeTitles[num] = ep.title
+                }
             }
 
             if (hasNextPage) {
@@ -794,7 +1754,8 @@ class Miruro :
             }
         }
 
-        return fillerEpisodes
+        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, found ${fillerEpisodes.size} filler episodes, ${episodeTitles.size} titles across $page pages")
+        return JikanEpisodeResult(fillerEpisodes, episodeTitles)
     }
 
     // ============================== Pipe API ===============================
@@ -807,7 +1768,24 @@ class Miruro :
             val payload = JSONObject(String(decoded, Charsets.UTF_8))
             val query = payload.optJSONObject("query") ?: return null
             query.optInt("anilistId", -1).takeIf { it > 0 }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to extract anilistId from pipe URL: ${e.message}")
+            null
+        }
+    }
+
+    private fun extractEpisodeDataFromPipeRequest(url: String): JSONObject? {
+        return try {
+            val encoded = url.substringAfter("e=", "")
+            if (encoded.isEmpty()) return null
+            val decoded = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            val payload = JSONObject(String(decoded, Charsets.UTF_8))
+            val query = payload.optJSONObject("query") ?: return null
+            val epDataStr = query.optString("_ep", "")
+            if (epDataStr.isEmpty()) return null
+            JSONObject(epDataStr)
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to extract episode data from pipe URL: ${e.message}")
             null
         }
     }
@@ -818,12 +1796,14 @@ class Miruro :
         query: JSONObject = JSONObject(),
         body: JSONObject = JSONObject(),
     ): Request {
+        Log.d(TAG, "buildPipeRequest: $method $path, queryKeys=${query.keys().asSequence().toList()}")
         val payload = JSONObject().apply {
             put("path", path)
             put("method", method)
             put("query", query)
             put("body", if (body.length() == 0) JSONObject.NULL else body)
             put("version", "0.2.0")
+            put("timestamp", System.currentTimeMillis())
         }
 
         val jsonBytes = payload.toString().toByteArray(Charsets.UTF_8)
@@ -849,30 +1829,32 @@ class Miruro :
                 is Double -> put(key, value)
                 is String -> put(key, value)
                 is Boolean -> put(key, value)
+                is JSONArray -> put(key, value)
+                is JSONObject -> put(key, value)
                 else -> put(key, value.toString())
             }
         }
     }
 
-    private fun decryptResponse(response: Response): String {
-        val obfuscated = response.header("x-obfuscated") ?: "1"
-        val bodyBytes = response.body.bytes()
+    private fun stripHtml(input: String): String = input
+        .replace(BR_REGEX, "\n")
+        .replace(CLOSE_P_REGEX, "\n")
+        .replace(HTML_TAG_REGEX, "")
+        .trim()
 
-        // Base64url decode
-        val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
-        if (obfuscated != "2") {
-            return bodyStr
+    private fun validateResponse(response: Response): Response {
+        val code = response.code
+        if (code == 444) {
+            Log.w(TAG, "validateResponse: HTTP 444 — provider does not have this content")
+            response.close()
+            throw IOException("Provider does not have this content")
         }
-
-        val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
-        val data = decoded.mapIndexed { i, b ->
-            (b.toInt() xor PIPE_KEY[i % PIPE_KEY.size].toInt()).toByte()
-        }.toByteArray()
-
-        // Gzip decompress
-        return GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
-            gzipStream.bufferedReader(Charsets.UTF_8).readText()
+        if (code >= 500) {
+            Log.w(TAG, "validateResponse: HTTP $code — server error")
+            response.close()
+            throw IOException("Series not yet available (HTTP $code)")
         }
+        return response
     }
 
     private fun extractCoverImage(coverImage: Any?): String = when (coverImage) {
@@ -901,6 +1883,7 @@ class Miruro :
                 return edge.optJSONObject("node")?.optString("name", "") ?: ""
             }
         }
+
         return edges.optJSONObject(0)?.optJSONObject("node")?.optString("name", "") ?: ""
     }
 
@@ -908,32 +1891,57 @@ class Miruro :
         response: Response,
         fallbackKeys: List<String> = emptyList(),
     ): AnimesPage {
-        val json = response.use(::decryptResponse)
+        val json = response.use { extractor.decryptResponse(it) }
+        Log.d(TAG, "parseAnimeListResponse: json length=${json.length}, fallbackKeys=$fallbackKeys")
 
+        var hasNextPage = false
         val mediaArray = try {
             JSONArray(json)
         } catch (_: Exception) {
             val jsonObj = JSONObject(json)
+            val pageInfo = jsonObj.optJSONObject("pageInfo")
+            hasNextPage = pageInfo?.optBoolean("hasNextPage", false) ?: false
             jsonObj.optJSONArray("media")
                 ?: fallbackKeys.firstNotNullOfOrNull { jsonObj.optJSONArray(it) }
                 ?: return AnimesPage(emptyList(), false)
         }
 
         val animeList = (0 until mediaArray.length()).map { i ->
-            parseAnimeFromMedia(mediaArray.getJSONObject(i))
+            parseAnimeFromMediaObj(mediaArray.getJSONObject(i))
         }
 
-        return AnimesPage(animeList, animeList.size >= 20)
+        if (!hasNextPage && animeList.size >= 20) {
+            hasNextPage = true
+        }
+
+        return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun resolveTitle(titleObj: JSONObject, style: String): String = when (style) {
-        "romaji" -> titleObj.optString("romaji", "")
-        "english" -> titleObj.optString("english", "")
-        "native" -> titleObj.optString("native", "")
-        else -> titleObj.optString("userPreferred", titleObj.optString("romaji", ""))
+    private fun resolveTitle(titleObj: JSONObject, style: String): String {
+        val fallbackChain = when (style) {
+            "romaji" -> listOf("romaji", "userPreferred", "english", "native")
+            "english" -> listOf("english", "romaji", "userPreferred", "native")
+            "native" -> listOf("native", "userPreferred", "romaji", "english")
+            else -> listOf("userPreferred", "romaji", "english", "native")
+        }
+        return fallbackChain.firstNotNullOfOrNull { key ->
+            titleObj.optString(key, "")
+                .takeIf { it.isNotBlank() && it != "null" }
+        } ?: ""
     }
 
-    private fun parseAnimeFromMedia(media: JSONObject): SAnime {
+    private fun resolveTitleFromDto(titleDto: AnimeMediaDto.TitleDto?, style: String): String {
+        if (titleDto == null) return ""
+        val fallbackChain = when (style) {
+            "romaji" -> listOf(titleDto.romaji, titleDto.userPreferred, titleDto.english, titleDto.native)
+            "english" -> listOf(titleDto.english, titleDto.romaji, titleDto.userPreferred, titleDto.native)
+            "native" -> listOf(titleDto.native, titleDto.userPreferred, titleDto.romaji, titleDto.english)
+            else -> listOf(titleDto.userPreferred, titleDto.romaji, titleDto.english, titleDto.native)
+        }
+        return fallbackChain.firstNotNullOfOrNull { it?.ifEmpty { null } } ?: ""
+    }
+
+    private fun parseAnimeFromMediaObj(media: JSONObject): SAnime {
         val titleObj = media.optJSONObject("title") ?: JSONObject()
         val titleStyle = preferences.preferredTitleStyle
         val title = resolveTitle(titleObj, titleStyle)
@@ -943,41 +1951,9 @@ class Miruro :
         val bannerImage = extractBannerImage(media.opt("bannerImage"))
 
         return SAnime.create().apply {
-            this.title = title
+            this.title = title.ifBlank { "Unknown" }
             thumbnail_url = thumbnail.ifEmpty { bannerImage }
             setUrlWithoutDomain(id)
         }
     }
-}
-
-@Serializable
-class AnilistMalIdResponse(
-    val data: DataObject,
-) {
-    @Serializable
-    class DataObject(
-        @SerialName("Media") val media: MediaObject,
-    ) {
-        @Serializable
-        class MediaObject(
-            @SerialName("idMal") val idMal: Int? = null,
-        )
-    }
-}
-
-@Serializable
-class JikanEpisodesDto(
-    val data: List<JikanEpisodeDataDto>,
-    val pagination: JikanPaginationDto,
-) {
-    @Serializable
-    class JikanEpisodeDataDto(
-        @SerialName("mal_id") val number: Int,
-        val filler: Boolean,
-    )
-
-    @Serializable
-    class JikanPaginationDto(
-        @SerialName("has_next_page") val hasNextPage: Boolean,
-    )
 }
