@@ -491,8 +491,24 @@ class Miruro :
             "hop" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true, thumbnails = true),
             ),
-            "dune" to ConfigResponseDto.ProviderConfigDto(
+            "pewe" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+            ),
+            "nun" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                relationship = "embed",
+            ),
+            "bun" to ConfigResponseDto.ProviderConfigDto(
                 capabilities = ConfigResponseDto.ProviderCapabilitiesDto(ssub = true),
+                relationship = "embed",
+            ),
+            "twin" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true, ssub = true),
+                relationship = "embed",
+            ),
+            "cog" to ConfigResponseDto.ProviderConfigDto(
+                capabilities = ConfigResponseDto.ProviderCapabilitiesDto(sub = true),
+                relationship = "embed",
             ),
         ),
         providerOrder = DEFAULT_PROVIDER_VALUES,
@@ -513,13 +529,17 @@ class Miruro :
         private val DEFAULT_PROVIDER_ENTRIES = listOf(
             "AnimePahe (Sub, Download)",
             "Anikoto (Sub, Soft Sub)",
-            "AniDao (Sub, Soft Sub, Download)",
+            "AniDao (Soft Sub, Download)",
             "9Anime (Sub, Download)",
-            "Mango (Sub, Download)",
+            "Moon (Sub, Download)",
             "Zoro (Soft Sub)",
-            "AnimeKai (Soft Sub)",
+            "Pewe (Hard Sub)",
+            "Nun (Hard Sub, Embed)",
+            "Bun (Soft Sub, Embed)",
+            "Twin (Soft Sub, Embed)",
+            "Cog (Hard Sub, Embed)",
         )
-        private val DEFAULT_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "dune")
+        private val DEFAULT_PROVIDER_VALUES = listOf("kiwi", "bee", "bonk", "ally", "moo", "hop", "pewe", "nun", "bun", "twin", "cog")
         private const val PREF_PROVIDER_DEFAULT = "kiwi"
 
         private val KNOWN_DISPLAY_NAMES = mapOf(
@@ -528,8 +548,14 @@ class Miruro :
             "hop" to "Zoro",
             "ally" to "9Anime",
             "bonk" to "AniDao",
-            "moo" to "Mango",
-            "dune" to "AnimeKai",
+            "pewe" to "Pewe",
+            "nun" to "Nun",
+            "bun" to "Bun",
+            "twin" to "Twin",
+            "moo" to "Moon",
+            "cog" to "Cog",
+            "dune" to "Dune",
+            "kuz" to "Kuz",
         )
 
         fun providerDisplayName(alias: String): String = alias.replaceFirstChar { it.uppercase() }
@@ -1150,16 +1176,15 @@ class Miruro :
         val provider = episodeData?.optString("provider", "") ?: ""
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
-        Log.d(TAG, "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}")
+        val fallbackProvidersObj = episodeData?.optJSONObject("fallbackProviders")
+        Log.d(TAG, "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}, hasFallbacks=${fallbackProvidersObj != null}")
 
         val videos = mutableListOf<Video>()
 
-        // Primary stream
         val primaryVideos = extractor.parseStreamsFromResponse(response, defaultSubType, provider)
         Log.d(TAG, "videoListParse: ${primaryVideos.size} primary streams (subType=$defaultSubType, provider=$provider)")
         videos.addAll(primaryVideos)
 
-        // Additional sub-types
         if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
             val requests = mutableListOf<Pair<String, String>>()
             for (subTypeKey in subTypesObj.keys()) {
@@ -1182,6 +1207,41 @@ class Miruro :
                     }
                 },
             )
+        }
+
+        if (videos.isEmpty() && fallbackProvidersObj != null && fallbackProvidersObj.length() > 0) {
+            Log.d(TAG, "videoListParse: primary provider '$provider' returned no videos, trying ${fallbackProvidersObj.length()} fallback providers")
+            val fallbackResults = fallbackProvidersObj.keys().asSequence().toList().parallelCatchingFlatMapBlocking { fbProvider ->
+                val fbSubTypes = fallbackProvidersObj.optJSONObject(fbProvider) ?: return@parallelCatchingFlatMapBlocking emptyList()
+                val fbRequests = mutableListOf<Pair<String, String>>()
+                for (subTypeKey in fbSubTypes.keys()) {
+                    val fbEpId = fbSubTypes.optString(subTypeKey, "")
+                    if (fbEpId.isEmpty()) continue
+                    fbRequests.add(subTypeKey to fbEpId)
+                }
+                Log.d(TAG, "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types")
+                fbRequests.flatMap { (subTypeKey, fbEpId) ->
+                    val query = buildPipeQuery(
+                        "episodeId" to fbEpId,
+                        "provider" to fbProvider,
+                        "category" to subTypeKey,
+                    )
+                    try {
+                        client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
+                            extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
+                        emptyList()
+                    }
+                }
+            }
+            if (fallbackResults.isNotEmpty()) {
+                Log.d(TAG, "videoListParse: fallback providers returned ${fallbackResults.size} videos")
+                videos.addAll(fallbackResults)
+            } else {
+                Log.w(TAG, "videoListParse: all fallback providers returned no videos")
+            }
         }
 
         Log.d(TAG, "videoListParse: returning ${videos.size} total videos")
