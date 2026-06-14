@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -32,6 +33,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
@@ -184,6 +186,7 @@ class Miruro :
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val scope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     private var configFetchJob: Job? = null
+    private var mirrorFetchJob: Job? = null
 
     /**
      * Trigger an async config fetch if not already fetched/fetching.
@@ -195,12 +198,12 @@ class Miruro :
         if (!forceRefresh) {
             if (fetchState == ConfigFetchState.FETCHED || fetchState == ConfigFetchState.FETCHING) return
             if (fetchState == ConfigFetchState.FAILED && fetchAttempts >= MAX_FETCH_ATTEMPTS) {
-                Log.d(TAG, "launchConfigFetch: skipping, $fetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed")
+                logD { "launchConfigFetch: skipping, $fetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed" }
                 return
             }
         }
 
-        Log.d(TAG, "launchConfigFetch: forceRefresh=$forceRefresh, currentState=$fetchState, attempts=$fetchAttempts")
+        logD { "launchConfigFetch: forceRefresh=$forceRefresh, currentState=$fetchState, attempts=$fetchAttempts" }
         fetchState = ConfigFetchState.FETCHING
         if (forceRefresh) fetchAttempts = 0
         configFetchJob?.cancel()
@@ -274,16 +277,16 @@ class Miruro :
      */
     private fun getConfigSync(): ConfigResponseDto {
         if (fetchState == ConfigFetchState.NOT_FETCHED) {
-            Log.d(TAG, "getConfigSync: state=NOT_FETCHED, attempting prefs load then async fetch")
+            logD { "getConfigSync: state=NOT_FETCHED, attempting prefs load then async fetch" }
             loadConfigFromPrefs()?.let { cached ->
                 configCache = cached
                 fetchState = ConfigFetchState.FETCHED
-                Log.d(TAG, "getConfigSync: loaded cached config from prefs (${cached.values.size} providers)")
+                logD { "getConfigSync: loaded cached config from prefs (${cached.values.size} providers)" }
             }
             launchConfigFetch()
         }
         val result = configCache.config ?: defaultConfig
-        Log.d(TAG, "getConfigSync: returning ${if (configCache.config != null) "fetched" else "default"} config")
+        logD { "getConfigSync: returning ${if (configCache.config != null) "fetched" else "default"} config" }
         return result
     }
 
@@ -293,16 +296,17 @@ class Miruro :
         if (!forceRefresh) {
             if (mirrorFetchState == ConfigFetchState.FETCHED || mirrorFetchState == ConfigFetchState.FETCHING) return
             if (mirrorFetchState == ConfigFetchState.FAILED && mirrorFetchAttempts >= MAX_FETCH_ATTEMPTS) {
-                Log.d(TAG, "launchMirrorFetch: skipping, $mirrorFetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed")
+                logD { "launchMirrorFetch: skipping, $mirrorFetchAttempts/$MAX_FETCH_ATTEMPTS attempts failed" }
                 return
             }
         }
 
-        Log.d(TAG, "launchMirrorFetch: forceRefresh=$forceRefresh, currentState=$mirrorFetchState, attempts=$mirrorFetchAttempts")
+        logD { "launchMirrorFetch: forceRefresh=$forceRefresh, currentState=$mirrorFetchState, attempts=$mirrorFetchAttempts" }
         mirrorFetchState = ConfigFetchState.FETCHING
         if (forceRefresh) mirrorFetchAttempts = 0
+        mirrorFetchJob?.cancel()
 
-        scope.launch(
+        mirrorFetchJob = scope.launch(
             CoroutineExceptionHandler { _, throwable ->
                 Log.e(TAG, "Mirror fetch failed with exception", throwable)
             },
@@ -395,11 +399,11 @@ class Miruro :
 
     private fun getMirrorsSync(): MirrorCache {
         if (mirrorFetchState == ConfigFetchState.NOT_FETCHED) {
-            Log.d(TAG, "getMirrorsSync: state=NOT_FETCHED, attempting prefs load then async fetch")
+            logD { "getMirrorsSync: state=NOT_FETCHED, attempting prefs load then async fetch" }
             loadMirrorsFromPrefs()?.let { cached ->
                 mirrorCache = cached
                 mirrorFetchState = ConfigFetchState.FETCHED
-                Log.d(TAG, "getMirrorsSync: loaded cached mirrors from prefs (${cached.values.size} mirrors)")
+                logD { "getMirrorsSync: loaded cached mirrors from prefs (${cached.values.size} mirrors)" }
             }
             launchMirrorFetch()
         }
@@ -412,7 +416,7 @@ class Miruro :
             val pc = config.streaming[key]
             pc != null && pc.visible && pc.relationship != "embed"
         }.ifEmpty { configCache.values }
-        Log.d(TAG, "getProviderOrder: ${result.size} providers: $result")
+        logD { "getProviderOrder: ${result.size} providers: $result" }
         return result
     }
 
@@ -422,7 +426,7 @@ class Miruro :
         try {
             val json = jsonParser.encodeToString(config)
             preferences.edit().putString(PREF_CACHED_CONFIG_KEY, json).apply()
-            Log.d(TAG, "saveConfigToPrefs: persisted config (${json.length} bytes, ${config.providerOrder.size} providers)")
+            logD { "saveConfigToPrefs: persisted config (${json.length} bytes, ${config.providerOrder.size} providers)" }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to persist config to preferences: ${e.message}")
         }
@@ -431,7 +435,7 @@ class Miruro :
     private fun loadConfigFromPrefs(): ProviderConfigCache? {
         return try {
             val json = preferences.getString(PREF_CACHED_CONFIG_KEY, null) ?: return null
-            Log.d(TAG, "loadConfigFromPrefs: found cached config (${json.length} bytes)")
+            logD { "loadConfigFromPrefs: found cached config (${json.length} bytes)" }
             val config = jsonParser.decodeFromString<ConfigResponseDto>(json)
             val (displayNames, entries, values) = buildProviderLists(config)
             ProviderConfigCache(
@@ -452,7 +456,7 @@ class Miruro :
                 CachedMirrorsDto(entries = entries, values = values),
             )
             preferences.edit().putString(PREF_CACHED_MIRRORS_KEY, json).apply()
-            Log.d(TAG, "saveMirrorsToPrefs: persisted mirrors (${entries.size} mirrors)")
+            logD { "saveMirrorsToPrefs: persisted mirrors (${entries.size} mirrors)" }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to persist mirrors to preferences: ${e.message}")
         }
@@ -461,7 +465,7 @@ class Miruro :
     private fun loadMirrorsFromPrefs(): MirrorCache? {
         return try {
             val json = preferences.getString(PREF_CACHED_MIRRORS_KEY, null) ?: return null
-            Log.d(TAG, "loadMirrorsFromPrefs: found cached mirrors (${json.length} bytes)")
+            logD { "loadMirrorsFromPrefs: found cached mirrors (${json.length} bytes)" }
             val cached = jsonParser.decodeFromString<CachedMirrorsDto>(json)
             if (cached.entries.isEmpty() || cached.values.isEmpty()) return null
             MirrorCache(entries = cached.entries, values = cached.values)
@@ -518,6 +522,10 @@ class Miruro :
         const val PREFIX_SEARCH = "miruro:"
         private const val TAG = "Miruro"
 
+        private inline fun logD(msg: () -> String) {
+            if (BuildConfig.DEBUG) Log.d(TAG, msg())
+        }
+
         private const val MAX_FETCH_ATTEMPTS = 3
         private const val PREF_CACHED_CONFIG_KEY = "cached_config_json"
 
@@ -557,8 +565,6 @@ class Miruro :
             "dune" to "Dune",
             "kuz" to "Kuz",
         )
-
-        fun providerDisplayName(alias: String): String = alias.replaceFirstChar { it.uppercase() }
 
         private const val PREF_SUB_TYPE_KEY = "preferred_sub_type"
         private const val PREF_SUB_TYPE_TITLE = "Preferred Sub/Dub"
@@ -628,6 +634,8 @@ class Miruro :
 
         private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co"
         private const val JIKAN_API_URL = "https://api.jikan.moe/v4"
+        private const val JIKAN_PAGE_SIZE = 25
+        private const val MAX_JIKAN_PAGES = 50
 
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
@@ -661,7 +669,7 @@ class Miruro :
     // ============================== Trending ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
-        Log.d(TAG, "popularAnimeRequest: page=$page")
+        logD { "popularAnimeRequest: page=$page" }
         launchConfigFetch()
         val query = buildPipeQuery(
             "type" to "ANIME",
@@ -678,7 +686,7 @@ class Miruro :
     // ============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        Log.d(TAG, "latestUpdatesRequest: page=$page")
+        logD { "latestUpdatesRequest: page=$page" }
         val query = buildPipeQuery(
             "type" to "ANIME",
             "status" to "RELEASING",
@@ -694,7 +702,7 @@ class Miruro :
     // ============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        Log.d(TAG, "getSearchAnime: query='${query.take(80)}', page=$page")
+        logD { "getSearchAnime: query='${query.take(80)}', page=$page" }
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
             if (url.host != baseUrl.toHttpUrl().host) {
@@ -710,7 +718,7 @@ class Miruro :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val anilistId = query.removePrefix(PREFIX_SEARCH)
-            Log.d(TAG, "getSearchAnime: prefix search for anilistId=$anilistId")
+            logD { "getSearchAnime: prefix search for anilistId=$anilistId" }
             val request = buildPipeRequest("info/$anilistId", "GET")
             val jsonObj = client.newCall(request).awaitSuccess().use { response ->
                 JSONObject(extractor.decryptResponse(response))
@@ -734,7 +742,7 @@ class Miruro :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         launchConfigFetch()
         if (query.isNotEmpty()) {
-            Log.d(TAG, "searchAnimeRequest: text query='$query', page=$page")
+            logD { "searchAnimeRequest: text query='$query', page=$page" }
             val perPage = 20
             val queryParams = buildPipeQuery(
                 "q" to query,
@@ -795,7 +803,7 @@ class Miruro :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val json = validateResponse(response).use { extractor.decryptResponse(it) }
-        Log.d(TAG, "animeDetailsParse: response length=${json.length}")
+        logD { "animeDetailsParse: response length=${json.length}" }
         // /info/{id} wraps anime data under a "media" key alongside tvdb/tmdb/schedule/mappings
         val mediaJson = try {
             val jsonObj = JSONObject(json)
@@ -932,7 +940,7 @@ class Miruro :
         val showProvider = preferences.showProviderInScanlator
 
         val anilistId = extractAnilistIdFromPipeRequest(response.request.url.toString())
-        Log.d(TAG, "episodeListParse: anilistId=$anilistId, preferred=$preferredProvider, subType=$preferredSubType, merge=$mergeAcrossProviders")
+        logD { "episodeListParse: anilistId=$anilistId, preferred=$preferredProvider, subType=$preferredSubType, merge=$mergeAcrossProviders" }
 
         val fillerEpisodes = if (preferences.markFillers || preferences.hideFillers) {
             resolveFillerEpisodes(anilistId, providers, preferredProvider)
@@ -947,7 +955,7 @@ class Miruro :
         }
 
         val availableProviders = providers.keys().asSequence().toList()
-        Log.d(TAG, "episodeListParse: available providers from response: $availableProviders")
+        logD { "episodeListParse: available providers from response: $availableProviders" }
         val providerOrder = getProviderOrder()
         val primaryProvider = if (providers.optJSONObject(preferredProvider)?.optJSONObject("episodes") != null) {
             preferredProvider
@@ -961,7 +969,7 @@ class Miruro :
         }
 
         if (primaryProvider != preferredProvider) {
-            Log.d(TAG, "episodeListParse: preferred '$preferredProvider' has no episodes, fell back to '$primaryProvider'")
+            logD { "episodeListParse: preferred '$preferredProvider' has no episodes, fell back to '$primaryProvider'" }
         }
 
         val crossProviderMap = mutableMapOf<Float, MutableMap<String, MutableMap<String, String>>>()
@@ -1054,7 +1062,7 @@ class Miruro :
         } else {
             result
         }
-        Log.d(TAG, "episodeListParse: ${finalResult.size} episodes (from ${episodes.size} before filter), sort=${preferences.episodeSortOrder}, hideFillers=${preferences.hideFillers}")
+        logD { "episodeListParse: ${finalResult.size} episodes (from ${episodes.size} before filter), sort=${preferences.episodeSortOrder}, hideFillers=${preferences.hideFillers}" }
         return finalResult
     }
 
@@ -1177,12 +1185,12 @@ class Miruro :
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
         val fallbackProvidersObj = episodeData?.optJSONObject("fallbackProviders")
-        Log.d(TAG, "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}, hasFallbacks=${fallbackProvidersObj != null}")
+        logD { "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}, hasFallbacks=${fallbackProvidersObj != null}" }
 
         val videos = mutableListOf<Video>()
 
         val primaryVideos = extractor.parseStreamsFromResponse(response, defaultSubType, provider)
-        Log.d(TAG, "videoListParse: ${primaryVideos.size} primary streams (subType=$defaultSubType, provider=$provider)")
+        logD { "videoListParse: ${primaryVideos.size} primary streams (subType=$defaultSubType, provider=$provider)" }
         videos.addAll(primaryVideos)
 
         if (preferences.includeAllSubTypes && subTypesObj != null && subTypesObj.length() > 1) {
@@ -1193,7 +1201,7 @@ class Miruro :
                 if (subEpId.isEmpty()) continue
                 requests.add(subTypeKey to subEpId)
             }
-            Log.d(TAG, "videoListParse: fetching ${requests.size} additional sub-types: ${requests.map { it.first }}")
+            logD { "videoListParse: fetching ${requests.size} additional sub-types: ${requests.map { it.first }}" }
 
             videos.addAll(
                 requests.parallelCatchingFlatMapBlocking { (subTypeKey, subEpId) ->
@@ -1210,7 +1218,7 @@ class Miruro :
         }
 
         if (videos.isEmpty() && fallbackProvidersObj != null && fallbackProvidersObj.length() > 0) {
-            Log.d(TAG, "videoListParse: primary provider '$provider' returned no videos, trying ${fallbackProvidersObj.length()} fallback providers")
+            logD { "videoListParse: primary provider '$provider' returned no videos, trying ${fallbackProvidersObj.length()} fallback providers" }
             val fallbackResults = fallbackProvidersObj.keys().asSequence().toList().parallelCatchingFlatMapBlocking { fbProvider ->
                 val fbSubTypes = fallbackProvidersObj.optJSONObject(fbProvider) ?: return@parallelCatchingFlatMapBlocking emptyList()
                 val fbRequests = mutableListOf<Pair<String, String>>()
@@ -1219,7 +1227,7 @@ class Miruro :
                     if (fbEpId.isEmpty()) continue
                     fbRequests.add(subTypeKey to fbEpId)
                 }
-                Log.d(TAG, "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types")
+                logD { "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types" }
                 fbRequests.flatMap { (subTypeKey, fbEpId) ->
                     val query = buildPipeQuery(
                         "episodeId" to fbEpId,
@@ -1237,14 +1245,14 @@ class Miruro :
                 }
             }
             if (fallbackResults.isNotEmpty()) {
-                Log.d(TAG, "videoListParse: fallback providers returned ${fallbackResults.size} videos")
+                logD { "videoListParse: fallback providers returned ${fallbackResults.size} videos" }
                 videos.addAll(fallbackResults)
             } else {
                 Log.w(TAG, "videoListParse: all fallback providers returned no videos")
             }
         }
 
-        Log.d(TAG, "videoListParse: returning ${videos.size} total videos")
+        logD { "videoListParse: returning ${videos.size} total videos" }
         return videos
     }
 
@@ -1262,7 +1270,7 @@ class Miruro :
         }
 
         if (filtered.isEmpty()) {
-            Log.d(TAG, "video.sort: streamType='$streamTypePref' filtered out all $size videos, returning unsorted")
+            logD { "video.sort: streamType='$streamTypePref' filtered out all $size videos, returning unsorted" }
             return this
         }
 
@@ -1281,13 +1289,19 @@ class Miruro :
                     }
                 },
         )
-        Log.d(TAG, "video.sort: $size → ${filtered.size} after streamType='$streamTypePref' filter → ${sorted.size} sorted (quality=$quality, provider=$providerName, subType=$subTypeLabel)")
+        logD { "video.sort: $size → ${filtered.size} after streamType='$streamTypePref' filter → ${sorted.size} sorted (quality=$quality, provider=$providerName, subType=$subTypeLabel)" }
         return sorted
     }
 
     // ============================== URL ==============================
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/watch/${anime.url}"
+
+    fun close() {
+        configFetchJob?.cancel()
+        mirrorFetchJob?.cancel()
+        scope.cancel()
+    }
 
     override fun getEpisodeUrl(episode: SEpisode): String {
         val episodeData = try {
@@ -1307,7 +1321,7 @@ class Miruro :
     // ============================== Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        Log.d(TAG, "setupPreferenceScreen: fetchState=$fetchState, cacheProviders=${configCache.values}")
+        logD { "setupPreferenceScreen: fetchState=$fetchState, cacheProviders=${configCache.values}" }
         getConfigSync()
         getMirrorsSync()
 
@@ -1319,7 +1333,7 @@ class Miruro :
             default = PREF_MIRROR_DEFAULT,
             summary = "%s",
             onChange = { pref, value ->
-                Log.d(TAG, "Mirror changed: $baseUrl → $value, invalidating config cache")
+                logD { "Mirror changed: $baseUrl → $value, invalidating config cache" }
                 baseUrl = value
                 configCache = ProviderConfigCache(
                     displayNames = KNOWN_DISPLAY_NAMES,
@@ -1338,7 +1352,7 @@ class Miruro :
         screen.addPreference(mirrorPref)
 
         launchMirrorFetch(onSuccess = {
-            Log.d(TAG, "setupPreferenceScreen: async mirror fetch completed, updating mirror pref (${mirrorCache.entries.size} entries)")
+            logD { "setupPreferenceScreen: async mirror fetch completed, updating mirror pref (${mirrorCache.entries.size} entries)" }
             mirrorPref.entries = mirrorCache.entries.toTypedArray()
             mirrorPref.entryValues = mirrorCache.values.toTypedArray()
             mirrorPref.summary = preferences.preferredMirror
@@ -1359,7 +1373,7 @@ class Miruro :
         screen.addPreference(providerPref)
 
         launchConfigFetch(onSuccess = {
-            Log.d(TAG, "setupPreferenceScreen: async fetch completed, updating provider pref (${configCache.entries.size} entries)")
+            logD { "setupPreferenceScreen: async fetch completed, updating provider pref (${configCache.entries.size} entries)" }
             providerPref.entries = configCache.entries.toTypedArray()
             providerPref.entryValues = configCache.values.toTypedArray()
             val currentProvider = preferences.preferredProvider
@@ -1505,7 +1519,7 @@ class Miruro :
 
         val meta = getMeta(anilistId)
         if (meta != null && meta.anilistId == anilistId && meta.fillerEpisodes != null) {
-            Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, cached ${meta.fillerEpisodes!!.size} filler episodes")
+            logD { "resolveFillerEpisodes: anilistId=$anilistId, cached ${meta.fillerEpisodes!!.size} filler episodes" }
             return meta.fillerEpisodes!!
         }
 
@@ -1525,11 +1539,11 @@ class Miruro :
             return emptySet()
         }
 
-        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId → malId=$malId")
+        logD { "resolveFillerEpisodes: anilistId=$anilistId → malId=$malId" }
         val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
         val result = fetchJikanEpisodeData(malId, maxEp)
 
-        Log.d(TAG, "resolveFillerEpisodes: anilistId=$anilistId, found ${result.fillerEpisodes.size} filler episodes (maxEp=$maxEp)")
+        logD { "resolveFillerEpisodes: anilistId=$anilistId, found ${result.fillerEpisodes.size} filler episodes (maxEp=$maxEp)" }
         val metaToUpdate = getMeta(anilistId)
         metaToUpdate?.let {
             it.fillerEpisodes = result.fillerEpisodes
@@ -1545,7 +1559,7 @@ class Miruro :
 
         val meta = getMeta(anilistId)
         if (meta != null && meta.anilistId == anilistId && meta.episodeTitles != null) {
-            Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, cached ${meta.episodeTitles!!.size} titles")
+            logD { "resolveEpisodeTitles: anilistId=$anilistId, cached ${meta.episodeTitles!!.size} titles" }
             return meta.episodeTitles!!
         }
 
@@ -1565,7 +1579,7 @@ class Miruro :
             return emptyMap()
         }
 
-        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId → malId=$malId")
+        logD { "resolveEpisodeTitles: anilistId=$anilistId → malId=$malId" }
         val maxEp = findMaxEpisodeNumber(providers, preferredProvider)
         val result = fetchJikanEpisodeData(malId, maxEp)
 
@@ -1576,7 +1590,7 @@ class Miruro :
                 it.fillerEpisodes = result.fillerEpisodes
             }
         }
-        Log.d(TAG, "resolveEpisodeTitles: anilistId=$anilistId, resolved ${result.episodeTitles.size} titles from Jikan")
+        logD { "resolveEpisodeTitles: anilistId=$anilistId, resolved ${result.episodeTitles.size} titles from Jikan" }
         return result.episodeTitles
     }
 
@@ -1653,11 +1667,11 @@ class Miruro :
     private fun fetchAiringSchedule(anilistId: Int): Map<Float, Long> {
         val existing = anilistId.takeIf { it > 0 }?.let { getMeta(it) }?.takeIf { it.anilistId == anilistId }
         if (existing?.airingSchedule != null) {
-            Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, cached ${existing.airingSchedule!!.size} entries")
+            logD { "fetchAiringSchedule: anilistId=$anilistId, cached ${existing.airingSchedule!!.size} entries" }
             return existing.airingSchedule!!
         }
 
-        Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, fetching from Anilist")
+        logD { "fetchAiringSchedule: anilistId=$anilistId, fetching from Anilist" }
 
         val result = try {
             anilistClient.newCall(anilistAiringScheduleRequest(anilistId)).execute().use { response ->
@@ -1701,7 +1715,7 @@ class Miruro :
         }
 
         getMeta(anilistId)?.let { it.airingSchedule = schedule }
-        Log.d(TAG, "fetchAiringSchedule: anilistId=$anilistId, ${schedule.size} airing dates resolved")
+        logD { "fetchAiringSchedule: anilistId=$anilistId, ${schedule.size} airing dates resolved" }
         return schedule
     }
 
@@ -1711,12 +1725,17 @@ class Miruro :
     )
 
     private fun fetchJikanEpisodeData(malId: Int, maxEpisode: Float = Float.MAX_VALUE): JikanEpisodeResult {
-        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, maxEpisode=$maxEpisode")
+        logD { "fetchJikanEpisodeData: malId=$malId, maxEpisode=$maxEpisode" }
         val fillerEpisodes = mutableSetOf<Float>()
         val episodeTitles = mutableMapOf<Float, String>()
         var page = 1
         var hasNextPage = true
-        val maxPages = 10
+        val maxPagesFromEpisode = if (maxEpisode.isFinite()) {
+            (maxEpisode / JIKAN_PAGE_SIZE).toInt().coerceAtLeast(1) + 1
+        } else {
+            Int.MAX_VALUE
+        }
+        val maxPages = maxPagesFromEpisode.coerceAtMost(MAX_JIKAN_PAGES)
 
         while (hasNextPage && page <= maxPages) {
             val result = try {
@@ -1754,7 +1773,10 @@ class Miruro :
             }
         }
 
-        Log.d(TAG, "fetchJikanEpisodeData: malId=$malId, found ${fillerEpisodes.size} filler episodes, ${episodeTitles.size} titles across $page pages")
+        if (hasNextPage && page > maxPages) {
+            Log.w(TAG, "fetchJikanEpisodeData: hit page cap ($maxPages) for malId=$malId with maxEpisode=$maxEpisode, results may be incomplete")
+        }
+        logD { "fetchJikanEpisodeData: malId=$malId, found ${fillerEpisodes.size} filler episodes, ${episodeTitles.size} titles across $page pages" }
         return JikanEpisodeResult(fillerEpisodes, episodeTitles)
     }
 
@@ -1769,7 +1791,7 @@ class Miruro :
             val query = payload.optJSONObject("query") ?: return null
             query.optInt("anilistId", -1).takeIf { it > 0 }
         } catch (e: Exception) {
-            Log.d(TAG, "Failed to extract anilistId from pipe URL: ${e.message}")
+            logD { "Failed to extract anilistId from pipe URL: ${e.message}" }
             null
         }
     }
@@ -1785,7 +1807,7 @@ class Miruro :
             if (epDataStr.isEmpty()) return null
             JSONObject(epDataStr)
         } catch (e: Exception) {
-            Log.d(TAG, "Failed to extract episode data from pipe URL: ${e.message}")
+            logD { "Failed to extract episode data from pipe URL: ${e.message}" }
             null
         }
     }
@@ -1796,7 +1818,7 @@ class Miruro :
         query: JSONObject = JSONObject(),
         body: JSONObject = JSONObject(),
     ): Request {
-        Log.d(TAG, "buildPipeRequest: $method $path, queryKeys=${query.keys().asSequence().toList()}")
+        logD { "buildPipeRequest: $method $path, queryKeys=${query.keys().asSequence().toList()}" }
         val payload = JSONObject().apply {
             put("path", path)
             put("method", method)
@@ -1892,7 +1914,7 @@ class Miruro :
         fallbackKeys: List<String> = emptyList(),
     ): AnimesPage {
         val json = response.use { extractor.decryptResponse(it) }
-        Log.d(TAG, "parseAnimeListResponse: json length=${json.length}, fallbackKeys=$fallbackKeys")
+        logD { "parseAnimeListResponse: json length=${json.length}, fallbackKeys=$fallbackKeys" }
 
         var hasNextPage = false
         val mediaArray = try {

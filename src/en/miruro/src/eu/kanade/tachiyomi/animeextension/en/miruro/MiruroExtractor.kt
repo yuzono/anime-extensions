@@ -135,7 +135,6 @@ class MiruroExtractor(
                     Log.d(TAG, "parseStreams: extracting embed: ${stream.url.take(80)}")
                     val embedVideos = embedExtractor.extractVideos(
                         embedUrl = stream.url,
-                        referer = stream.referer,
                         qualityLabel = qualityLabel,
                         subtitles = subtitles,
                     )

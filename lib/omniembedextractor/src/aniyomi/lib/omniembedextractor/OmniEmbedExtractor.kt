@@ -246,14 +246,12 @@ class OmniEmbedExtractor(
      * Detect the embed type from a URL and extract videos.
      *
      * @param embedUrl the third-party embed URL
-     * @param referer the referer of the page that embeds this URL
      * @param qualityLabel the quality label prefix for the extracted videos
      * @param subtitles subtitle tracks to attach to the extracted videos
      * @return a list of [Video] objects, or empty if extraction fails
      */
     fun extractVideos(
         embedUrl: String,
-        referer: String,
         qualityLabel: String,
         subtitles: List<Track>,
     ): List<Video> {
