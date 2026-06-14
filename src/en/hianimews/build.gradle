@@ -1,9 +1,0 @@
-ext {
-    extName = 'HiAnimeWs (Unoriginal)'
-    extClass = '.HiAnimeWs'
-    themePkg = 'animekaitheme'
-    baseUrl = 'https://hianime.ws'
-    overrideVersionCode = 0
-}
-
-apply from: "$rootDir/common.gradle"

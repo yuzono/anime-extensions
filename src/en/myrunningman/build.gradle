@@ -1,10 +1,10 @@
 ext {
     extName = 'My Running Man'
     extClass = '.MyRunningMan'
-    extVersionCode = 10
+    extVersionCode = 12
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:doodextractor"))

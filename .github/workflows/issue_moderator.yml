@@ -2,9 +2,9 @@ name: Issue moderator
 
 on:
   issues:
-    types: [opened, edited, reopened]
+    types: [ opened, edited, reopened ]
   issue_comment:
-    types: [created]
+    types: [ created ]
 
 permissions:
   issues: write
@@ -15,11 +15,23 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Moderate issues
-        uses: aniyomiorg/issue-moderator-action@v2
+        uses: yuzono/aniyomi-issue-moderator-action@47efd0d5433617dd41614d0a00257fb5d3d59fbf
         with:
           repo-token: ${{ github.token }}
           member-token: ${{ secrets.GITHUB_TOKEN }}
           duplicate-label: Duplicate
+
+          blurbs: |
+            [
+              {
+                "keywords": ["cf", "cloudflare"],
+                "message": "Refer to the **Solving Cloudflare issues** section at https://yuzono.github.io/docs/guides/troubleshooting#cloudflare. If it doesn't work, migrate to other sources or wait until they lower their protection."
+              },
+              {
+                "keywords": ["uninstall"],
+                "message": "Uninstall the extension before updating. If that does not work, uninstall it from your device's settings by navigating to your device's Settings -> Apps and uninstall it from there by looking for `Tachiyomi: <extension name>`.\n\nThis is usually caused your previous extension having a different signature from the updated extension, making Android refuse to update it."
+              }
+            ]
 
           duplicate-check-enabled: true
           duplicate-check-labels: |
@@ -28,29 +40,26 @@ jobs:
           existing-check-enabled: true
           existing-check-labels: |
             ["Source request", "Domain changed"]
+          existing-check-repo-url: https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json
+
+          url-search-sections: |
+            ["Source link", "Source new URL"]
 
           auto-close-rules: |
             [
               {
-                "type": "body",
-                "regex": ".*DELETE THIS SECTION IF YOU HAVE READ AND ACKNOWLEDGED IT.*",
-                "message": "The acknowledgment section was not removed."
-              },
-              {
-                "type": "body",
-                "regex": ".*\\* (Anikku version|Android version|Device): \\?.*",
-                "message": "Requested information in the template was not filled out."
-              },
-              {
-                "type": "title",
-                "regex": ".*(Source name|Short description).*",
-                "message": "You did not fill out the description in the title."
+                "type": "both",
+                "regex": ".*(?:fail(?:ed|ure|s)?|can\\s*(?:no|')?t|(?:not|un).*able|(?<!n[o']?t )blocked by|error) (?:to )?(?:get past|by ?pass|penetrate)?.*cl[oa]ud ?fl?[ai]re.*",
+                "ignoreCase": true,
+                "labels": ["Cloudflare protected"],
+                "message": "Refer to the **Solving Cloudflare issues** section at https://yuzono.github.io/docs/guides/troubleshooting#cloudflare. If it doesn't work, migrate to other sources or wait until they lower their protection."
               },
               {
                 "type": "both",
-                "regex": ".*(?:fail(?:ed|ure|s)?|can\\s*(?:no|')?t|(?:not|un).*able|(?<!n[o']?t )blocked by|error) (?:to )?(?:get past|by ?pass|penetrate)?.*cloud ?fl?are.*",
+                "regex": "\\b(crunchyroll\\.com)\\b",
                 "ignoreCase": true,
-                "message": "Refer to the **Solving Cloudflare issues** section at https://anikku-app.github.io/help/guides/troubleshooting/#solving-cloudflare-issues. If it doesn't work, migrate to other sources or wait until they lower their protection."
+                "labels": ["invalid"],
+                "message": "{match} will not be added back as it is too difficult to maintain.\nThis was also mentioned in #14260, which is pinned on the Issues page. Search the existing requests first & don't acknowledge that you searched when you clearly didn't."
               }
             ]
           auto-close-ignore-label: do-not-autoclose

@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.decodeHexToString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.MediaType.Companion.toMediaType
@@ -125,13 +126,6 @@ class VerAnimes :
         }
     }
 
-    private fun hex2a(hex: String): String = StringBuilder(hex.length / 2).apply {
-        for (i in hex.indices step 2) {
-            val charCode = hex.substring(i, i + 2).toInt(16)
-            append(charCode.toChar())
-        }
-    }.toString()
-
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val opt = document.select(".opt").attr("data-encrypt")
@@ -149,7 +143,7 @@ class VerAnimes :
         val serversDocument = client.newCall(request).execute().asJsoup()
 
         return serversDocument.select("li").catchingFlatMapBlocking {
-            val link = hex2a(it.attr("encrypt"))
+            val link = it.attr("encrypt").decodeHexToString()
             serverVideoResolver(link)
         }
     }

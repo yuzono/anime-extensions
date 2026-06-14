@@ -1,9 +1,0 @@
-ext {
-    extName = 'AnimeKai'
-    extClass = '.AnimeKai'
-    themePkg = 'animekaitheme'
-    baseUrl = 'https://animekai.to'
-    overrideVersionCode = 14
-}
-
-apply from: "$rootDir/common.gradle"

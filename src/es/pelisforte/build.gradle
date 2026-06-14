@@ -1,10 +1,10 @@
 ext {
     extName = 'PelisForte'
     extClass = '.PelisForte'
-    extVersionCode = 45
+    extVersionCode = 48
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:voeextractor'))
@@ -18,7 +18,6 @@ dependencies {
     implementation(project(':lib:uqloadextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:streamtapeextractor'))
-    implementation(project(':lib:playlistutils'))
     implementation(project(':lib:streamlareextractor'))
     implementation(project(':lib:okruextractor'))
     implementation(project(':lib:vidguardextractor'))

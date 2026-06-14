@@ -1,11 +1,11 @@
 ext {
     extName = 'MissAV'
     extClass = '.MissAV'
-    extVersionCode = 24
+    extVersionCode = 25
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:unpacker'))

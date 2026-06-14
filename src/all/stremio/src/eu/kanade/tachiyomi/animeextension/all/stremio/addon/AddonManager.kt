@@ -11,7 +11,7 @@ import keiyoushi.utils.get
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
-import keiyoushi.utils.toRequestBody
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -75,7 +75,7 @@ class AddonManager(
             put("authKey", authKey)
             put("type", "AddonCollectionGet")
             put("update", true)
-        }.toRequestBody()
+        }.toJsonRequestBody()
 
         return client.post("${Stremio.API_URL}/api/addonCollectionGet", body = body)
             .parseAs<ResultDto<AddonResultDto>>().result.addons
