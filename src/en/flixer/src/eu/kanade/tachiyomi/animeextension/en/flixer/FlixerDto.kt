@@ -126,13 +126,13 @@ data class DecryptionResponseDto(
 
 @Serializable
 data class ExtractorResultDto(
-    val sources: List<ExtractorSourceDto> = emptyList(),
+    val sources: List<ExtractorSourceDto>? = null,
 )
 
 @Serializable
 data class ExtractorSourceDto(
     val server: String,
-    val url: String,
+    val url: String = "",
 )
 
 // ============================== Subtitles ===============================
