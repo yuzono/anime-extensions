@@ -313,7 +313,7 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "baku", "dio", "meg" -> "[Hard Subs]"
+                    "sage", "dio", "meg" -> "[Hard Subs]"
                     "kite" -> "[Soft Subs]"
                     else -> ""
                 }
@@ -337,7 +337,7 @@ class Animetsu :
                             listOf(
                                 Video(
                                     fullUrl,
-                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
+                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel) $subLabel",
                                     fullUrl,
                                     videoHeaders(watchReferer),
                                     subtitleTracks,
@@ -607,13 +607,13 @@ class Animetsu :
 
         private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
         private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
-        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
-        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "baku", "dio", "meg", "kite")
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Sage - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "sage", "dio", "meg", "kite")
 
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
-        private val SERVER_ENTRIES = listOf("Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
-        private val SERVER_VALUES = listOf("baku", "dio", "meg", "kite")
+        private val SERVER_ENTRIES = listOf("Sage - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val SERVER_VALUES = listOf("sage", "dio", "meg", "kite")
 
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
