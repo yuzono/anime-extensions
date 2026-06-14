@@ -175,24 +175,6 @@ class YummyAnime : AnimeHttpSource() {
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> = emptyList()
-
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-
-    private fun extractHlsQualities(
-        masterUrl: String,
-        dubbing: String,
-        playerName: String,
-        videoHeaders: Headers,
-    ): List<Video> = playlistUtils.extractFromHls(
-        masterUrl,
-        masterHeaders = videoHeaders,
-        videoHeaders = videoHeaders,
-        videoNameGen = { quality -> "$dubbing ($quality $playerName)" },
-    ).ifEmpty {
-        listOf(Video(masterUrl, "$dubbing ($playerName)", masterUrl, headers = videoHeaders))
-    }
-
     // ─── Kodik Player ────────────────────────────────────────────────────────
     // Optimizations:
     //   • Decoding via pure Kotlin (without loading JS script and QuickJs)
