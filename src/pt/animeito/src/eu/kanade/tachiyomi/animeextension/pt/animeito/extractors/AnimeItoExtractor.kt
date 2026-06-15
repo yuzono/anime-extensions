@@ -17,15 +17,14 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
     suspend fun videosFromUrl(url: String): List<Video> {
         val playerDoc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
 
-        val script = try {
-            val encodedScript = playerDoc.selectFirst("script:containsData(TextDecoder)")
-                ?.data() ?: error("")
+        val encodedScript = playerDoc.selectFirst("script:containsData(TextDecoder)")?.data()
+        val script = if (encodedScript != null) {
             Log.d(tag, "TextDecoder script found, length=${encodedScript.length}")
-            decodeTextDecoderScript(encodedScript).ifEmpty {
-                error("decodeTextDecoderScript returned empty")
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "TextDecoder path failed: ${e.message}")
+            decodeTextDecoderScript(encodedScript).takeIf { it.isNotEmpty() }
+        } else {
+            null
+        } ?: run {
+            Log.w(tag, "TextDecoder script not found, falling back to const player")
             playerDoc.selectFirst("script:containsData(const player)")?.data()
                 ?: return emptyList<Video>().also { Log.e(tag, "No const player script found") }
         }
@@ -63,7 +62,6 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         }
 
         val params = mainContent.substring(funcCallStart + 2, funcCallEnd + 1)
-        Log.d(tag, "Params preview: ${params.take(200)}...${params.takeLast(100)}")
 
         val array1End = Regex("""\],\s*\[""").find(params)?.range?.first ?: -1
         if (array1End < 0) {
@@ -97,19 +95,40 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
             .map { it.groupValues[1] }
             .toList()
 
-        val indices = secondArrayStr
+        val rawIndexTokens = secondArrayStr
             .removeSurrounding("[", "]")
             .split(",")
-            .map { it.trim().toInt() }
+        val indices = rawIndexTokens.mapNotNull { token ->
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) {
+                Log.w(tag, "Skipping empty index token while decoding")
+                return@mapNotNull null
+            }
+            val value = trimmed.toIntOrNull()
+            if (value == null) {
+                Log.w(tag, "Skipping non-numeric index token while decoding: '$trimmed'")
+            }
+            value
+        }
 
-        Log.d(tag, "Decode: ${strings.size} strings, ${indices.size} indices, keyLen=${keyStr.length}")
+        if (indices.isEmpty()) {
+            Log.w(tag, "No valid indices found")
+            return ""
+        }
 
-        val joined = indices.joinToString("") { strings[it] }
-        Log.d(tag, "Joined base64 length=${joined.length}")
+        val joined = indices.joinToString("") { strings.getOrNull(it) ?: "" }
+        if (joined.isEmpty()) {
+            Log.w(tag, "Joined base64 is empty")
+            return ""
+        }
 
         val decodedData = Base64.decode(joined, Base64.DEFAULT)
         val key = Base64.decode(keyStr, Base64.DEFAULT)
-        Log.d(tag, "Decoded data size=${decodedData.size}, key size=${key.size}")
+
+        if (decodedData.isEmpty() || key.isEmpty()) {
+            Log.w(tag, "Decoded data or key is empty")
+            return ""
+        }
 
         val result = ByteArray(decodedData.size) { i ->
             (decodedData[i].toInt() xor key[i % key.size].toInt()).toByte()
