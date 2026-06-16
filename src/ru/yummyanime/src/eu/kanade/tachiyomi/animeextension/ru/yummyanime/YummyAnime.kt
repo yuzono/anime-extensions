@@ -2,9 +2,12 @@ package eu.kanade.tachiyomi.animeextension.ru.yummyanime
 
 import android.net.Uri
 import android.util.Base64
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.sibnetextractor.SibnetExtractor
 import app.cash.quickjs.QuickJs
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -13,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
@@ -28,7 +32,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class YummyAnime : AnimeHttpSource() {
+class YummyAnime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "YummyAnime"
     override val baseUrl = "https://ru.yummyani.me"
@@ -39,10 +45,24 @@ class YummyAnime : AnimeHttpSource() {
     private val json: Json by injectLazy()
     private val appToken = "o0nap18m_7a0od86"
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
+    private val preferences by getPreferencesLazy()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
         .add("Accept", "application/json")
         .add("X-Application", appToken)
+
+    // ─── Settings ──────────────────────────────────────────────────────────────
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = PREF_QUALITY_KEY
+            title = "Предпочитаемое качество / Preferred quality"
+            entries = arrayOf("1080p", "720p", "480p", "360p")
+            entryValues = arrayOf("1080", "720", "480", "360")
+            setDefaultValue(PREF_QUALITY_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+    }
 
     // ─── Popular ─────────────────────────────────────────────────────────────
 
@@ -141,13 +161,47 @@ class YummyAnime : AnimeHttpSource() {
     // ─── Videos ──────────────────────────────────────────────────────────────
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val (animeSlug, episodeNum) = episode.url.split("|", limit = 2)
+        // Defensive split: an episode URL without "|" must never throw on destructuring.
+        val parts = episode.url.split("|", limit = 2)
+        val animeSlug = parts.getOrElse(0) { "" }
+        val episodeNum = parts.getOrElse(1) { "1" }
         return GET("$apiUrl/anime/$animeSlug?need_videos=true&episode=$episodeNum", headers)
     }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
         .awaitSuccess()
         .use { videoListParseAsync(it) }
+        .let(::applyQualityPreference)
+        .let(::voicesBeforeSubtitles)
+
+    // Voice-overs first, subtitles last. The API labels subtitle tracks with "Субтитры" /
+    // "Subtitles", which is carried into each Video's quality label. sortedBy is stable, so the
+    // original order is preserved within each group.
+    private fun voicesBeforeSubtitles(videos: List<Video>): List<Video> = videos.sortedBy {
+        if (it.quality.contains("Субтитры", ignoreCase = true) ||
+            it.quality.contains("Subtitle", ignoreCase = true)
+        ) {
+            1
+        } else {
+            0
+        }
+    }
+
+    // Keep only the user's preferred quality; if it is not available, fall back to the closest one
+    // (ties prefer the higher quality). Sources whose quality cannot be parsed (e.g. Sibnet) are
+    // always kept, so the list never ends up empty.
+    private fun applyQualityPreference(videos: List<Video>): List<Video> {
+        val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.toIntOrNull()
+            ?: return videos
+        val available = videos.mapNotNull { it.quality.parseQuality() }.distinct()
+        if (available.isEmpty()) return videos
+        val target = available.minWithOrNull(
+            compareBy({ kotlin.math.abs(it - pref) }, { -it }),
+        ) ?: return videos
+        return videos.filter { v -> v.quality.parseQuality()?.let { it == target } ?: true }
+    }
+
+    private fun String.parseQuality(): Int? = Regex("""(\d{3,4})\s*p""").find(this)?.groupValues?.get(1)?.toIntOrNull()
 
     private suspend fun videoListParseAsync(response: Response): List<Video> {
         val episodeNum = response.request.url.queryParameter("episode") ?: return emptyList()
@@ -165,7 +219,8 @@ class YummyAnime : AnimeHttpSource() {
             val obj2 = element.jsonObject
             val dubbing = obj2["data"]?.jsonObject?.get("dubbing")?.jsonPrimitive?.content ?: "Unknown"
             val player = obj2["data"]?.jsonObject?.get("player")?.jsonPrimitive?.content ?: ""
-            val rawFrame = obj2["iframe_url"]?.jsonPrimitive?.content ?: return@parallelCatchingFlatMap emptyList()
+            val rawFrame = obj2["iframe_url"]?.jsonPrimitive?.content
+                ?: return@parallelCatchingFlatMap emptyList()
             val iframeUrl = rawFrame.fixProtocol()
 
             when {
@@ -176,10 +231,6 @@ class YummyAnime : AnimeHttpSource() {
     }
 
     // ─── Kodik Player ────────────────────────────────────────────────────────
-    // Optimizations:
-    //   • Decoding via pure Kotlin (without loading JS script and QuickJs)
-    //   • QuickJs is used only as a fallback, one instance for all qualities
-    //   • Ready URLs from /ftor are returned directly as Video — without unnecessary m3u8 requests
 
     private val atobRegex = Regex("atob\\([^\"]")
 
@@ -193,22 +244,53 @@ class YummyAnime : AnimeHttpSource() {
             client.newCall(GET(iframeUrl, kodikHeaders)).execute().useAsJsoup()
         }.getOrNull() ?: return emptyList()
 
-        val urlParamsScript = page.select("script").firstOrNull { it.data().contains("urlParams") }?.data()
+        val pageHtml = page.html()
+
+        // urlParams is a JSON blob wrapped in quotes; regex tolerates spacing/quote variations.
+        val rawParams = Regex("""urlParams\s*=\s*'([^']+)'""").find(pageHtml)?.groupValues?.get(1)
+            ?: Regex("""urlParams\s*=\s*"([^"]+)"""").find(pageHtml)?.groupValues?.get(1)
             ?: return emptyList()
 
         val formData = runCatching {
-            val raw = urlParamsScript.substringAfter("urlParams = '").substringBefore("'")
-            json.decodeFromString(KodikFormData.serializer(), raw)
+            json.decodeFromString(KodikFormData.serializer(), rawParams)
         }.getOrNull() ?: return emptyList()
 
         if (formData.dSign.isEmpty()) return emptyList()
 
-        // Format: //{host}/{type}/{id}/{hash}/720p?...
+        // Resolve the real per-episode type/id/hash. Confirmed page format:
+        //     vInfo.type = 'seria';  vInfo.hash = '...';  vInfo.id = '1407443';
+        // For "/video/<id>/<hash>" the path type ("video") already works; for "/season/..." or
+        // "/serial/..." the path type would be "season"/"serial", which /ftor rejects (→ "No videos").
+        // Match on the property name (the object can be renamed between builds), choosing the single
+        // <script> where all three assignments resolve together; fall back to the whole HTML.
+        val typeRe = Regex("""\.type\s*=\s*['"]([^'"]+)['"]""")
+        val hashRe = Regex("""\.hash\s*=\s*['"]([^'"]+)['"]""")
+        val idRe = Regex("""\.id\s*=\s*['"]?([A-Za-z0-9]+)['"]?""")
+        var videoType: String? = null
+        var videoId: String? = null
+        var videoHash: String? = null
+        for (script in page.select("script").map { it.data() }) {
+            val t = typeRe.find(script)?.groupValues?.get(1) ?: continue
+            val h = hashRe.find(script)?.groupValues?.get(1) ?: continue
+            val i = idRe.find(script)?.groupValues?.get(1) ?: continue
+            videoType = t
+            videoHash = h
+            videoId = i
+            break
+        }
+        if (videoType == null || videoHash == null || videoId == null) {
+            videoType = videoType ?: typeRe.find(pageHtml)?.groupValues?.get(1)
+            videoHash = videoHash ?: hashRe.find(pageHtml)?.groupValues?.get(1)
+            videoId = videoId ?: idRe.find(pageHtml)?.groupValues?.get(1)
+        }
+
+        // Fallback to the iframe path: //{host}/{type}/{id}/{hash}/720p?...
+        // getOrNull so a short/malformed iframe URL can never throw IndexOutOfBoundsException.
         val urlParts = iframeUrl.removePrefix("https://").removePrefix("http://").split('/')
-        if (urlParts.size < 4) return emptyList()
-        val videoType = urlParts[1]
-        val videoId = urlParts[2]
-        val videoHash = urlParts[3]
+        val resolvedType = videoType ?: urlParts.getOrNull(1)
+        val resolvedId = videoId ?: urlParts.getOrNull(2)
+        val resolvedHash = videoHash ?: urlParts.getOrNull(3)
+        if (resolvedType == null || resolvedId == null || resolvedHash == null) return emptyList()
 
         val postBody = FormBody.Builder()
             .add("d", formData.d)
@@ -217,9 +299,11 @@ class YummyAnime : AnimeHttpSource() {
             .add("pd_sign", Uri.decode(formData.pdSign))
             .add("ref", Uri.decode(formData.ref))
             .add("ref_sign", Uri.decode(formData.refSign))
-            .add("type", videoType)
-            .add("id", videoId)
-            .add("hash", videoHash)
+            .add("type", resolvedType)
+            .add("id", resolvedId)
+            .add("hash", resolvedHash)
+            .add("bad_user", "true")
+            .add("cdn_is_working", "true")
             .build()
 
         val postHeaders = Headers.Builder()
@@ -228,10 +312,16 @@ class YummyAnime : AnimeHttpSource() {
             .add("X-Application", appToken)
             .build()
 
+        // POST to the player's own host (the iframe host, e.g. kodikplayer.com) — exactly what the
+        // browser does. `pd` is sent as a signed body field but is not a reliable hostname.
+        val playerHost = iframeUrl.removePrefix("https://").removePrefix("http://")
+            .substringBefore('/')
+            .ifEmpty { "kodikplayer.com" }
+
         val kodikData = runCatching {
             client.newCall(
                 Request.Builder()
-                    .url("https://${formData.pd}/ftor")
+                    .url("https://$playerHost/ftor")
                     .post(postBody)
                     .headers(postHeaders)
                     .build(),
@@ -250,35 +340,13 @@ class YummyAnime : AnimeHttpSource() {
             "720" to kodikData.links.good,
         )
 
-        // --- Step 1: Try fast Kotlin decoding (no QuickJs, no HTTP) ---
-        // Kodik historically uses: reverse(base64url_normalize(src)) → base64_decode → URL
-        val kotlinResults = qualityMap.mapNotNull { (qualityName, links) ->
-            val encodedSrc = links.firstOrNull()?.src ?: return@mapNotNull null
-            val decoded = decodeKodikKotlin(encodedSrc) ?: return@mapNotNull null
-            Triple(qualityName, decoded, links)
-        }
-
-        if (kotlinResults.size == qualityMap.size) {
-            // All qualities are decoded without QuickJs — we return them immediately
-            return kotlinResults.flatMap { (qualityName, hlsUrl, _) ->
-                if (hlsUrl.contains(".mpd")) {
-                    PlaylistUtils(client, headers).extractFromDash(
-                        hlsUrl,
-                        { res: String -> "$dubbing (${qualityName}p Kodik - $res)" },
-                        hlsHeaders,
-                        hlsHeaders,
-                    )
-                } else {
-                    listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
-                }
-            }
-        }
-
-        // --- Step 2: fallback — QuickJs, one instance per quality ---
-        val scriptUrl = page.selectFirst("script[src*=player_single]")?.attr("abs:src")
-            ?: return kotlinResults.map { (q, url, _) ->
-                Video(url, "$dubbing (${q}p Kodik)", url, headers = hlsHeaders)
-            }
+        // Decode each quality with the page's own JS function via QuickJs.
+        // Match any Kodik player script (player_single, player_serial, …).
+        val scriptUrl = (
+            page.selectFirst("script[src*=player_single]")
+                ?: page.selectFirst("script[src*=player_serial]")
+                ?: page.selectFirst("script[src*=player]")
+            )?.attr("abs:src") ?: return emptyList()
 
         val jsScript = runCatching {
             client.newCall(GET(scriptUrl, kodikHeaders)).execute().body.string()
@@ -299,7 +367,6 @@ class YummyAnime : AnimeHttpSource() {
             if (deque.isEmpty()) break
         }
 
-        // One QuickJs for all qualities
         return QuickJs.create().use { qjs ->
             qualityMap.flatMap { (qualityName, links) ->
                 val encodedSrc = links.firstOrNull()?.src ?: return@flatMap emptyList()
@@ -307,49 +374,39 @@ class YummyAnime : AnimeHttpSource() {
                     qjs.evaluate("t='$encodedSrc'; $encodeScript").toString()
                 }.getOrNull() ?: return@flatMap emptyList()
 
-                val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8).fixProtocol()
-                // If it's DASH, parse the mpd
-                if (hlsUrl.contains(".mpd")) {
-                    return@flatMap PlaylistUtils(client, headers).extractFromDash(
-                        hlsUrl,
-                        { res: String -> "$dubbing (${qualityName}p Kodik - $res)" },
-                        hlsHeaders,
-                        hlsHeaders,
-                    )
-                }
+                val hlsUrl = runCatching {
+                    Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
+                }.getOrNull()?.fixProtocol() ?: return@flatMap emptyList()
 
-                // Ready-made URLs from Kodik are already of a specific quality, not a master playlist
-                listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+                buildKodikVideos(hlsUrl, qualityName, dubbing, hlsHeaders)
             }
         }
     }
 
-    // Fast Kotlin decoding of Kodik without JS.
-    // Kodik encodes a URL like this: base64url(reverse(url)), i.e. to decode:
-    //   1. Normalize base64url → base64 (- → +, \_ → /)
-    //   2. Reverse the string
-    //   3. Decode base64
-    // Returns null if the result does not look like a valid URL (fallback to QuickJs).
+    private fun buildKodikVideos(
+        hlsUrl: String,
+        qualityName: String,
+        dubbing: String,
+        hlsHeaders: Headers,
+    ): List<Video> = if (hlsUrl.contains(".mpd")) {
+        PlaylistUtils(client, headers).extractFromDash(
+            hlsUrl,
+            { res: String -> "$dubbing (${qualityName}p Kodik - $res)" },
+            hlsHeaders,
+            hlsHeaders,
+        )
+    } else {
+        listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+    }
 
-    private fun decodeKodikKotlin(encoded: String): String? = runCatching {
-        val normalized = encoded.replace('-', '+').replace('_', '/')
-        val reversed = normalized.reversed()
-        val decoded = Base64.decode(reversed, Base64.DEFAULT).toString(Charsets.UTF_8)
-        val url = decoded.fixProtocol()
-        // Check that the URL is correct and not garbage
-        if (url.startsWith("http") && url.contains(".")) url else null
-    }.getOrNull()
-
-    // ─── Fallback ─────────────────────────────────────────────────────────────
+    // ─── Fallback (Sibnet / generic HLS or DASH) ───────────────────────────────
 
     private fun fallbackVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
         val body = runCatching {
             client.newCall(GET(iframeUrl, headers)).execute().body.string()
         }.getOrNull() ?: return emptyList()
 
-        // Let's try to parse Sibnet (the embedded player uses player.src)
         if (iframeUrl.contains("sibnet.ru") || body.contains("player.src")) {
-            // Trying to find a videoid to send signals (player sends kibana/catch requests according to the logs)
             val videoId = Regex("videoid=(\\d+)").find(body)?.groupValues?.get(1)
                 ?: Regex("videoid=(\\d+)").find(iframeUrl)?.groupValues?.get(1)
 
@@ -361,13 +418,11 @@ class YummyAnime : AnimeHttpSource() {
                 }
             }
 
-            // We will use the general Sibnet extractor, if it is available
             val sibVideos = runCatching { sibnetExtractor.videosFromUrl(iframeUrl, "$dubbing (Sibnet) ") }.getOrNull()
             if (!sibVideos.isNullOrEmpty()) return sibVideos
         }
 
-        // Let's check the DASH first
-        val mpd = Regex("""https?://[^"'\\s\\\\]+\\.mpd[^"'\\s\\\\]*""").find(body)?.value
+        val mpd = Regex("""https?://[^"'\s\\]+\.mpd[^"'\s\\]*""").find(body)?.value
         if (mpd != null) {
             val videoHeaders = Headers.Builder()
                 .add("Referer", iframeUrl)
@@ -383,7 +438,7 @@ class YummyAnime : AnimeHttpSource() {
             )
         }
 
-        val stream = Regex("""https?://[^"'\\s]+\\.m3u8[^"'\\s]*""").find(body)?.value
+        val stream = Regex("""https?://[^"'\s\\]+\.m3u8[^"'\s\\]*""").find(body)?.value
             ?: return emptyList()
 
         val videoHeaders = Headers.Builder()
@@ -400,6 +455,11 @@ class YummyAnime : AnimeHttpSource() {
     private fun String.fixProtocol(): String = if (startsWith("//")) "https:$this" else this
 
     private fun String.toOrigin(): String = Regex("^(https?://[^/]+)").find(this)?.groupValues?.get(1) ?: this
+
+    companion object {
+        private const val PREF_QUALITY_KEY = "pref_quality"
+        private const val PREF_QUALITY_DEFAULT = "720"
+    }
 }
 
 // ─── Kodik DTOs ──────────────────────────────────────────────────────────────
