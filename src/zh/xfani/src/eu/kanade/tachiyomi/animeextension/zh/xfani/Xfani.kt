@@ -316,10 +316,6 @@ class Xfani :
             MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("page", "$page")
                 .addFormDataPart("time", "$time").addFormDataPart("key", generateKey(time))
 
-        if (query.isNotBlank()) {
-            formBody.addFormDataPart("wd", query)
-        }
-
         filters.forEach { filter ->
             when (filter) {
                 is TypeFilter -> formBody.addFormDataPart("type", filter.selected)
