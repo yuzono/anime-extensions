@@ -88,16 +88,10 @@ class Xfani :
     }
 
     override val client: OkHttpClient by lazy {
-        val builder = if (preferences.getBoolean(PREF_KEY_IGNORE_SSL_ERROR, false)) {
+        if (preferences.getBoolean(PREF_KEY_IGNORE_SSL_ERROR, false)) {
             network.client.newBuilder().ignoreAllSSLErrors()
         } else {
             network.client.newBuilder().addInterceptor(::checkSSLErrorInterceptor)
-        }
-        builder.addInterceptor { chain ->
-            val request = chain.request().newBuilder()
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .build()
-            chain.proceed(request)
         }.addInterceptor(::updateFiltersInterceptor).build()
     }
 
