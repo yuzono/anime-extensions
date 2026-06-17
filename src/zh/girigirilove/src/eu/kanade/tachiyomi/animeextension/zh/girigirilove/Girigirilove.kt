@@ -16,7 +16,6 @@ import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -45,23 +44,14 @@ class Girigirilove :
     private val selectedVideoLanguage
         get() = preferences.getString(PREF_KEY_VIDEO_LANGUAGE, DEFAULT_VIDEO_LANGUAGE) ?: DEFAULT_VIDEO_LANGUAGE
 
-    private val mediaUserAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
     private val noRefererMediaHeaders by lazy {
-        Headers.headersOf(
-            "User-Agent",
-            mediaUserAgent,
-        )
+        headers.newBuilder()
+            .removeAll("Referer")
+            .build()
     }
 
     private val siteRefererMediaHeaders by lazy {
-        Headers.headersOf(
-            "Referer",
-            "$baseUrl/",
-            "User-Agent",
-            mediaUserAgent,
-        )
+        headers
     }
 
     private val videoResolver by lazy {
