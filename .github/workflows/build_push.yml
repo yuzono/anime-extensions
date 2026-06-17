@@ -107,7 +107,7 @@ jobs:
           distribution: temurin
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
           cache-read-only: ${{ matrix.chunk.number > 1 }}
 
@@ -144,7 +144,7 @@ jobs:
   publish:
     name: Publish extension repo
     needs: [prepare, build]
-    if: github.repository == 'yuzono/anime-extensions'
+    if: always() && github.repository == 'yuzono/anime-extensions'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
