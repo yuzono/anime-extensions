@@ -1,0 +1,12 @@
+ext {
+    extName = 'Girigirilove'
+    extClass = '.Girigirilove'
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation("com.github.NanoHttpd.nanohttpd:nanohttpd:-SNAPSHOT")
+}
