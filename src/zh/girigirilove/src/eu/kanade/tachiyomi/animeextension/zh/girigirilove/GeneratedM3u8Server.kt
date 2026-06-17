@@ -113,6 +113,10 @@ class GirigiriloveVideoResolver(
             firstMissing *= 2
         }
 
+        if (lastExisting >= MAX_SEGMENT_PROBE) {
+            return lastExisting + 1
+        }
+
         while (lastExisting + 1 < firstMissing) {
             val middle = (lastExisting + firstMissing) / 2
             if (urlExists(tsSegmentUrl(segmentBaseUrl, middle), headers)) {

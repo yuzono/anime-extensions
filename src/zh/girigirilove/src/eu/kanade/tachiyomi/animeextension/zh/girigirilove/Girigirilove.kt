@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 
 class Girigirilove :
     AnimeHttpSource(),
@@ -56,7 +57,11 @@ class Girigirilove :
 
     private val videoResolver by lazy {
         GirigiriloveVideoResolver(
-            client = client,
+            client = client.newBuilder()
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS)
+                .writeTimeout(3, TimeUnit.SECONDS)
+                .build(),
             generatedM3u8Server = generatedM3u8Server,
             headerCandidates = listOf(noRefererMediaHeaders, siteRefererMediaHeaders),
         )
@@ -101,6 +106,29 @@ class Girigirilove :
             url.startsWith("//") -> "https:$url"
             else -> baseUrl.toHttpUrl().resolve(url)?.toString() ?: url
         }
+    }
+
+    private fun extractPlayerJson(script: String): String? {
+        val jsonStart = script.indexOf('{', script.indexOf("player_aaaa=").takeIf { it >= 0 } ?: return null)
+            .takeIf { it >= 0 } ?: return null
+        var depth = 0
+        var inString = false
+        var escaped = false
+
+        for (index in jsonStart until script.length) {
+            val char = script[index]
+            when {
+                escaped -> escaped = false
+                inString && char == '\\' -> escaped = true
+                char == '"' -> inString = !inString
+                !inString && char == '{' -> depth++
+                !inString && char == '}' -> {
+                    depth--
+                    if (depth == 0) return script.substring(jsonStart, index + 1)
+                }
+            }
+        }
+        return null
     }
 
     // ===== Popular Anime ==========================================================================
@@ -227,7 +255,7 @@ class Girigirilove :
         val script = document.select("script:containsData(player_aaaa)").firstOrNull()?.data()
             ?: return emptyList()
 
-        val info = script.substringAfter("player_aaaa=").let { json.parseToJsonElement(it) }
+        val info = extractPlayerJson(script)?.let { json.parseToJsonElement(it) } ?: return emptyList()
         val encodedUrl = info.jsonObject["url"]?.jsonPrimitive?.content ?: return emptyList()
         val encrypt = info.jsonObject["encrypt"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
 
