@@ -5,28 +5,16 @@ import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.SourceResponseDto
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 
-/**
- * Wraps extraction results with a flag indicating whether the extracted
- * stream uses fake bytes (junk prefix on segment responses) and therefore
- * needs to be proxied through the local M3U8 server.
- *
- * - getSources API  → requiresProxy = false (clean segments)
- * - getSourcesNew API → requiresProxy = true  (252 fake bytes per segment)
- * - mewcdn player (Kiwi) → requiresProxy = true (ibyteimg.com CDN)
- * - direct m3u8 / page scrape → requiresProxy = false
- */
 private data class ExtractionResult(
     val videos: List<Video>,
     val requiresProxy: Boolean,
@@ -61,11 +49,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
     private suspend fun fetchMapperServers(episode: SEpisode): List<AnikotoTheme.VideoData> {
         val epUrlStr = episode.url
         val malId = epUrlStr.substringAfter("&mal=", "").substringBefore("&")
-            .takeIf { it.isNotBlank() } ?: return emptyList()
+            .takeIf { it.isNotEmpty() } ?: return emptyList()
         val slug = epUrlStr.substringAfter("&slug=", "").substringBefore("&")
-            .takeIf { it.isNotBlank() } ?: return emptyList()
+            .takeIf { it.isNotEmpty() } ?: return emptyList()
         val ts = epUrlStr.substringAfter("&ts=", "").substringBefore("&")
-            .takeIf { it.isNotBlank() } ?: return emptyList()
+            .takeIf { it.isNotEmpty() } ?: return emptyList()
 
         val apiUrl = "${theme.mapperUrl}/mal/$malId/$slug/$ts"
 
@@ -77,7 +65,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             }.build()
 
             theme.client.newCall(GET(apiUrl, mapperHeaders)).awaitSuccess().use { apiResponse ->
-                val mapperJson = apiResponse.parseAs<JsonObject>()
+                val mapperJson = apiResponse.parseAs<Map<String, MapperServerDto?>>()
 
                 mapperJson.keys
                     .filter { !it.equals("status", true) }
@@ -88,30 +76,18 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
                 val servers = mutableListOf<AnikotoTheme.VideoData>()
 
-                for ((key, value) in mapperJson) {
+                for ((key, serverDto) in mapperJson) {
                     if (key.equals("status", true)) continue
-                    val obj = try {
-                        value.jsonObject
-                    } catch (_: Exception) {
-                        continue
-                    }
-
                     val serverName = theme.mapMapperServerName(key)
 
-                    listOf("sub", "dub").forEach { typeKey ->
-                        val typeObj = try {
-                            obj[typeKey]?.jsonObject
-                        } catch (_: Exception) {
-                            null
+                    listOf("sub" to "H-Sub", "dub" to "A-Dub").forEach { (typeKey, typeLabel) ->
+                        val linkDto = when (typeKey) {
+                            "sub" -> serverDto?.sub
+                            "dub" -> serverDto?.dub
+                            else -> null
                         } ?: return@forEach
 
-                        val linkId = typeObj["url"]?.jsonPrimitive?.content ?: return@forEach
-
-                        val typeLabel = when (typeKey) {
-                            "sub" -> "H-Sub"
-                            "dub" -> "A-Dub"
-                            else -> typeKey.replaceFirstChar { it.uppercase() }
-                        }
+                        val linkId = linkDto.url
 
                         if (!theme.hostToggle.contains(serverName)) return@forEach
                         if (!theme.isTypeEnabled(typeLabel, theme.typeToggle)) return@forEach
@@ -144,9 +120,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                 extractFromPlayer(embedLink, server)
         }
 
-        // Proxy is needed when:
-        // - The extraction itself determined fake bytes are present (getSourcesNew / mewcdn)
-        // - The server is known to always use fake bytes (Kiwi, VidPlay)
         val needsProxy = result.requiresProxy || theme.alwaysNeedsProxy(server.serverName)
 
         if (needsProxy) proxyVideoList(result.videos) else result.videos
@@ -198,8 +171,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
 
         val jsVarUrl = JS_VAR_M3U8_REGEX.find(pageBody)?.let { match ->
-            match.groupValues.getOrNull(1)?.takeIf(String::isNotBlank)
-                ?: match.groupValues.getOrNull(2)?.takeIf(String::isNotBlank)
+            match.groupValues.getOrNull(1)?.takeIf(String::isNotEmpty)
+                ?: match.groupValues.getOrNull(2)?.takeIf(String::isNotEmpty)
         }
         if (jsVarUrl != null) {
             val resolvedUrl = resolveUrl(jsVarUrl, embedUrl)
@@ -236,11 +209,9 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             add("Origin", "https://$host")
         }.build()
 
-        // fetchSourceData returns (data, usedGetSourcesNew).
-        // usedGetSourcesNew = true means the stream has fake bytes, needing proxy.
         val (data, usedGetSourcesNew) = fetchSourceData(dataId, host, apiHeaders, streamType)
 
-        val m3u8 = theme.extractM3u8FromSources(data.sources)?.takeIf { it.startsWith("http") }
+        val m3u8 = data.sources.takeIf { it.startsWith("http") }
             ?: throw Exception("No valid m3u8 found")
 
         val subtitles = data.tracks
@@ -249,7 +220,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .orEmpty()
 
         val displayName = theme.getServerDisplayName(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
+        val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
 
         val vidHeaders = theme.headers.newBuilder()
             .set("Referer", "https://$host/")
@@ -270,56 +241,37 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return ExtractionResult(videos, usedGetSourcesNew)
     }
 
-    /**
-     * Fetches source data from the player API.
-     *
-     * Returns a [Pair] of (source data, usedGetSourcesNew):
-     * - Tries `getSources` first → no fake bytes → requiresProxy = false
-     * - Falls back to `getSourcesNew` → fake bytes → requiresProxy = true
-     *
-     * The fake-bytes distinction is critical: `getSources` returns clean CDN URLs
-     * (e.g. streamzone1.site) that must NOT be proxied, while `getSourcesNew`
-     * returns URLs whose segments have 252 junk bytes that the M3U8 server's
-     * JunkBytesInterceptor must strip.
-     */
     private suspend fun fetchSourceData(
         dataId: String,
         host: String,
         apiHeaders: Headers,
         streamType: String,
     ): Pair<SourceResponseDto, Boolean> {
-        // Primary: getSources (clean, no fake bytes)
         val primaryResult = try {
-            val body = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders))
-                .awaitSuccess().use {
-                    if (!it.isSuccessful) throw Exception("getSources failed: HTTP ${it.code}")
-                    it.body.string()
+            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders))
+                .awaitSuccess().use { response ->
+                    if (!response.isSuccessful) throw Exception("getSources failed: HTTP ${response.code}")
+                    response.parseAs<SourceResponseDto>()
                 }
-            val data = body.parseAs<SourceResponseDto>()
-            val m3u8 = theme.extractM3u8FromSources(data.sources)
-            if (m3u8 != null && !isBrokenM3u8Host(m3u8)) {
-                data to false
-            } else {
-                null
-            }
+            val m3u8 = data.sources
+            if (!isBrokenM3u8Host(m3u8)) data to false else null
         } catch (_: Exception) {
             null
         }
 
         if (primaryResult != null) return primaryResult
 
-        // Fallback: getSourcesNew (fake bytes, needs proxy)
-        val newUrl = if (streamType.isNotBlank()) {
+        val newUrl = if (streamType.isNotEmpty()) {
             "https://$host/stream/getSourcesNew?id=$dataId&type=$streamType"
         } else {
             "https://$host/stream/getSourcesNew?id=$dataId"
         }
 
         val data = theme.client.newCall(GET(newUrl, apiHeaders))
-            .awaitSuccess().use {
-                if (!it.isSuccessful) throw Exception("getSourcesNew failed: HTTP ${it.code}")
-                it.body.string()
-            }.parseAs<SourceResponseDto>()
+            .awaitSuccess().use { response ->
+                if (!response.isSuccessful) throw Exception("getSourcesNew failed: HTTP ${response.code}")
+                response.parseAs<SourceResponseDto>()
+            }
 
         return data to true
     }
@@ -363,7 +315,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         referer: String = "${theme.baseUrl}/",
     ): ExtractionResult {
         val displayName = theme.getServerDisplayName(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
+        val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
 
         val vidHeaders = theme.headers.newBuilder()
             .set("Referer", referer)
@@ -383,7 +335,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
     }
 
     private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: AnikotoTheme.VideoData): ExtractionResult {
-        val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotBlank() }
+        val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
             ?: throw Exception("No fragment found in mewcdn player URL")
 
         val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
@@ -402,7 +354,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         val m3u8 = applyHostMap(rawM3u8, hostMap)
 
         val displayName = theme.getServerDisplayName(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
+        val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
 
         val vidHeaders = theme.headers.newBuilder()
             .set("Referer", "https://mewcdn.online/")
@@ -419,12 +371,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoHeaders = vidHeaders,
         )
 
-        // Mewcdn player (Kiwi-Stream) serves segments from ibyteimg.com/tiktokcdn.com
-        // which always have 252 fake bytes
         return ExtractionResult(videos, true)
     }
-
-    // ========================== M3U8 Server Proxy ==========================
 
     private suspend fun proxyVideoList(videos: List<Video>): List<Video> {
         if (!theme.m3u8ServerManager.isRunning()) {
@@ -455,8 +403,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         Log.e("AnikotoExtractor", "Proxy process failed: ${e.message}")
         null
     }
-
-    // =========================== URL Helpers ============================
 
     private fun parseHostMap(html: String): Map<String, String> {
         val mapMatch = HOST_MAP_REGEX.find(html) ?: return emptyMap()

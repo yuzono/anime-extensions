@@ -1,14 +1,23 @@
 package eu.kanade.tachiyomi.multisrc.anikototheme.dto
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
 @Serializable
 class ResultResponse(
-    val result: String,
+    private val result: String,
 ) {
     fun toDocument(): Document = Jsoup.parseBodyFragment(result)
 }
@@ -32,7 +41,7 @@ class SkipDataDto(
 
 @Serializable
 class SourceResponseDto(
-    val sources: JsonElement,
+    @Serializable(with = SourcesSerializer::class) val sources: String,
     val tracks: List<TrackDto>? = null,
 )
 
@@ -42,3 +51,36 @@ class TrackDto(
     val kind: String,
     val label: String,
 )
+
+@Serializable
+class MapperServerDto(
+    val sub: MapperLinkDto? = null,
+    val dub: MapperLinkDto? = null,
+)
+
+@Serializable
+class MapperLinkDto(
+    val url: String,
+)
+
+object SourcesSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor = JsonElement.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): String {
+        val element = (decoder as JsonDecoder).decodeJsonElement()
+        return when (element) {
+            is JsonObject -> element["file"]?.jsonPrimitive?.content
+            is JsonArray -> element.firstOrNull()?.let {
+                when (it) {
+                    is JsonObject -> it["file"]?.jsonPrimitive?.content
+                    is JsonPrimitive -> it.content
+                    else -> null
+                }
+            }
+            is JsonPrimitive -> element.content
+            else -> null
+        } ?: throw IllegalStateException("No valid m3u8 found in sources")
+    }
+
+    override fun serialize(encoder: Encoder, value: String): Unit = throw UnsupportedOperationException("Serialization not supported")
+}

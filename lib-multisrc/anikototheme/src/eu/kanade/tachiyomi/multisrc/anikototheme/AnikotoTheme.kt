@@ -28,20 +28,17 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.ResponseBody
+import okio.BufferedSource
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.math.BigDecimal
@@ -119,12 +116,13 @@ abstract class AnikotoTheme(
             if (!JUNK_URL_REGEX.containsMatchIn(request.url.toString())) return response
 
             val body = response.body
-            val bytes = body.bytes()
+            val source = body.source()
+            source.skip(STRIP_BYTES.toLong())
 
-            val newBody = if (bytes.size > STRIP_BYTES) {
-                bytes.copyOfRange(STRIP_BYTES, bytes.size).toResponseBody(body.contentType())
-            } else {
-                bytes.toResponseBody(body.contentType())
+            val newBody = object : ResponseBody() {
+                override fun contentType(): MediaType? = body.contentType()
+                override fun contentLength(): Long = body.contentLength() - STRIP_BYTES
+                override fun source(): BufferedSource = source
             }
 
             return response.newBuilder().body(newBody).build()
@@ -163,7 +161,7 @@ abstract class AnikotoTheme(
 
     fun updateDiscoveredServers(rawNames: Collection<String>, isMapper: Boolean) {
         val newExact = rawNames.map { it.trim() }
-            .filter { it.isNotBlank() }
+            .filter { it.isNotEmpty() }
             .toSet()
         if (newExact.isEmpty()) return
 
@@ -176,7 +174,6 @@ abstract class AnikotoTheme(
                 }?.toMap() ?: emptyMap()
             ).toMutableMap()
 
-        // Update timestamps for newly seen servers
         newExact.forEach { serverTimestamps[it] = now }
 
         if (isMapper) {
@@ -186,7 +183,6 @@ abstract class AnikotoTheme(
                 preferences.edit().putStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, mergedMapper).apply()
             }
         } else {
-            // Merge old cache with new exact names, then filter out stale ones
             val sevenDaysMillis = 7L * 24 * 60 * 60 * 1000
             val validHtmlServers = (discoveredHtmlServersCache!! + newExact).filter { server ->
                 val ts = serverTimestamps[server] ?: 0L
@@ -200,11 +196,9 @@ abstract class AnikotoTheme(
             }
         }
 
-        // Clean up timestamps map to prevent it from growing forever
         val currentValidServers = discoveredHtmlServersCache!! + discoveredMapperServersCache!!
         serverTimestamps.keys.retainAll(currentValidServers)
 
-        // Save updated timestamps
         preferences.edit().putStringSet(
             PREF_SERVER_TIMESTAMPS_KEY,
             serverTimestamps.map { "${it.key}|${it.value}" }.toSet(),
@@ -226,7 +220,7 @@ abstract class AnikotoTheme(
         }
 
     internal fun updateDiscoveredTypes(rawTypes: Collection<String>) {
-        val newTypes = rawTypes.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val newTypes = rawTypes.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         if (newTypes.isEmpty()) return
         val current = discoveredTypes
         val merged = current + newTypes
@@ -338,7 +332,7 @@ abstract class AnikotoTheme(
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = AnikotoThemeFilters.getSearchParameters(filters)
-        val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
+        val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("filter")
@@ -385,16 +379,16 @@ abstract class AnikotoTheme(
         return SAnime.create().apply {
             setUrlWithoutDomain(newDocument.location())
             if (!animeId.isNullOrBlank()) url += "#$animeId"
-            titleElement?.let { getTitle(it) }?.takeIf(String::isNotBlank)?.let { title = it }
+            titleElement?.let { getTitle(it) }?.takeIf { it.isNotEmpty() }?.let { title = it }
             genre = newDocument.select("div:contains(Genres) > span > a").joinToString { it.text() }
             author = newDocument.select("div:contains(Studios) > span > a").joinToString { it.text() }
             status = parseStatus(newDocument.select("div:contains(Status) > span").text())
             description = buildDescription(newDocument, titleElement)
 
-            if (detailThumbnailSelector.isNotBlank()) {
+            if (detailThumbnailSelector.isNotEmpty()) {
                 newDocument.selectFirst(detailThumbnailSelector)?.let { img ->
                     val url = img.attr("data-src").ifBlank { img.attr("src") }
-                    if (url.isNotBlank()) thumbnail_url = url
+                    if (url.isNotEmpty()) thumbnail_url = url
                 }
             }
         }
@@ -405,7 +399,7 @@ abstract class AnikotoTheme(
     override fun relatedAnimeListRequest(anime: SAnime): Request {
         val animeUrl = anime.url.substringBefore("#")
         val animeId = anime.url.substringAfter("#", "")
-        return if (animeId.isNotBlank()) {
+        return if (animeId.isNotEmpty()) {
             GET(baseUrl + animeUrl, docHeaders).newBuilder()
                 .header("X-Anime-Id", animeId).build()
         } else {
@@ -537,9 +531,9 @@ abstract class AnikotoTheme(
             this.name = "Episode $epNum" + if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else ""
             this.url = buildString {
                 append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
-                if (malId.isNotBlank()) append("&mal=$malId")
-                if (slug.isNotBlank()) append("&slug=$slug")
-                if (timestamp.isNotBlank()) append("&ts=$timestamp")
+                if (malId.isNotEmpty()) append("&mal=$malId")
+                if (slug.isNotEmpty()) append("&slug=$slug")
+                if (timestamp.isNotEmpty()) append("&ts=$timestamp")
             }
             episode_number = epNum.toFloatOrNull() ?: 0f
             date_upload = DATE_FORMATTER.tryParse(RELEASE_REGEX.find(title)?.groupValues?.get(1))
@@ -661,15 +655,15 @@ abstract class AnikotoTheme(
     protected open fun vrfEncrypt(input: String): String = utils.vrfEncrypt(input)
 
     protected open fun buildDescription(document: Document, titleElement: Element?): String = buildString {
-        val enTitle = titleElement?.text()?.takeIf(String::isNotBlank)
-        val jpTitle = titleElement?.attr("data-jp")?.trim()?.takeIf(String::isNotBlank)
+        val enTitle = titleElement?.text()?.takeIf { it.isNotEmpty() }
+        val jpTitle = titleElement?.attr("data-jp")?.trim()?.takeIf { it.isNotEmpty() }
         val malScore = document.select("$metaContainerSelector div.meta > div").firstOrNull {
             it.ownText().removeSuffix(":").equals(scoreLabelName, ignoreCase = true)
         }?.select("span")?.text()
 
         val fancyScore = getFancyScore(malScore)
 
-        if (scorePosition == SCORE_POS_TOP && fancyScore.isNotBlank()) appendLine(fancyScore).appendLine()
+        if (scorePosition == SCORE_POS_TOP && fancyScore.isNotEmpty()) appendLine(fancyScore).appendLine()
 
         document.selectFirst(synopsisContentSelector)?.text()?.let {
             appendLine(it).appendLine()
@@ -681,7 +675,7 @@ abstract class AnikotoTheme(
             if (label.equals("Duration", ignoreCase = true)) {
                 value.filter { it.isDigit() }.takeIf { it.isNotEmpty() }?.let { value = "$it min" }
             }
-            if (label.isNotBlank() && value.isNotBlank() && label !in metaExclusionLabels) {
+            if (label.isNotEmpty() && value.isNotEmpty() && label !in metaExclusionLabels) {
                 "$label: $value"
             } else {
                 null
@@ -694,19 +688,19 @@ abstract class AnikotoTheme(
         val producers = document.select("div:contains(Producers) > span > a").joinToString { it.text() }
 
         when {
-            studios.isNotBlank() && producers.isNotBlank() -> appendLine("**Studio:** $studios (**Producers:** $producers)").appendLine()
-            studios.isNotBlank() -> appendLine("**Studio:** $studios").appendLine()
-            producers.isNotBlank() -> appendLine("**Producers:** $producers").appendLine()
+            studios.isNotEmpty() && producers.isNotEmpty() -> appendLine("**Studio:** $studios (**Producers:** $producers)").appendLine()
+            studios.isNotEmpty() -> appendLine("**Studio:** $studios").appendLine()
+            producers.isNotEmpty() -> appendLine("**Producers:** $producers").appendLine()
         }
 
         val altNames = mutableListOf<String>()
         if (useEnglish()) jpTitle?.let { altNames.add(it) } else enTitle?.let { altNames.add(it) }
-        document.selectFirst(aliasContainerSelector)?.text()?.takeIf { it.isNotBlank() }?.let { namesText ->
-            altNames.addAll(namesText.split(";").map { it.trim() }.filter { it.isNotBlank() && it != jpTitle && it != enTitle })
+        document.selectFirst(aliasContainerSelector)?.text()?.takeIf { it.isNotEmpty() }?.let { namesText ->
+            altNames.addAll(namesText.split(";").map { it.trim() }.filter { it.isNotEmpty() && it != jpTitle && it != enTitle })
         }
         if (altNames.isNotEmpty()) appendLine("**Other name(s):** ${altNames.joinToString()}").appendLine()
 
-        if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotBlank()) append(fancyScore)
+        if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) append(fancyScore)
     }.trim()
 
     protected open fun resolveSearchAnime(document: Document): Document {
@@ -755,14 +749,14 @@ abstract class AnikotoTheme(
         val typeElements = document.select("div.servers > div.type")
 
         val allTypes = typeElements.mapNotNull { elem ->
-            resolveTypeLabel(elem).takeIf { it.isNotBlank() && it != "Unknown" }
+            resolveTypeLabel(elem).takeIf { it.isNotEmpty() && it != "Unknown" }
         }.toSet()
         updateDiscoveredTypes(allTypes)
 
         typeElements.flatMap { elem ->
             elem.select("li")
                 .filter { !it.hasClass("download-icon") }
-                .mapNotNull { it.text().takeIf(String::isNotBlank) }
+                .mapNotNull { it.text().takeIf { it.isNotEmpty() } }
         }.also { updateDiscoveredServers(it, isMapper = false) }
 
         val effectiveTypeToggle = typeToggle
@@ -777,7 +771,7 @@ abstract class AnikotoTheme(
                 if (serverElement.hasClass("download-icon")) return@mapNotNull null
 
                 val serverId = serverElement.attr("data-link-id")
-                if (serverId.isBlank()) return@mapNotNull null
+                if (serverId.isEmpty()) return@mapNotNull null
 
                 val serverName = serverElement.text()
 
@@ -791,19 +785,6 @@ abstract class AnikotoTheme(
     open fun getServerDisplayName(serverName: String): String = serverName.trimEnd('-', ' ')
 
     protected open fun extractRelatedThumbnail(element: Element): String? = element.selectFirst("img")?.attr("src")
-
-    internal open fun extractM3u8FromSources(sources: JsonElement): String? = when (sources) {
-        is JsonObject -> sources["file"]?.jsonPrimitive?.content
-        is JsonArray -> sources.firstOrNull()?.let {
-            when (it) {
-                is JsonObject -> it["file"]?.jsonPrimitive?.content
-                is JsonPrimitive -> it.content
-                else -> null
-            }
-        }
-        is JsonPrimitive -> sources.content
-        else -> null
-    }
 
     internal open fun mapMapperServerName(key: String): String = when {
         key.equals("gogoanime", true) -> "Vidstream"
@@ -822,8 +803,8 @@ abstract class AnikotoTheme(
     // ============================ Shared Utilities ========================
 
     protected open fun getTitle(element: Element): String {
-        val enTitle = element.text().takeIf(String::isNotBlank)
-        val jpTitle = element.attr("data-jp").trim().takeIf(String::isNotBlank)
+        val enTitle = element.text().takeIf { it.isNotEmpty() }
+        val jpTitle = element.attr("data-jp").trim().takeIf { it.isNotEmpty() }
         return if (useEnglish()) {
             enTitle ?: jpTitle ?: element.text()
         } else {
