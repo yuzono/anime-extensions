@@ -1,7 +1,7 @@
 ext {
     extName = 'Animetsu'
     extClass = '.Animetsu'
-    extVersionCode = 5
+    extVersionCode = 6
     isNsfw = true
 }
 
@@ -9,4 +9,5 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:m3u8server"))
 }

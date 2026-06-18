@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.animetsu
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.m3u8server.M3u8ServerManager
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -18,13 +20,14 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.delay
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
@@ -48,6 +51,20 @@ class Animetsu :
     override val lang = "all"
 
     override val supportsLatest = true
+
+    // Custom client to avoid HTTP/2 stream timeout and allow longer reads
+    private val m3u8Client by lazy {
+        client.newBuilder()
+            .readTimeout(30, TimeUnit.SECONDS)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .build()
+    }
+
+    // M3u8ServerManager uses the m3u8Client to ensure the local server also fetches segments via HTTP/1.1
+    private val m3u8ServerManager by lazy { M3u8ServerManager(m3u8Client) }
+
+    // PlaylistUtils uses m3u8Client for HTTP/1.1 and to handle potential garbage prefix in responses
+    private val playlistUtils by lazy { PlaylistUtils(m3u8Client) }
 
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
@@ -94,16 +111,26 @@ class Animetsu :
     private val showTrailer: Boolean
         get() = preferences.getBoolean(PREF_SHOW_TRAILER_KEY, PREF_SHOW_TRAILER_DEFAULT)
 
+    private val showBanner: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_BANNER_KEY, PREF_SHOW_BANNER_DEFAULT)
+
     private val showEpStats: Boolean
         get() = preferences.getBoolean(PREF_SHOW_EP_STATS_KEY, PREF_SHOW_EP_STATS_DEFAULT)
 
-    private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = Headers.Builder()
-        .add("Accept", "application/json, text/plain, */*")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Referer", referer)
-        .add("Sec-Fetch-Dest", "empty")
-        .add("Sec-Fetch-Mode", "cors")
-        .add("Sec-Fetch-Site", "same-origin")
+    private fun apiHeaders(referer: String = "$baseUrl/browse"): Headers = headersBuilder()
+        .set("Accept", "application/json, text/plain, */*")
+        .set("Accept-Language", "en-US,en;q=0.9")
+        .set("Referer", referer)
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "same-origin")
+        .build()
+
+    // Builds video headers from API headers, overriding only the specific fields needed for video streams
+    private fun videoHeaders(referer: String = "$baseUrl/"): Headers = apiHeaders(referer).newBuilder()
+        .set("Accept", "*/*")
+        .set("Sec-Fetch-Site", "cross-site")
+        .set("Origin", baseUrl)
         .build()
 
     private val rateLimit = 5
@@ -125,7 +152,7 @@ class Animetsu :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuRecentDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
 
         return AnimesPage(animes, dto.currentPage < dto.lastPage)
     }
@@ -166,7 +193,7 @@ class Animetsu :
     override fun searchAnimeParse(response: Response): AnimesPage {
         val dto = response.parseAs<AnimetsuSearchDto>()
         val filteredResults = if (hideAdult) dto.results.filter { !it.isAdult } else dto.results
-        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags) }
+        val animes = filteredResults.mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
 
         return AnimesPage(animes, dto.page < dto.lastPage)
     }
@@ -187,7 +214,9 @@ class Animetsu :
             showRelations = showRelations,
             showTrackers = showTrackers,
             showTrailer = showTrailer,
+            showBanner = showBanner,
         ),
+        baseUrl = baseUrl,
     )!!
 
     // ============================== Related ===============================
@@ -264,17 +293,16 @@ class Animetsu :
         val allServers = serverResponse.parseAs<List<AnimetsuServerDto>>()
 
         val servers = allServers
-            .filter { server -> server.id !in excludedHosts }
-            .sortedByDescending { server -> server.id == preferredServer }
+            .filter { server -> server.id.lowercase() !in excludedHosts }
+            .sortedByDescending { server -> server.id.equals(preferredServer, ignoreCase = true) }
 
         val sortedAudioTypes = enabledAudioTypes
             .sortedByDescending { type -> type == preferredAudioType }
 
-        val playlistUtils = PlaylistUtils(client, apiHeaders(watchReferer))
-
         return servers.parallelFlatMap { server ->
             sortedAudioTypes.parallelCatchingFlatMap { sourceType ->
                 val audioLabel = sourceType.uppercase()
+
                 val sourceResponse = client.newCall(
                     GET("$apiUrl/anime/oppai/$animeId/$epNum?server=${server.id}&source_type=$sourceType", apiHeaders(watchReferer)),
                 ).awaitSuccess()
@@ -285,12 +313,19 @@ class Animetsu :
                 }.orEmpty()
 
                 val subLabel = when (server.id.lowercase()) {
-                    "baku", "dio", "meg" -> " [Hard Subs]"
-                    "kite" -> " [Soft Subs]"
+                    "sage", "dio", "meg" -> "[Hard Subs]"
+                    "kite" -> "[Soft Subs]"
                     else -> ""
                 }
 
-                dto.sources.flatMapCatching { source ->
+                val hlsNameGen: (String) -> String = { quality ->
+                    val cleanQuality = quality.substringBefore(" ").let { q ->
+                        if (q.endsWith("P")) q.lowercase() else q
+                    }
+                    "${server.id.uppercase()}: $cleanQuality ($audioLabel) $subLabel"
+                }
+
+                dto.sources.parallelCatchingFlatMap { source ->
                     val fullUrl = when {
                         source.needProxy -> "$proxyUrl${source.url}"
                         source.url.startsWith("http") -> source.url
@@ -299,25 +334,19 @@ class Animetsu :
 
                     when {
                         source.type?.contains("mp4") == true ->
-                            Video(
-                                fullUrl,
-                                "${server.id.uppercase()}: ${source.quality} ($audioLabel)$subLabel",
-                                fullUrl,
-                                apiHeaders(watchReferer),
-                                subtitleTracks,
-                            ).let(::listOf)
-                        source.type?.contains("mpegurl") == true ->
-                            playlistUtils.extractFromHls(
-                                playlistUrl = fullUrl,
-                                videoNameGen = { quality ->
-                                    val cleanQuality = quality.substringBefore(" ").let { q ->
-                                        if (q.endsWith("P")) q.lowercase() else q
-                                    }
-                                    "${server.id.uppercase()}: $cleanQuality ($audioLabel)$subLabel"
-                                },
-                                referer = "$baseUrl/",
-                                subtitleList = subtitleTracks,
+                            listOf(
+                                Video(
+                                    fullUrl,
+                                    "${server.id.uppercase()}: ${source.quality} ($audioLabel) $subLabel",
+                                    fullUrl,
+                                    videoHeaders(watchReferer),
+                                    subtitleTracks,
+                                ),
                             )
+
+                        source.type?.contains("mpegurl") == true ->
+                            processHls(fullUrl, hlsNameGen, watchReferer, subtitleTracks)
+
                         else -> emptyList()
                     }
                 }
@@ -331,14 +360,12 @@ class Animetsu :
     override fun List<Video>.sort(): List<Video> {
         val quality = preferredQuality
         val server = preferredServer
-        val type = preferredAudioType
         val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
 
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(quality) }
                 .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
-                .thenByDescending { it.quality.contains(server, true) }
-                .thenByDescending { it.quality.contains(type, true) },
+                .thenByDescending { it.quality.contains(server, true) },
         )
     }
 
@@ -465,6 +492,13 @@ class Animetsu :
         )
 
         screen.addSwitchPreference(
+            key = PREF_SHOW_BANNER_KEY,
+            title = "Show Banner",
+            summary = "Shows anime banner image in description.",
+            default = PREF_SHOW_BANNER_DEFAULT,
+        )
+
+        screen.addSwitchPreference(
             key = PREF_SHOW_EP_STATS_KEY,
             title = "Show Episode Stats",
             summary = "Shows Views, Likes, and Dislikes in the scanlator field.",
@@ -473,6 +507,74 @@ class Animetsu :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Fetches and parses HLS playlists using PlaylistUtils with m3u8Client (HTTP/1.1),
+     * then enforces local M3U8 server proxying for all extracted videos.
+     *
+     * PlaylistUtils' parsing naturally handles any garbage prefix before the actual M3U8
+     * content since it uses `substringAfter("#EXT-X-STREAM-INF:")` internally.
+     */
+    private suspend fun processHls(
+        fullUrl: String,
+        videoNameGen: (String) -> String,
+        watchReferer: String,
+        subtitleTracks: List<Track>,
+    ): List<Video> {
+        val vidHeaders = videoHeaders(watchReferer)
+
+        val videos = playlistUtils.extractFromHls(
+            playlistUrl = fullUrl,
+            referer = watchReferer,
+            masterHeaders = vidHeaders,
+            videoHeaders = vidHeaders,
+            videoNameGen = videoNameGen,
+            subtitleList = subtitleTracks,
+        )
+
+        // ENFORCE M3U8 SERVER: proxy through local server, drop if it fails
+        return videos.mapNotNull { video ->
+            val processedUrl = getProcessedM3u8Url(video.url) ?: return@mapNotNull null
+            Video(
+                url = processedUrl,
+                quality = video.quality,
+                videoUrl = processedUrl,
+                headers = video.headers,
+                subtitleTracks = video.subtitleTracks,
+                audioTracks = video.audioTracks,
+            )
+        }
+    }
+
+    /**
+     * Enforces M3u8 Server with retry mechanism.
+     * If the server fails to start or process, it restarts and tries again up to 3 times.
+     * Returns null so the video gets strictly dropped.
+     */
+    private suspend fun getProcessedM3u8Url(originalUrl: String): String? {
+        repeat(3) { attempt ->
+            try {
+                if (!m3u8ServerManager.isRunning()) {
+                    m3u8ServerManager.startServer()
+                    delay(200L)
+                }
+
+                val processedUrl = m3u8ServerManager.processM3u8Url(originalUrl)
+                if (processedUrl != null) return processedUrl
+
+                Log.w("Animetsu", "M3U8 server process returned null on attempt ${attempt + 1}, restarting...")
+                m3u8ServerManager.stopServer()
+                delay(500L)
+            } catch (e: Exception) {
+                Log.e("Animetsu", "M3U8 server start failed on attempt ${attempt + 1}: ${e.message}")
+                m3u8ServerManager.stopServer()
+                delay(500L)
+            }
+        }
+
+        Log.e("Animetsu", "M3U8 server failed to process URL after 3 attempts. Dropping video to prevent cubes.")
+        return null
+    }
 
     private fun SharedPreferences.clearOldPrefs() {
         val hostExclusion = getStringSet(PREF_HOSTER_EXCLUDE_KEY, PREF_HOSTER_EXCLUDE_DEFAULT)!!
@@ -505,13 +607,13 @@ class Animetsu :
 
         private const val PREF_PREFERRED_SERVER_KEY = "preferred_server"
         private const val PREF_PREFERRED_SERVER_DEFAULT = "none"
-        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
-        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "baku", "dio", "meg", "kite")
+        private val PREF_PREFERRED_SERVER_ENTRIES = listOf("None", "Sage - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val PREF_PREFERRED_SERVER_VALUES = listOf("none", "sage", "dio", "meg", "kite")
 
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
-        private val SERVER_ENTRIES = listOf("Baku - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
-        private val SERVER_VALUES = listOf("baku", "dio", "meg", "kite")
+        private val SERVER_ENTRIES = listOf("Sage - Multi Quality", "Dio - Multi Quality", "Meg - Multi Quality", "Kite - Multi Quality")
+        private val SERVER_VALUES = listOf("sage", "dio", "meg", "kite")
 
         private const val PREF_PREFERRED_AUDIO_TYPE_KEY = "preferred_audio_type"
         private const val PREF_PREFERRED_AUDIO_TYPE_DEFAULT = "none"
@@ -548,6 +650,8 @@ class Animetsu :
         private const val PREF_SHOW_TRAILER_DEFAULT = true
         private const val PREF_SHOW_EP_STATS_KEY = "show_ep_stats"
         private const val PREF_SHOW_EP_STATS_DEFAULT = true
+        private const val PREF_SHOW_BANNER_KEY = "show_banner"
+        private const val PREF_SHOW_BANNER_DEFAULT = true
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING
