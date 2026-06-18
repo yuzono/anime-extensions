@@ -267,7 +267,7 @@ class Rezka :
     }
 
     private fun String.parseQuality(): Int? {
-        Regex("""(\d{3,4})\s*[pр]""").find(this)?.let { return it.groupValues[1].toIntOrNull() }
+        qualityRegex.find(this)?.let { return it.groupValues[1].toIntOrNull() }
         return when {
             contains("4K", ignoreCase = true) -> 2160
             contains("2K", ignoreCase = true) -> 1440
