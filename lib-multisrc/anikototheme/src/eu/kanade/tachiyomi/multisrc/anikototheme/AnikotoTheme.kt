@@ -51,7 +51,6 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
-import kotlin.getValue
 import kotlin.time.Duration.Companion.hours
 
 abstract class AnikotoTheme(
@@ -68,7 +67,16 @@ abstract class AnikotoTheme(
 
     protected val preferences by getPreferencesLazy { clearOldPrefs() }
 
-    override var baseUrl: String by preferences.delegate(PREF_DOMAIN_KEY, defaultBaseUrl)
+    override var baseUrl: String
+        get() = preferences.getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl
+        set(value) {
+            if (value == baseUrl) return
+            preferences.edit().putString(PREF_DOMAIN_KEY, value).apply()
+            docHeaders = headersBuilder().build()
+            client = network.client.newBuilder()
+                .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+                .build()
+        }
 
     private val domainValues = domainEntries.map { "https://$it" }
 
@@ -112,10 +120,13 @@ abstract class AnikotoTheme(
 
             val body = response.body
             val bytes = body.bytes()
-            if (bytes.size <= STRIP_BYTES) return response
 
-            val stripped = bytes.copyOfRange(STRIP_BYTES, bytes.size)
-            val newBody = stripped.toResponseBody(body.contentType())
+            val newBody = if (bytes.size > STRIP_BYTES) {
+                bytes.copyOfRange(STRIP_BYTES, bytes.size).toResponseBody(body.contentType())
+            } else {
+                bytes.toResponseBody(body.contentType())
+            }
+
             return response.newBuilder().body(newBody).build()
         }
 
@@ -126,23 +137,6 @@ abstract class AnikotoTheme(
         }
     }
 
-    /**
-     * Determine if a server ALWAYS needs proxying through the local M3U8 server,
-     * regardless of which API endpoint returned the stream.
-     *
-     * This covers servers that use fake-bytes CDNs unconditionally:
-     *   - Kiwi-Stream  (mewcdn player → ibyteimg.com/tiktokcdn.com segments)
-     *   - VidPlay      (always serves segments with 252 junk bytes)
-     *
-     * For all other servers, the proxy decision is made dynamically in
-     * [AnikotoExtractor] based on whether `getSourcesNew` (fake bytes) was
-     * used vs `getSources` (clean).
-     *
-     * Known clean streams that must NOT be proxied:
-     *   - streamzone1.site  (served by getSources from megaplay.buzz)
-     *   - vidtube.site      (served by getSources)
-     *   - vidwish.live      (served by getSources)
-     */
     internal open fun alwaysNeedsProxy(serverName: String): Boolean {
         val name = serverName.lowercase()
         if (name.contains("kiwi")) return true
@@ -152,31 +146,69 @@ abstract class AnikotoTheme(
 
     private val extractors by lazy { AnikotoExtractor(this) }
 
-    private var discoveredServersExactCache: Set<String>? = null
+    private var discoveredHtmlServersCache: Set<String>? = null
+    private var discoveredMapperServersCache: Set<String>? = null
 
     protected val discoveredServers: Set<String>
         get() {
-            if (discoveredServersExactCache == null) {
-                discoveredServersExactCache = preferences.getStringSet(PREF_DISCOVERED_SERVERS_EXACT_KEY, null)
-                    ?.takeIf { it.isNotEmpty() }
-                    ?: hosterNames.toSet()
+            if (discoveredHtmlServersCache == null) {
+                discoveredHtmlServersCache = preferences.getStringSet(PREF_DISCOVERED_HTML_SERVERS_KEY, null) ?: emptySet()
             }
-            return discoveredServersExactCache!!
+            if (discoveredMapperServersCache == null) {
+                discoveredMapperServersCache = preferences.getStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, null) ?: emptySet()
+            }
+            val merged = discoveredHtmlServersCache!! + discoveredMapperServersCache!!
+            return merged.ifEmpty { hosterNames.toSet() }
         }
 
-    fun updateDiscoveredServers(rawNames: Collection<String>) {
+    fun updateDiscoveredServers(rawNames: Collection<String>, isMapper: Boolean) {
         val newExact = rawNames.map { it.trim() }
             .filter { it.isNotBlank() }
             .toSet()
         if (newExact.isEmpty()) return
 
-        val current = discoveredServers
-        val merged = current + newExact
-        if (merged != current) {
-            discoveredServersExactCache = merged
-            preferences.edit().putStringSet(PREF_DISCOVERED_SERVERS_EXACT_KEY, merged).apply()
+        val now = System.currentTimeMillis()
+        val serverTimestamps = (
+            preferences.getStringSet(PREF_SERVER_TIMESTAMPS_KEY, null)
+                ?.mapNotNull { entry ->
+                    val parts = entry.split("|", limit = 2)
+                    if (parts.size == 2) parts[0] to parts[1].toLongOrNull() else null
+                }?.toMap() ?: emptyMap()
+            ).toMutableMap()
+
+        // Update timestamps for newly seen servers
+        newExact.forEach { serverTimestamps[it] = now }
+
+        if (isMapper) {
+            val mergedMapper = discoveredMapperServersCache!! + newExact
+            if (mergedMapper != discoveredMapperServersCache) {
+                discoveredMapperServersCache = mergedMapper
+                preferences.edit().putStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, mergedMapper).apply()
+            }
+        } else {
+            // Merge old cache with new exact names, then filter out stale ones
+            val sevenDaysMillis = 7L * 24 * 60 * 60 * 1000
+            val validHtmlServers = (discoveredHtmlServersCache!! + newExact).filter { server ->
+                val ts = serverTimestamps[server] ?: 0L
+                server in newExact || now - ts < sevenDaysMillis
+            }.toSet()
+
+            if (validHtmlServers != discoveredHtmlServersCache) {
+                discoveredHtmlServersCache = validHtmlServers
+                preferences.edit().putStringSet(PREF_DISCOVERED_HTML_SERVERS_KEY, validHtmlServers).apply()
+                cleanStaleExclusions(discoveredServers, PREF_HOSTER_EXCLUDE_KEY)
+            }
         }
-        cleanStaleExclusions(merged, PREF_HOSTER_EXCLUDE_KEY)
+
+        // Clean up timestamps map to prevent it from growing forever
+        val currentValidServers = discoveredHtmlServersCache!! + discoveredMapperServersCache!!
+        serverTimestamps.keys.retainAll(currentValidServers)
+
+        // Save updated timestamps
+        preferences.edit().putStringSet(
+            PREF_SERVER_TIMESTAMPS_KEY,
+            serverTimestamps.map { "${it.key}|${it.value}" }.toSet(),
+        ).apply()
     }
 
     protected open val seedTypes: Set<String> = setOf("Sub", "HSub", "Dub", "H-Sub", "A-Dub")
@@ -227,7 +259,7 @@ abstract class AnikotoTheme(
         else -> typeKey
     }
 
-    private val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
+    val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
 
     private val utils by lazy { AnikotoUtils() }
 
@@ -576,6 +608,8 @@ abstract class AnikotoTheme(
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
+    // ============================ Video Sort ==============================
+
     override fun List<Video>.sort(): List<Video> {
         val quality = prefQuality
         val preferredServer = prefServer
@@ -729,7 +763,7 @@ abstract class AnikotoTheme(
             elem.select("li")
                 .filter { !it.hasClass("download-icon") }
                 .mapNotNull { it.text().takeIf(String::isNotBlank) }
-        }.also { updateDiscoveredServers(it) }
+        }.also { updateDiscoveredServers(it, isMapper = false) }
 
         val effectiveTypeToggle = typeToggle
         val effectiveHostToggle = hostToggle
@@ -785,6 +819,8 @@ abstract class AnikotoTheme(
 
     fun Set<String>.contains(s: String, ignoreCase: Boolean): Boolean = any { it.equals(s, ignoreCase) }
 
+    // ============================ Shared Utilities ========================
+
     protected open fun getTitle(element: Element): String {
         val enTitle = element.text().takeIf(String::isNotBlank)
         val jpTitle = element.attr("data-jp").trim().takeIf(String::isNotBlank)
@@ -821,17 +857,17 @@ abstract class AnikotoTheme(
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
 
+    // ============================== Preferences ===========================
+
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         try {
             val domain = (getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl).removePrefix("https://")
             val invalidDomain = domain !in domainEntries
 
             val validServers = (
-                getStringSet(PREF_DISCOVERED_SERVERS_EXACT_KEY, null)
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.toSet()
-                    ?: hosterNames.toSet()
-                )
+                (getStringSet(PREF_DISCOVERED_HTML_SERVERS_KEY, null) ?: emptySet()) +
+                    (getStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, null) ?: emptySet())
+                ).takeIf { it.isNotEmpty() } ?: hosterNames.toSet()
 
             val oldHosterSelection = getStringSet("hoster_selection", null)?.toSet()
             if (oldHosterSelection != null) {
@@ -1012,8 +1048,12 @@ abstract class AnikotoTheme(
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
 
         private const val PREF_DISCOVERED_TYPES_KEY = "discovered_types"
-        private const val PREF_DISCOVERED_SERVERS_EXACT_KEY = "discovered_servers_exact"
+        private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"
+        private const val PREF_DISCOVERED_MAPPER_SERVERS_KEY = "discovered_mapper_servers"
+        private const val PREF_SERVER_TIMESTAMPS_KEY = "server_timestamps"
     }
+
+    // =============================== VRF ==================================
 
     private class AnikotoUtils {
         fun vrfEncrypt(input: String): String {

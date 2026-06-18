@@ -82,7 +82,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                 mapperJson.keys
                     .filter { !it.equals("status", true) }
                     .map { theme.mapMapperServerName(it) }
-                    .also { theme.updateDiscoveredServers(it) }
+                    .also { theme.updateDiscoveredServers(it, isMapper = true) }
 
                 theme.updateDiscoveredTypes(listOf("H-Sub", "A-Dub"))
 

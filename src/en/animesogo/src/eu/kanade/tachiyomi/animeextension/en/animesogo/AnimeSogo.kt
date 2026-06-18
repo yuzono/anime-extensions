@@ -63,8 +63,8 @@ class AnimeSogo :
         typeElements.flatMap { elem ->
             elem.select("a.server")
                 .mapNotNull { it.selectFirst("span")?.text()?.trim()?.takeIf(String::isNotBlank) }
-                .map { getServerDisplayName(it) } // Map to display name so exact names are saved
-        }.also { updateDiscoveredServers(it) }
+                .map { getServerDisplayName(it) }
+        }.also { updateDiscoveredServers(it, isMapper = false) }
 
         val effectiveTypeToggle = typeToggle
         val effectiveHostToggle = hostToggle
@@ -110,7 +110,7 @@ class AnimeSogo :
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
 
-        return GET(url, docHeaders)
+        return GET(url, docHeaders, cacheControl)
     }
 
     // =================== Thumbnail Override ==============================
