@@ -564,6 +564,14 @@ abstract class AnikotoTheme(
     override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val isServerInvalid = preferences.getBoolean(PREF_SERVER_INVALID_FLAG, false) ||
+            (prefServer.isNotEmpty() && prefServer !in discoveredServers && prefServer !in hosterNames)
+
+        if (isServerInvalid) {
+            preferences.edit().putBoolean(PREF_SERVER_INVALID_FLAG, true).apply()
+            throw Exception("The site's video servers have changed. Please open the extension settings to update your Preferred Server.")
+        }
+
         val response = client.newCall(videoListRequest(episode)).awaitSuccess()
         val referer = response.request.header("Referer")
         if (referer.isNullOrBlank()) return emptyList()
@@ -899,10 +907,7 @@ abstract class AnikotoTheme(
                     }
                     if (invalidPrefType) editor.putString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
                     if (invalidPrefServer) {
-                        editor.putString(
-                            PREF_SERVER_KEY,
-                            validServers.firstOrNull() ?: hosterNames.firstOrNull() ?: "",
-                        )
+                        editor.putBoolean(PREF_SERVER_INVALID_FLAG, true)
                     }
                 }.apply()
             }
@@ -913,6 +918,13 @@ abstract class AnikotoTheme(
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        if (preferences.getBoolean(PREF_SERVER_INVALID_FLAG, false)) {
+            preferences.edit()
+                .putBoolean(PREF_SERVER_INVALID_FLAG, false)
+                .putString(PREF_SERVER_KEY, discoveredServers.firstOrNull() ?: hosterNames.firstOrNull() ?: "")
+                .apply()
+        }
+
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
             title = "Preferred Domain"
@@ -1032,6 +1044,7 @@ abstract class AnikotoTheme(
         private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"
         private const val PREF_DISCOVERED_MAPPER_SERVERS_KEY = "discovered_mapper_servers"
         private const val PREF_SERVER_TIMESTAMPS_KEY = "server_timestamps"
+        private const val PREF_SERVER_INVALID_FLAG = "server_invalid_flag"
     }
 
     // =============================== VRF ==================================
