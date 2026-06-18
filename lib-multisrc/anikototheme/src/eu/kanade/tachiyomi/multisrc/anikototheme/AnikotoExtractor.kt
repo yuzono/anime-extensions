@@ -248,13 +248,12 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         streamType: String,
     ): Pair<SourceResponseDto, Boolean> {
         val primaryResult = try {
-            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId", apiHeaders))
+            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId&id=$dataId", apiHeaders))
                 .awaitSuccess().use { response ->
                     if (!response.isSuccessful) throw Exception("getSources failed: HTTP ${response.code}")
                     response.parseAs<SourceResponseDto>()
                 }
-            val m3u8 = data.sources
-            if (!isBrokenM3u8Host(m3u8)) data to false else null
+            data to false
         } catch (_: Exception) {
             null
         }
@@ -262,9 +261,9 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         if (primaryResult != null) return primaryResult
 
         val newUrl = if (streamType.isNotEmpty()) {
-            "https://$host/stream/getSourcesNew?id=$dataId&type=$streamType"
+            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId&type=$streamType&type=$streamType"
         } else {
-            "https://$host/stream/getSourcesNew?id=$dataId"
+            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId"
         }
 
         val data = theme.client.newCall(GET(newUrl, apiHeaders))
@@ -274,15 +273,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             }
 
         return data to true
-    }
-
-    private fun isBrokenM3u8Host(url: String): Boolean {
-        val host = try {
-            url.toHttpUrl().host
-        } catch (_: Exception) {
-            return false
-        }
-        return host.equals("cdn.mewstream.buzz", ignoreCase = true)
     }
 
     private suspend fun fetchSourcesFromPage(
