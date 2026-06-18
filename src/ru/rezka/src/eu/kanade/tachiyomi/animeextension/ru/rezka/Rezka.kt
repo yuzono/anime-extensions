@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ru.rezka
 
 import android.util.Base64
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -16,6 +14,8 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.useAsJsoup
@@ -403,57 +403,57 @@ class Rezka :
     // ─── Settings ─────────────────────────────────────────────────────────────
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = "Зеркало / Mirror"
-            entries = arrayOf(
+        screen.addListPreference(
+            key = PREF_DOMAIN_KEY,
+            default = PREF_DOMAIN_DEFAULT,
+            title = "Зеркало / Mirror",
+            summary = "%s\nПерезапустите приложение после смены.",
+            entries = listOf(
                 "rezka-ua.pub",
                 "hdrezka.me",
                 "omnirezka.tv",
                 "hello-rezka.tv",
                 "hdrezka.fi (только premium / вход)",
                 "Свой домен (указать ниже)",
-            )
-            entryValues = arrayOf(
+            ),
+            entryValues = listOf(
                 "https://rezka-ua.pub",
                 "https://hdrezka.me",
                 "https://omnirezka.tv",
                 "https://hello-rezka.tv",
                 "https://hdrezka.fi",
                 CUSTOM_DOMAIN,
-            )
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s\nПерезапустите приложение после смены."
-        }.also(screen::addPreference)
+            ),
+        )
 
-        EditTextPreference(screen.context).apply {
-            key = PREF_CUSTOM_DOMAIN_KEY
-            title = "Свой домен / Custom domain"
-            summary = "Используется, если выше выбрано «Свой домен». Напр. https://example.tv"
-            dialogTitle = "Свой домен"
-            setDefaultValue("")
-        }.also(screen::addPreference)
+        screen.addEditTextPreference(
+            key = PREF_CUSTOM_DOMAIN_KEY,
+            default = "",
+            title = "Свой домен / Custom domain",
+            summary = "Используется, если выше выбрано «Свой домен». Напр. https://example.tv",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_LATEST_KEY
-            title = "Раздел «Последние» / Latest tab"
-            entries = arrayOf("Последние", "Популярные", "Смотрят")
-            entryValues = arrayOf("last", "popular", "watching")
-            setDefaultValue(PREF_LATEST_DEFAULT)
-            summary = "%s"
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_LATEST_KEY,
+            default = PREF_LATEST_DEFAULT,
+            title = "Раздел «Последние» / Latest tab",
+            summary = "%s",
+            entries = listOf("Последние", "Популярные", "Смотрят"),
+            entryValues = listOf("last", "popular", "watching"),
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Предпочитаемое качество / Preferred quality"
-            entries = arrayOf("1080p", "720p", "480p", "360p")
-            entryValues = arrayOf("1080", "720", "480", "360")
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            default = PREF_QUALITY_DEFAULT,
+            title = "Предпочитаемое качество / Preferred quality",
+            summary = "%s",
+            entries = listOf("1080p", "720p", "480p", "360p"),
+            entryValues = listOf("1080", "720", "480", "360"),
+        )
     }
 
     companion object {
+        private val qualityRegex = Regex("""(\d{3,4})\s*[pр]""")
         private const val PREF_DOMAIN_KEY = "pref_domain_v2"
         private const val PREF_DOMAIN_DEFAULT = "https://hdrezka.me"
         private const val PREF_CUSTOM_DOMAIN_KEY = "pref_custom_domain"
