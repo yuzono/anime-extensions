@@ -1,51 +1,44 @@
 package eu.kanade.tachiyomi.multisrc.anikototheme.dto
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
-// ========================= Shared DTOs =========================
-
 @Serializable
-data class ResultResponse(
+class ResultResponse(
     val result: String,
 ) {
     fun toDocument(): Document = Jsoup.parseBodyFragment(result)
 }
 
-// ========================= Server List & Embed DTOs =========================
-
 @Serializable
-data class ServerResponseDto(
+class ServerResponseDto(
     val result: ServerResultDto,
 )
 
 @Serializable
-data class ServerResultDto(
+class ServerResultDto(
     val url: String,
+    @SerialName("skip_data") val skipData: SkipDataDto? = null,
 )
 
-// ========================= Video Source DTOs =========================
+@Serializable
+class SkipDataDto(
+    val intro: List<Int>? = null,
+    val outro: List<Int>? = null,
+)
 
 @Serializable
-data class SourceResponseDto(
+class SourceResponseDto(
     val sources: JsonElement,
     val tracks: List<TrackDto>? = null,
-    val intro: IntroOutroDto? = null,
-    val outro: IntroOutroDto? = null,
-    val server: Int? = null,
 )
 
 @Serializable
-data class TrackDto(
+class TrackDto(
     val file: String,
     val kind: String,
-    val label: String = "",
-)
-
-@Serializable
-data class IntroOutroDto(
-    val start: Int,
-    val end: Int,
+    val label: String,
 )

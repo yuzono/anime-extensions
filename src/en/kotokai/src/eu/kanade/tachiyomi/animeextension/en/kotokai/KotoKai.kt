@@ -12,5 +12,5 @@ class KotoKai :
             "animekai.se",
             "anikai.se",
         ),
-        hosterNames = listOf("HD", "Vidstream", "VidCloud", "Kiwi-Stream"), // seed/fallback only
+        hosterNames = listOf("HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream", "VidPlay-1"), // seed/fallback only
     )

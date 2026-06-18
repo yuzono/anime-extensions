@@ -15,5 +15,5 @@ class Anikoto :
             "anikoto.net",
             "anikototv.se",
         ),
-        hosterNames = listOf("HD", "Vidstream", "VidCloud", "Kiwi-Stream"),
+        hosterNames = listOf("HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream", "VidPlay-1"), // seed/fallback only
     )

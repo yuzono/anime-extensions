@@ -18,7 +18,7 @@ class AnimeSogo :
         domainEntries = listOf(
             "animesogo.to",
         ),
-        hosterNames = listOf("HD", "Kiwi-Stream"), // seed/fallback only
+        hosterNames = listOf("HD-1", "HD-2", "HD-3", "VidPlay-1", "Kiwi-Stream"),
     ) {
 
     // =================== Selector Overrides ==============================
@@ -47,40 +47,41 @@ class AnimeSogo :
         }
     }
 
-    override fun getServerDisplayName(serverName: String): String {
-        val base = extractBaseServerName(serverName)
-        return when (base) {
-            "Kiwi-Stream" -> "Kiwi-Stream"
-            else -> serverName.trimEnd('-', ' ')
+    override fun getServerDisplayName(serverName: String): String = when {
+        serverName.startsWith("Server", true) -> {
+            val suffix = serverName.substringAfter("Server", "").trim()
+            "Kiwi-Stream" + if (suffix.isNotEmpty()) " $suffix" else ""
         }
+        else -> serverName.trimEnd('-', ' ')
     }
 
     // =================== Video Server List Override ======================
 
-    override fun parseServerListData(
-        document: Document,
-        typeSelection: Set<String>,
-    ): List<VideoData> {
+    override fun parseServerListData(document: Document): List<VideoData> {
         val typeElements = document.select("div.type")
 
         typeElements.flatMap { elem ->
             elem.select("a.server")
                 .mapNotNull { it.selectFirst("span")?.text()?.trim()?.takeIf(String::isNotBlank) }
+                .map { getServerDisplayName(it) } // Map to display name so exact names are saved
         }.also { updateDiscoveredServers(it) }
+
+        val effectiveTypeToggle = typeToggle
+        val effectiveHostToggle = hostToggle
 
         return typeElements.flatMap { elem ->
             val label = resolveTypeLabel(elem)
 
-            if (!isTypeEnabled(label, typeSelection)) return@flatMap emptyList()
+            if (!isTypeEnabled(label, effectiveTypeToggle)) return@flatMap emptyList()
 
             elem.select("a.server").mapNotNull { serverElem ->
                 val serverId = serverElem.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
 
-                val serverName = serverElem.selectFirst("span")?.text()?.trim() ?: return@mapNotNull null
-                val baseName = extractBaseServerName(serverName)
+                val rawName = serverElem.selectFirst("span")?.text()?.trim() ?: return@mapNotNull null
+                val serverName = getServerDisplayName(rawName)
 
-                if (!hostToggle.contains(baseName, true)) return@mapNotNull null
+                if (!effectiveHostToggle.contains(serverName, true)) return@mapNotNull null
 
                 VideoData(label, serverId, serverName)
             }
