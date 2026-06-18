@@ -89,8 +89,24 @@ class YummyAnime :
 
     // ─── Latest ──────────────────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    // "Latest" shows currently airing titles (ongoings) from the schedule endpoint.
+    override fun latestUpdatesRequest(page: Int): Request = GET("$apiUrl/anime/schedule", headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val data = json.parseToJsonElement(response.body.string())
+            .jsonObject["response"]?.jsonArray ?: return AnimesPage(emptyList(), false)
+
+        val animes = data.map { element ->
+            val obj = element.jsonObject
+            SAnime.create().apply {
+                title = obj["title"]?.jsonPrimitive?.content ?: ""
+                url = obj["anime_url"]?.jsonPrimitive?.content ?: ""
+                thumbnail_url = obj["poster"]?.jsonObject?.get("big")?.jsonPrimitive?.content?.fixProtocol()
+            }
+        }
+        // The schedule returns the full ongoing list in one response — no pagination.
+        return AnimesPage(animes, false)
+    }
 
     // ─── Search ──────────────────────────────────────────────────────────────
 
