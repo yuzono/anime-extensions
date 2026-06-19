@@ -21,6 +21,7 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -86,8 +87,13 @@ class Rezka :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         if (query.isNotBlank()) {
-            val q = java.net.URLEncoder.encode(query, "UTF-8")
-            return GET("$baseUrl/search/?do=search&subaction=search&q=$q&page=$page", headers)
+            val url = "$baseUrl/search/".toHttpUrl().newBuilder()
+                .addQueryParameter("do", "search")
+                .addQueryParameter("subaction", "search")
+                .addQueryParameter("q", query)
+                .addQueryParameter("page", page.toString())
+                .build()
+            return GET(url.toString(), headers)
         }
 
         var section = ""
@@ -203,7 +209,7 @@ class Rezka :
         val ep = parts.getOrElse(3) { "" }
 
         val document = client.newCall(GET("$baseUrl$titlePath", headers)).awaitSuccess()
-            .use { it.useAsJsoup() }
+            .useAsJsoup()
         val html = document.html()
 
         val postId = Regex("""initCDN(?:Movies|Series)Events\((\d+)""").find(html)?.groupValues?.get(1)
