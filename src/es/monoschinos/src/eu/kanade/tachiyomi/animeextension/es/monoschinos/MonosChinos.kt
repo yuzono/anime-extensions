@@ -5,6 +5,7 @@ import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
@@ -60,10 +61,11 @@ class MonosChinos :
             "MixDrop",
             "Streamtape",
             "Mp4Upload",
+            "LuluStream",
         )
     }
 
-    // ====================== POPULAR / BÚSQUEDA ======================
+    // ====================== POPULAR ======================
 
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/animes?p=$page", headers)
 
@@ -81,10 +83,9 @@ class MonosChinos :
         return AnimesPage(animeList, nextPage)
     }
 
-    // ====================== ÚLTIMOS EPISODIOS (RECIENTES) ======================
+    // ====================== ÚLTIMOS EPISODIOS ======================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        // It is assumed that pagination is done with ?page=N (if the site were to implement it)
         val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
         return GET(url, headers)
     }
@@ -112,7 +113,6 @@ class MonosChinos :
             }
         }
 
-        // Detect pagination (if any)
         val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
         return AnimesPage(animeList, nextPage)
     }
@@ -130,7 +130,7 @@ class MonosChinos :
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    // ====================== DETALLE DEL ANIME ======================
+    // ====================== DETALLE ======================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
@@ -151,7 +151,7 @@ class MonosChinos :
         return animeDetails
     }
 
-    // ====================== LISTA DE EPISODIOS ======================
+    // ====================== EPISODIOS ======================
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -267,11 +267,18 @@ class MonosChinos :
             } catch (e: Exception) {
                 null
             } ?: return@mapNotNull null
-            decodedUrl
-        }.catchingFlatMapBlocking { serverVideoResolver(it) }
+
+            val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
+                ?: button.text().trim().takeIf { it.isNotBlank() }
+                ?: ""
+
+            serverName to decodedUrl
+        }.catchingFlatMapBlocking { (serverName, url) ->
+            serverVideoResolver(url, serverName)
+        }
     }
 
-    // ====================== EXTRACTORES DE VIDEO ======================
+    // ====================== EXTRACTORES ======================
 
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
@@ -282,35 +289,57 @@ class MonosChinos :
     private val uqloadExtractor by lazy { UqloadExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val mp4uploadExtractor by lazy { Mp4uploadExtractor(client) }
+    private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private suspend fun serverVideoResolver(url: String): List<Video> {
-        val embedUrl = url.lowercase()
-        return when {
-            embedUrl.contains("voe") -> voeExtractor.videosFromUrl(url)
-            embedUrl.contains("uqload") -> uqloadExtractor.videosFromUrl(url)
-            embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
-            embedUrl.contains("filemoon") || embedUrl.contains("moonplayer") ||
-            embedUrl.contains("moviesm4u") || embedUrl.contains("files.im") ->
-                filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
-            embedUrl.contains("doodstream.com") || embedUrl.contains("dood.") ->
-                doodExtractor.videosFromUrl(url)
-            embedUrl.contains("streamtape.com") || embedUrl.contains("stape") ->
-                streamTapeExtractor.videosFromUrl(url)
-            embedUrl.contains("mp4upload.com") -> mp4uploadExtractor.videosFromUrl(url, headers)
-            embedUrl.contains("mixdrop") -> mixdropExtractor.videosFromUrl(url)
-            embedUrl.contains("wishembed") || embedUrl.contains("streamwish") ||
-            embedUrl.contains("strwish") || embedUrl.contains("wish") ||
-            embedUrl.contains("kswplayer") || embedUrl.contains("swhoi") ||
-            embedUrl.contains("multimovies") || embedUrl.contains("uqloads") ||
-            embedUrl.contains("neko-stream") || embedUrl.contains("swdyu") ||
-            embedUrl.contains("iplayerhls") || embedUrl.contains("streamgg") ->
-                streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+    private val conventions = listOf(
+        "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
+        "okru" to listOf("ok.ru", "okru"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
+        "uqload" to listOf("uqload"),
+        "mp4upload" to listOf("mp4upload"),
+        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d"),
+        "mixdrop" to listOf("mixdrop"),
+        "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
+        "lulu" to listOf("luluvdo", "lulu", "lulustream"),
+    )
+
+    private suspend fun serverVideoResolver(url: String, serverName: String = ""): List<Video> {
+        val source = url.lowercase()
+        val serverKey = serverName.lowercase()
+
+        var matched = conventions.firstOrNull { (key, _) -> key == serverKey }?.first
+
+        if (matched == null) {
+            matched = conventions.firstOrNull { (_, aliases) ->
+                aliases.any { it in source }
+            }?.first
+        }
+
+        val effectiveMatched = matched ?: when {
+            serverKey.contains("dood") -> "doodstream"
+            serverKey.contains("filemoon") -> "filemoon"
+            serverKey.contains("lulu") -> "lulu"
+            else -> null
+        }
+
+        return when (effectiveMatched) {
+            "voe" -> voeExtractor.videosFromUrl(url)
+            "okru" -> okruExtractor.videosFromUrl(url)
+            "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "Filemoon:")
+            "uqload" -> uqloadExtractor.videosFromUrl(url)
+            "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers)
+            "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+            "doodstream" -> doodExtractor.videosFromUrl(url, "DoodStream:")
+            "mixdrop" -> mixdropExtractor.videosFromUrl(url)
+            "streamtape" -> streamTapeExtractor.videosFromUrl(url)
+            "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
             else -> universalExtractor.videosFromUrl(url, headers)
         }
     }
 
-    // ====================== ORDENAR VIDEOS ======================
+    // ====================== ORDEN ======================
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -324,7 +353,7 @@ class MonosChinos :
         ).reversed()
     }
 
-    // ====================== FUNCIONES AUXILIARES ======================
+    // ====================== AUXILIARES ======================
 
     private fun Element.getImageUrl(): String? = when {
         isValidUrl("data-src") -> attr("abs:data-src")
@@ -354,13 +383,6 @@ class MonosChinos :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -370,13 +392,6 @@ class MonosChinos :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
-}
+    }
