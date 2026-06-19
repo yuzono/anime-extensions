@@ -18,9 +18,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
@@ -36,11 +39,8 @@ class Girigirilove :
     override val lang = "zh"
 
     override val supportsLatest = true
-
     private val json by injectLazy<Json>()
     private val preferences by getPreferencesLazy()
-
-    private val generatedM3u8Server by lazy { GeneratedM3u8Server() }
 
     private val selectedVideoLanguage
         get() = preferences.getString(PREF_KEY_VIDEO_LANGUAGE, DEFAULT_VIDEO_LANGUAGE) ?: DEFAULT_VIDEO_LANGUAGE
@@ -62,15 +62,52 @@ class Girigirilove :
                 .readTimeout(3, TimeUnit.SECONDS)
                 .writeTimeout(3, TimeUnit.SECONDS)
                 .build(),
-            generatedM3u8Server = generatedM3u8Server,
             headerCandidates = listOf(noRefererMediaHeaders, siteRefererMediaHeaders),
+            generatedPlaylistUrl = ::generatedPlaylistUrl,
         )
     }
 
     // ===== Client =================================================================================
 
     override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor(::generatedM3u8Interceptor)
         .addInterceptor(::cookieRetryInterceptor)
+        .build()
+
+    private fun generatedM3u8Interceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        if (request.url.encodedPath != GENERATED_M3U8_PATH) {
+            return chain.proceed(request)
+        }
+
+        val segmentBaseUrl = request.url.queryParameter("base")
+            ?: return generatedM3u8Response(request, 400, "Missing base parameter")
+        val segmentCount = request.url.queryParameter("count")?.toIntOrNull()
+            ?: return generatedM3u8Response(request, 400, "Missing count parameter")
+        if (segmentCount <= 0) {
+            return generatedM3u8Response(request, 400, "Invalid segment count")
+        }
+
+        return generatedM3u8Response(
+            request,
+            200,
+            buildGeneratedPlaylist(segmentBaseUrl, segmentCount),
+            HLS_MIME_TYPE,
+        )
+    }
+
+    private fun generatedM3u8Response(
+        request: Request,
+        code: Int,
+        body: String,
+        contentType: String = "text/plain",
+    ): Response = Response.Builder()
+        .request(request)
+        .protocol(Protocol.HTTP_1_1)
+        .code(code)
+        .message(if (code == 200) "OK" else "Bad Request")
+        .header("Content-Type", contentType)
+        .body(body.toResponseBody(contentType.toMediaType()))
         .build()
 
     private fun cookieRetryInterceptor(chain: Interceptor.Chain): Response {
@@ -106,6 +143,30 @@ class Girigirilove :
             url.startsWith("//") -> "https:$url"
             else -> baseUrl.toHttpUrl().resolve(url)?.toString() ?: url
         }
+    }
+
+    private fun generatedPlaylistUrl(segmentBaseUrl: String, segmentCount: Int): String = baseUrl.toHttpUrl().newBuilder()
+        .addPathSegments(GENERATED_M3U8_PATH.removePrefix("/"))
+        .addQueryParameter("base", segmentBaseUrl)
+        .addQueryParameter("count", segmentCount.toString())
+        .build()
+        .toString()
+
+    private fun buildGeneratedPlaylist(segmentBaseUrl: String, segmentCount: Int) = buildString {
+        append("#EXTM3U\n")
+        append("#EXT-X-VERSION:3\n")
+        append("#EXT-X-TARGETDURATION:10\n")
+        append("#EXT-X-MEDIA-SEQUENCE:0\n")
+        append("#EXT-X-PLAYLIST-TYPE:VOD\n")
+
+        repeat(segmentCount) { index ->
+            append("#EXTINF:6.000000,\n")
+            append(segmentBaseUrl)
+            append(index.toString().padStart(4, '0'))
+            append(".ts\n")
+        }
+
+        append("#EXT-X-ENDLIST\n")
     }
 
     private fun extractPlayerJson(script: String): String? {
@@ -163,7 +224,12 @@ class Girigirilove :
 
         // Pattern: /show/id-area-by-class-lang-letter-year-month-page-?-?-sort-
         // Slots: 1:id, 3:sort/by, 4:class, 7:year, 9:page
-        return GET("$baseUrl/show/$type--$sort-$genre---$year--$page---/", headers)
+        val url = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("show")
+            .addPathSegment("$type--$sort-$genre---$year--$page---")
+            .addPathSegment("")
+            .build()
+        return GET(url.toString(), headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -189,9 +255,9 @@ class Girigirilove :
             throw Exception("请在 WebView 中输入验证码")
         }
 
-        val animeList = document.select(".public-list-box").map {
+        val animeList = document.select(".public-list-box").mapNotNull {
+            val a = it.selectFirst(".public-list-exp") ?: return@mapNotNull null
             SAnime.create().apply {
-                val a = it.selectFirst(".public-list-exp")!!
                 url = a.attr("href")
                 title = a.attr("title")
                 thumbnail_url = it.selectFirst("img")?.attr("data-src").toAbsoluteUrl()
@@ -302,6 +368,8 @@ class Girigirilove :
     companion object {
         private const val PREF_KEY_VIDEO_LANGUAGE = "PREF_KEY_VIDEO_LANGUAGE"
         private const val DEFAULT_VIDEO_LANGUAGE = "繁中"
+        private const val GENERATED_M3U8_PATH = "/__generated_m3u8__/playlist.m3u8"
+        private const val HLS_MIME_TYPE = "application/vnd.apple.mpegurl"
         private val VIDEO_LANGUAGE_OPTIONS = arrayOf("繁中", "简中")
     }
 }

@@ -3,71 +3,6 @@ package eu.kanade.tachiyomi.animeextension.zh.girigirilove
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.nanohttpd.protocols.http.IHTTPSession
-import org.nanohttpd.protocols.http.NanoHTTPD
-import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
-import org.nanohttpd.protocols.http.response.Status
-import java.net.URLEncoder
-
-/**
- * Serves generated HLS playlists for Girigirilove episodes where the origin
- * playlist is missing but the numbered TS segments are still available.
- */
-class GeneratedM3u8Server : NanoHTTPD(0) {
-
-    @Volatile
-    private var running = false
-
-    @Synchronized
-    fun playlistUrl(segmentBaseUrl: String, segmentCount: Int): String {
-        if (!running) {
-            super.start()
-            running = true
-        }
-
-        val encodedBaseUrl = URLEncoder.encode(segmentBaseUrl, Charsets.UTF_8.name())
-        return "http://127.0.0.1:${super.getListeningPort()}/playlist.m3u8?base=$encodedBaseUrl&count=$segmentCount"
-    }
-
-    override fun handle(session: IHTTPSession): Response {
-        if (session.uri != "/playlist.m3u8") {
-            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
-        }
-
-        val segmentBaseUrl = session.parameters["base"]?.firstOrNull()
-            ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing base parameter")
-        val segmentCount = session.parameters["count"]?.firstOrNull()?.toIntOrNull()
-            ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing count parameter")
-
-        if (segmentCount <= 0) {
-            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid segment count")
-        }
-
-        return newFixedLengthResponse(
-            Status.OK,
-            "application/vnd.apple.mpegurl",
-            buildPlaylist(segmentBaseUrl, segmentCount),
-        )
-    }
-
-    private fun buildPlaylist(segmentBaseUrl: String, segmentCount: Int) = buildString {
-        append("#EXTM3U\n")
-        append("#EXT-X-VERSION:3\n")
-        append("#EXT-X-TARGETDURATION:10\n")
-        append("#EXT-X-MEDIA-SEQUENCE:0\n")
-        append("#EXT-X-PLAYLIST-TYPE:VOD\n")
-
-        repeat(segmentCount) { index ->
-            append("#EXTINF:6.000000,\n")
-            append(segmentBaseUrl)
-            append(index.toString().padStart(4, '0'))
-            append(".ts\n")
-        }
-
-        append("#EXT-X-ENDLIST\n")
-    }
-}
 
 /**
  * Resolves Girigirilove media URLs with the same idea as the website player:
@@ -76,8 +11,8 @@ class GeneratedM3u8Server : NanoHTTPD(0) {
  */
 class GirigiriloveVideoResolver(
     private val client: OkHttpClient,
-    private val generatedM3u8Server: GeneratedM3u8Server,
     private val headerCandidates: List<Headers>,
+    private val generatedPlaylistUrl: (segmentBaseUrl: String, segmentCount: Int) -> String,
 ) {
 
     fun resolve(videoUrl: String): ResolvedVideo {
@@ -94,7 +29,7 @@ class GirigiriloveVideoResolver(
             if (urlExists(tsSegmentUrl(segmentBaseUrl, 0), headers)) {
                 val segmentCount = findTsSegmentCount(segmentBaseUrl, headers)
                 return ResolvedVideo(
-                    generatedM3u8Server.playlistUrl(segmentBaseUrl, segmentCount),
+                    generatedPlaylistUrl(segmentBaseUrl, segmentCount),
                     headers,
                 )
             }
