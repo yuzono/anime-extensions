@@ -14,7 +14,6 @@ import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -40,8 +39,7 @@ class Voiranime : ParsedAnimeHttpSource() {
 
     // ─── Popular ─────────────────────────────────────────────────────────────
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=trending", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=trending", headers)
 
     override fun popularAnimeSelector(): String = "div.c-tabs-item__content"
 
@@ -51,8 +49,7 @@ class Voiranime : ParsedAnimeHttpSource() {
 
     // ─── Latest ──────────────────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=latest", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=latest", headers)
 
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
 
@@ -91,6 +88,13 @@ class Voiranime : ParsedAnimeHttpSource() {
     // ─── Details ──────────────────────────────────────────────────────────────
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        // Info table rows: ".post-content_item" with a ".summary-heading" label and ".summary-content" value
+        // (e.g. Status => "EN COURS", Studios => "Toei Animation").
+        val info = document.select(".post-content_item").associate { item ->
+            item.selectFirst(".summary-heading")?.text()?.trim()?.lowercase().orEmpty() to
+                item.selectFirst(".summary-content")?.text()?.trim().orEmpty()
+        }
+
         title = document.selectFirst(".post-title h1")?.ownText()?.trim()
             ?: document.selectFirst("h1")?.text().orEmpty()
         thumbnail_url = document.selectFirst(".summary_image img")
@@ -98,32 +102,40 @@ class Voiranime : ParsedAnimeHttpSource() {
         description = document.selectFirst(".description-summary .summary__content, .manga-excerpt")
             ?.text()?.trim()
         genre = document.select(".genres-content a").joinToString { it.text() }.ifBlank { null }
-        author = document.selectFirst(".author-content a")?.text()
-        artist = document.selectFirst(".artist-content a")?.text()
-        status = when (
-            document.selectFirst(".post-status .summary-content")?.text()?.lowercase()?.trim()
-        ) {
+        author = info["studios"]?.takeIf { it.isNotBlank() }
+        status = when (info["status"]?.lowercase()?.trim()) {
             "en cours" -> SAnime.ONGOING
-            "terminé", "termine", "complété" -> SAnime.COMPLETED
+            "terminé", "termine", "complété", "completed" -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
         }
     }
 
     // ─── Episodes ─────────────────────────────────────────────────────────────
 
-    override fun episodeListRequest(anime: SAnime): Request =
-        POST("$baseUrl${anime.url}ajax/chapters/", headers)
+    override fun episodeListRequest(anime: SAnime): Request {
+        // Madara serves the chapter list through an XHR endpoint that requires this header.
+        val ajaxHeaders = headersBuilder()
+            .add("X-Requested-With", "XMLHttpRequest")
+            .build()
+        return POST("$baseUrl${anime.url}ajax/chapters/", ajaxHeaders)
+    }
 
     override fun episodeListSelector(): String = "li.wp-manga-chapter"
 
     override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
         val link = element.selectFirst("a")!!
-        setUrlWithoutDomain(link.attr("abs:href"))
+        val href = link.attr("abs:href")
+        setUrlWithoutDomain(href)
         val text = link.text()
-        val num = NUMBER_REGEX.find(text)?.value
+        // The slug carries the episode number reliably (e.g. ".../one-piece-1167-vostfr/"),
+        // unlike the visible text which may also contain numbers from the title.
+        val slug = href.trimEnd('/').substringAfterLast('/')
+        val num = EP_NUM_REGEX.find(slug)?.groupValues?.get(1)
+            ?: NUMBER_REGEX.findAll(slug).lastOrNull()?.value
+            ?: NUMBER_REGEX.find(text)?.value
         val subType = when {
-            text.contains("VOSTFR", ignoreCase = true) -> "VOSTFR"
-            text.contains("VF", ignoreCase = true) -> "VF"
+            slug.contains("vostfr", ignoreCase = true) || text.contains("VOSTFR", ignoreCase = true) -> "VOSTFR"
+            slug.contains("-vf", ignoreCase = true) || text.contains("VF", ignoreCase = true) -> "VF"
             else -> ""
         }
         name = listOfNotNull("Épisode", num, subType.ifBlank { null }).joinToString(" ").trim()
@@ -176,6 +188,7 @@ class Voiranime : ParsedAnimeHttpSource() {
 
     companion object {
         private val NUMBER_REGEX = Regex("""\d+(?:[.,]\d+)?""")
+        private val EP_NUM_REGEX = Regex("""-(\d+(?:[.,]\d+)?)-(?:vostfr|vf)""", RegexOption.IGNORE_CASE)
         private val DATE_FORMAT by lazy {
             java.text.SimpleDateFormat("dd MMMM yyyy", java.util.Locale.FRENCH)
         }
