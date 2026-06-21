@@ -2,7 +2,7 @@ ext {
     extName = 'Voiranime'
     extClass = '.Voiranime'
     extVersionCode = 1
-    isNsfw = false
+    isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
