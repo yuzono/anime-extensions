@@ -121,12 +121,19 @@ abstract class AnikotoTheme(
             if (!JUNK_URL_REGEX.containsMatchIn(request.url.toString())) return response
 
             val body = response.body
+            val originalLength = body.contentLength()
+            if (originalLength != -1L && originalLength <= STRIP_BYTES) return response
+
             val source = body.source()
-            source.skip(STRIP_BYTES.toLong())
+            try {
+                source.skip(STRIP_BYTES.toLong())
+            } catch (_: Exception) {
+                return response
+            }
 
             val newBody = object : ResponseBody() {
                 override fun contentType(): MediaType? = body.contentType()
-                override fun contentLength(): Long = body.contentLength() - STRIP_BYTES
+                override fun contentLength(): Long = if (originalLength == -1L) -1L else (originalLength - STRIP_BYTES)
                 override fun source(): BufferedSource = source
             }
 
