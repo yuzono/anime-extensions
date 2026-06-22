@@ -49,7 +49,7 @@ class SourceResponseDto(
 class TrackDto(
     val file: String,
     val kind: String,
-    val label: String,
+    val label: String = "",
 )
 
 @Serializable

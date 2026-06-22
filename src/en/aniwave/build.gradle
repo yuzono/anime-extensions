@@ -3,7 +3,7 @@ ext {
     extClass = '.AniWave'
     themePkg = 'anikototheme'
     baseUrl = 'https://animewave.to'
-    overrideVersionCode = 1
+    overrideVersionCode = 2
 }
 
 apply plugin: "kei.plugins.extension.legacy"
