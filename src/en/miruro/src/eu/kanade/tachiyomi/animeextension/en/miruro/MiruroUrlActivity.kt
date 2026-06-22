@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import kotlin.system.exitProcess
 
 /**
  * Springboard that accepts https://miruro.tv/watch/{anilistId}/{slug} intents
@@ -30,5 +31,6 @@ class MiruroUrlActivity : Activity() {
         }
 
         finish()
+        exitProcess(0)
     }
 }
