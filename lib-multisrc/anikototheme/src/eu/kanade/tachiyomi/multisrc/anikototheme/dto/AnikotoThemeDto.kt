@@ -66,21 +66,17 @@ class MapperLinkDto(
 object SourcesSerializer : KSerializer<String> {
     override val descriptor: SerialDescriptor = JsonElement.serializer().descriptor
 
-    override fun deserialize(decoder: Decoder): String {
-        val element = (decoder as JsonDecoder).decodeJsonElement()
-        return when (element) {
-            is JsonObject -> element["file"]?.jsonPrimitive?.content
-            is JsonArray -> element.firstOrNull()?.let {
-                when (it) {
-                    is JsonObject -> it["file"]?.jsonPrimitive?.content
-                    is JsonPrimitive -> it.content
-                    else -> null
-                }
+    override fun deserialize(decoder: Decoder): String = when (val element = (decoder as JsonDecoder).decodeJsonElement()) {
+        is JsonObject -> element["file"]?.jsonPrimitive?.content
+        is JsonArray -> element.firstOrNull()?.let {
+            when (it) {
+                is JsonObject -> it["file"]?.jsonPrimitive?.content
+                is JsonPrimitive -> it.content
+                else -> null
             }
-            is JsonPrimitive -> element.content
-            else -> null
-        } ?: throw IllegalStateException("No valid m3u8 found in sources")
-    }
+        }
+        is JsonPrimitive -> element.content
+    } ?: throw IllegalStateException("No valid m3u8 found in sources")
 
     override fun serialize(encoder: Encoder, value: String): Unit = throw UnsupportedOperationException("Serialization not supported")
 }

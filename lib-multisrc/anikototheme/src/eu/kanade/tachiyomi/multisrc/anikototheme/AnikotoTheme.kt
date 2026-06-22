@@ -188,7 +188,7 @@ abstract class AnikotoTheme(
                 preferences.edit().putStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, mergedMapper).apply()
             }
         } else {
-            val sevenDaysMillis = 7L * 24 * 60 * 60 * 1000
+            val sevenDaysMillis = TimeUnit.DAYS.toMillis(7)
             val validHtmlServers = (discoveredHtmlServersCache!! + newExact).filter { server ->
                 val ts = serverTimestamps[server] ?: 0L
                 server in newExact || now - ts < sevenDaysMillis
@@ -259,8 +259,6 @@ abstract class AnikotoTheme(
     }
 
     val cacheControl by lazy { CacheControl.Builder().maxAge(1.hours).build() }
-
-    private val utils by lazy { AnikotoUtils() }
 
     private val excludedHosts: Set<String> by preferences.delegate(PREF_HOSTER_EXCLUDE_KEY, emptySet())
     private val excludedTypes: Set<String> by preferences.delegate(PREF_TYPE_EXCLUDE_KEY, emptySet())
@@ -660,7 +658,7 @@ abstract class AnikotoTheme(
 
     // ========================= Protected Open Helpers =====================
 
-    protected open fun vrfEncrypt(input: String): String = utils.vrfEncrypt(input)
+    protected open fun vrfEncrypt(input: String): String = AnikotoUtils.vrfEncrypt(input)
 
     protected open fun buildDescription(document: Document, titleElement: Element?): String = buildString {
         val enTitle = titleElement?.text()?.takeIf { it.isNotEmpty() }
@@ -1046,58 +1044,56 @@ abstract class AnikotoTheme(
         private const val PREF_SERVER_TIMESTAMPS_KEY = "server_timestamps"
         private const val PREF_SERVER_INVALID_FLAG = "server_invalid_flag"
     }
+}
 
-    // =============================== VRF ==================================
+// =============================== VRF ==================================
 
-    private class AnikotoUtils {
-        fun vrfEncrypt(input: String): String {
-            var vrf = input
-            ORDER.sortedBy { it.first }.forEach { item ->
-                when (item.second) {
-                    "exchange" -> vrf = exchange(vrf, item.third)
-                    "rc4" -> vrf = rc4Encrypt(item.third[0], vrf)
-                    "reverse" -> vrf = vrf.reversed()
-                    "base64" -> vrf = Base64.encode(vrf.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8)
-                }
+private object AnikotoUtils {
+    fun vrfEncrypt(input: String): String {
+        var vrf = input
+        ORDER.forEach { item ->
+            when (item.second) {
+                "exchange" -> vrf = exchange(vrf, item.third)
+                "rc4" -> vrf = rc4Encrypt(item.third[0], vrf)
+                "reverse" -> vrf = vrf.reversed()
+                "base64" -> vrf = Base64.encode(vrf.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8)
             }
-            return java.net.URLEncoder.encode(vrf, "utf-8")
         }
-
-        private fun rc4Encrypt(key: String, input: String): String {
-            val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
-            val cipher = Cipher.getInstance("RC4")
-            cipher.init(Cipher.ENCRYPT_MODE, rc4Key, cipher.parameters)
-            val output = cipher.doFinal(input.toByteArray())
-            return Base64.encode(output, Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8)
-        }
-
-        private fun exchange(input: String, keys: List<String>): String {
-            val key1 = keys[0]
-            val key2 = keys[1]
-            return input.map { i ->
-                val idx = key1.indexOf(i)
-                if (idx != -1) key2[idx] else i
-            }.joinToString("")
-        }
-
-        companion object {
-            private val EXCHANGE_KEY_1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH")
-            private const val KEY_1 = "ItFKjuWokn4ZpB"
-            private const val KEY_2 = "fOyt97QWFB3"
-            private val EXCHANGE_KEY_2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM")
-            private val EXCHANGE_KEY_3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v")
-            private const val KEY_3 = "736y1uTJpBLUX"
-
-            private val ORDER = listOf(
-                Triple(1, "exchange", EXCHANGE_KEY_1),
-                Triple(2, "rc4", listOf(KEY_1)),
-                Triple(3, "rc4", listOf(KEY_2)),
-                Triple(4, "exchange", EXCHANGE_KEY_2),
-                Triple(5, "exchange", EXCHANGE_KEY_3),
-                Triple(6, "reverse", emptyList()),
-                Triple(7, "rc4", listOf(KEY_3)),
-                Triple(8, "base64", emptyList()),
-            )
-        }
+        return java.net.URLEncoder.encode(vrf, "utf-8")
     }
+
+    private fun rc4Encrypt(key: String, input: String): String {
+        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
+        val cipher = Cipher.getInstance("RC4")
+        cipher.init(Cipher.ENCRYPT_MODE, rc4Key, cipher.parameters)
+        val output = cipher.doFinal(input.toByteArray())
+        return Base64.encode(output, Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8)
+    }
+
+    private fun exchange(input: String, keys: List<String>): String {
+        val key1 = keys[0]
+        val key2 = keys[1]
+        return input.map { i ->
+            val idx = key1.indexOf(i)
+            if (idx != -1) key2[idx] else i
+        }.joinToString("")
+    }
+
+    private val EXCHANGE_KEY_1 = listOf("AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH")
+    private const val KEY_1 = "ItFKjuWokn4ZpB"
+    private const val KEY_2 = "fOyt97QWFB3"
+    private val EXCHANGE_KEY_2 = listOf("1majSlPQd2M5", "da1l2jSmP5QM")
+    private val EXCHANGE_KEY_3 = listOf("CPYvHj09Au3", "0jHA9CPYu3v")
+    private const val KEY_3 = "736y1uTJpBLUX"
+
+    private val ORDER = listOf(
+        Triple(1, "exchange", EXCHANGE_KEY_1),
+        Triple(2, "rc4", listOf(KEY_1)),
+        Triple(3, "rc4", listOf(KEY_2)),
+        Triple(4, "exchange", EXCHANGE_KEY_2),
+        Triple(5, "exchange", EXCHANGE_KEY_3),
+        Triple(6, "reverse", emptyList()),
+        Triple(7, "rc4", listOf(KEY_3)),
+        Triple(8, "base64", emptyList()),
+    )
 }

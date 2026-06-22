@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
+import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.SourceResponseDto
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -42,7 +43,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return theme.client.newCall(GET("${theme.baseUrl}/ajax/server?get=$serverId", listHeaders))
             .awaitSuccess().use { response ->
                 if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
-                response.parseAs<eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto>().result.url
+                response.parseAs<ServerResponseDto>().result.url
             }
     }
 
