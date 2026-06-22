@@ -42,7 +42,4 @@ dependencies {
     implementation(project(":lib:streamupextractor"))
     implementation(project(":lib:uqloadextractor"))
     implementation(project(":lib:bloggerextractor"))
-
-    // Core utilities
-    implementation(project(":lib:playlistutils"))
 }

@@ -170,13 +170,10 @@ data class ConfigResponseDto(
             ProxyConfigDto.serializer().serialize(encoder, value)
         }
 
-        override fun deserialize(decoder: Decoder): ProxyConfigDto {
-            val json = decoder.decodeSerializableValue(JsonElement.serializer())
-            return when {
-                json is JsonPrimitive && json.booleanOrNull != null -> ProxyConfigDto(rotate = false)
-                json is JsonObject -> jsonParser.decodeFromJsonElement(ProxyConfigDto.serializer(), json)
-                else -> ProxyConfigDto()
-            }
+        override fun deserialize(decoder: Decoder): ProxyConfigDto = when (val json = decoder.decodeSerializableValue(JsonElement.serializer())) {
+            is JsonPrimitive if json.booleanOrNull != null -> ProxyConfigDto(rotate = false)
+            is JsonObject -> jsonParser.decodeFromJsonElement(ProxyConfigDto.serializer(), json)
+            else -> ProxyConfigDto()
         }
     }
 
