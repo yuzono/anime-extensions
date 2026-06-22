@@ -81,6 +81,11 @@ abstract class AnikotoTheme(
 
     open val mapperUrl = "https://mapper.nekostream.site/api"
 
+    // ============================ Headers & Client =========================
+
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
     override var client: OkHttpClient by LazyMutable {
@@ -262,11 +267,6 @@ abstract class AnikotoTheme(
 
     val hostToggle: Set<String> get() = discoveredServers - excludedHosts
     val typeToggle: Set<String> get() = discoveredTypes - excludedTypes
-
-    // ============================ Headers & Client =========================
-
-    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
