@@ -992,7 +992,7 @@ class Miruro :
                     val title = epJson.optString("title", "")
 
                     val providerEpIds = crossProviderMap.getOrPut(number) { mutableMapOf() }
-                        .getOrPut(providerKey) { mutableMapOf<String, String>() }
+                        .getOrPut(providerKey) { mutableMapOf() }
                     providerEpIds[subType] = id
 
                     if (number !in episodeMetaMap) {
@@ -1613,9 +1613,9 @@ class Miruro :
     }
 
     private fun anilistMalIdRequest(anilistId: Int): Request {
-        val query = """
-            query media(${'$'}id: Int, ${'$'}type: MediaType) {
-                Media(id: ${'$'}id, type: ${'$'}type) {
+        val query = $$"""
+            query media($id: Int, $type: MediaType) {
+                Media(id: $id, type: $type) {
                     idMal
                 }
             }
@@ -1645,9 +1645,9 @@ class Miruro :
     }
 
     private fun anilistAiringScheduleRequest(anilistId: Int): Request {
-        val query = """
-            query media(${'$'}id: Int) {
-                Media(id: ${'$'}id, type: ANIME) {
+        val query = $$"""
+            query media($id: Int) {
+                Media(id: $id, type: ANIME) {
                     nextAiringEpisode { episode airingAt }
                     airingSchedule(notYetAired: false) {
                         nodes { episode airingAt }
