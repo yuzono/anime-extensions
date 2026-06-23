@@ -262,7 +262,7 @@ data class MediaDto(
 ) {
     @Serializable
     data class MediaStreamDto(
-        val codec: String,
+        val codec: String? = null,
         val index: Int,
         val type: String,
         val supportsExternalStream: Boolean,
