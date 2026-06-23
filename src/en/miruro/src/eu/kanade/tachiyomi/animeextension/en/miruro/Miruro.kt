@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.LazyMutable
@@ -215,7 +216,7 @@ class Miruro :
         ) {
             try {
                 val request = buildPipeRequest("config", "GET")
-                val json = client.newCall(request).awaitSuccess().use { response ->
+                val json = client.newCall(request).await().use { response ->
                     if (!response.isSuccessful) {
                         Log.w(TAG, "Config endpoint returned ${response.code}, keeping defaults")
                         fetchAttempts++
@@ -1714,7 +1715,7 @@ class Miruro :
             }
         }
 
-        getMeta(anilistId)?.let { it.airingSchedule = schedule }
+        getOrCreateMeta(anilistId).airingSchedule = schedule
         logD { "fetchAiringSchedule: anilistId=$anilistId, ${schedule.size} airing dates resolved" }
         return schedule
     }
@@ -1799,6 +1800,7 @@ class Miruro :
     private fun extractEpisodeDataFromPipeRequest(url: String): JSONObject? {
         return try {
             val encoded = url.substringAfter("e=", "")
+                .substringBefore("&")
             if (encoded.isEmpty()) return null
             val decoded = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             val payload = JSONObject(String(decoded, Charsets.UTF_8))
