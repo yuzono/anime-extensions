@@ -27,9 +27,8 @@ class MiruroExtractor(
 
     fun decryptResponse(response: Response): String {
         val obfuscated = response.header("x-obfuscated") ?: "1"
-        val bodyBytes = response.body.bytes()
+        val bodyStr = response.body?.string()?.trim() ?: ""
 
-        val bodyStr = String(bodyBytes, Charsets.UTF_8).trim()
         if (obfuscated != "2") {
             Log.d(TAG, "decryptResponse: not obfuscated (header=$obfuscated), ${bodyStr.length} chars")
             return bodyStr
