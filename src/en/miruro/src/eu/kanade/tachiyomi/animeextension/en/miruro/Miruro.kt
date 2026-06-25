@@ -281,7 +281,6 @@ class Miruro :
             logD { "getConfigSync: state=NOT_FETCHED, attempting prefs load then async fetch" }
             loadConfigFromPrefs()?.let { cached ->
                 configCache = cached
-                fetchState = ConfigFetchState.FETCHED
                 logD { "getConfigSync: loaded cached config from prefs (${cached.values.size} providers)" }
             }
             launchConfigFetch()
@@ -403,7 +402,6 @@ class Miruro :
             logD { "getMirrorsSync: state=NOT_FETCHED, attempting prefs load then async fetch" }
             loadMirrorsFromPrefs()?.let { cached ->
                 mirrorCache = cached
-                mirrorFetchState = ConfigFetchState.FETCHED
                 logD { "getMirrorsSync: loaded cached mirrors from prefs (${cached.values.size} mirrors)" }
             }
             launchMirrorFetch()
