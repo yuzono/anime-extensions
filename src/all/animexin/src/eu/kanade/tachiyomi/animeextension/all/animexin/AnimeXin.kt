@@ -22,6 +22,25 @@ class AnimeXin :
     ) {
     override val id = 4620219025406449669
 
+    // =========================== Anime Details ============================
+    override fun getAnimeDescription(document: Document): String? {
+        val description = super.getAnimeDescription(document) ?: return null
+        val englishIdx = description.indexOf("English", ignoreCase = true)
+        val indonesiaIdx = description.indexOf("Indonesia", ignoreCase = true)
+
+        return if (englishIdx != -1 && indonesiaIdx != -1 && englishIdx < indonesiaIdx) {
+            val isIndo = preferences.langPref == "Indonesia"
+            val result = if (isIndo) {
+                description.substring(indonesiaIdx + "Indonesia".length)
+            } else {
+                description.substring(englishIdx + "English".length, indonesiaIdx)
+            }
+            result.trim().removePrefix(":").trim()
+        } else {
+            description
+        }
+    }
+
     // ============================ Video Links =============================
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val doodExtractor by lazy { DoodExtractor(client) }
@@ -70,22 +89,6 @@ class AnimeXin :
     }
 
     private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
-
-    // =========================== Anime Details ============================
-    override fun getAnimeDescription(document: Document): String? {
-        val description = super.getAnimeDescription(document) ?: return null
-        return when {
-            description.contains("English", true) && description.contains("Indonesia", true) -> {
-                val isIndo = preferences.langPref == "Indonesia"
-                if (isIndo) {
-                    description.substringAfter("Indonesia").removePrefix(":").trim()
-                } else {
-                    description.substringAfter("English").substringBefore("Indonesia").removePrefix(":").trim()
-                }
-            }
-            else -> description
-        }
-    }
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
