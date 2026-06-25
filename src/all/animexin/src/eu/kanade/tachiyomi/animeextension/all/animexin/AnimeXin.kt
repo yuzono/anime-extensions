@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
+import org.jsoup.nodes.Document
 
 class AnimeXin :
     AnimeStream(
@@ -69,6 +70,22 @@ class AnimeXin :
     }
 
     private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
+
+    // =========================== Anime Details ============================
+    override fun getAnimeDescription(document: Document): String? {
+        val description = super.getAnimeDescription(document) ?: return null
+        return when {
+            description.contains("English", true) && description.contains("Indonesia", true) -> {
+                val isIndo = preferences.langPref == "Indonesia"
+                if (isIndo) {
+                    description.substringAfter("Indonesia").removePrefix(":").trim()
+                } else {
+                    description.substringAfter("English").substringBefore("Indonesia").removePrefix(":").trim()
+                }
+            }
+            else -> description
+        }
+    }
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
