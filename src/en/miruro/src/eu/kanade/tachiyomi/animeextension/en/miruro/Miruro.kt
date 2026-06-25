@@ -651,7 +651,7 @@ class Miruro :
         private val HTML_TAG_REGEX = Regex("<[^>]+>")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
-        val SCANLATOR_SUB_TYPES = setOf("sub", "dub")
+        val SCANLATOR_SUB_TYPES = setOf("sub", "dub", "ssub", "h-sub")
         val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub")
     }
 
