@@ -2,9 +2,10 @@ package eu.kanade.tachiyomi.animeextension.es.mundodonghua
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -16,8 +17,8 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.autoUnpacker
-import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -38,17 +39,17 @@ class MundoDonghua :
 
     private val preferences by getPreferencesLazy()
 
-    override fun popularAnimeSelector() = "div > div.row > div.item > a"
+    override fun popularAnimeSelector() = "div.md-card-grid > div.md-card > a"
 
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/lista-donghuas/$page")
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("h5")!!.text().removeSurrounding("\"")
-        thumbnail_url = element.selectFirst("img")?.attr("abs:src")
+        title = element.selectFirst(".md-card-title")?.text().orEmpty()
+        thumbnail_url = element.selectFirst("div.md-card-img img")?.attr("abs:src")
     }
 
-    override fun popularAnimeNextPageSelector() = "ul.pagination li:last-child a"
+    override fun popularAnimeNextPageSelector() = "nav.md-pagination > a:last-of-type"
 
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
@@ -62,16 +63,17 @@ class MundoDonghua :
 
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
-        anime.thumbnail_url = baseUrl + document.selectFirst("div.col-md-4.col-xs-12.mb-10 div.row.sm-row > div.side-banner > div.banner-side-serie")!!
-            .attr("style").substringAfter("background-image: url(").substringBefore(")")
-        anime.title = document.selectFirst("div.col-md-4.col-xs-12.mb-10 div.row.sm-row div div.sf.fc-dark.ls-title-serie")!!.html()
-        anime.description = document.selectFirst("section div.row div.col-md-8 div.sm-row p.text-justify")!!.text().removeSurrounding("\"")
-        anime.genre = document.select("div.col-md-8.col-xs-12 div.sm-row a.generos span.label").joinToString { it.text() }
-        anime.status = parseStatus(document.select("div.col-md-4.col-xs-12.mb-10 div.row.sm-row div:nth-child(2) div:nth-child(2) p span.badge").text())
+        anime.thumbnail_url = document.selectFirst("div.md-detail-poster img")?.attr("abs:src")
+        anime.title = document.selectFirst("h1.md-detail-title")?.text() ?: ""
+        anime.description = document.selectFirst("p.md-detail-synopsis")?.text() ?: ""
+        anime.genre = document.select("div.md-genres-block a.md-genre-tag").joinToString { it.text() }
+        anime.status = parseStatus(
+            document.selectFirst("span.md-emision-badge")?.text().orEmpty(),
+        )
         return anime
     }
 
-    override fun episodeListSelector() = "div.sm-row.mt-10 div.donghua-list-scroll ul.donghua-list a"
+    override fun episodeListSelector() = "ul.md-episode-list li.md-episode-item a.md-ep-link"
 
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
@@ -117,31 +119,38 @@ class MundoDonghua :
                             } catch (_: Exception) {}
                         }
                     }
-                    if (unpack.contains("protea_tab")) {
-                        try {
-                            val slug = unpack.substringAfter("\"slug\":\"").substringBefore("\"")
-
-                            val newHeaders = headers.newBuilder()
-                                .add("referer", "${response.request.url}")
-                                .add("authority", baseUrl.substringAfter("//"))
-                                .add("accept", "*/*")
-                                .build()
-
-                            val slugPlayer = client.newCall(GET("$baseUrl/api_donghua.php?slug=$slug", headers = newHeaders))
-                                .execute().bodyString()
-                                .substringAfter("\"url\":\"").substringBefore("\"")
-
-                            val videoHeaders = headers.newBuilder()
-                                .add("authority", "www.mdplayer.xyz")
-                                .add("referer", "$baseUrl/")
-                                .build()
-
-                            val videoId = client.newCall(GET("https://www.mdplayer.xyz/nemonicplayer/dmplayer.php?key=$slugPlayer", headers = videoHeaders))
-                                .execute().bodyString()
-                                .substringAfter("video-id=\"").substringBefore("\"")
-
-                            DailymotionExtractor(client, headers).videosFromUrl("https://www.dailymotion.com/embed/video/$videoId", prefix = "Dailymotion:").let { videoList.addAll(it) }
-                        } catch (_: Exception) {}
+                    if (unpack.contains("vhide_tab")) {
+                        val vidhideUrls = fetchUrls(unpack).filter { it.contains("vidhide") }
+                        if (vidhideUrls.isNotEmpty()) {
+                            runBlocking {
+                                vidhideUrls.forEach { url ->
+                                    try {
+                                        val newHeaders = headers.newBuilder()
+                                            .add("authority", url.toHttpUrl().host)
+                                            .add("referer", "$baseUrl/")
+                                            .add("Origin", baseUrl)
+                                            .build()
+                                        VidHideExtractor(client, newHeaders).videosFromUrl(url) { "VidHide:$it" }.also(videoList::addAll)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
+                    }
+                    if (unpack.contains("swish_tab")) {
+                        val swishUrls = fetchUrls(unpack).filter { it.contains("embedwish") }
+                        if (swishUrls.isNotEmpty()) {
+                            runBlocking {
+                                swishUrls.forEach { url ->
+                                    try {
+                                        val newHeaders = headers.newBuilder()
+                                            .add("referer", "$baseUrl/")
+                                            .add("Origin", baseUrl)
+                                            .build()
+                                        StreamWishExtractor(client, newHeaders).videosFromUrl(url, "StreamWish:").also(videoList::addAll)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
                     }
                     if (unpack.contains("asura_tab")) {
                         fetchUrls(unpack).forEach { url ->
@@ -150,10 +159,9 @@ class MundoDonghua :
                                     val newHeaders = headers.newBuilder()
                                         .add("authority", "www.mdnemonicplayer.xyz")
                                         .add("accept", "*/*")
-                                        .add("origin", baseUrl)
+                                        .add("Origin", baseUrl)
                                         .add("referer", "$baseUrl/")
                                         .build()
-
                                     PlaylistUtils(client, newHeaders).extractFromHls(url, videoNameGen = { "Asura:$it" }).let { videoList.addAll(it) }
                                 }
                             } catch (_: Exception) {}
@@ -272,15 +280,18 @@ class MundoDonghua :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val qualities = arrayOf(
             "VoeCDN",
-            "Dailymotion:1080p",
-            "Dailymotion:720p",
-            "Dailymotion:480p",
             "Filemoon:1080p",
             "Filemoon:720p",
             "Filemoon:480p",
             "Asura:1080p",
             "Asura:720p",
             "Asura:480p",
+            "VidHide:1080p",
+            "VidHide:720p",
+            "VidHide:480p",
+            "StreamWish:1080p",
+            "StreamWish:720p",
+            "StreamWish:480p",
         )
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
