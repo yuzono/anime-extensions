@@ -269,7 +269,7 @@ abstract class AnimeStream(
         else -> "Alternative name(s): "
     }
 
-    protected open fun getAnimeDescription(document: Document) = document.selectFirst(animeDescriptionSelector)?.text()
+    protected open fun getAnimeDescription(document: Document) = document.select(animeDescriptionSelector).lastOrNull()?.text()
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         setUrlWithoutDomain(document.location())
