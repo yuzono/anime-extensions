@@ -16,7 +16,12 @@ import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import java.util.UUID
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.SecureRandom
+import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -30,6 +35,15 @@ class MoonExtractor(
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+    }
+
+    companion object {
+        /** Lazily initialized once and reused across all requests — avoids per-request keygen cost */
+        val keyPair: KeyPair by lazy {
+            val kpg = KeyPairGenerator.getInstance("EC")
+            kpg.initialize(ECGenParameterSpec("secp256r1"))
+            kpg.generateKeyPair()
+        }
     }
 
     fun videosFromUrl(url: String, prefix: String): List<Video> {
@@ -50,6 +64,7 @@ class MoonExtractor(
                 .set("User-Agent", userAgent)
                 .build()
 
+            // Step 1: Fetch embed details to get embed_frame_url
             val detailsBody = client.newCall(
                 GET("https://$host/api/videos/$videoId/embed/details", detailsHeaders),
             ).execute().bodyString()
@@ -65,44 +80,107 @@ class MoonExtractor(
                 ?: return emptyList()
 
             val embedHost = embedUrl.toHttpUrl().host
+            val embedPathPrefix = embedUrl.toHttpUrl().pathSegments.firstOrNull { it.isNotEmpty() } ?: "e"
+            val embedReferer = "https://$embedHost/$embedPathPrefix/$videoId"
 
-            val viewerId = UUID.randomUUID().toString().replace("-", "")
-            val deviceId = UUID.randomUUID().toString().replace("-", "")
-            val nowSec = System.currentTimeMillis() / 1000
-            val expSec = nowSec + 600
+            val viewerId = generateUrlSafeId()
+            val deviceId = generateUrlSafeId()
 
-            val fingerprintPayload = """{"viewer_id":"$viewerId","device_id":"$deviceId","confidence":0.93,"iat":$nowSec,"exp":$expSec}"""
-            val payloadB64 = Base64.encodeToString(
-                fingerprintPayload.toByteArray(Charsets.UTF_8),
-                Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING,
+            // Headers for challenge/attest/playback on embed host
+            val embedApiHeaders = headers.newBuilder()
+                .set("Referer", embedReferer)
+                .set("Origin", "https://$embedHost")
+                .set("User-Agent", userAgent)
+                .set("Content-Type", "application/json")
+                .build()
+
+            // Step 2: POST challenge to get nonce
+            val challengeResponse = client.newCall(
+                POST(
+                    "https://$embedHost/api/videos/access/challenge",
+                    embedApiHeaders,
+                    "{}".toJsonRequestBody(),
+                ),
+            ).execute().parseAs<ChallengeResponse>(json)
+
+            val challengeId = challengeResponse.challengeId
+            val nonce = challengeResponse.nonce
+
+            // Step 3: Use cached keypair, sign nonce, POST attest
+            val ecPublicKey = keyPair.public as ECPublicKey
+
+            val nonceBytes = decodeB64Url(nonce)
+            val signer = Signature.getInstance("SHA256withECDSA")
+            signer.initSign(keyPair.private)
+            signer.update(nonceBytes)
+            val rawDerSig = signer.sign()
+            val rawSig = derToRaw(rawDerSig)
+            val signatureB64 = encodeB64Url(rawSig)
+
+            // Build public key JWK
+            val w = ecPublicKey.w
+            val xBytes = unsignedBigIntBytes(w.affineX, 32)
+            val yBytes = unsignedBigIntBytes(w.affineY, 32)
+            val xB64 = encodeB64Url(xBytes)
+            val yB64 = encodeB64Url(yBytes)
+
+            val attestBody = AttestRequest(
+                viewerId = viewerId,
+                deviceId = deviceId,
+                challengeId = challengeId,
+                nonce = nonce,
+                signature = signatureB64,
+                publicKey = JwkPublicKey(
+                    crv = "P-256",
+                    ext = true,
+                    keyOps = listOf("verify"),
+                    kty = "EC",
+                    x = xB64,
+                    y = yB64,
+                ),
             )
-            val fingerprintToken = "$payloadB64.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+            val attestResponse = client.newCall(
+                POST(
+                    "https://$embedHost/api/videos/access/attest",
+                    embedApiHeaders,
+                    json.encodeToString(attestBody).toJsonRequestBody(),
+                ),
+            ).execute().parseAs<AttestResponse>(json)
+
+            val fingerprintToken = attestResponse.token
+                ?.takeIf(String::isNotBlank)
+                ?: run {
+                    Log.e("MoonExtractor", "Attest did not return a token")
+                    return emptyList()
+                }
+
+            val fingerprintConfidence = attestResponse.confidence ?: 0.93
+
+            // Step 4: POST playback with the server-issued token
+            val playbackHeaders = headers.newBuilder()
+                .set("Referer", embedReferer)
+                .set("Origin", "https://$embedHost")
+                .set("User-Agent", userAgent)
+                .set("Content-Type", "application/json")
+                .set("X-Embed-Origin", siteUrl.removePrefix("https://"))
+                .set("X-Embed-Parent", "https://$host/$embedPathPrefix/$videoId")
+                .set("X-Embed-Referer", "$siteUrl/")
+                .build()
 
             val fingerprintBody = FingerprintRequest(
                 fingerprint = FingerprintData(
                     token = fingerprintToken,
                     viewerId = viewerId,
                     deviceId = deviceId,
-                    confidence = 0.93,
+                    confidence = fingerprintConfidence,
                 ),
             )
 
-            val playbackHeaders = headers.newBuilder()
-                .set("Referer", embedUrl)
-                .set("Origin", "https://$embedHost")
-                .set("User-Agent", userAgent)
-                .set("X-Embed-Origin", siteUrl.removePrefix("https://"))
-                .set("X-Embed-Parent", "https://$host/e/$videoId")
-                .set("X-Embed-Referer", "$siteUrl/")
-                .build()
-
-            val requestBody = json.encodeToString(fingerprintBody)
-                .toJsonRequestBody()
             val playbackUrl = "https://$embedHost/api/videos/$videoId/embed/playback"
-
-            val response = client.newCall(POST(playbackUrl, playbackHeaders, requestBody))
-                .execute()
-                .parseAs<PlaybackResponse>(json)
+            val response = client.newCall(
+                POST(playbackUrl, playbackHeaders, json.encodeToString(fingerprintBody).toJsonRequestBody()),
+            ).execute().parseAs<PlaybackResponse>(json)
 
             val masterUrl = (
                 response.sources?.firstOrNull()?.let { it.url ?: it.file }
@@ -148,23 +226,119 @@ class MoonExtractor(
         val key = SecretKeySpec(keyBytes, "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, ivBytes))
-        // Fix: explicit UTF-8 charset to avoid system encoding issues
         return cipher.doFinal(cipherBytes).toString(Charsets.UTF_8)
     }
 
-    // Fix: use Base64.URL_SAFE flag directly — no need to manually replace - and _
     private fun decodeB64Url(input: String): ByteArray {
         val padding = when (input.length % 4) {
             2 -> "=="
             3 -> "="
             else -> ""
         }
-        return Base64.decode(input + padding, Base64.URL_SAFE)
+        return Base64.decode(input + padding, Base64.URL_SAFE or Base64.NO_WRAP)
     }
+
+    private fun encodeB64Url(input: ByteArray): String = Base64.encodeToString(input, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    /**
+     * Generate a URL-safe base64 random ID using SecureRandom directly —
+     * avoids the hex-string → bytes dance of UUID string manipulation.
+     */
+    private fun generateUrlSafeId(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return encodeB64Url(bytes)
+    }
+
+    /**
+     * Convert a DER-encoded ECDSA signature to raw R||S format (64 bytes for P-256).
+     * DER format: 0x30 [len] 0x02 [r-len] [r-bytes] 0x02 [s-len] [s-bytes]
+     *
+     * Validates tags and bounds before slicing to avoid IndexOutOfBoundsException.
+     */
+    private fun derToRaw(der: ByteArray): ByteArray {
+        var i = 0
+        require(der.size > 2 && der[i++] == 0x30.toByte()) { "DER: expected SEQUENCE tag 0x30" }
+
+        // Skip length (short or long form)
+        val seqLen = der[i].toInt() and 0xFF
+        i++
+        if (seqLen and 0x80 != 0) {
+            // Long form: next (seqLen & 0x7F) bytes encode the actual length
+            i += seqLen and 0x7F
+        }
+
+        // Parse R
+        require(i < der.size && der[i++] == 0x02.toByte()) { "DER: expected INTEGER tag 0x02 for R" }
+        val rLen = der[i++].toInt() and 0xFF
+        require(i + rLen <= der.size) { "DER: R length $rLen exceeds buffer" }
+        val rBytes = der.copyOfRange(i, i + rLen)
+        i += rLen
+
+        // Parse S
+        require(i < der.size && der[i++] == 0x02.toByte()) { "DER: expected INTEGER tag 0x02 for S" }
+        val sLen = der[i++].toInt() and 0xFF
+        require(i + sLen <= der.size) { "DER: S length $sLen exceeds buffer" }
+        val sBytes = der.copyOfRange(i, i + sLen)
+
+        return pad32(rBytes) + pad32(sBytes)
+    }
+
+    private fun pad32(b: ByteArray): ByteArray = when {
+        b.size == 32 -> b
+        b.size > 32 -> b.copyOfRange(b.size - 32, b.size)
+        else -> ByteArray(32 - b.size) + b
+    }
+
+    private fun unsignedBigIntBytes(n: java.math.BigInteger, size: Int): ByteArray {
+        val raw = n.toByteArray()
+        return when {
+            raw.size == size + 1 && raw[0] == 0.toByte() -> raw.copyOfRange(1, raw.size)
+            raw.size < size -> ByteArray(size - raw.size) + raw
+            else -> raw
+        }
+    }
+
+    // ========================== Data Classes ==========================
 
     @Serializable
     data class DetailsResponse(
         @SerialName("embed_frame_url") val embedFrameUrl: String? = null,
+    )
+
+    @Serializable
+    data class ChallengeResponse(
+        @SerialName("challenge_id") val challengeId: String,
+        val nonce: String,
+        @SerialName("viewer_hint") val viewerHint: String? = null,
+    )
+
+    @Serializable
+    data class AttestRequest(
+        @SerialName("viewer_id") val viewerId: String,
+        @SerialName("device_id") val deviceId: String,
+        @SerialName("challenge_id") val challengeId: String,
+        val nonce: String,
+        val signature: String,
+        @SerialName("public_key") val publicKey: JwkPublicKey,
+    )
+
+    @Serializable
+    data class JwkPublicKey(
+        val crv: String,
+        val ext: Boolean,
+        @SerialName("key_ops") val keyOps: List<String>,
+        val kty: String,
+        val x: String,
+        val y: String,
+    )
+
+    @Serializable
+    data class AttestResponse(
+        val token: String? = null,
+        val confidence: Double? = null,
+        @SerialName("viewer_id") val viewerId: String? = null,
+        @SerialName("device_id") val deviceId: String? = null,
     )
 
     @Serializable
