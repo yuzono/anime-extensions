@@ -125,21 +125,6 @@ data class SubtitleDto(
 )
 
 @Serializable
-data class AnilistMalIdResponse(
-    val data: DataObject,
-) {
-    @Serializable
-    data class DataObject(
-        @SerialName("Media") val media: MediaObject,
-    ) {
-        @Serializable
-        data class MediaObject(
-            @SerialName("idMal") val idMal: Int? = null,
-        )
-    }
-}
-
-@Serializable
 data class ConfigResponseDto(
     val streaming: Map<String, ProviderConfigDto> = emptyMap(),
     val providerOrder: List<String> = emptyList(),
@@ -197,24 +182,6 @@ data class ConfigResponseDto(
             val graphql: String = "https://graphql.anilist.co",
         )
     }
-}
-
-@Serializable
-data class JikanEpisodesDto(
-    val data: List<JikanEpisodeDataDto>,
-    val pagination: JikanPaginationDto,
-) {
-    @Serializable
-    data class JikanEpisodeDataDto(
-        @SerialName("mal_id") val number: Int,
-        val filler: Boolean,
-        val title: String = "",
-    )
-
-    @Serializable
-    data class JikanPaginationDto(
-        @SerialName("has_next_page") val hasNextPage: Boolean,
-    )
 }
 
 @Serializable
