@@ -1,0 +1,13 @@
+ext {
+    extName = 'HentaiHaven'
+    extClass = '.HentaiHaven'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(libs.jsoup)
+    implementation(project(":lib:playlistutils"))
+}
