@@ -1,14 +1,16 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwave
+package eu.kanade.tachiyomi.animeextension.en.kotokai
 
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 
-class AniWave :
+class KotoKai :
     AnikotoTheme(
         "en",
-        "AniWave (Unoriginal)",
+        "AnimeKai (Unoriginal)",
         domainEntries = listOf(
-            "animewave.to",
-            "aniwave.cz",
+            "animekaitv.to",
+            "anikaitv.to",
+            "animekai.se",
+            "anikai.se",
         ),
         hosterNames = listOf("HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream", "VidPlay-1"), // seed/fallback only
     )
