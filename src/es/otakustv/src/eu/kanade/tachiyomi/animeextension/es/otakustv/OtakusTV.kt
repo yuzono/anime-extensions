@@ -145,7 +145,7 @@ class OtakusTV : ParsedAnimeHttpSource() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.useAsJsoup()
-        val slug = response.request.url.toString().substringAfterLast("/anime/").trimEnd('/')
+        val slug = response.request.url.encodedPath.trimEnd('/').substringAfterLast('/')
         val prefix = "$slug-"
 
         // The page also lists global "latest episodes", so we keep only links whose slug is
