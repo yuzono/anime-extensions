@@ -1,6 +1,7 @@
 package keiyoushi.lib.cloudscraper
 
 import android.util.Log
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -108,7 +109,7 @@ class JsdSolver(
 
     // ── CvParams parsing ────────────────────────────────────────────
 
-    private val lenientJson = Json { ignoreUnknownKeys = true; isLenientOnJson = true }
+    private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
      * Parses `window.__CF$cv$params` from the raw JS object string.
@@ -121,7 +122,9 @@ class JsdSolver(
             // 2. Unquoted keys → quoted keys
             var jsonStr = rawParams
                 .replace("'", "\"")
-                .replace(Regex("""(\w+)\s*:""")) { """${it.groupValues[1]}": """ }
+                .replace(Regex("""(\w+)\s*:""")) { match ->
+                    "\"${match.groupValues[1]}\":"
+                }
 
             val obj = lenientJson.parseToJsonElement(jsonStr) as? JsonObject ?: return null
 

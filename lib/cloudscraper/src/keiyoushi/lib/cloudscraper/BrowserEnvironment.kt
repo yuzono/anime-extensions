@@ -18,6 +18,7 @@ import app.cash.quickjs.QuickJs
 object BrowserEnvironment {
 
     fun install(engine: QuickJs, userAgent: String, originUrl: String = "") {
+        engine.evaluate(URL_HELPER)
         engine.evaluate(CONSOLE_SHIM)
         engine.evaluate(TIMERS_SHIM)
         engine.evaluate(ATOB_BTOA_SHIM)

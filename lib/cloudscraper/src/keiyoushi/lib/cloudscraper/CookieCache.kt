@@ -9,8 +9,7 @@ import java.util.concurrent.locks.ReentrantLock
  * Thread-safe cache for Cloudflare cookies, keyed by host.
  *
  * Improvements over a simple map:
- * - **Respects cookie `expiresAt`** — uses the cookie's own expiry when available,
- *   falling back to a configurable [defaultTtlMillis] for cookies without explicit expiry.
+ * - **Respects cookie `expiresAt`** — uses the cookie's own expiry to filter stale entries.
  * - **Per-host locks** — prevents concurrent duplicate solve attempts for the same host.
  *   Callers must call [lockForHost]/[unlockForHost] around solve attempts.
  * - **Multiple cookies per host** — stores all cookies from the challenge response,
@@ -20,9 +19,7 @@ import java.util.concurrent.locks.ReentrantLock
  * @param defaultTtlMillis default TTL in milliseconds when cookie has no explicit expiry;
  *   Cloudflare typically sets cf_clearance with ~30 min expiry, so 25 min is safe
  */
-class CookieCache(
-    private val defaultTtlMillis: Long = 25 * 60 * 1000L,
-) {
+class CookieCache {
 
     private data class HostEntry(
         val cookies: List<Cookie>,
@@ -79,12 +76,7 @@ class CookieCache(
         val entry = store[url.host] ?: return null
         val now = System.currentTimeMillis()
         val valid = entry.cookies.filter { cookie ->
-            val expiresAt = if (cookie.expiresAt != Cookie.EXPIRES_AT_OTHER) {
-                cookie.expiresAt
-            } else {
-                entry.storedAt + defaultTtlMillis
-            }
-            expiresAt > now
+            cookie.expiresAt > now
         }
         if (valid.isEmpty()) {
             store.remove(url.host)
