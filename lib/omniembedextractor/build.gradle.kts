@@ -1,0 +1,45 @@
+plugins {
+    alias(kei.plugins.library)
+}
+
+dependencies {
+    // Original extractors
+    implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:vkextractor"))
+    implementation(project(":lib:doodextractor"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:mp4uploadextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:kwikextractor"))
+
+    // New extractors - Tier 1: Simple (client, headers) + videosFromUrl(url, prefix)
+    implementation(project(":lib:voeextractor"))
+    implementation(project(":lib:streamlareextractor"))
+    implementation(project(":lib:streamhubextractor"))
+    implementation(project(":lib:vidguardextractor"))
+    implementation(project(":lib:sendvidextractor"))
+    implementation(project(":lib:streamdavextractor"))
+    implementation(project(":lib:streamsilkextractor"))
+    implementation(project(":lib:vidoextractor"))
+    implementation(project(":lib:vudeoextractor"))
+    implementation(project(":lib:upstreamextractor"))
+    implementation(project(":lib:sibnetextractor"))
+    implementation(project(":lib:rumbleextractor"))
+    implementation(project(":lib:amazonextractor"))
+    implementation(project(":lib:fusevideoextractor"))
+    implementation(project(":lib:luluextractor"))
+    implementation(project(":lib:buzzheavierextractor"))
+    implementation(project(":lib:fastreamextractor"))
+    implementation(project(":lib:vidbomextractor"))
+    implementation(project(":lib:pixeldrainextractor"))
+    implementation(project(":lib:mixdropextractor"))
+
+    // New extractors - Tier 2: Suspend functions (need runBlocking)
+    implementation(project(":lib:vidmolyextractor"))
+    implementation(project(":lib:vidhideextractor"))
+    implementation(project(":lib:streamplayextractor"))
+    implementation(project(":lib:streamupextractor"))
+    implementation(project(":lib:uqloadextractor"))
+    implementation(project(":lib:bloggerextractor"))
+}
