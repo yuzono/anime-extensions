@@ -30,19 +30,56 @@ private val HTML_TAG_REGEX = Regex("<[^>]+>")
 /**
  * Build a rich, formatted description string from this [MediaSnapshot].
  *
- * Produces a markdown-like description with metadata sections above the
- * AniList synopsis, making the detail view informative even when the
- * site backend provides limited data.
+ * Produces a markdown-formatted description with metadata sections above
+ * the AniList synopsis. The host app renders markdown in `SAnime.description`,
+ * so bold labels, star ratings, and links display with proper styling.
  *
  * Sections are controlled via [options] — disable any you don't want.
  */
 fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOptions()): String {
     val sections = mutableListOf<String>()
 
-    if (options.genres && genres.isNotEmpty()) {
-        sections.add(genres.joinToString(" • ") { "⊛ $it" })
+    // ---- Score ----
+    if (options.score && averageScore != null && averageScore > 0) {
+        sections.add(fancyScore(averageScore))
     }
 
+    // ---- Quick-info line ----
+    val infoParts = mutableListOf<String>()
+    if (options.status && !status.isNullOrBlank()) {
+        infoParts.add("**${labelStatus(status)}**")
+    }
+    if (options.format && !format.isNullOrBlank()) {
+        infoParts.add(labelFormat(format))
+    }
+    if (options.episodes && episodes != null && episodes > 0) {
+        val epLabel = if (episodes == 1) "1 episode" else "$episodes episodes"
+        val durPart = if (options.duration && duration != null && duration > 0) ", $duration min" else ""
+        infoParts.add("$epLabel$durPart")
+    } else if (options.duration && duration != null && duration > 0) {
+        infoParts.add("$duration min")
+    }
+    if (options.season && !season.isNullOrBlank() && seasonYear != null) {
+        infoParts.add("${labelSeason(season)} $seasonYear")
+    }
+    if (infoParts.isNotEmpty()) {
+        sections.add(infoParts.joinToString(" • "))
+    }
+
+    // ---- Studio ----
+    if (options.studio) {
+        val studio = AniLib.resolveMainStudio(studios)
+        if (studio.isNotBlank()) {
+            sections.add("**Studio:** $studio")
+        }
+    }
+
+    // ---- Genres ----
+    if (options.genres && genres.isNotEmpty()) {
+        sections.add("**Genres:** ${genres.joinToString()}")
+    }
+
+    // ---- Tags ----
     if (options.tags && !tags.isNullOrEmpty()) {
         val displayTags = tags
             .filter { !it.isGeneralSpoiler && !it.isMediaSpoiler }
@@ -50,72 +87,45 @@ fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOpti
             .take(options.maxTagCount)
             .mapNotNull { it.name }
         if (displayTags.isNotEmpty()) {
-            sections.add(displayTags.joinToString(" • ") { "⊞ $it" })
+            sections.add("**Tags:** ${displayTags.joinToString()}")
         }
     }
 
-    val infoParts = mutableListOf<String>()
-
-    if (options.score && averageScore != null && averageScore > 0) {
-        infoParts.add("★ $averageScore%")
-    }
-
-    if (options.status && !status.isNullOrBlank()) {
-        infoParts.add(labelStatus(status))
-    }
-
-    if (options.format && !format.isNullOrBlank()) {
-        infoParts.add(labelFormat(format))
-    }
-
-    if (options.episodes && episodes != null && episodes > 0) {
-        infoParts.add("$episodes eps")
-    }
-
-    if (options.duration && duration != null && duration > 0) {
-        infoParts.add("$duration min")
-    }
-
-    if (options.season && !season.isNullOrBlank() && seasonYear != null) {
-        infoParts.add("${labelSeason(season)} $seasonYear")
-    }
-
-    if (options.studio) {
-        val studio = AniLib.resolveMainStudio(studios)
-        if (studio.isNotBlank()) {
-            infoParts.add("Studio: $studio")
-        }
-    }
-
-    if (infoParts.isNotEmpty()) {
-        sections.add(infoParts.joinToString(" │ "))
-    }
-
+    // ---- Synonyms ----
     if (options.synonyms && synonyms.isNotEmpty()) {
         val filtered = synonyms.filter { !it.isNullOrBlank() && it != title?.userPreferred && it != title?.romaji && it != title?.english }
         if (filtered.isNotEmpty()) {
-            sections.add("Also: " + filtered.joinToString(", "))
+            sections.add("*Also known as: ${filtered.joinToString()}*")
         }
     }
 
+    // ---- Relations ----
     if (options.relations && relations?.edges?.isNotEmpty() == true) {
         val relationLines = relations.edges.mapNotNull { edge ->
             val type = edge.relationType ?: return@mapNotNull null
             val node = edge.node ?: return@mapNotNull null
             val name = AniLib.resolveTitle(node.title) ?: return@mapNotNull null
-            val format = node.format?.let { labelFormat(it) } ?: ""
-            val eps = node.episodes?.let { if (it > 0) " ($it eps)" else "" } ?: ""
-            "$type: $name${" " + format}$eps"
+            val fmt = node.format?.let { labelFormat(it) } ?: ""
+            val eps = node.episodes?.takeIf { it > 0 }?.let { "$it episodes" }
+            val details = listOfNotNull(fmt, eps).joinToString(", ")
+            val namePart = if (node.siteUrl.isNullOrBlank()) {
+                name
+            } else {
+                "[$name](${node.siteUrl})"
+            }
+            "**$type:** $namePart" + if (details.isNotBlank()) " — $details" else ""
         }
         if (relationLines.isNotEmpty()) {
             sections.add(relationLines.joinToString("\n"))
         }
     }
 
+    // ---- Trailer ----
     if (options.trailer && trailer?.url() != null) {
-        sections.add("Trailer: ${trailer.url()}")
+        sections.add("[▶ Watch Trailer](${trailer.url()})")
     }
 
+    // ---- Synopsis ----
     val synopsis = if (!description.isNullOrBlank()) {
         val cleaned = if (options.stripHtml) stripHtml(description) else description
         cleaned.trim()
@@ -128,7 +138,7 @@ fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOpti
             append(sections.joinToString("\n\n"))
         }
         if (!synopsis.isNullOrBlank()) {
-            if (isNotEmpty()) append("\n\n―\n\n")
+            if (isNotEmpty()) append("\n\n---\n\n")
             append(synopsis)
         }
     }
@@ -145,6 +155,11 @@ fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOpti
     }
 }
 
+private fun fancyScore(score: Int): String {
+    val stars = (score / 20.0).toInt().coerceIn(1, 5)
+    return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score%"
+}
+
 private fun stripHtml(input: String): String = input
     .replace(BR_REGEX, "\n")
     .replace(CLOSE_P_REGEX, "\n")
@@ -152,7 +167,7 @@ private fun stripHtml(input: String): String = input
     .trim()
 
 private fun labelStatus(status: String): String = when (status.uppercase()) {
-    "RELEASING" -> "Releasing"
+    "RELEASING" -> "Airing"
     "FINISHED" -> "Finished"
     "CANCELLED" -> "Cancelled"
     "HIATUS" -> "Hiatus"
