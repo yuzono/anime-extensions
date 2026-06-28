@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.anilib.AniLib
 import aniyomi.lib.anilib.DescriptionOptions
+import aniyomi.lib.anilib.FillerType
 import aniyomi.lib.anilib.MediaCoverImage
 import aniyomi.lib.anilib.MediaSnapshot
 import aniyomi.lib.anilib.MediaStudios
@@ -80,6 +81,8 @@ class Miruro :
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
     private val SharedPreferences.includeAllProviders by preferences.delegate(PREF_INCLUDE_ALL_PROVIDERS_KEY, PREF_INCLUDE_ALL_PROVIDERS_DEFAULT)
+    private val SharedPreferences.fillerDisplayMode by preferences.delegate(PREF_FILLER_DISPLAY_KEY, PREF_FILLER_DISPLAY_DEFAULT)
+    private val SharedPreferences.fillerMarkMixed by preferences.delegate(PREF_FILLER_MARK_MIXED_KEY, PREF_FILLER_MARK_MIXED_DEFAULT)
 
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
@@ -622,6 +625,16 @@ class Miruro :
         private const val PREF_INCLUDE_ALL_PROVIDERS_TITLE = "Include all provider streams"
         private const val PREF_INCLUDE_ALL_PROVIDERS_DEFAULT = false
 
+        private const val PREF_FILLER_DISPLAY_KEY = "filler_display_mode"
+        private const val PREF_FILLER_DISPLAY_TITLE = "Filler Episode Handling"
+        private val PREF_FILLER_DISPLAY_ENTRIES = listOf("Mark in scanlator", "Hide filler episodes", "Show all (no marks)")
+        private val PREF_FILLER_DISPLAY_VALUES = listOf("mark", "hide", "show")
+        private const val PREF_FILLER_DISPLAY_DEFAULT = "mark"
+
+        private const val PREF_FILLER_MARK_MIXED_KEY = "filler_mark_mixed"
+        private const val PREF_FILLER_MARK_MIXED_TITLE = "Also mark mixed-canon episodes"
+        private const val PREF_FILLER_MARK_MIXED_DEFAULT = true
+
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
         private val DEFAULT_MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
@@ -1117,7 +1130,54 @@ class Miruro :
             }
         }
 
-        logD { "episodeListParse: ${result.size} episodes, sort=${preferences.episodeSortOrder}" }
+        val fillerMode = preferences.fillerDisplayMode
+        if (anilistId != null && anilistId > 0 && fillerMode != "show") {
+            try {
+                val fillerMap = AniLib.fetchFillerData(client, anilistId, preferences).episodes
+                if (fillerMap.isNotEmpty()) {
+                    val markMixed = preferences.fillerMarkMixed
+                    for (ep in result) {
+                        val epFillerType = fillerMap[ep.episode_number.toInt()] ?: continue
+                        when (epFillerType) {
+                            FillerType.FILLER -> {
+                                if (fillerMode == "hide") {
+                                    ep.name = "\u200B${ep.name}"
+                                } else {
+                                    ep.scanlator = buildString {
+                                        append(ep.scanlator ?: "")
+                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                        append("[Filler]")
+                                    }
+                                }
+                            }
+                            FillerType.MIXED_MANGA -> {
+                                if (markMixed && fillerMode != "hide") {
+                                    ep.scanlator = buildString {
+                                        append(ep.scanlator ?: "")
+                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                        append("[Mixed Canon]")
+                                    }
+                                }
+                            }
+                            FillerType.ANIME_CANON -> {
+                                if (markMixed && fillerMode != "hide") {
+                                    ep.scanlator = buildString {
+                                        append(ep.scanlator ?: "")
+                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                        append("[Anime Canon]")
+                                    }
+                                }
+                            }
+                            FillerType.MANGA_CANON -> { /* no mark needed */ }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logD { "episodeListParse: AniFiller fetch failed: ${e.message}" }
+            }
+        }
+
+        logD { "episodeListParse: ${result.size} episodes, sort=${preferences.episodeSortOrder}, filler=$fillerMode" }
         return result
     }
 
@@ -1533,6 +1593,22 @@ class Miruro :
             entryValues = PREF_DESCRIPTION_TRUNCATE_VALUES,
             default = PREF_DESCRIPTION_TRUNCATE_DEFAULT,
             summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_FILLER_DISPLAY_KEY,
+            title = PREF_FILLER_DISPLAY_TITLE,
+            entries = PREF_FILLER_DISPLAY_ENTRIES,
+            entryValues = PREF_FILLER_DISPLAY_VALUES,
+            default = PREF_FILLER_DISPLAY_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_FILLER_MARK_MIXED_KEY,
+            title = PREF_FILLER_MARK_MIXED_TITLE,
+            default = PREF_FILLER_MARK_MIXED_DEFAULT,
+            summary = "When enabled, mixed-canon episodes are also tagged. Only applies when filler handling is set to 'Mark in scanlator'.",
         )
     }
 
