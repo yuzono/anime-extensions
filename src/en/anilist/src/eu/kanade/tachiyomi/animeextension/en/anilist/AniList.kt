@@ -19,9 +19,11 @@ import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -74,7 +76,6 @@ class AniList :
         if (authToken.isNotBlank() && request.url.toString().startsWith(apiUrl)) {
             val newRequest = request.newBuilder()
 
-            // Format the JWT correctly
             val token = if (authToken.startsWith("Bearer", ignoreCase = true)) authToken else "Bearer $authToken"
             newRequest.header("Authorization", token)
 
@@ -131,7 +132,7 @@ class AniList :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val listFilter = filters.firstOrNull { it is Filters.AniListListFilter } as? Filters.AniListListFilter
 
-        // 1. Intercept for Personal Collections (Watching, Completed, etc.)
+        // 1. Intercept for Personal Collections
         if (listFilter != null && listFilter.isActive()) {
             val username = preferences.getString(PREF_USERNAME_KEY, "")?.trim() ?: ""
             if (username.isBlank()) {
@@ -140,7 +141,6 @@ class AniList :
 
             val status = listFilter.getStatus()
 
-            // Added `isAdult` field to the GraphQL query
             val graphqlQuery = """
                 query (${'$'}userName: String, ${'$'}type: MediaType, ${'$'}status: MediaListStatus, ${'$'}page: Int, ${'$'}perPage: Int) {
                   Page(page: ${'$'}page, perPage: ${'$'}perPage) {
@@ -240,10 +240,10 @@ class AniList :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val responseBody = response.peekBody(Long.MAX_VALUE).string()
+        val responseBody = response.body.string()
 
         return try {
-            val jsonElement = Json.parseToJsonElement(responseBody).jsonObject
+            val jsonElement = json.parseToJsonElement(responseBody).jsonObject
             val data = jsonElement["data"]?.jsonObject
 
             // Check if the payload is a paginated personal list query
@@ -253,14 +253,14 @@ class AniList :
                 val animeList = mutableListOf<SAnime>()
 
                 val pageObj = data["Page"]?.jsonObject
-                val hasNextPage = pageObj?.get("pageInfo")?.jsonObject?.get("hasNextPage")?.jsonPrimitive?.content == "true"
+                val hasNextPage = pageObj?.get("pageInfo")?.jsonObject?.get("hasNextPage")?.jsonPrimitive?.booleanOrNull == true
                 val mediaListArray = pageObj?.get("mediaList")?.jsonArray
 
                 mediaListArray?.forEach { entryElement ->
                     val media = entryElement.jsonObject["media"]?.jsonObject ?: return@forEach
 
                     // Check adult content filter against the media's metadata
-                    val isAdult = media["isAdult"]?.jsonPrimitive?.content == "true"
+                    val isAdult = media["isAdult"]?.jsonPrimitive?.booleanOrNull == true
                     if (!allowAdult && isAdult) return@forEach
 
                     animeList.add(
@@ -286,7 +286,12 @@ class AniList :
             }
 
             // Fallback to original parsing using custom Dto
-            popularAnimeParse(response)
+            val pagesResponse = json.decodeFromString<PagesResponse>(responseBody)
+            val titleLang = preferences.titleLang
+            val page = pagesResponse.data.page
+            val hasNextPage = page.pageInfo.hasNextPage
+            val animeList = page.media.map { it.toSAnime(titleLang) }
+            AnimesPage(animeList, hasNextPage)
         } catch (e: Exception) {
             Log.e("AniList", "Error parsing search/list response", e)
             AnimesPage(emptyList(), false)
@@ -455,7 +460,7 @@ class AniList :
 
     private fun parseDate(dateString: String?): Long {
         if (dateString.isNullOrBlank()) return 0L
-        val cleanDate = dateString.substringBefore("+").substringBefore("Z")
+        val cleanDate = if (dateString.length >= 19) dateString.substring(0, 19) else dateString
         return DATE_FORMAT.tryParse(cleanDate)
     }
 
@@ -572,7 +577,13 @@ class AniList :
         EditTextPreference(screen.context).apply {
             key = PREF_AUTH_TOKEN_KEY
             title = "AniList API Token"
-            summary = "Paste your generated API token here to access private lists. Generate from Settings -> Developer -> New Client with Redirect URL: https://anilist.co/api/v2/oauth/pin"
+            summary = """
+                Generate an AniList API token by creating a new client in. Settings → Developer with Redirect URL:
+                https://anilist.co/api/v2/oauth/pin
+                Then open:
+                https://anilist.co/api/v2/oauth/authorize?client_id=[CLIENT_ID]&response_type=token
+                Approve access and paste the generated token here.
+            """.trimIndent()
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
