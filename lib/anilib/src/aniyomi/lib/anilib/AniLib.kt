@@ -297,8 +297,8 @@ object AniLib {
             put("id", anilistId)
             put("type", "ANIME")
         }
-        return executeQuery<AniListResponse<MediaData>>(client, query, variables)
-            ?.data?.media?.malId
+        return executeQuery<MediaData>(client, query, variables)
+            ?.media?.malId
     }
 
     // ========================== Airing Schedule ==========================
@@ -325,8 +325,8 @@ object AniLib {
         val variables = buildJsonObject {
             put("id", anilistId)
         }
-        val response = executeQuery<AniListResponse<MediaData>>(client, query, variables)
-        val media = response?.data?.media ?: return AiringScheduleResult()
+        val response = executeQuery<MediaData>(client, query, variables)
+        val media = response?.media ?: return AiringScheduleResult()
 
         val schedule = mutableMapOf<Float, Long>()
 
@@ -410,17 +410,83 @@ object AniLib {
             put("id", anilistId)
             put("type", "ANIME")
         }
-        return executeQuery<AniListResponse<MediaData>>(
+        return executeQuery<MediaData>(
             client,
             query,
             variables,
             cacheKey = "media_$anilistId",
             prefs = prefs,
             cacheTtlMs = cacheTtlMs,
-        )?.data?.media
+        )?.media
     }
 
     // ========================== Search ==========================
+
+    private val MEDIA_SNAPSHOT_FRAGMENT = """
+        id idMal title { userPreferred romaji english native }
+        coverImage { extraLarge large medium }
+        bannerImage status format episodes season seasonYear
+        genres averageScore siteUrl
+    """.trimIndent()
+
+    private val FILTERED_MEDIA_QUERY = """
+        query (
+            ${"$"}search: String,
+            ${"$"}sort: [MediaSort],
+            ${"$"}format: [MediaFormat],
+            ${"$"}status: MediaStatus,
+            ${"$"}season: MediaSeason,
+            ${"$"}seasonYear: Int,
+            ${"$"}genres: [String],
+            ${"$"}excludedGenres: [String],
+            ${"$"}tags: [String],
+            ${"$"}excludedTags: [String],
+            ${"$"}minimumTagRank: Int,
+            ${"$"}yearGreater: FuzzyDateInt,
+            ${"$"}yearLesser: FuzzyDateInt,
+            ${"$"}countryOfOrigin: CountryCode,
+            ${"$"}isAdult: Boolean,
+            ${"$"}onList: Boolean,
+            ${"$"}page: Int,
+            ${"$"}perPage: Int,
+            ${"$"}type: MediaType,
+        ) {
+            Page(page: ${"$"}page, perPage: ${"$"}perPage) {
+                pageInfo { total currentPage lastPage hasNextPage perPage }
+                media(
+                    search: ${"$"}search,
+                    sort: ${"$"}sort,
+                    format_in: ${"$"}format,
+                    status: ${"$"}status,
+                    season: ${"$"}season,
+                    seasonYear: ${"$"}seasonYear,
+                    genre_in: ${"$"}genres,
+                    genre_not_in: ${"$"}excludedGenres,
+                    tag_in: ${"$"}tags,
+                    tag_not_in: ${"$"}excludedTags,
+                    minimumTagRank: ${"$"}minimumTagRank,
+                    startDate_greater: ${"$"}yearGreater,
+                    startDate_lesser: ${"$"}yearLesser,
+                    countryOfOrigin: ${"$"}countryOfOrigin,
+                    isAdult: ${"$"}isAdult,
+                    onList: ${"$"}onList,
+                    type: ${"$"}type,
+                ) {
+                    $MEDIA_SNAPSHOT_FRAGMENT
+                }
+            }
+        }
+    """.trimIndent()
+
+    fun fetchFilteredMedia(
+        client: OkHttpClient = defaultClient,
+        filter: MediaFilter,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? {
+        val variables = filter.toVariables()
+        val result = executeQuery<PageDataWrapper>(client, FILTERED_MEDIA_QUERY, variables)
+            ?: return null
+        return result.page.media to result.page.pageInfo
+    }
 
     /**
      * Search for anime on AniList by text query.
@@ -436,112 +502,93 @@ object AniLib {
         query: String,
         page: Int = 1,
         perPage: Int = 20,
-    ): Pair<List<MediaSnapshot>, PageInfo?>? {
-        val q = """
-            query (${"$"}search: String, ${"$"}page: Int, ${"$"}perPage: Int, ${"$"}type: MediaType) {
-                Page(page: ${"$"}page, perPage: ${"$"}perPage) {
-                    pageInfo { total currentPage lastPage hasNextPage perPage }
-                    media(search: ${"$"}search, type: ${"$"}type, sort: SEARCH_MATCH) {
-                        id idMal title { userPreferred romaji english native }
-                        coverImage { extraLarge large medium }
-                        bannerImage status format episodes season seasonYear
-                        genres averageScore siteUrl
-                    }
-                }
-            }
-        """.trimIndent()
-        val variables = buildJsonObject {
-            put("search", query)
-            put("page", page)
-            put("perPage", perPage)
-            put("type", "ANIME")
-        }
-        val result = executeQuery<AniListResponse<PageData>>(client, q, variables)
-            ?: return null
-        return result.data.media to result.data.pageInfo
-    }
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            search = query,
+            sort = "SEARCH_MATCH",
+            page = page,
+            perPage = perPage,
+        ),
+    )
 
     // ========================== Trending ==========================
 
-    /**
-     * Fetch trending anime from AniList.
-     *
-     * @param client OkHttpClient to use for the request.
-     * @param page Page number (1-indexed).
-     * @param perPage Results per page (max 50).
-     * @return [Pair] of media list and [PageInfo], or null on failure.
-     */
     fun fetchTrending(
         client: OkHttpClient = defaultClient,
         page: Int = 1,
         perPage: Int = 20,
-    ): Pair<List<MediaSnapshot>, PageInfo?>? {
-        val query = """
-            query (${"$"}page: Int, ${"$"}perPage: Int, ${"$"}type: MediaType) {
-                Page(page: ${"$"}page, perPage: ${"$"}perPage) {
-                    pageInfo { total currentPage lastPage hasNextPage perPage }
-                    media(type: ${"$"}type, sort: TRENDING_DESC) {
-                        id idMal title { userPreferred romaji english native }
-                        coverImage { extraLarge large medium }
-                        bannerImage status format episodes season seasonYear
-                        genres averageScore siteUrl
-                    }
-                }
-            }
-        """.trimIndent()
-        val variables = buildJsonObject {
-            put("page", page)
-            put("perPage", perPage)
-            put("type", "ANIME")
-        }
-        val result = executeQuery<AniListResponse<PageData>>(client, query, variables)
-            ?: return null
-        return result.data.media to result.data.pageInfo
-    }
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            sort = "TRENDING_DESC",
+            page = page,
+            perPage = perPage,
+        ),
+    )
 
     // ========================== Seasonal ==========================
 
-    /**
-     * Fetch anime for a specific season and year from AniList.
-     *
-     * @param client OkHttpClient to use for the request.
-     * @param season The season (WINTER, SPRING, SUMMER, FALL).
-     * @param year The year.
-     * @param page Page number (1-indexed).
-     * @param perPage Results per page (max 50).
-     * @return [Pair] of media list and [PageInfo], or null on failure.
-     */
     fun fetchSeasonal(
         client: OkHttpClient = defaultClient,
         season: String,
         year: Int,
         page: Int = 1,
         perPage: Int = 20,
-    ): Pair<List<MediaSnapshot>, PageInfo?>? {
-        val query = """
-            query (${"$"}season: MediaSeason, ${"$"}seasonYear: Int, ${"$"}page: Int, ${"$"}perPage: Int, ${"$"}type: MediaType) {
-                Page(page: ${"$"}page, perPage: ${"$"}perPage) {
-                    pageInfo { total currentPage lastPage hasNextPage perPage }
-                    media(season: ${"$"}season, seasonYear: ${"$"}seasonYear, type: ${"$"}type, sort: POPULARITY_DESC) {
-                        id idMal title { userPreferred romaji english native }
-                        coverImage { extraLarge large medium }
-                        bannerImage status format episodes season seasonYear
-                        genres averageScore siteUrl
-                    }
-                }
-            }
-        """.trimIndent()
-        val variables = buildJsonObject {
-            put("season", season.uppercase())
-            put("seasonYear", year)
-            put("page", page)
-            put("perPage", perPage)
-            put("type", "ANIME")
-        }
-        val result = executeQuery<AniListResponse<PageData>>(client, query, variables)
-            ?: return null
-        return result.data.media to result.data.pageInfo
-    }
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            season = season.uppercase(),
+            seasonYear = year,
+            sort = "POPULARITY_DESC",
+            page = page,
+            perPage = perPage,
+        ),
+    )
+
+    // ========================== Convenience Wrappers ==========================
+
+    fun fetchPopular(
+        client: OkHttpClient = defaultClient,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            sort = "POPULARITY_DESC",
+            status = "RELEASING",
+            page = page,
+            perPage = perPage,
+        ),
+    )
+
+    fun fetchUpcoming(
+        client: OkHttpClient = defaultClient,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            sort = "START_DATE_DESC",
+            status = "NOT_YET_RELEASED",
+            page = page,
+            perPage = perPage,
+        ),
+    )
+
+    fun fetchRecentlyUpdated(
+        client: OkHttpClient = defaultClient,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            sort = "UPDATED_AT_DESC",
+            status = "RELEASING",
+            page = page,
+            perPage = perPage,
+        ),
+    )
 
     // ========================== Related Media ==========================
 
@@ -569,8 +616,8 @@ object AniLib {
             put("id", anilistId)
             put("type", "ANIME")
         }
-        return executeQuery<AniListResponse<MediaData>>(client, query, variables)
-            ?.data?.media?.relations?.edges
+        return executeQuery<MediaData>(client, query, variables)
+            ?.media?.relations?.edges
     }
 
     // ========================== Episode Titles (ani.zip) ==========================

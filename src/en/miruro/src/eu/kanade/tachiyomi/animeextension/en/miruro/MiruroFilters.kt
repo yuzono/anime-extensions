@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
+import aniyomi.lib.anilib.MediaFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter.TriState
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -542,3 +543,17 @@ object MiruroFilters {
         )
     }
 }
+
+fun MiruroFilters.FilterSearchParams.toMediaFilter(page: Int = 1, perPage: Int = 20): MediaFilter = MediaFilter(
+    sort = sort.takeIf { it != "all" },
+    genres = genres.takeIf { it.isNotEmpty() },
+    excludedGenres = excludedGenres.takeIf { it.isNotEmpty() },
+    tags = tags.takeIf { it.isNotEmpty() },
+    excludedTags = excludedTags.takeIf { it.isNotEmpty() },
+    seasonYear = year.toIntOrNull(),
+    season = season.takeIf { it != "all" },
+    status = status.takeIf { it != "all" },
+    formatList = formats.takeIf { it.isNotEmpty() },
+    page = page,
+    perPage = perPage,
+)

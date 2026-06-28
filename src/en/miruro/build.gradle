@@ -2,7 +2,7 @@ ext {
     extName = 'Miruro.tv'
     extClass = '.Miruro'
     isNsfw = true
-    extVersionCode = 7
+    extVersionCode = 8
 }
 
 apply plugin: "kei.plugins.extension.legacy"

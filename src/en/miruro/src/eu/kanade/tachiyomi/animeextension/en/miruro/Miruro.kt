@@ -658,36 +658,32 @@ class Miruro :
 
     // ============================== Trending ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        logD { "popularAnimeRequest: page=$page" }
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        logD { "getPopularAnime: page=$page" }
         launchConfigFetch()
-        val query = buildPipeQuery(
-            "type" to "ANIME",
-            "status" to "RELEASING",
-            "page" to page,
-            "perPage" to 20,
-            "sort" to "TRENDING_DESC",
-        )
-        return buildPipeRequest("search/browse", "GET", query = query)
+        val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = 20)
+            ?: return AnimesPage(emptyList(), false)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimeListResponse(response)
+    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException("Use getPopularAnime")
+
+    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException("Use getPopularAnime")
 
     // ============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        logD { "latestUpdatesRequest: page=$page" }
-        val query = buildPipeQuery(
-            "type" to "ANIME",
-            "status" to "RELEASING",
-            "page" to page,
-            "perPage" to 20,
-            "sort" to "UPDATED_AT_DESC",
-        )
-        return buildPipeRequest("search/browse", "GET", query = query)
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        logD { "getLatestUpdates: page=$page" }
+        val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = 20)
+            ?: return AnimesPage(emptyList(), false)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimeListResponse(response)
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException("Use getLatestUpdates")
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException("Use getLatestUpdates")
 
     // ============================== Search ===============================
 
@@ -724,68 +720,29 @@ class Miruro :
             return AnimesPage(listOf(anime), false)
         }
 
-        val request = searchAnimeRequest(page, query, filters)
-        return client.newCall(request).awaitSuccess()
-            .use(::searchAnimeParse)
-    }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         launchConfigFetch()
+
         if (query.isNotEmpty()) {
-            logD { "searchAnimeRequest: text query='$query', page=$page" }
-            val perPage = 20
-            val queryParams = buildPipeQuery(
-                "q" to query,
-                "type" to "ANIME",
-                "limit" to perPage,
-                "offset" to (page - 1) * perPage,
-            )
-            return buildPipeRequest("search", "GET", query = queryParams)
+            val (mediaList, pageInfo) = AniLib.fetchSearchAnime(client, query = query, page = page, perPage = 20)
+                ?: return AnimesPage(emptyList(), false)
+            val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+            val dubLang = MiruroFilters.getSearchParameters(filters).dubLanguage
+            val results = applyDubPostFilter(mediaList, dubLang)
+            return AnimesPage(results.map { animeFromMediaSnapshot(it) }, hasNextPage)
         }
 
         val params = MiruroFilters.getSearchParameters(filters)
-
-        val queryParams = buildPipeQuery(
-            "type" to "ANIME",
-            "page" to page,
-            "perPage" to 20,
-        )
-
-        if (params.sort != "all") queryParams.put("sort", params.sort)
-        if (params.season != "all") queryParams.put("season", params.season)
-        if (params.year != "all") queryParams.put("year", params.year.toInt())
-        if (params.status != "all") queryParams.put("status", params.status)
-        if (params.genres.isNotEmpty()) {
-            val genresArray = JSONArray()
-            params.genres.forEach { genresArray.put(it) }
-            queryParams.put("genre", genresArray)
-        }
-        if (params.excludedGenres.isNotEmpty()) {
-            val excludedGenresArray = JSONArray()
-            params.excludedGenres.forEach { excludedGenresArray.put(it) }
-            queryParams.put("excludedGenre", excludedGenresArray)
-        }
-        if (params.formats.isNotEmpty()) {
-            val formatsArray = JSONArray()
-            params.formats.forEach { formatsArray.put(it) }
-            queryParams.put("format", formatsArray)
-        }
-        if (params.tags.isNotEmpty()) {
-            val tagsArray = JSONArray()
-            params.tags.forEach { tagsArray.put(it) }
-            queryParams.put("tag", tagsArray)
-        }
-        if (params.excludedTags.isNotEmpty()) {
-            val excludedTagsArray = JSONArray()
-            params.excludedTags.forEach { excludedTagsArray.put(it) }
-            queryParams.put("excludedTag", excludedTagsArray)
-        }
-        if (params.dubLanguage != "all") queryParams.put("dub", params.dubLanguage)
-
-        return buildPipeRequest("search/browse", "GET", query = queryParams)
+        val mediaFilter = params.toMediaFilter(page = page, perPage = 20)
+        val (mediaList, pageInfo) = AniLib.fetchFilteredMedia(client, mediaFilter)
+            ?: return AnimesPage(emptyList(), false)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        val results = applyDubPostFilter(mediaList, params.dubLanguage)
+        return AnimesPage(results.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimeListResponse(response, fallbackKeys = listOf("results", "data"))
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException("Use getSearchAnime")
+
+    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException("Use getSearchAnime")
 
     // ============================== Details ===============================
 
@@ -1762,6 +1719,32 @@ class Miruro :
         return edges.optJSONObject(0)?.optJSONObject("node")?.optString("name", "") ?: ""
     }
 
+    private fun animeFromMediaSnapshot(media: MediaSnapshot): SAnime {
+        val title = AniLib.resolveTitle(media.title, preferences.preferredTitleStyle)
+        val coverUrl = AniLib.resolveCoverUrl(media.coverImage)
+        val bannerUrl = media.bannerImage?.ifEmpty { null } ?: ""
+
+        return SAnime.create().apply {
+            this.title = title.ifBlank { "Unknown" }
+            thumbnail_url = coverUrl.ifEmpty { bannerUrl }
+            setUrlWithoutDomain(media.id.toString())
+        }
+    }
+
+    private fun applyDubPostFilter(
+        mediaList: List<MediaSnapshot>,
+        dubLanguage: String,
+    ): List<MediaSnapshot> {
+        if (dubLanguage == "all") return mediaList
+        // AniList has no dub language filter; the dub language is Miruro-specific.
+        // We apply it as a client-side post-filter by checking if the show's
+        // title or synonyms reference the selected language — but this is imprecise.
+        // For now, return unfiltered: the dub filter applies at stream-selection
+        // time in video parsing, not at browse time.
+        return mediaList
+    }
+
+    @Deprecated("Kept for PREFIX_SEARCH path via pipe API; browse/search now uses AniLib")
     private fun parseAnimeListResponse(
         response: Response,
         fallbackKeys: List<String> = emptyList(),

@@ -2,16 +2,22 @@ package aniyomi.lib.anilib
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // ========================== Response Wrappers ==========================
+// After parseGraphQLAs unwraps the {"data": ..., "errors": ...} envelope,
+// the remaining JSON has the GraphQL root operation type as a key.
+// These wrappers map that key to a property via @SerialName.
 
 @Serializable
-data class AniListResponse<T>(
-    val data: T,
+data class PageDataWrapper(
+    @SerialName("Page") val page: PageData = PageData(),
 )
 
 @Serializable
-@SerialName("Page")
 data class PageData(
     val pageInfo: PageInfo? = null,
     val media: List<MediaSnapshot> = emptyList(),
@@ -286,3 +292,102 @@ data class AniFillerEpisode(
 data class FillerDataResult(
     val episodes: Map<Int, FillerType> = emptyMap(),
 )
+
+// ========================== Media Filter ==========================
+
+/**
+ * Universal filter parameters for AniList media queries.
+ *
+ * All fields are nullable strings (or lists of strings) to allow flexible
+ * composition without requiring enum conversions at the boundary.
+ * The [toVariables] method builds a GraphQL variables JSON object containing
+ * only the non-null fields, so the fixed query template can include all
+ * parameters as optional variables.
+ *
+ * @property search Text search query.
+ * @property sort Comma-separated sort criteria (e.g. "TRENDING_DESC", "POPULARITY_DESC").
+ *   AniList accepts `[MediaSort]` as a JSON array — pass multiple values in [sortList].
+ * @property sortList Explicit list of sort values; takes precedence over [sort] if both set.
+ * @property format Media format (e.g. "TV", "MOVIE", "OVA").
+ * @property status Media status (e.g. "RELEASING", "FINISHED", "NOT_YET_RELEASED").
+ * @property season Media season (e.g. "WINTER", "SPRING", "SUMMER", "FALL").
+ * @property seasonYear Year of the season.
+ * @property genres Included genres list.
+ * @property excludedGenres Excluded genres list.
+ * @property tags Included tags list.
+ * @property excludedTags Excluded tags list.
+ * @property minimumTagRank Minimum rank for tags (0–100).
+ * @property yearGreater Start year for FuzzyDateInt range (inclusive).
+ * @property yearLesser End year for FuzzyDateInt range (inclusive).
+ * @property countryOfOrigin Country code (e.g. "JP", "KR", "CN").
+ * @property isAdult Whether to filter adult content.
+ * @property onList Whether the media is on the user's list.
+ * @property page Page number (1-indexed).
+ * @property perPage Results per page (max 50).
+ */
+data class MediaFilter(
+    val search: String? = null,
+    val sort: String? = null,
+    val sortList: List<String>? = null,
+    val format: String? = null,
+    val formatList: List<String>? = null,
+    val status: String? = null,
+    val season: String? = null,
+    val seasonYear: Int? = null,
+    val genres: List<String>? = null,
+    val excludedGenres: List<String>? = null,
+    val tags: List<String>? = null,
+    val excludedTags: List<String>? = null,
+    val minimumTagRank: Int? = null,
+    val yearGreater: Int? = null,
+    val yearLesser: Int? = null,
+    val countryOfOrigin: String? = null,
+    val isAdult: Boolean? = null,
+    val onList: Boolean? = null,
+    val page: Int? = null,
+    val perPage: Int? = null,
+) {
+    /**
+     * Build a GraphQL variables JSON object from the non-null filter fields.
+     * Only includes fields that have a value, so the fixed query template can
+     * safely declare all parameters as optional GraphQL variables.
+     */
+    fun toVariables(): JsonObject = buildJsonObject {
+        search?.let { put("search", it) }
+        // sortList takes precedence; fallback: split single sort string
+        val effectiveSort = sortList ?: sort?.let { listOf(it) }
+        effectiveSort?.let {
+            put("sort", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        // formatList takes precedence; fallback: single format string
+        val effectiveFormat = formatList ?: format?.let { listOf(it) }
+        effectiveFormat?.let {
+            put("format", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        status?.let { put("status", it) }
+        season?.let { put("season", it) }
+        seasonYear?.let { put("seasonYear", it) }
+        genres?.let {
+            put("genres", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        excludedGenres?.let {
+            put("excludedGenres", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        tags?.let {
+            put("tags", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        excludedTags?.let {
+            put("excludedTags", JsonArray(it.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }
+        minimumTagRank?.let { put("minimumTagRank", it) }
+        yearGreater?.let { put("yearGreater", it) }
+        yearLesser?.let { put("yearLesser", it) }
+        countryOfOrigin?.let { put("countryOfOrigin", it) }
+        isAdult?.let { put("isAdult", it) }
+        onList?.let { put("onList", it) }
+        page?.let { put("page", it) }
+        perPage?.let { put("perPage", it) }
+        // type is always ANIME for this library
+        put("type", "ANIME")
+    }
+}
