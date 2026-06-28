@@ -819,6 +819,7 @@ class Miruro :
             DescriptionOptions(
                 stripHtml = preferences.stripHtml,
                 truncateAt = truncateAt,
+                titleStyle = preferences.preferredTitleStyle,
             ),
         )
 

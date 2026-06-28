@@ -21,6 +21,7 @@ data class DescriptionOptions(
     val stripHtml: Boolean = true,
     val maxTagCount: Int = 10,
     val truncateAt: Int = 0,
+    val titleStyle: String = "userPreferred",
 )
 
 private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
@@ -93,7 +94,9 @@ fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOpti
 
     // ---- Synonyms ----
     if (options.synonyms && synonyms.isNotEmpty()) {
-        val filtered = synonyms.filter { !it.isNullOrBlank() && it != title?.userPreferred && it != title?.romaji && it != title?.english }
+        val primaryTitle = AniLib.resolveTitle(title, options.titleStyle).orEmpty()
+        val allTitleVariants = listOfNotNull(title?.userPreferred, title?.romaji, title?.english, title?.native)
+        val filtered = synonyms.filter { !it.isNullOrBlank() && it != primaryTitle && it !in allTitleVariants }
         if (filtered.isNotEmpty()) {
             sections.add("*Also known as: ${filtered.joinToString()}*")
         }
@@ -104,7 +107,7 @@ fun MediaSnapshot.buildDescription(options: DescriptionOptions = DescriptionOpti
         val relationLines = relations.edges.mapNotNull { edge ->
             val type = edge.relationType ?: return@mapNotNull null
             val node = edge.node ?: return@mapNotNull null
-            val name = AniLib.resolveTitle(node.title) ?: return@mapNotNull null
+            val name = AniLib.resolveTitle(node.title, options.titleStyle) ?: return@mapNotNull null
             val fmt = node.format?.let { labelFormat(it) } ?: ""
             val eps = node.episodes?.takeIf { it > 0 }?.let { "$it episodes" }
             val details = listOfNotNull(fmt, eps).joinToString(", ")
