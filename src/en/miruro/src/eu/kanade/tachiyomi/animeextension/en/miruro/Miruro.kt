@@ -71,6 +71,7 @@ class Miruro :
     private val SharedPreferences.episodeSortOrder by preferences.delegate(PREF_EPISODE_SORT_KEY, PREF_EPISODE_SORT_DEFAULT)
     private val SharedPreferences.descriptionTruncation by preferences.delegate(PREF_DESCRIPTION_TRUNCATE_KEY, PREF_DESCRIPTION_TRUNCATE_DEFAULT)
     private val SharedPreferences.showProviderInScanlator by preferences.delegate(PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY, PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT)
+    private val SharedPreferences.includeAllProviders by preferences.delegate(PREF_INCLUDE_ALL_PROVIDERS_KEY, PREF_INCLUDE_ALL_PROVIDERS_DEFAULT)
 
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
@@ -608,6 +609,10 @@ class Miruro :
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_KEY = "show_provider_in_scanlator"
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE = "Show provider names in scanlator"
         private const val PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT = false
+
+        private const val PREF_INCLUDE_ALL_PROVIDERS_KEY = "include_all_providers"
+        private const val PREF_INCLUDE_ALL_PROVIDERS_TITLE = "Include all provider streams"
+        private const val PREF_INCLUDE_ALL_PROVIDERS_DEFAULT = false
 
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
@@ -1170,38 +1175,42 @@ class Miruro :
             )
         }
 
-        if (videos.isEmpty() && fallbackProvidersObj != null && fallbackProvidersObj.length() > 0) {
-            logD { "videoListParse: primary provider '$provider' returned no videos, trying ${fallbackProvidersObj.length()} fallback providers" }
-            val fallbackResults = fallbackProvidersObj.keys().asSequence().toList().parallelCatchingFlatMapBlocking { fbProvider ->
-                val fbSubTypes = fallbackProvidersObj.optJSONObject(fbProvider) ?: return@parallelCatchingFlatMapBlocking emptyList()
-                val fbRequests = mutableListOf<Pair<String, String>>()
-                for (subTypeKey in fbSubTypes.keys()) {
-                    val fbEpId = fbSubTypes.optString(subTypeKey, "")
-                    if (fbEpId.isEmpty()) continue
-                    fbRequests.add(subTypeKey to fbEpId)
-                }
-                logD { "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types" }
-                fbRequests.flatMap { (subTypeKey, fbEpId) ->
-                    val query = buildPipeQuery(
-                        "episodeId" to fbEpId,
-                        "provider" to fbProvider,
-                        "category" to subTypeKey,
-                    )
-                    try {
-                        client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
-                            extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider)
+        if (fallbackProvidersObj != null && fallbackProvidersObj.length() > 0) {
+            val shouldFetchFallbacks = preferences.includeAllProviders || videos.isEmpty()
+            if (shouldFetchFallbacks) {
+                val reason = if (videos.isEmpty()) "primary returned no videos" else "include all providers is enabled"
+                logD { "videoListParse: fetching ${fallbackProvidersObj.length()} fallback providers ($reason)" }
+                val fallbackResults = fallbackProvidersObj.keys().asSequence().toList().parallelCatchingFlatMapBlocking { fbProvider ->
+                    val fbSubTypes = fallbackProvidersObj.optJSONObject(fbProvider) ?: return@parallelCatchingFlatMapBlocking emptyList()
+                    val fbRequests = mutableListOf<Pair<String, String>>()
+                    for (subTypeKey in fbSubTypes.keys()) {
+                        val fbEpId = fbSubTypes.optString(subTypeKey, "")
+                        if (fbEpId.isEmpty()) continue
+                        fbRequests.add(subTypeKey to fbEpId)
+                    }
+                    logD { "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types" }
+                    fbRequests.flatMap { (subTypeKey, fbEpId) ->
+                        val query = buildPipeQuery(
+                            "episodeId" to fbEpId,
+                            "provider" to fbProvider,
+                            "category" to subTypeKey,
+                        )
+                        try {
+                            client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
+                                extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
+                            emptyList()
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
-                        emptyList()
                     }
                 }
-            }
-            if (fallbackResults.isNotEmpty()) {
-                logD { "videoListParse: fallback providers returned ${fallbackResults.size} videos" }
-                videos.addAll(fallbackResults)
-            } else {
-                Log.w(TAG, "videoListParse: all fallback providers returned no videos")
+                if (fallbackResults.isNotEmpty()) {
+                    logD { "videoListParse: fallback providers returned ${fallbackResults.size} videos" }
+                    videos.addAll(fallbackResults)
+                } else {
+                    Log.w(TAG, "videoListParse: all fallback providers returned no videos")
+                }
             }
         }
 
@@ -1215,16 +1224,29 @@ class Miruro :
         val providerName = providerDisplayName(preferences.preferredProvider)
         val qualityInt = quality.toIntOrNull() ?: 0
         val streamTypePref = preferences.preferredStreamType
+        val includeAllProviders = preferences.includeAllProviders
+
+        var working: List<Video> = this
+
+        if (!includeAllProviders) {
+            val providerFiltered = working.filter { it.quality.contains(providerName) }
+            if (providerFiltered.isNotEmpty()) {
+                logD { "video.sort: provider filter: ${working.size} → ${providerFiltered.size} (preferred=$providerName)" }
+                working = providerFiltered
+            } else {
+                logD { "video.sort: provider filter matched nothing (preferred=$providerName), keeping all ${working.size} videos" }
+            }
+        }
 
         val filtered: List<Video> = when (streamTypePref) {
-            "hls" -> filter { it.quality.contains("HLS") }
-            "embed" -> filter { it.quality.contains("EMBED") }
-            else -> this
+            "hls" -> working.filter { it.quality.contains("HLS") }
+            "embed" -> working.filter { it.quality.contains("EMBED") }
+            else -> working
         }
 
         if (filtered.isEmpty()) {
-            logD { "video.sort: streamType='$streamTypePref' filtered out all $size videos, returning unsorted" }
-            return this
+            logD { "video.sort: streamType='$streamTypePref' filtered out all ${working.size} videos, returning unfiltered by stream type" }
+            return working
         }
 
         val sorted = filtered.sortedWith(
@@ -1242,7 +1264,7 @@ class Miruro :
                     }
                 },
         )
-        logD { "video.sort: $size → ${filtered.size} after streamType='$streamTypePref' filter → ${sorted.size} sorted (quality=$quality, provider=$providerName, subType=$subTypeLabel)" }
+        logD { "video.sort: $size → ${working.size} after provider filter → ${filtered.size} after streamType='$streamTypePref' filter → ${sorted.size} sorted (quality=$quality, provider=$providerName, subType=$subTypeLabel, includeAll=$includeAllProviders)" }
         return sorted
     }
 
@@ -1395,6 +1417,13 @@ class Miruro :
             title = PREF_SHOW_PROVIDER_IN_SCANLATOR_TITLE,
             default = PREF_SHOW_PROVIDER_IN_SCANLATOR_DEFAULT,
             summary = "Shows the provider name in the episode scanlator field.",
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_INCLUDE_ALL_PROVIDERS_KEY,
+            title = PREF_INCLUDE_ALL_PROVIDERS_TITLE,
+            default = PREF_INCLUDE_ALL_PROVIDERS_DEFAULT,
+            summary = "When enabled, includes video streams from all available providers. When disabled, only the preferred provider's streams are shown.",
         )
 
         screen.addListPreference(
