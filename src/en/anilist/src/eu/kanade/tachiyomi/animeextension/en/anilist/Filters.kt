@@ -52,12 +52,12 @@ object Filters {
         ) {
         fun getStatus(): String? = when (state) {
             2 -> "CURRENT"
-            3 -> "REPEATING" // Fixed from REWATCHING
+            3 -> "REPEATING"
             4 -> "COMPLETED"
             5 -> "PAUSED"
             6 -> "DROPPED"
             7 -> "PLANNING"
-            else -> null // Disabled or All Lists
+            else -> null
         }
 
         fun isActive(): Boolean = state > 0
