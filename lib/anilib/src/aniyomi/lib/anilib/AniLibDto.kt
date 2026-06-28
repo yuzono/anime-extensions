@@ -240,3 +240,49 @@ data class AnizipEpisode(
 data class EpisodeTitlesResult(
     val episodes: Map<Int, AnizipEpisode> = emptyMap(),
 )
+
+// ========================== AniFiller Episode Data ==========================
+
+/** Episode classification types from AniFiller. */
+enum class FillerType(val label: String) {
+    MANGA_CANON("manga-canon"),
+    FILLER("filler"),
+    MIXED_MANGA("mixed-manga"),
+    ANIME_CANON("anime-canon"),
+    ;
+
+    companion object {
+        /** Parse from the AniFiller JSON string value, defaults to null if unrecognized. */
+        fun fromValue(value: String): FillerType? = entries.find { it.label == value }
+    }
+}
+
+@Serializable
+data class AniFillerShow(
+    val slug: String = "",
+    val title: String = "",
+    val mappings: AniFillerMappings = AniFillerMappings(),
+    val episodes: List<AniFillerEpisode> = emptyList(),
+)
+
+@Serializable
+data class AniFillerMappings(
+    @SerialName("anilist_id") val anilistId: Int = 0,
+    @SerialName("mal_id") val malId: Int = 0,
+)
+
+@Serializable
+data class AniFillerEpisode(
+    val episode: Int = 0,
+    val title: String = "",
+    val type: String = "",
+    @SerialName("aired_date") val airedDate: String = "",
+)
+
+/**
+ * Result of fetching filler classification from AniFiller.
+ * Maps episode number → [FillerType].
+ */
+data class FillerDataResult(
+    val episodes: Map<Int, FillerType> = emptyMap(),
+)

@@ -38,6 +38,10 @@ object AniLib {
     private const val TAG = "AniLib"
     private const val GRAPHQL_URL = "https://graphql.anilist.co"
     private const val ANIZIP_URL = "https://api.ani.zip/mappings"
+    private const val ANIFILLER_URL = "https://github.com/AniraTeam/AniFiller/releases/latest/download/anifiller.min.json"
+    private const val ANIFILLER_CACHE_KEY = "anifiller_dataset"
+    private const val ANIFILLER_INDEX_KEY = "anifiller_anilist_index"
+    private const val ANIFILLER_CACHE_TTL_MS = 24 * 60 * 60_000L // 24 hours
 
     // Rate-limit constants
     private const val RATE_LIMIT_NORMAL = 90 // requests per minute (AniList default)
@@ -609,6 +613,78 @@ object AniLib {
         } catch (e: Exception) {
             Log.w(TAG, "ani.zip fetch failed for anilistId=$anilistId: ${e.message}")
             EpisodeTitlesResult()
+        }
+    }
+
+    // ========================== Filler Data (AniFiller) ==========================
+
+    /**
+     * Fetch filler/non-filler classification for episodes of a specific anime.
+     *
+     * Downloads the full AniFiller dataset (static JSON from GitHub Releases),
+     * caches it in SharedPreferences for 24 hours, then returns episode→type
+     * mapping for the given [anilistId]. Only ~182 long-running shows are covered;
+     * returns empty map for uncovered shows.
+     *
+     * @param client OkHttpClient to use for the request.
+     * @param anilistId The AniList media ID.
+     * @param prefs SharedPreferences for caching the dataset.
+     * @return [FillerDataResult] mapping episode number → [FillerType].
+     */
+    fun fetchFillerData(
+        client: OkHttpClient = defaultClient,
+        anilistId: Int,
+        prefs: SharedPreferences? = null,
+    ): FillerDataResult {
+        val shows = loadAniFillerIndex(client, prefs)
+
+        val show = shows.find { it.mappings.anilistId == anilistId }
+            ?: return FillerDataResult()
+
+        val episodes = mutableMapOf<Int, FillerType>()
+        for (ep in show.episodes) {
+            val type = FillerType.fromValue(ep.type) ?: continue
+            if (ep.episode > 0) {
+                episodes[ep.episode] = type
+            }
+        }
+        return FillerDataResult(episodes = episodes)
+    }
+
+    /**
+     * Download and cache the full AniFiller dataset, or load from cache.
+     * Returns the list of shows indexed by AniList ID from the dataset.
+     */
+    private fun loadAniFillerIndex(
+        client: OkHttpClient,
+        prefs: SharedPreferences?,
+    ): List<AniFillerShow> {
+        prefs?.let {
+            val cached = readCache<List<AniFillerShow>>(it, ANIFILLER_INDEX_KEY, ANIFILLER_CACHE_TTL_MS)
+            if (cached != null) return cached
+        }
+
+        return try {
+            val request = Request.Builder()
+                .url(ANIFILLER_URL)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "AniFiller download failed: ${response.code}")
+                    return emptyList()
+                }
+                val body = response.body.string()
+                val shows = body.parseAs<List<AniFillerShow>>()
+                prefs?.let { p ->
+                    writeCache(p, ANIFILLER_INDEX_KEY, ANIFILLER_CACHE_TTL_MS, shows)
+                }
+                shows
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "AniFiller fetch failed: ${e.message}")
+            emptyList()
         }
     }
 
