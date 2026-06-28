@@ -7,6 +7,14 @@ import android.util.Base64
 import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.anilib.AniLib
+import aniyomi.lib.anilib.DescriptionOptions
+import aniyomi.lib.anilib.MediaCoverImage
+import aniyomi.lib.anilib.MediaSnapshot
+import aniyomi.lib.anilib.MediaStudios
+import aniyomi.lib.anilib.MediaTitle
+import aniyomi.lib.anilib.StudioEdge
+import aniyomi.lib.anilib.StudioNode
+import aniyomi.lib.anilib.buildDescription
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -773,13 +781,50 @@ class Miruro :
     override fun animeDetailsParse(response: Response): SAnime {
         val json = validateResponse(response).use { extractor.decryptResponse(it) }
         logD { "animeDetailsParse: response length=${json.length}" }
-        // /info/{id} wraps anime data under a "media" key alongside tvdb/tmdb/schedule/mappings
+
         val mediaJson = try {
             val jsonObj = JSONObject(json)
             jsonObj.optJSONObject("media")?.toString() ?: json
         } catch (_: Exception) {
             json
         }
+        val anilistId = try {
+            JSONObject(mediaJson).let { it.optJSONObject("media") ?: it }.optInt("id", 0)
+        } catch (_: Exception) {
+            0
+        }
+
+        val snapshot = if (anilistId > 0) {
+            try {
+                AniLib.fetchMediaDetails(client, anilistId, preferences)
+            } catch (e: Exception) {
+                logD { "animeDetailsParse: AniLib fetch failed, falling back to pipe data: ${e.message}" }
+                null
+            }
+        } else {
+            null
+        }
+
+        val malId = snapshot?.malId
+            ?: try {
+                JSONObject(mediaJson).let { it.optJSONObject("media") ?: it }.optInt("idMal", 0).takeIf { it > 0 }
+            } catch (_: Exception) {
+                null
+            }
+        if (anilistId > 0) {
+            val existing = getMeta(anilistId)
+            if (existing != null && malId != null) {
+                existing.malId = malId
+            } else if (existing == null) {
+                getOrCreateMeta(anilistId, malId)
+            }
+        }
+
+        if (snapshot != null) {
+            return buildFromSnapshot(snapshot)
+        }
+
+        logD { "animeDetailsParse: using pipe API fallback" }
         val dto = try {
             jsonParser.decodeFromString<AnimeMediaDto>(mediaJson)
         } catch (_: Exception) {
@@ -788,41 +833,68 @@ class Miruro :
             return parseAnimeDetailsFromJsonObj(mediaObj)
         }
 
-        val anilistId = dto.id
-        if (anilistId > 0) {
-            val existing = getMeta(anilistId)
-            if (existing != null && dto.malId != null) {
-                existing.malId = dto.malId
-            } else if (existing == null) {
-                getOrCreateMeta(anilistId, dto.malId)
-            }
-        }
+        return buildFromDto(dto)
+    }
 
+    private fun buildFromSnapshot(snapshot: MediaSnapshot): SAnime {
         val titleStyle = preferences.preferredTitleStyle
-        val title = resolveTitleFromDto(dto.title, titleStyle)
+        val title = AniLib.resolveTitle(snapshot.title, titleStyle)
+        val coverUrl = AniLib.resolveCoverUrl(snapshot.coverImage)
+            .ifEmpty { snapshot.bannerImage?.ifEmpty { null } ?: "" }
+        val status = mapStatus(snapshot.status)
+        val studio = AniLib.resolveMainStudio(snapshot.studios)
+        val genres = snapshot.genres.takeIf { it.isNotEmpty() }?.joinToString()
+        val truncateAt = preferences.descriptionTruncation.toIntOrNull() ?: 0
+        val description = snapshot.buildDescription(
+            DescriptionOptions(
+                stripHtml = preferences.stripHtml,
+                truncateAt = truncateAt,
+            ),
+        )
 
-        val coverUrl = dto.coverImage?.let { cover ->
-            cover.extraLarge?.ifEmpty { null }
-                ?: cover.large?.ifEmpty { null }
-                ?: cover.medium?.ifEmpty { null }
-        } ?: dto.bannerImage?.ifEmpty { null } ?: ""
+        return SAnime.create().apply {
+            title.takeIf(String::isNotBlank)?.let { this.title = it }
+            thumbnail_url = coverUrl
+            this.description = description
+            genre = genres
+            this.status = status
+            author = studio
+        }
+    }
 
+    private fun buildFromDto(dto: AnimeMediaDto): SAnime {
+        val titleStyle = preferences.preferredTitleStyle
+        val title = AniLib.resolveTitle(
+            MediaTitle(
+                userPreferred = dto.title?.userPreferred,
+                romaji = dto.title?.romaji,
+                english = dto.title?.english,
+                native = dto.title?.native,
+            ),
+            titleStyle,
+        )
+        val coverUrl = AniLib.resolveCoverUrl(
+            MediaCoverImage(
+                extraLarge = dto.coverImage?.extraLarge,
+                large = dto.coverImage?.large,
+                medium = dto.coverImage?.medium,
+            ),
+        ).ifEmpty { dto.bannerImage?.ifEmpty { null } ?: "" }
         val rawDescription = dto.description ?: ""
         val description = if (preferences.stripHtml) stripHtml(rawDescription) else rawDescription
         val truncatedDescription = truncateDescription(description)
-
         val genres = dto.genres.takeIf { it.isNotEmpty() }?.joinToString()
-
-        val status = when (dto.status?.uppercase()) {
-            "RELEASING" -> SAnime.ONGOING
-            "FINISHED" -> SAnime.COMPLETED
-            "CANCELLED" -> SAnime.CANCELLED
-            else -> SAnime.UNKNOWN
-        }
-
-        val studio = dto.studios?.edges
-            ?.firstOrNull { it.isMain }
-            ?.node?.name?.ifEmpty { null } ?: ""
+        val status = mapStatus(dto.status)
+        val studio = AniLib.resolveMainStudio(
+            MediaStudios(
+                edges = dto.studios?.edges?.map { edge ->
+                    StudioEdge(
+                        isMain = edge.isMain,
+                        node = StudioNode(name = edge.node?.name),
+                    )
+                },
+            ),
+        )
 
         return SAnime.create().apply {
             title.takeIf(String::isNotBlank)?.let { this.title = it }
@@ -832,6 +904,13 @@ class Miruro :
             this.status = status
             author = studio
         }
+    }
+
+    private fun mapStatus(status: String?): Int = when (status?.uppercase()) {
+        "RELEASING" -> SAnime.ONGOING
+        "FINISHED" -> SAnime.COMPLETED
+        "CANCELLED" -> SAnime.CANCELLED
+        else -> SAnime.UNKNOWN
     }
 
     private fun parseAnimeDetailsFromJsonObj(media: JSONObject): SAnime {
@@ -854,13 +933,7 @@ class Miruro :
             null
         }
 
-        val statusStr = media.optString("status", "")
-        val status = when (statusStr.uppercase()) {
-            "RELEASING" -> SAnime.ONGOING
-            "FINISHED" -> SAnime.COMPLETED
-            "CANCELLED" -> SAnime.CANCELLED
-            else -> SAnime.UNKNOWN
-        }
+        val status = mapStatus(media.optString("status", ""))
 
         val studio = extractMainStudio(media.opt("studios"))
 
@@ -1026,6 +1099,24 @@ class Miruro :
         for (ep in result) {
             airingSchedule[ep.episode_number]?.let { ep.date_upload = it }
         }
+
+        if (anilistId != null && anilistId > 0) {
+            try {
+                val epTitles = AniLib.fetchEpisodeTitles(client, anilistId)
+                if (epTitles.episodes.isNotEmpty()) {
+                    for (ep in result) {
+                        if (ep.name == "Episode ${ep.episode_number.toInt()}") {
+                            epTitles.episodes[ep.episode_number.toInt()]?.title?.let { title ->
+                                ep.name = "Episode ${ep.episode_number.toInt()}: $title"
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logD { "episodeListParse: ani.zip title fetch failed: ${e.message}" }
+            }
+        }
+
         logD { "episodeListParse: ${result.size} episodes, sort=${preferences.episodeSortOrder}" }
         return result
     }
@@ -1636,17 +1727,6 @@ class Miruro :
             titleObj.optString(key, "")
                 .takeIf { it.isNotBlank() && it != "null" }
         } ?: ""
-    }
-
-    private fun resolveTitleFromDto(titleDto: AnimeMediaDto.TitleDto?, style: String): String {
-        if (titleDto == null) return ""
-        val fallbackChain = when (style) {
-            "romaji" -> listOf(titleDto.romaji, titleDto.userPreferred, titleDto.english, titleDto.native)
-            "english" -> listOf(titleDto.english, titleDto.romaji, titleDto.userPreferred, titleDto.native)
-            "native" -> listOf(titleDto.native, titleDto.userPreferred, titleDto.romaji, titleDto.english)
-            else -> listOf(titleDto.userPreferred, titleDto.romaji, titleDto.english, titleDto.native)
-        }
-        return fallbackChain.firstNotNullOfOrNull { it?.ifEmpty { null } } ?: ""
     }
 
     private fun parseAnimeFromMediaObj(media: JSONObject): SAnime {
