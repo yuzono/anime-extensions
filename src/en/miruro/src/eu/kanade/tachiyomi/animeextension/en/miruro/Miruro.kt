@@ -1049,14 +1049,54 @@ class Miruro :
             if (meta?.airingSchedule != null) {
                 meta.airingSchedule!!
             } else {
-                AniLib.fetchAiringSchedule(client, anilistId).schedule.also { schedule ->
-                    if (schedule.isNotEmpty()) {
-                        getOrCreateMeta(anilistId).airingSchedule = schedule
+                try {
+                    val snapshot = AniLib.fetchMediaDetails(client, anilistId, preferences)
+                    if (snapshot != null) {
+                        AniLib.extractAiringSchedule(snapshot).schedule.also { schedule ->
+                            if (schedule.isNotEmpty()) {
+                                getOrCreateMeta(anilistId).airingSchedule = schedule
+                            }
+                        }
+                    } else {
+                        AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
+                            if (schedule.isNotEmpty()) {
+                                getOrCreateMeta(anilistId).airingSchedule = schedule
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    logD { "episodeListParse: fetchMediaDetails failed, trying fallback schedule: ${e.message}" }
+                    AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
+                        if (schedule.isNotEmpty()) {
+                            getOrCreateMeta(anilistId).airingSchedule = schedule
+                        }
                     }
                 }
             }
         } else {
             emptyMap()
+        }
+
+        val epTitles = if (anilistId != null && anilistId > 0) {
+            try {
+                AniLib.fetchEpisodeTitles(client, anilistId, preferences)
+            } catch (e: Exception) {
+                logD { "episodeListParse: ani.zip title fetch failed: ${e.message}" }
+                null
+            }
+        } else {
+            null
+        }
+
+        val fillerResult = if (anilistId != null && anilistId > 0 && preferences.fillerDisplayMode != "show") {
+            try {
+                AniLib.fetchFillerData(client, anilistId, preferences)
+            } catch (e: Exception) {
+                logD { "episodeListParse: AniFiller fetch failed: ${e.message}" }
+                null
+            }
+        } else {
+            null
         }
 
         val episodeZero = episodes.filter { it.episode_number.toInt() == 0 }
@@ -1067,75 +1107,80 @@ class Miruro :
         } else {
             episodeZero + episodeRest.reversed()
         }
+
         for (ep in result) {
-            airingSchedule[ep.episode_number]?.let { ep.date_upload = it }
-        }
+            val epNum = Math.round(ep.episode_number)
 
-        if (anilistId != null && anilistId > 0) {
-            try {
-                val epTitles = AniLib.fetchEpisodeTitles(client, anilistId)
-                if (epTitles.episodes.isNotEmpty()) {
-                    for (ep in result) {
-                        if (ep.name == "Episode ${ep.episode_number.toInt()}") {
-                            epTitles.episodes[ep.episode_number.toInt()]?.title?.let { title ->
-                                ep.name = "Episode ${ep.episode_number.toInt()}: $title"
-                            }
-                        }
+            ep.date_upload = airingSchedule[ep.episode_number] ?: 0L
+            if (ep.date_upload == 0L) {
+                epTitles?.airDates?.get(epNum)?.let { ep.date_upload = it }
+            }
+            if (ep.date_upload == 0L) {
+                fillerResult?.episodes?.get(epNum)?.airDate?.let { date ->
+                    if (date > 0L) ep.date_upload = date
+                }
+            }
+
+            if (ep.name == "Episode ${ep.episode_number.toInt()}" ||
+                ep.name == "Episode ${ep.episode_number.toInt()}: "
+            ) {
+                epTitles?.episodes?.get(epNum)?.resolvedTitle?.let { title ->
+                    if (title.isNotEmpty()) {
+                        ep.name = "Episode ${ep.episode_number.toInt()}: $title"
                     }
                 }
-            } catch (e: Exception) {
-                logD { "episodeListParse: ani.zip title fetch failed: ${e.message}" }
+            }
+            if (ep.name == "Episode ${ep.episode_number.toInt()}" ||
+                ep.name == "Episode ${ep.episode_number.toInt()}: "
+            ) {
+                fillerResult?.episodes?.get(epNum)?.title?.let { title ->
+                    if (title.isNotEmpty()) {
+                        ep.name = "Episode ${ep.episode_number.toInt()}: $title"
+                    }
+                }
+            }
+
+            if (fillerResult != null) {
+                val fillerData = fillerResult.episodes[epNum]
+                if (fillerData != null) {
+                    val fillerMode = preferences.fillerDisplayMode
+                    when (fillerData.type) {
+                        FillerType.FILLER -> {
+                            if (fillerMode == "hide") {
+                                ep.name = "\u200B${ep.name}"
+                            } else {
+                                ep.scanlator = buildString {
+                                    append(ep.scanlator ?: "")
+                                    if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                    append("[Filler]")
+                                }
+                            }
+                        }
+                        FillerType.MIXED_MANGA -> {
+                            if (preferences.fillerMarkMixed && fillerMode != "hide") {
+                                ep.scanlator = buildString {
+                                    append(ep.scanlator ?: "")
+                                    if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                    append("[Mixed Canon]")
+                                }
+                            }
+                        }
+                        FillerType.ANIME_CANON -> {
+                            if (preferences.fillerMarkMixed && fillerMode != "hide") {
+                                ep.scanlator = buildString {
+                                    append(ep.scanlator ?: "")
+                                    if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
+                                    append("[Anime Canon]")
+                                }
+                            }
+                        }
+                        FillerType.MANGA_CANON -> { /* no mark needed */ }
+                    }
+                }
             }
         }
 
-        val fillerMode = preferences.fillerDisplayMode
-        if (anilistId != null && anilistId > 0 && fillerMode != "show") {
-            try {
-                val fillerMap = AniLib.fetchFillerData(client, anilistId, preferences).episodes
-                if (fillerMap.isNotEmpty()) {
-                    val markMixed = preferences.fillerMarkMixed
-                    for (ep in result) {
-                        val epFillerType = fillerMap[ep.episode_number.toInt()] ?: continue
-                        when (epFillerType) {
-                            FillerType.FILLER -> {
-                                if (fillerMode == "hide") {
-                                    ep.name = "\u200B${ep.name}"
-                                } else {
-                                    ep.scanlator = buildString {
-                                        append(ep.scanlator ?: "")
-                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                        append("[Filler]")
-                                    }
-                                }
-                            }
-                            FillerType.MIXED_MANGA -> {
-                                if (markMixed && fillerMode != "hide") {
-                                    ep.scanlator = buildString {
-                                        append(ep.scanlator ?: "")
-                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                        append("[Mixed Canon]")
-                                    }
-                                }
-                            }
-                            FillerType.ANIME_CANON -> {
-                                if (markMixed && fillerMode != "hide") {
-                                    ep.scanlator = buildString {
-                                        append(ep.scanlator ?: "")
-                                        if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                        append("[Anime Canon]")
-                                    }
-                                }
-                            }
-                            FillerType.MANGA_CANON -> { /* no mark needed */ }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                logD { "episodeListParse: AniFiller fetch failed: ${e.message}" }
-            }
-        }
-
-        logD { "episodeListParse: ${result.size} episodes, sort=${preferences.episodeSortOrder}, filler=$fillerMode" }
+        logD { "episodeListParse: ${result.size} episodes, sort=${preferences.episodeSortOrder}, filler=${preferences.fillerDisplayMode}" }
         return result
     }
 
