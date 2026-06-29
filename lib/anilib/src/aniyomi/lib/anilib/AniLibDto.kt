@@ -296,7 +296,7 @@ data class AniFillerShow(
 @Serializable
 data class AniFillerMappings(
     @SerialName("anilist_id") val anilistId: Int = 0,
-    @SerialName("mal_id") val malId: Int = 0,
+    @SerialName("mal_id") val malId: Int? = null,
 )
 
 @Serializable
