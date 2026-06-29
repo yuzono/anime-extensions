@@ -1152,7 +1152,7 @@ class Miruro :
                                 ep.scanlator = buildString {
                                     append(ep.scanlator ?: "")
                                     if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                    append("[Filler]")
+                                    append("Filler")
                                 }
                             }
                         }
@@ -1161,7 +1161,7 @@ class Miruro :
                                 ep.scanlator = buildString {
                                     append(ep.scanlator ?: "")
                                     if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                    append("[Mixed Canon]")
+                                    append("Mixed Canon")
                                 }
                             }
                         }
@@ -1170,7 +1170,7 @@ class Miruro :
                                 ep.scanlator = buildString {
                                     append(ep.scanlator ?: "")
                                     if (ep.scanlator?.isNotEmpty() == true) append(" \u2022 ")
-                                    append("[Anime Canon]")
+                                    append("Anime Canon")
                                 }
                             }
                         }
