@@ -232,24 +232,46 @@ data class AnizipResponse(
 )
 
 @Serializable
-data class AnizipEpisode(
-    val title: String? = null,
-    val titleJp: String? = null,
-    val aired: String? = null,
-    val runtime: Int? = null,
+data class AnizipTitle(
+    val en: String? = null,
+    @SerialName("x-jat") val xJat: String? = null,
+    val ja: String? = null,
 )
+
+@Serializable
+data class AnizipEpisode(
+    val title: AnizipTitle? = null,
+    val airDate: String? = null,
+    val airdate: String? = null,
+    val runtime: Int? = null,
+) {
+    val resolvedTitle: String?
+        get() = title?.en?.ifEmpty { null }
+            ?: title?.xJat?.ifEmpty { null }
+            ?: title?.ja?.ifEmpty { null }
+
+    val resolvedAirDate: String?
+        get() = airDate?.ifEmpty { null }
+            ?: airdate?.ifEmpty { null }
+}
 
 /**
  * Result of fetching episode titles from ani.zip.
  * Maps episode number → title/air date/runtime data.
+ *
+ * [airDates] contains pre-parsed epoch milliseconds for episode air dates,
+ * resolved from ani.zip `airDate`/`airdate` fields.
  */
+@Serializable
 data class EpisodeTitlesResult(
     val episodes: Map<Int, AnizipEpisode> = emptyMap(),
+    val airDates: Map<Int, Long> = emptyMap(),
 )
 
 // ========================== AniFiller Episode Data ==========================
 
 /** Episode classification types from AniFiller. */
+@Serializable
 enum class FillerType(val label: String) {
     MANGA_CANON("manga-canon"),
     FILLER("filler"),
@@ -285,12 +307,20 @@ data class AniFillerEpisode(
     @SerialName("aired_date") val airedDate: String = "",
 )
 
+@Serializable
+data class FillerEpisodeData(
+    val type: FillerType,
+    val airDate: Long = 0L,
+    val title: String = "",
+)
+
 /**
  * Result of fetching filler classification from AniFiller.
- * Maps episode number → [FillerType].
+ * Maps episode number → [FillerEpisodeData] containing type, air date, and title.
  */
+@Serializable
 data class FillerDataResult(
-    val episodes: Map<Int, FillerType> = emptyMap(),
+    val episodes: Map<Int, FillerEpisodeData> = emptyMap(),
 )
 
 // ========================== Media Filter ==========================
