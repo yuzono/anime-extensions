@@ -6,6 +6,7 @@ import keiyoushi.utils.graphQLPost
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.parseGraphQLAs
 import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -311,7 +312,12 @@ object AniLib {
      * @param anilistId The AniList media ID.
      * @return [AiringScheduleResult] with episode→airDate mapping.
      */
-    fun fetchAiringSchedule(client: OkHttpClient = defaultClient, anilistId: Int): AiringScheduleResult {
+    fun fetchAiringSchedule(
+        client: OkHttpClient = defaultClient,
+        anilistId: Int,
+        prefs: SharedPreferences? = null,
+        cacheTtlMs: Long = 15 * 60_000L,
+    ): AiringScheduleResult {
         val query = """
             query media(${"$"}id: Int) {
                 Media(id: ${"$"}id, type: ANIME) {
@@ -325,9 +331,26 @@ object AniLib {
         val variables = buildJsonObject {
             put("id", anilistId)
         }
-        val response = executeQuery<MediaData>(client, query, variables)
+        val response = executeQuery<MediaData>(
+            client,
+            query,
+            variables,
+            cacheKey = "schedule_$anilistId",
+            prefs = prefs,
+            cacheTtlMs = cacheTtlMs,
+        )
         val media = response?.media ?: return AiringScheduleResult()
 
+        return AiringScheduleResult(schedule = buildScheduleMap(media))
+    }
+
+    /**
+     * Extract airing schedule from an already-fetched [MediaSnapshot].
+     * Avoids making a separate API call when details are already cached.
+     */
+    fun extractAiringSchedule(snapshot: MediaSnapshot): AiringScheduleResult = AiringScheduleResult(schedule = buildScheduleMap(snapshot))
+
+    private fun buildScheduleMap(media: MediaSnapshot): Map<Float, Long> {
         val schedule = mutableMapOf<Float, Long>()
 
         media.nextAiringEpisode?.let { next ->
@@ -342,7 +365,7 @@ object AniLib {
             }
         }
 
-        return AiringScheduleResult(schedule = schedule)
+        return schedule
     }
 
     // ========================== Media Details ==========================
@@ -622,6 +645,8 @@ object AniLib {
 
     // ========================== Episode Titles (ani.zip) ==========================
 
+    private val anizipDateFormat by lazy { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ENGLISH) }
+
     /**
      * Fetch episode titles and metadata from the ani.zip API.
      *
@@ -636,7 +661,17 @@ object AniLib {
     fun fetchEpisodeTitles(
         client: OkHttpClient = defaultClient,
         anilistId: Int,
+        prefs: SharedPreferences? = null,
+        cacheTtlMs: Long = 15 * 60_000L,
     ): EpisodeTitlesResult {
+        prefs?.let { p ->
+            val cached = readCache<EpisodeTitlesResult>(p, "anizip_titles_$anilistId", cacheTtlMs)
+            if (cached != null) {
+                Log.d(TAG, "Cache hit for ani.zip titles anilistId=$anilistId")
+                return cached
+            }
+        }
+
         return try {
             val request = Request.Builder()
                 .url("$ANIZIP_URL?anilist_id=$anilistId")
@@ -651,11 +686,23 @@ object AniLib {
                 val body = response.body.string()
                 val anizipResponse = body.parseAs<AnizipResponse>()
                 val episodes = mutableMapOf<Int, AnizipEpisode>()
+                val airDates = mutableMapOf<Int, Long>()
                 anizipResponse.episodes?.forEach { (numStr, episode) ->
                     val num = numStr.toIntOrNull() ?: return@forEach
                     episodes[num] = episode
+                    val dateStr = episode.resolvedAirDate
+                    if (!dateStr.isNullOrEmpty()) {
+                        val timestamp = anizipDateFormat.tryParse(dateStr)
+                        if (timestamp > 0L) {
+                            airDates[num] = timestamp
+                        }
+                    }
                 }
-                EpisodeTitlesResult(episodes = episodes)
+                val result = EpisodeTitlesResult(episodes = episodes, airDates = airDates)
+                prefs?.let { p ->
+                    writeCache(p, "anizip_titles_$anilistId", cacheTtlMs, result)
+                }
+                result
             }
         } catch (e: Exception) {
             Log.w(TAG, "ani.zip fetch failed for anilistId=$anilistId: ${e.message}")
@@ -664,6 +711,8 @@ object AniLib {
     }
 
     // ========================== Filler Data (AniFiller) ==========================
+
+    private val anifillerDateFormat by lazy { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ENGLISH) }
 
     /**
      * Fetch filler/non-filler classification for episodes of a specific anime.
@@ -688,11 +737,20 @@ object AniLib {
         val show = shows.find { it.mappings.anilistId == anilistId }
             ?: return FillerDataResult()
 
-        val episodes = mutableMapOf<Int, FillerType>()
+        val episodes = mutableMapOf<Int, FillerEpisodeData>()
         for (ep in show.episodes) {
             val type = FillerType.fromValue(ep.type) ?: continue
             if (ep.episode > 0) {
-                episodes[ep.episode] = type
+                val airDate = if (ep.airedDate.isNotEmpty()) {
+                    anifillerDateFormat.tryParse(ep.airedDate)
+                } else {
+                    0L
+                }
+                episodes[ep.episode] = FillerEpisodeData(
+                    type = type,
+                    airDate = airDate,
+                    title = ep.title,
+                )
             }
         }
         return FillerDataResult(episodes = episodes)
