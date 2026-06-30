@@ -45,10 +45,11 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 abstract class AnikotoTheme(
     override val lang: String,
@@ -71,7 +72,7 @@ abstract class AnikotoTheme(
             preferences.edit().putString(PREF_DOMAIN_KEY, value).apply()
             docHeaders = headersBuilder().build()
             client = network.client.newBuilder()
-                .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+                .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
                 .build()
         }
 
@@ -90,13 +91,13 @@ abstract class AnikotoTheme(
 
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
     }
 
     internal val playlistClient by lazy {
         client.newBuilder()
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
             .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
@@ -105,7 +106,7 @@ abstract class AnikotoTheme(
 
     internal val m3u8Client by lazy {
         client.newBuilder()
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
             .protocols(listOf(Protocol.HTTP_1_1))
             .addInterceptor(JunkBytesInterceptor())
             .build()
@@ -195,7 +196,7 @@ abstract class AnikotoTheme(
                 preferences.edit().putStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, mergedMapper).apply()
             }
         } else {
-            val sevenDaysMillis = TimeUnit.DAYS.toMillis(7)
+            val sevenDaysMillis = 7.days.inWholeMilliseconds
             val validHtmlServers = (discoveredHtmlServersCache!! + newExact).filter { server ->
                 val ts = serverTimestamps[server] ?: 0L
                 server in newExact || now - ts < sevenDaysMillis

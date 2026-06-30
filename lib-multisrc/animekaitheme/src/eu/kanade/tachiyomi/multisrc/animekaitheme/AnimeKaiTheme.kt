@@ -45,8 +45,8 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 abstract class AnimeKaiTheme(
     override val lang: String,
@@ -75,7 +75,7 @@ abstract class AnimeKaiTheme(
     // Go back to deprecated rate limit method, as apps e.g. Dantotsu do not support kotlin.time yet
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
     }
 
@@ -362,7 +362,7 @@ abstract class AnimeKaiTheme(
 
     protected open fun updateDomainConfig() {
         client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
         docHeaders = headersBuilder().build()
         megaUpExtractor = MegaUpExtractor(client, docHeaders, context)
