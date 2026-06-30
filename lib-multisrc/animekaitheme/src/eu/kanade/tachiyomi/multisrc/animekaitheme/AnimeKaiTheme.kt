@@ -72,7 +72,6 @@ abstract class AnimeKaiTheme(
 
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
-    // Go back to deprecated rate limit method, as apps e.g. Dantotsu do not support kotlin.time yet
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
             .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
