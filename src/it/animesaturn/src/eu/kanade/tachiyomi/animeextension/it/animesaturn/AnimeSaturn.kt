@@ -13,12 +13,13 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.util.Calendar
 import kotlin.io.encoding.Base64
 
 class AnimeSaturn :
@@ -63,7 +64,7 @@ class AnimeSaturn :
         val episode = SEpisode.create()
         episode.setUrlWithoutDomain(element.attr("href").replace("episode/", "anime/").replace("watch/", "stream/"))
         val epText = element.attr("title")
-        episode.episode_number = epText.substringAfter("Episodio ").toFloat()
+        episode.episode_number = epText.substringAfter("Episodio ").toFloatOrNull() ?: 0f
         episode.name = epText
         return episode
     }
@@ -73,8 +74,8 @@ class AnimeSaturn :
             return emptyList()
         }
 
-        val token = response.request.url.encodedQuery!!.substringAfter("token=").substringBefore('&')
-        val playlistModel = Json.decodeFromString(PlaylistModel.serializer(), response.body.string())
+        val token = response.request.url.queryParameter("token") ?: return emptyList()
+        val playlistModel = response.parseAs<PlaylistModel>()
         val videoUrl = decodeUrl(playlistModel.d, token)
         if (videoUrl.contains(".mp4")) {
             return listOf(
@@ -86,7 +87,7 @@ class AnimeSaturn :
             )
         }
 
-        val basePlaylist = client.newCall(GET(videoUrl)).execute().body.string()
+        val basePlaylist = client.newCall(GET(videoUrl)).execute().use { it.body.string() }
         val videoList = mutableListOf<Video>()
 
         for (quality in QUALITY_ENTRIES) {
@@ -108,7 +109,7 @@ class AnimeSaturn :
     private fun decodeUrl(url: String, token: String): String {
         val base = Base64.Default.decode(url).decodeToString()
         val builder = StringBuilder()
-        for (i in 0..base.length - 1) {
+        for (i in base.indices) {
             builder.append(base[i].code.xor(token[i % token.length].code).toChar())
         }
         return builder.toString()
@@ -148,7 +149,7 @@ class AnimeSaturn :
         val anime = SAnime.create()
         anime.setUrlWithoutDomain(element.attr("href"))
         anime.title = formatTitle(element.selectFirst("h3")!!.text())
-        anime.thumbnail_url = element.selectFirst("img")!!.attr("src")
+        anime.thumbnail_url = element.selectFirst("img")?.attr("src")
         return anime
     }
 
@@ -164,14 +165,15 @@ class AnimeSaturn :
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
         anime.title = formatTitle(document.selectFirst("h1")!!.text())
-        anime.author = document.selectFirst("div a[href*=studios]")!!.text()
-        anime.status = parseStatus(document.selectFirst("div a[href*=states]")!!.text())
+        anime.author = document.selectFirst("div a[href*=studios]")?.text()
+        anime.status = parseStatus(document.selectFirst("div a[href*=states]")?.text().orEmpty())
         anime.genre = document.select("div a[href*=categories]").joinToString { it.text() }
-        anime.thumbnail_url = document.selectFirst("img[src*=locandine]")!!.attr("src")
+        anime.thumbnail_url = document.selectFirst("img[src*=locandine]")?.attr("src")
         val alterTitle = formatTitle(
-            document.selectFirst("p.mt-1")!!.text(),
+            document.selectFirst("p.mt-1")?.text().orEmpty(),
         ).replace("(ITA)", "").trim()
-        anime.description = document.selectFirst("section:has(h2) div")!!.text().trim()
+        anime.description = document.selectFirst("section:has(h2) div")?.text()?.trim()
+        if (!anime.title.contains(alterTitle, true) && !alterTitle.isEmpty()) anime.description = anime.description + "\n\nTitolo Alternativo: " + alterTitle
         return anime
     }
 
@@ -241,7 +243,10 @@ class AnimeSaturn :
 
     internal class Year(val id: String) : AnimeFilter.CheckBox(id)
     private class YearList(years: List<Year>) : AnimeFilter.Group<Year>("Anno di Uscita", years)
-    private fun getYears(): List<Year> = List(2026 - 1966) { index -> Year((index + 1967).toString()) }
+    private fun getYears(): List<Year> {
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        return (1967..currentYear).map { Year(it.toString()) }
+    }
 
     internal class State(val id: String, name: String) : AnimeFilter.CheckBox(name)
     private class StateList(states: List<State>) : AnimeFilter.Group<State>("Stato", states)
