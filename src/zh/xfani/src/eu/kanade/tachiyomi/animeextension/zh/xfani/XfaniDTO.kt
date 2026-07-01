@@ -40,3 +40,20 @@ data class VodResponse(
     val total: Int,
     val list: List<VodInfo>,
 )
+
+@Serializable
+data class SuggestInfo(
+    val id: Int,
+    val name: String,
+    val pic: String,
+)
+
+@Serializable
+data class SuggestResponse(
+    val page: Int,
+    @SerialName("pagecount")
+    val pageCount: Int,
+    val limit: Int,
+    val total: Int,
+    val list: List<SuggestInfo>,
+)
