@@ -23,7 +23,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class EnNovelas :
     ParsedAnimeHttpSource(),
@@ -78,9 +78,9 @@ class EnNovelas :
                         .build()
                     val season = getNumberFromEpsString(it.text())
                     val tmpClient = client.newBuilder()
-                        .connectTimeout(30, TimeUnit.SECONDS)
-                        .writeTimeout(35, TimeUnit.SECONDS)
-                        .readTimeout(35, TimeUnit.SECONDS)
+                        .connectTimeout(30.seconds)
+                        .writeTimeout(35.seconds)
+                        .readTimeout(35.seconds)
                         .build()
                     tmpClient.newCall(GET("$baseUrl/wp-content/themes/vo2022/temp/ajax/seasons.php?seriesID=${it.attr("data-season")}", headers = headers))
                         .execute().useAsJsoup().select(".block-post").forEach { element ->
