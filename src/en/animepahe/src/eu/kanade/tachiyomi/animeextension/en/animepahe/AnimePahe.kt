@@ -481,7 +481,7 @@ class AnimePahe :
      * so we need to fetch the anime session every time.
      */
     private fun fetchSession(animeId: String): String {
-        val sessionId = client.newCall(GET("$baseUrl/a/$animeId")).execute().use {
+        val sessionId = client.newCall(GET("$animePaheUrl/a/$animeId")).execute().use {
             it.request.url.pathSegments.last()
         }
         return sessionId
