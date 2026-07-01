@@ -63,8 +63,6 @@ class AnimePahe :
         }
     }
 
-    private val baseKwik: String = "https://kwik.cx"
-
     private val kwikBypassUrl by lazy { KWIK_URLS.random() }
 
     override val baseUrl: String
@@ -376,17 +374,17 @@ class AnimePahe :
         val shouldEndWithEng = subPreference == "eng"
 
         return this.sortedWith(
-            compareByDescending<Video> {
-                val q = it.quality.lowercase()
-                when {
-                    q.contains("1080") -> 1080
-                    q.contains("720") -> 720
-                    q.contains("480") -> 480
-                    q.contains("360") -> 360
-                    else -> 0
+            compareByDescending<Video> { it.quality.contains(preferredQuality) }
+                .thenByDescending {
+                    val q = it.quality.lowercase()
+                    when {
+                        q.contains("1080") -> 1080
+                        q.contains("720") -> 720
+                        q.contains("480") -> 480
+                        q.contains("360") -> 360
+                        else -> 0
+                    }
                 }
-            }
-                .thenByDescending { it.quality.contains(preferredQuality) }
                 .thenByDescending {
                     val q = it.quality.lowercase()
                     val isDub = q.contains("eng") || q.contains("dub")
