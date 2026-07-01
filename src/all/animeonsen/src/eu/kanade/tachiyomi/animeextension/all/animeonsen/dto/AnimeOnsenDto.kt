@@ -19,6 +19,9 @@ data class AnimeListItem(
     val content_id: String,
     val content_title: String? = null,
     val content_title_en: String? = null,
+    val content_title_jp: String? = null,
+    val content_image: String? = null,
+    val thumbnail: String? = null,
 )
 
 @Serializable
@@ -29,6 +32,8 @@ data class AnimeDetails(
     val content_id: String,
     val content_title: String?,
     val content_title_en: String?,
+    val mal_id: Int? = null,
+    val subtitle_support: Boolean? = null,
     @Serializable(with = MalSerializer::class)
     val mal_data: MalData?,
 )
@@ -36,7 +41,9 @@ data class AnimeDetails(
 @Serializable
 data class EpisodeDto(
     @SerialName("contentTitle_episode_en")
-    val name: String,
+    val nameEn: String? = null,
+    @SerialName("contentTitle_episode_jp")
+    val nameJp: String? = null,
 )
 
 @Serializable
@@ -45,6 +52,8 @@ data class MalData(
     val status: String?,
     val studios: List<Studio>?,
     val synopsis: String?,
+    val mean_score: Double? = null,
+    val rating: String? = null,
 )
 
 @Serializable
@@ -69,8 +78,14 @@ data class StreamData(
 )
 
 @Serializable
-data class SearchResponse(
+data class MeilisearchResponse(
     val hits: List<AnimeListItem>,
+)
+
+@Serializable
+data class SearchResponse(
+    val status: Int,
+    val result: List<AnimeListItem>,
 )
 
 object MalSerializer : JsonTransformingSerializer<MalData>(MalData.serializer()) {
