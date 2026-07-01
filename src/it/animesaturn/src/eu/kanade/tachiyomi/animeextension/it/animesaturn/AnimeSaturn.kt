@@ -172,7 +172,7 @@ class AnimeSaturn :
         val alterTitle = formatTitle(
             document.selectFirst("p.mt-1")?.text().orEmpty(),
         ).replace("(ITA)", "").trim()
-        anime.description = document.selectFirst("section:has(h2) div")?.text()?.trim()
+        anime.description = document.selectFirst("section:has(h2) div")?.text()?.trim().orEmpty()
         if (!anime.title.contains(alterTitle, true) && !alterTitle.isEmpty()) anime.description = anime.description + "\n\nTitolo Alternativo: " + alterTitle
         return anime
     }
