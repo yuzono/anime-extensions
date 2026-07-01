@@ -1,12 +1,9 @@
 ext {
     extName = 'AniWave (Unoriginal)'
     extClass = '.AniWave'
-    extVersionCode = 2
+    themePkg = 'anikototheme'
+    baseUrl = 'https://animewave.to'
+    overrideVersionCode = 2
 }
 
 apply plugin: "kei.plugins.extension.legacy"
-
-dependencies {
-    implementation(project(':lib:playlistutils'))
-    implementation(project(":lib:unpacker"))
-}

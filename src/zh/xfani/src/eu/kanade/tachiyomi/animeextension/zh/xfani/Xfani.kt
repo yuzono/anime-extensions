@@ -54,7 +54,7 @@ class Xfani :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
     override val baseUrl: String
-        get() = "https://dm.xifanacg.com"
+        get() = "https://anime.xifanacg.com"
     override val lang: String
         get() = "zh"
     override val name: String
@@ -205,7 +205,23 @@ class Xfani :
     override fun popularAnimeRequest(page: Int): Request = searchAnimeRequest(page, "", AnimeFilterList(SortFilter().apply { state = 1 }))
 
     private fun vodListToAnimePageList(response: Response): AnimesPage {
-        val vodResponse = json.decodeFromString<VodResponse>(response.body.string())
+        val responseBody = response.body.string()
+        if (response.request.url.encodedPath.endsWith("suggest")) {
+            val suggestResponse = json.decodeFromString<SuggestResponse>(responseBody)
+            val animeList = suggestResponse.list.map {
+                SAnime.create().apply {
+                    url = "/bangumi/${it.id}.html"
+                    thumbnail_url = it.pic
+                    title = it.name
+                }
+            }
+            return AnimesPage(
+                animeList,
+                suggestResponse.page < suggestResponse.pageCount,
+            )
+        }
+
+        val vodResponse = json.decodeFromString<VodResponse>(responseBody)
         val animeList = vodResponse.list.map {
             SAnime.create().apply {
                 url = "/bangumi/${it.vodId}.html"
@@ -222,31 +238,7 @@ class Xfani :
         )
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        if (response.request.url.toString().contains("api/vod")) {
-            return vodListToAnimePageList(response)
-        }
-        val jsoup = response.asJsoup()
-        val items = jsoup.select("div.search-list")
-        val animeList = items.map { item ->
-            SAnime.create().apply {
-                item.selectFirst("div.detail-info > a")!!.let {
-                    url = it.attr("href")
-                    title = it.text()
-                }
-                thumbnail_url =
-                    item.select("div.detail-pic img[data-src]").attr("data-src")
-            }
-        }
-        val tip = jsoup.select("div.pages div.page-tip").text()
-        return AnimesPage(animeList, tip.isNotEmpty() && hasMorePage(tip))
-    }
-
-    private fun hasMorePage(tip: String): Boolean {
-        val pageIndicator = tip.substringAfter("当前").substringBefore("页")
-        val numbers = pageIndicator.split("/")
-        return numbers.size == 2 && numbers[0] != numbers[1]
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = vodListToAnimePageList(response)
 
     private val scope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
@@ -307,26 +299,23 @@ class Xfani :
         ),
     )
 
-    private fun doSearch(page: Int, query: String): Request {
-        val url = baseUrl.toHttpUrl().newBuilder()
-        if (page <= 1) {
-            url.addPathSegment("search.html").addQueryParameter("wd", query)
-        } else {
-            url.addPathSegments("search/wd/").addPathSegment(query)
-                .addPathSegments("page/$page.html")
-        }
-        return GET(url.build())
-    }
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         if (query.isNotBlank()) {
-            return doSearch(page, query)
+            val url = "$baseUrl/index.php/ajax/suggest".toHttpUrl().newBuilder()
+                .addQueryParameter("mid", "1")
+                .addQueryParameter("wd", query)
+                .addQueryParameter("page", "$page")
+                .addQueryParameter("limit", "40")
+                .build()
+            return GET(url.toString(), headers)
         }
+
         val url = baseUrl.toHttpUrl().newBuilder().addPathSegments("index.php/api/vod").build()
         val time = System.currentTimeMillis() / 1000
         val formBody =
             MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("page", "$page")
                 .addFormDataPart("time", "$time").addFormDataPart("key", generateKey(time))
+
         filters.forEach { filter ->
             when (filter) {
                 is TypeFilter -> formBody.addFormDataPart("type", filter.selected)
