@@ -17,16 +17,20 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.firstInstance
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.jsonInstance
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.Request
@@ -34,8 +38,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup.parseBodyFragment
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
-import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -50,8 +52,6 @@ class AniZone :
     override val lang = "all"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -93,8 +93,9 @@ class AniZone :
     override fun popularAnimeParse(response: Response): AnimesPage {
         val html = response.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
 
-        val animeList = html.select("div.grid > div").drop(loadCount)
-            .map(::animeFromElement)
+        val animeList = html.select("div.grid > div, li.space-y-3").drop(loadCount)
+            .mapNotNull(::animeFromElement)
+
         val hasNextPage = html.selectFirst("div[x-intersect~=loadMore]") != null
 
         loadCount += animeList.size
@@ -102,11 +103,17 @@ class AniZone :
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun animeFromElement(element: Element): SAnime = SAnime.create().apply {
-        thumbnail_url = element.selectFirst("img")!!.attr("src")
-        with(element.selectFirst("a.inline")!!) {
-            setUrlWithoutDomain(attr("href"))
-            title = text()
+    private fun animeFromElement(element: Element): SAnime? {
+        val titleLink = element.select("a").firstOrNull { it.attr("href").contains("/anime/") }
+            ?: return null
+        val xData = element.attr("x-data")
+
+        return SAnime.create().apply {
+            setUrlWithoutDomain(titleLink.absUrl("href"))
+
+            title = getPreferredTitle(xData) ?: return null
+
+            thumbnail_url = element.selectFirst("img")?.attr("abs:src") ?: ""
         }
     }
 
@@ -131,7 +138,7 @@ class AniZone :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val sortFilter = filters.filterIsInstance<SortFilter>().first()
+        val sortFilter = filters.firstInstance<SortFilter>()
 
         return if (page == 1) {
             loadCount = 0
@@ -179,26 +186,41 @@ class AniZone :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
 
-        val infoDiv = document.select("div.flex.items-start > div")[1]
-
         return SAnime.create().apply {
-            thumbnail_url = document.selectFirst("div.flex.items-start img")!!.attr("abs:img")
+            thumbnail_url = document.selectFirst("div.flex.items-start img")?.attr("abs:src") ?: ""
 
-            with(infoDiv) {
-                title = selectFirst("h1")!!.text()
-                status = select("span.flex")[1].parseStatus()
-                description = selectFirst("div:has(>h3:contains(Synopsis)) > div")?.html()
-                    ?.replace("<br>", "\n")
-                    ?.replace(MULTILINE_REGEX, "\n\n")
-                genre = select("div > a").joinToString { it.text() }
-            }
+            val xDataElement = document.selectFirst("[x-data*=anmTitles]")
+            val xData = xDataElement?.attr("x-data") ?: ""
+
+            val fallbackText = document.selectFirst("h1")?.text()?.takeIf { it.isNotBlank() }
+                ?: document.selectFirst("title")?.text()?.substringBefore(" — AniZone")
+
+            title = getPreferredTitle(xData, fallbackText) ?: throw Exception("Could not find title")
+
+            status = document.select("span.inline-block").map { it.text() }.firstOrNull { spanText ->
+                spanText.lowercase() in listOf("completed", "ongoing", "upcoming", "cancelled")
+            }?.let {
+                when (it.lowercase()) {
+                    "completed" -> SAnime.COMPLETED
+                    "ongoing" -> SAnime.ONGOING
+                    else -> SAnime.UNKNOWN
+                }
+            } ?: SAnime.UNKNOWN
+
+            genre = document.select("a[href*=/tag/]").joinToString { it.text() }
+
+            val descEl = document.selectFirst("div:has(> h3:contains(Synopsis)) > div")
+            description = descEl?.html()
+                ?.replace(BR_REGEX, "\n")
+                ?.replace(TAG_REGEX, "")
+                ?.replace("&amp;", "&")
+                ?.replace("&quot;", "\"")
+                ?.replace("&lt;", "<")
+                ?.replace("&gt;", ">")
+                ?.replace("&#39;", "'")
+                ?.replace("`", "'")
+                ?.trim()
         }
-    }
-
-    private fun Element.parseStatus(): Int = when (this.text().lowercase()) {
-        "completed" -> SAnime.COMPLETED
-        "ongoing" -> SAnime.ONGOING
-        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -222,7 +244,7 @@ class AniZone :
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
         val episodeList = document.select(episodeSelector)
-            .map(::episodeFromElement)
+            .mapNotNull(::episodeFromElement)
             .toMutableList()
         loadCount = episodeList.size
 
@@ -244,7 +266,7 @@ class AniZone :
 
             val episodes = resp.select(episodeSelector)
                 .drop(loadCount)
-                .map(::episodeFromElement)
+                .mapNotNull(::episodeFromElement)
 
             episodeList.addAll(episodes)
             loadCount += episodes.size
@@ -257,16 +279,33 @@ class AniZone :
 
     private val episodeSelector = "ul > li"
 
-    private fun episodeFromElement(element: Element): SEpisode {
-        val url = element.selectFirst("a[href]")!!.attr("abs:href")
+    private fun episodeFromElement(element: Element): SEpisode? {
+        val url = element.select("a[href*=/anime/]").firstOrNull()?.absUrl("href")
+            ?: element.selectFirst("a[href]")?.absUrl("href")
+            ?: return null
+
+        val xData = element.attr("x-data")
+
+        val h3 = element.selectFirst("h3")
+        val baseName = h3?.ownText() ?: "Episode"
+
+        val fallbackTitle = h3?.selectFirst("span")?.text()
+            ?.substringAfter(":")?.trim()
+
+        val episodeTitle = getPreferredTitle(xData, fallbackTitle)
 
         return SEpisode.create().apply {
             setUrlWithoutDomain(url)
-            name = element.selectFirst("h3")!!.text()
-            date_upload = element.select("div.flex-row > span").getOrNull(1)
-                ?.text()
-                ?.let { parseDate(it) }
-                ?: 0L
+
+            name = if (!episodeTitle.isNullOrBlank() && episodeTitle != "Unknown") {
+                "$baseName : $episodeTitle"
+            } else {
+                baseName
+            }
+
+            date_upload = element.select("span").map { it.text() }.firstOrNull { text ->
+                text.matches(DATE_REGEX)
+            }?.let { parseDate(it) } ?: 0L
         }
     }
 
@@ -297,9 +336,8 @@ class AniZone :
         snapShots[VIDEO_SNAPSHOT_KEY] = document.getSnapshot()
 
         serverSelects.drop(1).forEach { video ->
-            val regex = "setVideo\\('(\\d+)'\\)".toRegex()
-            val matchResult = regex.find(video.attr("wire:click"))
-            val videoId = if (matchResult != null && matchResult.groupValues.size == 1) {
+            val matchResult = SET_VIDEO_REGEX.find(video.attr("wire:click"))
+            val videoId = if (matchResult != null && matchResult.groupValues.size == 2) {
                 matchResult.groupValues[1]
             } else {
                 "0"
@@ -375,6 +413,7 @@ class AniZone :
         return parseBodyFragment(
             data.effects.html.replace("\\\"", "\"")
                 .replace("\\n", ""),
+            baseUrl,
         )
     }
 
@@ -406,25 +445,56 @@ class AniZone :
             add("X-Livewire", "")
         }.build()
 
-        val body = buildJsonObject {
-            put("_token", token)
-            putJsonArray("components") {
-                addJsonObject {
-                    put("calls", calls)
-                    put("snapshot", snapShots[mapKey])
-                    put("updates", updates)
-                }
-            }
-        }.toJsonRequestBody()
+        val body = LivewireRequestDto(
+            token = token,
+            components = listOf(
+                LivewireComponentRequestDto(
+                    calls = calls,
+                    snapshot = snapShots[mapKey]!!,
+                    updates = updates,
+                ),
+            ),
+        ).toJsonRequestBody()
 
         return POST("$baseUrl/livewire/update", headers, body)
     }
 
-    private fun parseDate(dateStr: String): Long = try {
-        DATE_FORMAT.parse(dateStr)!!.time
-    } catch (_: ParseException) {
-        0L
+    private fun getPreferredTitle(xData: String, fallbackText: String? = null): String? {
+        val fallbackTitle = FALLBACK_TITLE_REGEX.find(xData)?.groupValues?.get(1)
+            ?.replace("&quot;", "\"")
+            ?.replace("&amp;", "&")
+            ?.takeIf { it.isNotBlank() }
+            ?: fallbackText
+
+        val parseMarker = "JSON.parse('"
+        val jsonStart = xData.indexOf(parseMarker)
+        if (jsonStart != -1) {
+            val startIdx = jsonStart + parseMarker.length
+            val endIdx = xData.indexOf("')", startIdx)
+            if (endIdx != -1) {
+                val jsonString = xData.substring(startIdx, endIdx)
+                    .replace("\\u0022", "\"")
+                    .replace("\\u0026", "\\&")
+                try {
+                    val titlesMap = jsonInstance.parseToJsonElement(jsonString).jsonObject
+                    return (
+                        titlesMap[preferences.preferredTitleLang]?.jsonPrimitive?.content
+                            ?: titlesMap["1"]?.jsonPrimitive?.content
+                            ?: titlesMap["5"]?.jsonPrimitive?.content
+                            ?: fallbackTitle
+                        )
+                        ?.replace("&quot;", "\"")
+                        ?.replace("&amp;", "&")
+                } catch (_: Exception) {
+                    // If JSON parsing fails, keep using fallbackTitle
+                }
+            }
+        }
+        return fallbackTitle?.replace("&quot;", "\"")
+            ?.replace("&amp;", "&")
     }
+
+    private fun parseDate(dateStr: String): Long = DATE_FORMAT.tryParse(dateStr)
 
     private val SharedPreferences.quality
         get() = getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -432,28 +502,56 @@ class AniZone :
     private val SharedPreferences.dub
         get() = getBoolean(PREF_DUB_KEY, PREF_DUB_DEFAULT)
 
+    private val SharedPreferences.preferredTitleLang
+        get() = getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT)!!
+
     companion object {
-        private val MULTILINE_REGEX = Regex("""\n{2,}""")
-        private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
+        private val BR_REGEX = Regex("(?i)<br\\s*/?>")
+        private val TAG_REGEX = Regex("<[^>]+>")
+        private val FALLBACK_TITLE_REGEX = Regex("""getTitle\(this\.(?:anmTitles|epsTitles)\s*,\s*'([^']+)'\)""")
+        private val SET_VIDEO_REGEX = Regex("""setVideo\('(\d+)'\)""")
+        private val DATE_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
+
+        private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT) }
 
         private const val ANIME_SNAPSHOT_KEY = "anime_snapshot_key"
         private const val EPISODE_SNAPSHOT_KEY = "episode_snapshot_key"
         private const val VIDEO_SNAPSHOT_KEY = "video_snapshot_key"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Preferred quality"
+        private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
         private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
         private val PREF_QUALITY_ENTRY_VALUES = arrayOf("1080", "720", "480", "360")
 
         private const val PREF_DUB_KEY = "attempt_dub"
-        private const val PREF_DUB_TITLE = "Attempt to prefer dub"
+        private const val PREF_DUB_TITLE = "Attempt To Prefer Dub"
         private const val PREF_DUB_DEFAULT = false
+
+        private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
+        private const val PREF_TITLE_LANG_TITLE = "Preferred Title Language"
+        private const val PREF_TITLE_LANG_DEFAULT = "1"
+        private val PREF_TITLE_LANG_ENTRIES = arrayOf("English", "Romaji")
+        private val PREF_TITLE_LANG_ENTRY_VALUES = arrayOf("1", "5")
     }
 
     // ============================ Preferences =============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = PREF_TITLE_LANG_KEY
+            title = PREF_TITLE_LANG_TITLE
+            entries = PREF_TITLE_LANG_ENTRIES
+            entryValues = PREF_TITLE_LANG_ENTRY_VALUES
+            setDefaultValue(PREF_TITLE_LANG_DEFAULT)
+            summary = "%s"
+
+            setOnPreferenceChangeListener { _, new ->
+                val index = findIndexOfValue(new as String)
+                preferences.edit().putString(key, entryValues[index] as String).commit()
+            }
+        }.also(screen::addPreference)
+
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = PREF_QUALITY_TITLE
