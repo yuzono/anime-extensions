@@ -46,6 +46,8 @@ internal fun <T> withQuickJsTimeout(timeoutMs: Long, block: (QuickJs) -> T): T {
         }
     } finally {
         // Ensure engine is closed if block threw before we could close on timeout
-        try { engine.close() } catch (_: Exception) { }
+        try {
+            engine.close()
+        } catch (_: Exception) { }
     }
 }

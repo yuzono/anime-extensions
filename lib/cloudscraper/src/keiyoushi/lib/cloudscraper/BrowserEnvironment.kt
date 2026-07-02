@@ -141,7 +141,7 @@ object BrowserEnvironment {
 
     // ── URL Helper ───────────────────────────────────────────────────
 
-    private const val URL_HELPER = """
+    @JvmField val URL_HELPER = """
         |function __cf_parseUrl(url) {
         |    var loc = {
         |        href: url || '',

@@ -53,7 +53,7 @@ class JsdSolver(
         val params = parseCvParams(rawCvParams)
             ?: throw CloudscraperException(
                 CloudscraperError.CHALLENGE_PARSE_FAILED,
-                "Could not parse __CF\$cv$params",
+                "Could not parse __CF${'$'}cv${'$'}params",
             )
 
         Log.d(TAG, "JSD params: a=${params.a}, s=${params.s}, h=${params.h}")
@@ -109,7 +109,10 @@ class JsdSolver(
 
     // ── CvParams parsing ────────────────────────────────────────────
 
-    private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val lenientJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     /**
      * Parses `window.__CF$cv$params` from the raw JS object string.
@@ -134,7 +137,7 @@ class JsdSolver(
 
             CvParams(a = a, s = s, h = h)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse __CF\$cv$params", e)
+            Log.w(TAG, "Failed to parse __CF${'$'}cv${'$'}params", e)
             // Fallback to regex-based parsing
             parseCvParamsFallback(rawParams)
         }
@@ -213,7 +216,7 @@ class JsdSolver(
 
             // Inject __CF$cv$params so the script can read them
             engine.evaluate(
-                "window.__CF\$cv\$params = { a: ${jsonString(params.a)}, s: ${jsonString(params.s)}, h: ${jsonString(params.h)} };",
+                "window.__CF${'$'}cv${'$'}params = { a: ${jsonString(params.a)}, s: ${jsonString(params.s)}, h: ${jsonString(params.h)} };",
             )
 
             // Initialize sensor payload capture
@@ -272,7 +275,7 @@ class JsdSolver(
             .build()
 
         return noRedirectClient.newCall(request).execute().use { response ->
-            val cookies = extractCookies(response.headers("Set-Cookie"))
+            val cookies = extractCookies(response.headers("Set-Cookie")).toMutableMap()
 
             if (!response.isSuccessful && response.code !in 300..399) {
                 Log.w(TAG, "Challenge POST returned ${response.code}")

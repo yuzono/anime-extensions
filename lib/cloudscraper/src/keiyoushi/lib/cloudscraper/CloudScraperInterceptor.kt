@@ -234,9 +234,11 @@ class CloudScraperInterceptor(
         val existingCookies = Cookie.parseAll(request.url, request.headers)
         val merged = buildList {
             // Keep existing cookies not overridden by cached ones
-            addAll(existingCookies.filter { existing ->
-                cookies.none { it.name == existing.name }
-            })
+            addAll(
+                existingCookies.filter { existing ->
+                    cookies.none { it.name == existing.name }
+                },
+            )
             addAll(cookies)
         }
         return request.newBuilder()
@@ -255,9 +257,7 @@ class CloudScraperInterceptor(
         /** Time to wait when another thread is solving for the same host. */
         private const val SOLVE_WAIT_MS = 500L
 
-        private fun isCloudflareChallenge(response: Response): Boolean {
-            return response.code in ERROR_CODES && response.header("Server") in SERVER_CHECK
-        }
+        private fun isCloudflareChallenge(response: Response): Boolean = response.code in ERROR_CODES && response.header("Server") in SERVER_CHECK
     }
 }
 

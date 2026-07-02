@@ -16,7 +16,7 @@ object ChallengeDetector {
     // ── Detection patterns ──────────────────────────────────────────
 
     /** JSD sensor challenge: `window.__CF$cv$params = {...}` */
-    private val JSD_REGEX = Regex("""window\.__CF\$cv\$params\s*=\s*(\{[^}]+\})""")
+    private val JSD_REGEX = Regex("""window\.__CF${'$'}cv${'$'}params\s*=\s*(\{[^}]+\})""")
 
     /** V2/V3 managed challenge: `/cdn-cgi/challenge-platform/` path in scripts */
     private val MANAGED_V2_REGEX = Regex("""/cdn-cgi/challenge-platform/""")
@@ -130,10 +130,8 @@ object ChallengeDetector {
         return ChallengeInfo(type = ChallengeType.MANAGED)
     }
 
-    private fun extractRValue(html: String): String? {
-        return R_VALUE_OLD_REGEX.find(html)?.groupValues?.get(1)
-            ?: R_VALUE_MODERN_REGEX.find(html)?.groupValues?.get(1)
-    }
+    private fun extractRValue(html: String): String? = R_VALUE_OLD_REGEX.find(html)?.groupValues?.get(1)
+        ?: R_VALUE_MODERN_REGEX.find(html)?.groupValues?.get(1)
 }
 
 /**

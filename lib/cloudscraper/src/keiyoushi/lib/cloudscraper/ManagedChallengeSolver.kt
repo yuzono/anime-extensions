@@ -70,7 +70,7 @@ class ManagedChallengeSolver(
             )
         }
 
-        Log.d(TAG, "Extracted ${scriptBlocks.size} script blocks (${totalSize} chars total)")
+        Log.d(TAG, "Extracted ${scriptBlocks.size} script blocks ($totalSize chars total)")
 
         // Try to compute the answer via QuickJS DOM shim
         val answer = computeAnswerViaShim(url, page, scriptBlocks, info)
@@ -124,7 +124,8 @@ class ManagedChallengeSolver(
         scriptBlocks: List<String>,
         info: ChallengeInfo,
     ): String? {
-        return withQuickJsTimeout(ENGINE_TIMEOUT_MS) { engine ->
+        var capturedResult: String? = null
+        withQuickJsTimeout(ENGINE_TIMEOUT_MS) { engine ->
             // Install full browser environment with the challenge page URL
             BrowserEnvironment.install(engine, userAgent, url.toString())
 
@@ -192,12 +193,13 @@ class ManagedChallengeSolver(
                 ) as? String
 
                 if (!answer.isNullOrEmpty() && answer != "undefined" && answer != "0") {
-                    return answer
+                    capturedResult = answer
                 }
             } catch (_: Exception) { }
 
             // Try checking if V1 expression is available
             info.v1AnswerExpr?.let { expr ->
+                if (capturedResult != null) return@let
                 try {
                     val safeDomain = url.host.replace("'", "\\'").replace("\n", "").replace("\r", "")
                     val result = engine.evaluate(
@@ -208,25 +210,26 @@ class ManagedChallengeSolver(
                     ) as? String
 
                     if (!result.isNullOrEmpty() && result != "undefined") {
-                        return result
+                        capturedResult = result
                     }
                 } catch (_: Exception) { }
             }
 
             // Last resort: check if the form was "submitted" and check cookie value
-            try {
-                val cookieVal = engine.evaluate("document.cookie") as? String
-                if (cookieVal != null && cookieVal.contains("cf_clearance")) {
-                    val match = Regex("""cf_clearance=([^;]+)""").find(cookieVal)
-                    if (match != null) {
-                        // We got a cf_clearance from the script directly!
-                        return "cookie:${match.groupValues[1]}"
+            if (capturedResult == null) {
+                try {
+                    val cookieVal = engine.evaluate("document.cookie") as? String
+                    if (cookieVal != null && cookieVal.contains("cf_clearance")) {
+                        val match = Regex("""cf_clearance=([^;]+)""").find(cookieVal)
+                        if (match != null) {
+                            // We got a cf_clearance from the script directly!
+                            capturedResult = "cookie:${match.groupValues[1]}"
+                        }
                     }
-                }
-            } catch (_: Exception) { }
-
-            null
+                } catch (_: Exception) { }
+            }
         }
+        return capturedResult
     }
 
     /**
@@ -331,9 +334,7 @@ class ManagedChallengeSolver(
         }
     }
 
-    private fun buildDefaultSubmitUrl(url: HttpUrl): String {
-        return "${url.scheme}://${url.host}$MODERN_CHALLENGE_SUBMIT_PATH"
-    }
+    private fun buildDefaultSubmitUrl(url: HttpUrl): String = "${url.scheme}://${url.host}$MODERN_CHALLENGE_SUBMIT_PATH"
 
     // ── Helpers ──────────────────────────────────────────────────────
 
@@ -345,11 +346,9 @@ class ManagedChallengeSolver(
         return resolved.toString()
     }
 
-    private fun encodeURIComponent(s: String): String {
-        return URLEncoder.encode(s, "UTF-8")
-            .replace("+", "%20")
-            .replace("%7E", "~")
-    }
+    private fun encodeURIComponent(s: String): String = URLEncoder.encode(s, "UTF-8")
+        .replace("+", "%20")
+        .replace("%7E", "~")
 
     companion object {
         private const val TAG = "CloudScraper/Managed"

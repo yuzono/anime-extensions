@@ -116,7 +116,7 @@ class Miruro :
             val body = response.body ?: return response
             val compressedBytes = body.source().readByteArray()
             val decompressed = ZstdInputStream(compressedBytes.inputStream()).use { zstd ->
-                Buffer().writeTo(zstd).readByteArray()
+                Buffer().readFrom(zstd).readByteArray()
             }
 
             val newBody = decompressed.toResponseBody(
@@ -698,7 +698,6 @@ class Miruro :
 
     private val statusPageClient: OkHttpClient = network.client.newBuilder()
         .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
-        .addHeader("User-Agent", USER_AGENT)
         .build()
 
     // ============================== Trending ===============================

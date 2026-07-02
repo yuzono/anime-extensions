@@ -57,9 +57,11 @@ class CookieCache {
             val existing = store[url.host]?.cookies ?: emptyList()
             val merged = buildList {
                 // Keep existing cookies not overridden by new ones
-                addAll(existing.filter { existingCookie ->
-                    newCookies.none { it.name == existingCookie.name }
-                })
+                addAll(
+                    existing.filter { existingCookie ->
+                        newCookies.none { it.name == existingCookie.name }
+                    },
+                )
                 addAll(newCookies)
             }
             store[url.host] = HostEntry(merged, System.currentTimeMillis())
@@ -112,9 +114,7 @@ class CookieCache {
     /**
      * Checks whether there is a valid cached cf_clearance for the given host.
      */
-    fun hasCfClearance(url: HttpUrl): Boolean {
-        return get(url)?.any { it.name == "cf_clearance" } == true
-    }
+    fun hasCfClearance(url: HttpUrl): Boolean = get(url)?.any { it.name == "cf_clearance" } == true
 
     // ── Per-host locking ─────────────────────────────────────────────
 

@@ -79,7 +79,8 @@ class LegacyIuamSolver(
      *   var result = (<expression>).toFixed(10);
      */
     private fun computeV1Answer(url: HttpUrl, expression: String): Double? {
-        return withQuickJsTimeout(SCRIPT_TIMEOUT_MS) { engine ->
+        var capturedResult: Double? = null
+        withQuickJsTimeout(SCRIPT_TIMEOUT_MS) { engine ->
             engine.evaluate("globalThis.console = { log: function(){}, warn: function(){}, error: function(){} };")
 
             // Domain must be sanitized to prevent JS injection
@@ -93,16 +94,16 @@ class LegacyIuamSolver(
 
             try {
                 val rawResult = engine.evaluate(fullScript)
-                return when (rawResult) {
+                capturedResult = when (rawResult) {
                     is Number -> rawResult.toDouble()
                     is String -> rawResult.toDoubleOrNull()
                     else -> null
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "V1 JS evaluation failed", e)
-                null
             }
         }
+        return capturedResult
     }
 
     // ── Legacy IUAM challenge ────────────────────────────────────────
@@ -140,7 +141,8 @@ class LegacyIuamSolver(
      * Uses the full browser environment to handle obfuscated scripts.
      */
     private fun computeLegacyAnswer(url: HttpUrl, info: ChallengeInfo): String? {
-        return withQuickJsTimeout(SCRIPT_TIMEOUT_MS) { engine ->
+        var capturedResult: String? = null
+        withQuickJsTimeout(SCRIPT_TIMEOUT_MS) { engine ->
             // Install full browser environment
             BrowserEnvironment.install(engine, userAgent, url.toString())
 
@@ -182,7 +184,7 @@ class LegacyIuamSolver(
 
                 if (!answerEl.isNullOrEmpty() && answerEl != "0" && answerEl != "undefined") {
                     // The answer is typically the computed value + domain name length
-                    return try {
+                    capturedResult = try {
                         val raw = answerEl.toDouble()
                         // Add domain length (common CF pattern: answer = computed + host.length)
                         // But the script should have handled this — only add if clearly missing
@@ -191,13 +193,11 @@ class LegacyIuamSolver(
                         answerEl
                     }
                 }
-
-                null
             } catch (e: Exception) {
                 Log.w(TAG, "Legacy IUAM JS evaluation failed", e)
-                null
             }
         }
+        return capturedResult
     }
 
     // ── Challenge submission ──────────────────────────────────────────
@@ -291,11 +291,9 @@ class LegacyIuamSolver(
         return resolved.toString()
     }
 
-    private fun encodeURIComponent(s: String): String {
-        return URLEncoder.encode(s, "UTF-8")
-            .replace("+", "%20")
-            .replace("%7E", "~")
-    }
+    private fun encodeURIComponent(s: String): String = URLEncoder.encode(s, "UTF-8")
+        .replace("+", "%20")
+        .replace("%7E", "~")
 
     companion object {
         private const val TAG = "CloudScraper/LegacyIUAM"
