@@ -16,6 +16,7 @@ import aniyomi.lib.anilib.MediaTitle
 import aniyomi.lib.anilib.StudioEdge
 import aniyomi.lib.anilib.StudioNode
 import aniyomi.lib.anilib.buildDescription
+import com.github.luben.zstd.ZstdInputStream
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -28,6 +29,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import keiyoushi.lib.cloudscraper.CloudScraperInterceptor
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -46,9 +48,13 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -84,8 +90,44 @@ class Miruro :
     private val SharedPreferences.fillerDisplayMode by preferences.delegate(PREF_FILLER_DISPLAY_KEY, PREF_FILLER_DISPLAY_DEFAULT)
     private val SharedPreferences.fillerMarkMixed by preferences.delegate(PREF_FILLER_MARK_MIXED_KEY, PREF_FILLER_MARK_MIXED_DEFAULT)
 
+    override val client: OkHttpClient = super.client.newBuilder()
+        .addInterceptor(CloudScraperInterceptor(super.client, userAgent = USER_AGENT))
+        .addNetworkInterceptor(ZstdDecompressInterceptor())
+        .build()
+
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
+    }
+
+    /**
+     * Network interceptor that transparently decompresses zstd-encoded response bodies.
+     *
+     * OkHttp's BridgeInterceptor handles gzip transparently but not zstd.
+     * Miruro.tv now returns `content-encoding: zstd` on pipe API responses.
+     * This interceptor strips the Content-Encoding header and decompresses
+     * the body so downstream code receives the plaintext Base64 payload.
+     */
+    private class ZstdDecompressInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val response = chain.proceed(chain.request())
+            val encoding = response.header("Content-Encoding") ?: return response
+            if (!encoding.equals("zstd", ignoreCase = true)) return response
+
+            val body = response.body ?: return response
+            val compressedBytes = body.source().readByteArray()
+            val decompressed = ZstdInputStream(compressedBytes.inputStream()).use { zstd ->
+                Buffer().writeTo(zstd).readByteArray()
+            }
+
+            val newBody = decompressed.toResponseBody(
+                body.contentType() ?: "text/plain".toMediaType(),
+            )
+
+            return response.newBuilder()
+                .body(newBody)
+                .removeHeader("Content-Encoding")
+                .build()
+        }
     }
 
     private enum class ConfigFetchState {
@@ -534,6 +576,8 @@ class Miruro :
 
         private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
 
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
 
@@ -654,6 +698,7 @@ class Miruro :
 
     private val statusPageClient: OkHttpClient = network.client.newBuilder()
         .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
+        .addHeader("User-Agent", USER_AGENT)
         .build()
 
     // ============================== Trending ===============================
@@ -1692,6 +1737,8 @@ class Miruro :
             headers = Headers.headersOf(
                 "Accept",
                 "*/*",
+                "User-Agent",
+                USER_AGENT,
                 "Referer",
                 "$baseUrl/",
             ),
