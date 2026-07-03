@@ -87,9 +87,13 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         val secondArrayStr = params.substring(secondArrayOpen, array2End + 1)
 
         val keyQuoteStart = params.indexOf('"', array2End + 1)
+        if (keyQuoteStart < 0) {
+            Log.w(tag, "Could not find key string start")
+            return ""
+        }
         val keyQuoteEnd = params.indexOf('"', keyQuoteStart + 1)
-        if (keyQuoteStart < 0 || keyQuoteEnd < 0) {
-            Log.w(tag, "Could not find key string")
+        if (keyQuoteEnd < 0) {
+            Log.w(tag, "Could not find key string end")
             return ""
         }
         val keyStr = params.substring(keyQuoteStart + 1, keyQuoteEnd)
