@@ -85,6 +85,13 @@ class AnimeVerse :
 
     private fun getCatalog(): List<JsonElement> = synchronized(cacheLock) {
         val now = System.currentTimeMillis()
+        val forceRefresh = preferences.getBoolean(PREF_FORCE_REFRESH_CACHE, false)
+
+        if (forceRefresh) {
+            catalogCache = null
+            catalogCacheFile.delete()
+            preferences.edit().putBoolean(PREF_FORCE_REFRESH_CACHE, false).apply()
+        }
 
         catalogCache?.takeIf { now - catalogCacheLoadedTime < cacheTtl }?.let { return it }
 
@@ -345,31 +352,35 @@ class AnimeVerse :
 
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
         val keywords = anime.title.stripKeywordForRelatedAnimes()
+        if (keywords.isEmpty()) return emptyList()
+
         val catalog = getCatalog()
         val currentSlug = anime.slug()
-
         val currentGenres = anime.genre?.split(", ")?.map { it.trim() }?.toSet() ?: emptySet()
 
         return catalog.asSequence()
             .map { it.jsonObject }
             .filter { it.string("slug") != currentSlug }
             .map { o ->
-                val title = o.string("title")?.lowercase().orEmpty()
-                val alt = o.string("alternativeTitle")?.lowercase().orEmpty()
+                val searchTitle = if (useAltTitle) {
+                    o.string("alternativeTitle")?.takeIf { it.isNotEmpty() } ?: o.string("title")
+                } else {
+                    o.string("title")
+                }?.lowercase().orEmpty()
 
-                val titleMatchScore = if (keywords.isEmpty()) 0 else keywords.count { title.contains(it) || alt.contains(it) }
+                val titleMatchScore = keywords.count { searchTitle.contains(it) }
 
                 val genres = o.stringArray("genres")
                 val sharedGenres = if (currentGenres.isNotEmpty()) genres.intersect(currentGenres).size else 0
 
                 Triple(o, titleMatchScore, sharedGenres)
             }
-            .filter { (_, titleMatchScore, sharedGenres) -> titleMatchScore > 0 || sharedGenres >= 3 }
+            .filter { (_, titleMatchScore, sharedGenres) -> titleMatchScore >= 2 || sharedGenres >= 1 }
             .sortedWith(
                 compareByDescending<Triple<JsonObject, Int, Int>> { it.second }
                     .thenByDescending { it.third },
             )
-            .take(20)
+            .take(24)
             .map { jsonToAnime(it.first, useAltTitle, baseUrl) }
             .toList()
     }
@@ -691,6 +702,13 @@ class AnimeVerse :
             default = PREF_USE_ALT_TITLE_DEFAULT,
         )
 
+        screen.addSwitchPreference(
+            key = PREF_FORCE_REFRESH_CACHE,
+            title = "Force Refresh Catalog Cache",
+            summary = "Clears the local catalog file and fetches a fresh one on the next catalog request.",
+            default = false,
+        )
+
         MultiSelectListPreference(screen.context).apply {
             key = PREF_HOSTER_EXCLUDE_KEY
             title = PREF_HOSTER_EXCLUDE_TITLE
@@ -711,5 +729,7 @@ class AnimeVerse :
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private const val PREF_HOSTER_EXCLUDE_TITLE = "Excluded Hosts"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
+
+        private const val PREF_FORCE_REFRESH_CACHE = "force_refresh_cache"
     }
 }
