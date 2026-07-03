@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 
 // =========================== SAnime Mappers ==============================
 
-fun jsonToAnime(el: JsonElement, useAlt: Boolean): SAnime {
+fun jsonToAnime(el: JsonElement, useAlt: Boolean, baseUrl: String): SAnime {
     val o = el.jsonObject
     val genres = o.stringArray("genres")
     val studios = o.stringArray("studios")
@@ -24,19 +24,19 @@ fun jsonToAnime(el: JsonElement, useAlt: Boolean): SAnime {
     return SAnime.create().apply {
         title = if (useAlt) altTitle ?: mainTitle else mainTitle
         url = "/series/${o.string("slug")}"
-        thumbnail_url = resolveImage(o.string("cover") ?: o.string("thumb"))
+        thumbnail_url = resolveImage(baseUrl, o.string("cover") ?: o.string("thumb"))
         author = studios.takeIf { it.isNotEmpty() }?.joinToString(", ")
         genre = genres.takeIf { it.isNotEmpty() }?.joinToString(", ")
         status = SAnime.UNKNOWN
     }
 }
 
-fun recentToAnime(el: JsonElement): SAnime {
+fun recentToAnime(el: JsonElement, baseUrl: String): SAnime {
     val o = el.jsonObject
     return SAnime.create().apply {
         title = o.string("seriesTitle") ?: "Unknown"
         url = "/series/${o.string("seriesSlug")}"
-        thumbnail_url = resolveImage(o.string("thumb"))
+        thumbnail_url = resolveImage(baseUrl, o.string("thumb"))
         genre = o.string("language")?.uppercase() ?: o.string("releaseTime")
         status = SAnime.UNKNOWN
     }
@@ -46,14 +46,14 @@ fun recentToAnime(el: JsonElement): SAnime {
 
 fun SAnime.slug(): String = url.substringAfter("/series/")
 
-fun resolveImage(path: String?): String? {
+fun resolveImage(baseUrl: String, path: String?): String? {
     if (path.isNullOrEmpty()) return null
     if (path.startsWith("http")) return path
     if (path.startsWith("/i/")) {
-        runCatching { String(base64UrlDecode(path.substringAfter("/i/"))) }
+        runCatching { String(base64UrlDecode(path.substringAfter("/i/")), Charsets.UTF_8) }
             .getOrNull()?.takeIf { it.startsWith("http") }?.let { return it }
     }
-    return "https://animeverse.to$path"
+    return "$baseUrl$path"
 }
 
 @SuppressLint("DefaultLocale")

@@ -66,7 +66,7 @@ class AnimeVerse :
 
     override val client: OkHttpClient by lazy {
         network.client.newBuilder()
-            .addInterceptor { chain -> authInterceptor(chain, network.client, fingerprint) }
+            .addInterceptor { chain -> authInterceptor(chain, network.client, fingerprint, baseUrl) }
             .build()
     }
 
@@ -77,6 +77,7 @@ class AnimeVerse :
 
     @Volatile
     private var catalogCache: List<JsonElement>? = null
+    private var catalogCacheLoadedTime: Long = 0L
     private val catalogCacheFile: File by lazy {
         applicationContext.cacheDir.resolve("source_$id/catalog.json")
     }
@@ -84,34 +85,44 @@ class AnimeVerse :
     private fun getCatalog(): List<JsonElement> = synchronized(cacheLock) {
         val now = System.currentTimeMillis()
 
-        catalogCache?.takeIf { now - catalogCacheFile.lastModified() < cacheTtl }?.let { return it }
+        catalogCache?.takeIf { now - catalogCacheLoadedTime < cacheTtl }?.let { return it }
 
-        if (catalogCacheFile.exists() && now - catalogCacheFile.lastModified() < cacheTtl) {
-            runCatching {
-                val fileArr = extractArray(catalogCacheFile.readText().parseAs<JsonElement>(json))
-                if (fileArr.isNotEmpty()) {
-                    catalogCache = fileArr
-                    return fileArr
+        if (catalogCacheFile.exists()) {
+            val lastMod = catalogCacheFile.lastModified()
+            if (now - lastMod < cacheTtl) {
+                runCatching {
+                    val fileArr = extractArray(catalogCacheFile.readText().parseAs<JsonElement>(json))
+                    if (fileArr.isNotEmpty()) {
+                        catalogCache = fileArr
+                        catalogCacheLoadedTime = lastMod
+                        return fileArr
+                    }
                 }
             }
         }
 
         try {
-            val resp = client.newCall(GET("$baseUrl/api/v1/catalog")).execute()
-            val body = resp.bodyString()
-            val arr = extractArray(body.parseAs<JsonElement>(json))
-            resp.close()
+            val (body, arr) = client.newCall(GET("$baseUrl/api/v1/catalog")).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                val body = resp.bodyString()
+                body to extractArray(body.parseAs<JsonElement>(json))
+            }
 
             if (arr.isNotEmpty()) {
                 saveJsonToFile(catalogCacheFile, body, arr)
                 catalogCache = arr
+                catalogCacheLoadedTime = now
                 return arr
             }
         } catch (e: Exception) {
             if (catalogCacheFile.exists()) {
                 runCatching {
                     val fileArr = extractArray(catalogCacheFile.readText().parseAs<JsonElement>(json))
-                    if (fileArr.isNotEmpty()) return fileArr
+                    if (fileArr.isNotEmpty()) {
+                        catalogCache = fileArr
+                        catalogCacheLoadedTime = catalogCacheFile.lastModified()
+                        return fileArr
+                    }
                 }
             }
             throw Exception("Failed to fetch catalog: ${e.message}")
@@ -132,10 +143,11 @@ class AnimeVerse :
         }
 
         try {
-            val resp = client.newCall(GET("$baseUrl/api/v1/schedule?day=$day")).execute()
-            val body = resp.bodyString()
-            val arr = extractArray(body.parseAs<JsonElement>(json))
-            resp.close()
+            val (body, arr) = client.newCall(GET("$baseUrl/api/v1/schedule?day=$day")).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                val body = resp.bodyString()
+                body to extractArray(body.parseAs<JsonElement>(json))
+            }
 
             if (arr.isNotEmpty()) {
                 saveJsonToFile(scheduleFile, body, arr)
@@ -155,11 +167,8 @@ class AnimeVerse :
     private fun saveJsonToFile(file: File, body: String, list: List<JsonElement>) {
         if (list.isEmpty()) return
         try {
-            val currentBody = if (file.exists()) file.readText() else ""
-            if (body != currentBody) {
-                file.parentFile?.mkdirs()
-                file.writeText(body)
-            }
+            file.parentFile?.mkdirs()
+            file.writeText(body)
         } catch (_: Exception) {}
     }
 
@@ -184,7 +193,7 @@ class AnimeVerse :
                 (id != null && catO.string("id") == id) || (slug != null && catO.string("slug") == slug)
             } ?: el
 
-            jsonToAnime(catEl, useAltTitle)
+            jsonToAnime(catEl, useAltTitle, baseUrl)
         }
 
         return AnimesPage(animes, hasNext)
@@ -208,14 +217,14 @@ class AnimeVerse :
             }
 
             if (catEl != null) {
-                val sAnime = jsonToAnime(catEl, useAltTitle)
+                val sAnime = jsonToAnime(catEl, useAltTitle, baseUrl)
                 val recentInfo = o.string("language")?.uppercase() ?: o.string("releaseTime")
                 if (!recentInfo.isNullOrEmpty()) {
                     sAnime.genre = if (!sAnime.genre.isNullOrEmpty()) "${sAnime.genre}, $recentInfo" else recentInfo
                 }
                 sAnime
             } else {
-                recentToAnime(el)
+                recentToAnime(el, baseUrl)
             }
         }
 
@@ -255,14 +264,16 @@ class AnimeVerse :
                     val matchesQuery = q.isBlank() || o.string("searchTitle")?.lowercase()?.contains(q) == true ||
                         o.string("title")?.lowercase()?.contains(q) == true ||
                         o.string("alternativeTitle")?.lowercase()?.contains(q) == true
+                    val genres = o.stringArray("genres")
                     val matchesGenre = if (genreMode) {
-                        includedGenres.all { it in o.stringArray("genres") } &&
-                            (excludedGenres.isEmpty() || o.stringArray("genres").intersect(excludedGenres).isEmpty())
+                        includedGenres.all { it in genres } &&
+                            (excludedGenres.isEmpty() || genres.intersect(excludedGenres).isEmpty())
                     } else {
-                        (includedGenres.isEmpty() || o.stringArray("genres").intersect(includedGenres).isNotEmpty()) &&
-                            (excludedGenres.isEmpty() || o.stringArray("genres").intersect(excludedGenres).isEmpty())
+                        (includedGenres.isEmpty() || genres.intersect(includedGenres).isNotEmpty()) &&
+                            (excludedGenres.isEmpty() || genres.intersect(excludedGenres).isEmpty())
                     }
-                    val matchesStudio = selectedStudios.isEmpty() || o.stringArray("studios").intersect(selectedStudios).isNotEmpty()
+                    val studios = o.stringArray("studios")
+                    val matchesStudio = selectedStudios.isEmpty() || studios.intersect(selectedStudios).isNotEmpty()
                     val matchesYear = year.isEmpty() || o.int("year").toString() == year
                     val matchesSeason = season.isEmpty() || o.string("premiered")?.startsWith(season, ignoreCase = true) == true
                     val matchesRating = ratingLabel.isEmpty() || o.string("ratingLabel") == ratingLabel
@@ -284,14 +295,14 @@ class AnimeVerse :
                 }
 
                 if (catEl != null) {
-                    val sAnime = jsonToAnime(catEl, useAltTitle)
+                    val sAnime = jsonToAnime(catEl, useAltTitle, baseUrl)
                     val recentInfo = o.string("language")?.uppercase() ?: o.string("releaseTime")
                     if (!recentInfo.isNullOrEmpty()) {
                         sAnime.genre = if (!sAnime.genre.isNullOrEmpty()) "${sAnime.genre}, $recentInfo" else recentInfo
                     }
                     sAnime
                 } else {
-                    recentToAnime(el)
+                    recentToAnime(el, baseUrl)
                 }
             }
 
@@ -304,14 +315,16 @@ class AnimeVerse :
                 val matchesQuery = q.isBlank() || o.string("searchTitle")?.lowercase()?.contains(q) == true ||
                     o.string("title")?.lowercase()?.contains(q) == true ||
                     o.string("alternativeTitle")?.lowercase()?.contains(q) == true
+                val genres = o.stringArray("genres")
                 val matchesGenre = if (genreMode) {
-                    includedGenres.all { it in o.stringArray("genres") } &&
-                        (excludedGenres.isEmpty() || o.stringArray("genres").intersect(excludedGenres).isEmpty())
+                    includedGenres.all { it in genres } &&
+                        (excludedGenres.isEmpty() || genres.intersect(excludedGenres).isEmpty())
                 } else {
-                    (includedGenres.isEmpty() || o.stringArray("genres").intersect(includedGenres).isNotEmpty()) &&
-                        (excludedGenres.isEmpty() || o.stringArray("genres").intersect(excludedGenres).isEmpty())
+                    (includedGenres.isEmpty() || genres.intersect(includedGenres).isNotEmpty()) &&
+                        (excludedGenres.isEmpty() || genres.intersect(excludedGenres).isEmpty())
                 }
-                val matchesStudio = selectedStudios.isEmpty() || o.stringArray("studios").intersect(selectedStudios).isNotEmpty()
+                val studios = o.stringArray("studios")
+                val matchesStudio = selectedStudios.isEmpty() || studios.intersect(selectedStudios).isNotEmpty()
                 val matchesYear = year.isEmpty() || o.int("year").toString() == year
                 val matchesSeason = season.isEmpty() || o.string("premiered")?.startsWith(season, ignoreCase = true) == true
                 val matchesRating = ratingLabel.isEmpty() || o.string("ratingLabel") == ratingLabel
@@ -325,7 +338,7 @@ class AnimeVerse :
                 filtered
             }
 
-            AnimesPage(sorted.map { jsonToAnime(it, useAltTitle) }, false)
+            AnimesPage(sorted.map { jsonToAnime(it, useAltTitle, baseUrl) }, false)
         }
     }
 
@@ -396,7 +409,7 @@ class AnimeVerse :
         return SAnime.create().apply {
             title = displayTitle
             url = "/series/${o.string("slug")}"
-            thumbnail_url = resolveImage(o.string("cover") ?: o.string("thumb"))
+            thumbnail_url = resolveImage(baseUrl, o.string("cover") ?: o.string("thumb"))
             this.description = description
             author = studios
             genre = genres
