@@ -84,7 +84,12 @@ class LegacyIuamSolver(
             engine.evaluate("globalThis.console = { log: function(){}, warn: function(){}, error: function(){} };")
 
             // Domain must be sanitized to prevent JS injection
-            val safeDomain = url.host.replace("'", "\\'").replace("\n", "").replace("\r", "")
+            val safeDomain = url.host
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\"", "\\\"")
+                .replace("\n", "")
+                .replace("\r", "")
 
             val fullScript = """
                 |var t = '$safeDomain';
@@ -286,6 +291,9 @@ class LegacyIuamSolver(
     private fun resolveUrl(base: HttpUrl, relative: String): String {
         if (relative.startsWith("http://") || relative.startsWith("https://")) {
             return relative
+        }
+        if (relative.startsWith("javascript:") || relative.startsWith("data:")) {
+            return base.toString()
         }
         val resolved = base.resolve(relative) ?: return relative
         return resolved.toString()

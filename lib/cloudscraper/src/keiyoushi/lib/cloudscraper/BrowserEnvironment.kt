@@ -19,6 +19,7 @@ object BrowserEnvironment {
 
     fun install(engine: QuickJs, userAgent: String, originUrl: String = "") {
         engine.evaluate(URL_HELPER)
+        engine.evaluate(RECURSION_GUARD_SHIM)
         engine.evaluate(CONSOLE_SHIM)
         engine.evaluate(TIMERS_SHIM)
         engine.evaluate(ATOB_BTOA_SHIM)
@@ -192,6 +193,13 @@ object BrowserEnvironment {
         };
     """
 
+    // ── Recursion guard ────────────────────────────────────────────
+
+    private const val RECURSION_GUARD_SHIM = """
+        globalThis.__cf_callDepth = 0;
+        globalThis.__cf_maxCallDepth = 256;
+    """
+
     // ── Timers ───────────────────────────────────────────────────────
 
     private const val TIMERS_SHIM = """
@@ -220,13 +228,13 @@ object BrowserEnvironment {
             var i;
             for (i = 0; i < __cf_pendingTimers.length; i++) {
                 var t = __cf_pendingTimers[i];
-                try { if (__cf_timers[t.id]) t.fn(); } catch(e) {}
+                try { if (__cf_timers[t.id]) { globalThis.__cf_callDepth = 0; t.fn(); } } catch(e) {}
                 delete __cf_timers[t.id];
             }
             __cf_pendingTimers = [];
             for (i = 0; i < __cf_pendingIntervals.length; i++) {
                 var s = __cf_pendingIntervals[i];
-                try { if (__cf_intervals[s.id]) s.fn(); } catch(e) {}
+                try { if (__cf_intervals[s.id]) { globalThis.__cf_callDepth = 0; s.fn(); } } catch(e) {}
             }
         }
     """
@@ -748,6 +756,24 @@ object BrowserEnvironment {
         globalThis.HTMLAudioElement = function() {};
         globalThis.HTMLScriptElement = function() {};
         globalThis.HTMLIFrameElement = function() { this.contentWindow = null; };
+
+        globalThis.WebGLRenderingContext = function() {};
+        globalThis.WebGL2RenderingContext = function() {};
+        globalThis.WebGLActiveInfo = function() { this.name = ''; this.size = 1; this.type = 5126; };
+        globalThis.WebGLBuffer = function() {};
+        globalThis.WebGLFramebuffer = function() {};
+        globalThis.WebGLProgram = function() {};
+        globalThis.WebGLRenderbuffer = function() {};
+        globalThis.WebGLShader = function() {};
+        globalThis.WebGLShaderPrecisionFormat = function() { this.rangeMin = 127; this.rangeMax = 127; this.precision = 23; };
+        globalThis.WebGLTexture = function() {};
+        globalThis.WebGLUniformLocation = function() {};
+
+        globalThis.AudioContext = function(opts) { this.state = 'running'; this.sampleRate = 48000; this.currentTime = 0; this.destination = { numberOfInputs: 0, numberOfOutputs: 0 }; this.createOscillator = function() { return { type: 'sine', frequency: { value: 440 }, connect: function(){}, start: function(){}, stop: function(){} }; }; this.createAnalyser = function() { return { fftSize: 2048, frequencyBinCount: 1024, getFloatFrequencyData: function(arr) { for (var i = 0; i < arr.length; i++) arr[i] = -100; }, connect: function(){}, disconnect: function(){} }; }; this.createGain = function() { return { gain: { value: 1 }, connect: function(){}, disconnect: function(){} }; }; this.createMediaStreamSource = function() { return { connect: function(){}, disconnect: function(){} }; }; this.close = function() { this.state = 'closed'; }; };
+        globalThis.OfflineAudioContext = function(channels, length, sampleRate) { this.length = length; this.sampleRate = sampleRate; this.state = 'suspended'; this.startRendering = function() { var buf = { getChannelData: function(ch) { var arr = new Float32Array(length); for (var i = 0; i < length; i++) arr[i] = (Math.random() * 2 - 1) * 0.0001; return arr; }, numberOfChannels: channels, length: length, sampleRate: sampleRate }; return Promise.resolve(buf); }; this.createOscillator = function() { return { type: 'sine', frequency: { value: 440 }, connect: function(){}, start: function(){}, stop: function(){} }; }; this.createAnalyser = function() { return { fftSize: 2048, frequencyBinCount: 1024, getFloatFrequencyData: function(arr) { for (var i = 0; i < arr.length; i++) arr[i] = -100; }, connect: function(){}, disconnect: function(){} }; }; this.createGain = function() { return { gain: { value: 1 }, connect: function(){}, disconnect: function(){} }; }; };
+        globalThis.webkitAudioContext = globalThis.AudioContext;
+
+        globalThis.Intl = { DateTimeFormat: function(locales, opts) { this.resolvedOptions = function() { return { locale: (locales && locales[0]) || 'en-US', timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }; }; this.format = function(d) { var dt = d || new Date(); var pad = function(n) { return n < 10 ? '0' + n : '' + n; }; return pad(dt.getMonth() + 1) + '/' + pad(dt.getDate()) + '/' + dt.getFullYear() + ', ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds()); }; }, NumberFormat: function() { this.format = function(n) { return '' + n; }; }, Collator: function() { this.compare = function(a, b) { return a < b ? -1 : a > b ? 1 : 0; }; } };
     """
 
     // ── Helpers ──────────────────────────────────────────────────────

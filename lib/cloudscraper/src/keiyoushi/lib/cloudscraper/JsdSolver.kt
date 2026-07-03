@@ -311,6 +311,9 @@ class JsdSolver(
         if (relative.startsWith("http://") || relative.startsWith("https://")) {
             return relative
         }
+        if (relative.startsWith("javascript:") || relative.startsWith("data:")) {
+            return base.toString()
+        }
         val resolved = base.resolve(relative) ?: return relative
         return resolved.toString()
     }

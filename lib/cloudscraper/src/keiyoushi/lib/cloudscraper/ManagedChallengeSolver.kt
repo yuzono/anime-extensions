@@ -201,7 +201,12 @@ class ManagedChallengeSolver(
             info.v1AnswerExpr?.let { expr ->
                 if (capturedResult != null) return@let
                 try {
-                    val safeDomain = url.host.replace("'", "\\'").replace("\n", "").replace("\r", "")
+                    val safeDomain = url.host
+                        .replace("\\", "\\\\")
+                        .replace("'", "\\'")
+                        .replace("\"", "\\\"")
+                        .replace("\n", "")
+                        .replace("\r", "")
                     val result = engine.evaluate(
                         """
                         |var t = '$safeDomain';
@@ -341,6 +346,9 @@ class ManagedChallengeSolver(
     private fun resolveUrl(base: HttpUrl, relative: String): String {
         if (relative.startsWith("http://") || relative.startsWith("https://")) {
             return relative
+        }
+        if (relative.startsWith("javascript:") || relative.startsWith("data:")) {
+            return base.toString()
         }
         val resolved = base.resolve(relative) ?: return relative
         return resolved.toString()
