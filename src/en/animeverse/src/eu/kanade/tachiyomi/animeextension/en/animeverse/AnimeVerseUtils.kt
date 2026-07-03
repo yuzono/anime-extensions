@@ -46,6 +46,18 @@ fun recentToAnime(el: JsonElement, baseUrl: String): SAnime {
 
 fun SAnime.slug(): String = url.substringAfter("/series/")
 
+private val regexSpecialCharacters = Regex("""[^a-zA-Z0-9\s]""")
+private val regexWhitespace = Regex("""\s+""")
+private val regexNumberOnly = Regex("""^\d+$""")
+
+fun String.stripKeywordForRelatedAnimes(): List<String> = replace(regexSpecialCharacters, " ")
+    .split(regexWhitespace)
+    .map {
+        it.replace(regexNumberOnly, "")
+            .lowercase()
+    }
+    .filter { it.length > 2 } // Increase minimum length to 3 to ignore short common words
+
 fun resolveImage(baseUrl: String, path: String?): String? {
     if (path.isNullOrEmpty()) return null
     if (path.startsWith("http")) return path

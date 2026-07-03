@@ -41,6 +41,7 @@ class AnimeVerse :
     override val baseUrl = "https://animeverse.to"
     override val lang = "en"
     override val supportsLatest = true
+    override val disableRelatedAnimesBySearch = true
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -340,6 +341,37 @@ class AnimeVerse :
 
             AnimesPage(sorted.map { jsonToAnime(it, useAltTitle, baseUrl) }, false)
         }
+    }
+
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
+        val keywords = anime.title.stripKeywordForRelatedAnimes()
+        val catalog = getCatalog()
+        val currentSlug = anime.slug()
+
+        val currentGenres = anime.genre?.split(", ")?.map { it.trim() }?.toSet() ?: emptySet()
+
+        return catalog.asSequence()
+            .map { it.jsonObject }
+            .filter { it.string("slug") != currentSlug }
+            .map { o ->
+                val title = o.string("title")?.lowercase().orEmpty()
+                val alt = o.string("alternativeTitle")?.lowercase().orEmpty()
+
+                val titleMatchScore = if (keywords.isEmpty()) 0 else keywords.count { title.contains(it) || alt.contains(it) }
+
+                val genres = o.stringArray("genres")
+                val sharedGenres = if (currentGenres.isNotEmpty()) genres.intersect(currentGenres).size else 0
+
+                Triple(o, titleMatchScore, sharedGenres)
+            }
+            .filter { (_, titleMatchScore, sharedGenres) -> titleMatchScore > 0 || sharedGenres >= 3 }
+            .sortedWith(
+                compareByDescending<Triple<JsonObject, Int, Int>> { it.second }
+                    .thenByDescending { it.third },
+            )
+            .take(20)
+            .map { jsonToAnime(it.first, useAltTitle, baseUrl) }
+            .toList()
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
