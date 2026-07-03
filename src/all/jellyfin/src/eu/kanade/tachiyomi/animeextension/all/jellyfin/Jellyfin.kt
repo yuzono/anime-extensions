@@ -194,7 +194,7 @@ class Jellyfin(private val suffix: String) :
             seriesQuery != searchQuery &&
             items.items.none { it.name.equals(searchQuery, ignoreCase = true) }
         ) {
-            items = client.get(getSearchUrl(seriesQuery)).parseAs(json)
+            items = client.get(getSearchUrl(seriesQuery)).parseAs<ItemListDto>(json)
             searchQuery
         } else {
             null
@@ -229,7 +229,7 @@ class Jellyfin(private val suffix: String) :
         val matchingAnime = requestedSeasonTitle?.let { title ->
             animeList.filter { it.title.equals(title, ignoreCase = true) }
         } ?: animeList
-        val hasNextPage = requestedSeasonTitle == null && SERIES_FETCH_LIMIT * page < items.totalRecordCount
+        val hasNextPage = SERIES_FETCH_LIMIT * page < items.totalRecordCount
 
         return AnimesPage(matchingAnime, hasNextPage)
     }
