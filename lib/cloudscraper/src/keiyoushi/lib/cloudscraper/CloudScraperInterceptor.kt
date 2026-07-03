@@ -44,7 +44,6 @@ class CloudScraperInterceptor(
     private val maxRetries: Int = 2,
 ) : Interceptor {
 
-    @Synchronized
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val url = originalRequest.url
@@ -295,6 +294,9 @@ enum class CloudscraperError(val isTransient: Boolean) {
 
     /** QuickJS engine timed out during script evaluation. */
     ENGINE_TIMEOUT(true),
+
+    /** QuickJS script triggered a stack overflow — challenge script too deeply recursive. */
+    STACK_OVERFLOW(true),
 }
 
 /**
