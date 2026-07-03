@@ -1,7 +1,7 @@
 ext {
     extName = 'Jellyfin'
     extClass = '.JellyfinFactory'
-    extVersionCode = 30
+    extVersionCode = 31
     extNames = ["Jellyfin (1)", "Jellyfin (2)", "Jellyfin (3)"]
 }
 
