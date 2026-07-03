@@ -36,7 +36,7 @@ import javax.net.ssl.X509TrustManager
  *
  * @param client the base OkHttpClient used for initial request detection
  * @param impersonatedClient optional pre-configured OkHttpClient with spoofed TLS fingerprints;
- *   if null, one is created internally with Chrome's TLS/JA3 fingerprint via
+ *   if null, one is created internally with Android Chrome's TLS/JA3 fingerprint via
  *   [ImpersonatorFactory]. This client is used for all challenge-solving requests
  *   and the final retry with cookies
  * @param cookieCache optional cookie cache for reusing cf_clearance across requests;
@@ -68,7 +68,7 @@ class CloudScraperInterceptor(
     }
 
     private fun createImpersonatedClient(): OkHttpClient {
-        val api = ImpersonatorFactory.chrome()
+        val api = ImpersonatorFactory.android()
         val sslContext = api.newSSLContext(null, null)
 
         val trustManager = run {
