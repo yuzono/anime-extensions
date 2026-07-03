@@ -1,18 +1,28 @@
 package keiyoushi.lib.cloudscraper
 
 import android.util.Log
+import com.github.zhkl0228.impersonator.ImpersonatorFactory
 import okhttp3.Cookie
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.security.KeyStore
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 /**
  * Lightweight Cloudflare bypass interceptor that solves challenges without a WebView.
  *
  * This interceptor uses QuickJS to evaluate Cloudflare's JavaScript challenges in a
  * headless environment, avoiding the heavy overhead of launching an Android WebView.
+ *
+ * **TLS fingerprint spoofing:**
+ * Internally uses [ImpersonatorFactory] to create an [SSLContext] with Chrome's TLS/JA3
+ * fingerprint via BouncyCastle. All challenge-solving requests and cookie-carrying retries
+ * use this impersonated SSLContext, so Cloudflare sees a Chrome TLS handshake.
  *
  * **Supported challenge types:**
  * - **JSD** (JavaScript Detection) — the silent `__CF$cv$params` sensor challenge
@@ -24,7 +34,11 @@ import okhttp3.Response
  * [CloudscraperError.UNSOLVABLE_CHALLENGE]):
  * - **Turnstile** — interactive widget requiring human interaction or CAPTCHA solver
  *
- * @param client the base OkHttpClient used for retry requests
+ * @param client the base OkHttpClient used for initial request detection
+ * @param impersonatedClient optional pre-configured OkHttpClient with spoofed TLS fingerprints;
+ *   if null, one is created internally with Chrome's TLS/JA3 fingerprint via
+ *   [ImpersonatorFactory]. This client is used for all challenge-solving requests
+ *   and the final retry with cookies
  * @param cookieCache optional cookie cache for reusing cf_clearance across requests;
  *   defaults to a new [CookieCache] with 25-minute TTL
  * @param userAgent the User-Agent string sent with challenge-solving requests;
@@ -38,11 +52,35 @@ import okhttp3.Response
  */
 class CloudScraperInterceptor(
     private val client: OkHttpClient,
+    private val impersonatedClient: OkHttpClient? = null,
     private val cookieCache: CookieCache = CookieCache(),
     private val userAgent: String = DEFAULT_USER_AGENT,
     private val attemptManagedChallenge: Boolean = true,
     private val maxRetries: Int = 2,
 ) : Interceptor {
+
+    /**
+     * Internal client with Chrome TLS/JA3 fingerprint spoofing.
+     * Used for all challenge-solving requests and cookie-carrying retries.
+     */
+    private val solveClient: OkHttpClient by lazy {
+        impersonatedClient ?: createImpersonatedClient()
+    }
+
+    private fun createImpersonatedClient(): OkHttpClient {
+        val api = ImpersonatorFactory.chrome()
+        val sslContext = api.newSSLContext(null, null)
+
+        val trustManager = run {
+            val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            factory.init(null as KeyStore?)
+            factory.trustManagers.filterIsInstance<X509TrustManager>().first()
+        }
+
+        return OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .build()
+    }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
@@ -130,7 +168,7 @@ class CloudScraperInterceptor(
                 "JSD challenge detected but rawCvParams is null",
             )
 
-        val solver = JsdSolver(client, userAgent, maxRetries = maxRetries)
+        val solver = JsdSolver(solveClient, userAgent, maxRetries = maxRetries)
         val result = solver.solve(url, rawCvParams)
 
         cacheResult(url, result.cfClearance, result.cookies)
@@ -144,7 +182,7 @@ class CloudScraperInterceptor(
         url: HttpUrl,
         info: ChallengeInfo,
     ): Response {
-        val solver = LegacyIuamSolver(client, userAgent)
+        val solver = LegacyIuamSolver(solveClient, userAgent)
         val result = solver.solve(url, info)
 
         cacheResult(url, result.cfClearance, result.cookies)
@@ -167,7 +205,7 @@ class CloudScraperInterceptor(
             )
         }
 
-        val solver = ManagedChallengeSolver(client, userAgent)
+        val solver = ManagedChallengeSolver(solveClient, userAgent)
         val result = solver.solve(url, page, info)
 
         cacheResult(url, result.cfClearance, result.cookies)
@@ -215,7 +253,10 @@ class CloudScraperInterceptor(
             .header("Cookie", cookieHeaderValue)
             .build()
 
-        val response = chain.proceed(retryRequest)
+        // Use the impersonated client directly for the retry to ensure the TLS
+        // fingerprint matches Chrome. Going through chain.proceed() would use the
+        // user's client which may have a Java/Android TLS fingerprint.
+        val response = solveClient.newCall(retryRequest).execute()
 
         if (isCloudflareChallenge(response)) {
             response.close()
