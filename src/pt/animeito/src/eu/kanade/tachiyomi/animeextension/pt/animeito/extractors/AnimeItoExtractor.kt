@@ -13,6 +13,9 @@ import okhttp3.OkHttpClient
 class AnimeItoExtractor(private val client: OkHttpClient, private val headers: Headers) {
     private val tag = javaClass.simpleName
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val arraySepRegex = Regex("""\],\s*\[""")
+    private val keySepRegex = Regex("""\],\s*"""")
+    private val stringsRegex = Regex("\"([^\"]*?)\"")
 
     suspend fun videosFromUrl(url: String): List<Video> {
         val playerDoc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
@@ -63,13 +66,13 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
 
         val params = mainContent.substring(funcCallStart + 2, funcCallEnd + 1)
 
-        val array1End = Regex("""\],\s*\[""").find(params)?.range?.first ?: -1
+        val array1End = arraySepRegex.find(params)?.range?.first ?: -1
         if (array1End < 0) {
             Log.w(tag, "Could not find first array boundary")
             return ""
         }
 
-        val array2End = Regex("""\],\s*"""").find(params)?.range?.first ?: -1
+        val array2End = keySepRegex.find(params)?.range?.first ?: -1
         if (array2End < 0) {
             Log.w(tag, "Could not find second array boundary")
             return ""
@@ -84,13 +87,14 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         val secondArrayStr = params.substring(secondArrayOpen, array2End + 1)
 
         val keyQuoteStart = params.indexOf('"', array2End + 1)
-        if (keyQuoteStart < 0) {
+        val keyQuoteEnd = params.indexOf('"', keyQuoteStart + 1)
+        if (keyQuoteStart < 0 || keyQuoteEnd < 0) {
             Log.w(tag, "Could not find key string")
             return ""
         }
-        val keyStr = params.substring(keyQuoteStart + 1, params.length - 1)
+        val keyStr = params.substring(keyQuoteStart + 1, keyQuoteEnd)
 
-        val strings = Regex("\"([^\"]*?)\"")
+        val strings = stringsRegex
             .findAll(firstArrayStr)
             .map { it.groupValues[1] }
             .toList()
@@ -122,8 +126,8 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
             return ""
         }
 
-        val decodedData = Base64.decode(joined, Base64.DEFAULT)
-        val key = Base64.decode(keyStr, Base64.DEFAULT)
+        val decodedData = runCatching { Base64.decode(joined, Base64.DEFAULT) }.getOrNull() ?: return ""
+        val key = runCatching { Base64.decode(keyStr, Base64.DEFAULT) }.getOrNull() ?: return ""
 
         if (decodedData.isEmpty() || key.isEmpty()) {
             Log.w(tag, "Decoded data or key is empty")
