@@ -8,5 +8,5 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:unpacker"))
-    implementation("com.github.NanoHttpd.nanohttpd:nanohttpd:-SNAPSHOT")
+    implementation("com.github.NanoHttpd.nanohttpd:nanohttpd:nanohttpd-project-2.3.1")
 }

@@ -1,37 +1,31 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
 import eu.kanade.tachiyomi.animesource.model.Video
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.Response.Status
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.nanohttpd.protocols.http.IHTTPSession
-import org.nanohttpd.protocols.http.NanoHTTPD
-import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
-import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
-import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URLEncoder
+import java.security.GeneralSecurityException
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class AnimePaheHlsServer(
-    private val client: OkHttpClient,
-    port: Int = 0,
-) : NanoHTTPD(port) {
+object AnimePaheHlsServer : NanoHTTPD(0) {
 
     val port: Int
         get() = super.getListeningPort()
 
     @Volatile
     private var isRunning = false
+
+    @Volatile
+    private var client: OkHttpClient? = null
 
     private val hlsAttributeRegex = Regex("""([A-Z0-9-]+)=("[^"]*"|[^,]*)""")
 
@@ -47,7 +41,8 @@ class AnimePaheHlsServer(
         isRunning = false
     }
 
-    fun processVideoList(videos: List<Video>): List<Video> {
+    fun processVideoList(client: OkHttpClient, videos: List<Video>): List<Video> {
+        this.client = client
         ensureStarted()
         return videos.map { video ->
             if (video.url.contains(".m3u8", ignoreCase = true)) {
@@ -58,7 +53,7 @@ class AnimePaheHlsServer(
         }
     }
 
-    override fun handle(session: IHTTPSession): Response = when {
+    override fun serve(session: IHTTPSession): Response = when {
         session.uri.startsWith("/m3u8") -> handleM3u8Request(session)
         session.uri.startsWith("/segment") -> handleSegmentRequest(session)
         else -> newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
@@ -69,11 +64,9 @@ class AnimePaheHlsServer(
             ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
 
         return try {
-            val content = runBlocking {
-                val headers = extractHeadersFromSession(session)
-                val playlist = fetchString(url, headers)
-                rewritePlaylist(playlist, url)
-            }
+            val headers = extractHeadersFromSession(session)
+            val playlist = fetchString(url, headers)
+            val content = rewritePlaylist(playlist, url)
             newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", content)
         } catch (e: Exception) {
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
@@ -85,18 +78,17 @@ class AnimePaheHlsServer(
             ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
 
         return try {
-            val data = runBlocking {
-                val headers = extractHeadersFromSession(session)
-                val keyUrl = session.parameters["key"]?.first()
-                val iv = session.parameters["iv"]?.first()
-                fetchSegment(url, headers, keyUrl, iv)
-            }
+            val headers = extractHeadersFromSession(session)
+            val keyUrl = session.parameters["key"]?.first()
+            val iv = session.parameters["iv"]?.first()
+            val data = fetchSegment(url, headers, keyUrl, iv)
             newChunkedResponse(Status.OK, "video/mp2t", ByteArrayInputStream(data))
         } catch (e: Exception) {
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 
+    @Synchronized
     private fun ensureStarted() {
         if (!isRunning) {
             start()
@@ -127,23 +119,21 @@ class AnimePaheHlsServer(
         }
     }.build()
 
-    private suspend fun fetchString(url: String, headers: Headers): String = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Failed to fetch playlist: ${response.code}")
-            }
-            response.body.string()
+    private fun fetchString(url: String, headers: Headers): String = requireClient().newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
+        if (!response.isSuccessful) {
+            throw IOException("Failed to fetch playlist: ${response.code}")
         }
+        response.body.string()
     }
 
-    private suspend fun fetchSegment(
+    private fun fetchSegment(
         url: String,
         headers: Headers,
         keyUrl: String?,
         iv: String?,
-    ): ByteArray = withContext(Dispatchers.IO) {
+    ): ByteArray {
         val rawData = fetchBytes(url, headers)
-        if (keyUrl.isNullOrBlank()) {
+        return if (keyUrl.isNullOrBlank()) {
             rawData
         } else {
             val ivHex = iv ?: throw IOException("Missing AES-128 IV for encrypted segment")
@@ -151,14 +141,14 @@ class AnimePaheHlsServer(
         }
     }
 
-    private suspend fun fetchBytes(url: String, headers: Headers): ByteArray = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Failed to fetch resource: ${response.code}")
-            }
-            response.body.bytes()
+    private fun fetchBytes(url: String, headers: Headers): ByteArray = requireClient().newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
+        if (!response.isSuccessful) {
+            throw IOException("Failed to fetch resource: ${response.code}")
         }
+        response.body.bytes()
     }
+
+    private fun requireClient(): OkHttpClient = client ?: throw IOException("AnimePahe HLS server is not initialized")
 
     private fun rewritePlaylist(content: String, originalUrl: String): String {
         val baseHttpUrl = originalUrl.toHttpUrlOrNull()
@@ -201,9 +191,13 @@ class AnimePaheHlsServer(
                 }
                 line.startsWith("#") || line.isBlank() -> modifiedLines.add(line)
                 else -> {
-                    val segmentUrl = resolveHlsUrl(baseHttpUrl, line)
-                    modifiedLines.add(createLocalSegmentUrl(segmentUrl, currentKey, segmentSequence))
-                    segmentSequence++
+                    val resolvedUrl = resolveHlsUrl(baseHttpUrl, line)
+                    if (resolvedUrl.contains(".m3u8", ignoreCase = true)) {
+                        modifiedLines.add(createLocalM3u8Url(resolvedUrl))
+                    } else {
+                        modifiedLines.add(createLocalSegmentUrl(resolvedUrl, currentKey, segmentSequence))
+                        segmentSequence++
+                    }
                 }
             }
         }
@@ -240,13 +234,19 @@ class AnimePaheHlsServer(
             throw IOException("Invalid AES-128 IV length: ${normalizedIv.length}")
         }
 
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            SecretKeySpec(key, "AES"),
-            IvParameterSpec(normalizedIv.hexToByteArray()),
-        )
-        return cipher.doFinal(data)
+        return try {
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(key, "AES"),
+                IvParameterSpec(normalizedIv.hexToByteArray()),
+            )
+            cipher.doFinal(data)
+        } catch (e: GeneralSecurityException) {
+            throw IOException("Failed to decrypt AES-128 segment", e)
+        } catch (e: NumberFormatException) {
+            throw IOException("Invalid AES-128 IV", e)
+        }
     }
 
     private fun Long.toHlsIv(): String = toString(16).padStart(32, '0')

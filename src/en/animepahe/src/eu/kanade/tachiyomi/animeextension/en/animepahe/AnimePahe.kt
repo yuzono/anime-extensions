@@ -48,13 +48,10 @@ class AnimePahe :
         .build()
 
     private val extractorClient by lazy {
-        network.client.newBuilder().apply {
-            interceptors().clear()
-            networkInterceptors().clear()
+        client.newBuilder().apply {
+            interceptors().removeAll { it is DdosGuardInterceptor }
         }.build()
     }
-
-    private val hlsServer by lazy { AnimePaheHlsServer(extractorClient) }
 
     override val name = "AnimePahe"
 
@@ -355,7 +352,7 @@ class AnimePahe :
                 KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                     .let(::listOf)
             }
-            hlsServer.processVideoList(hlsVideos)
+            AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
         }
     }
 
