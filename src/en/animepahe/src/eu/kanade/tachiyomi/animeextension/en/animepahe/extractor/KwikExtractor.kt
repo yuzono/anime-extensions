@@ -41,6 +41,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 
 data class KwikContent(val cookies: String, val html: String, val finalUrl: String)
+private data class HlsStream(val url: String, val referer: String)
 
 class KwikExtractor(
     private val client: OkHttpClient,
@@ -68,26 +69,34 @@ class KwikExtractor(
     }
 
     suspend fun getHlsVideo(kwikUrl: String, referer: String, quality: String = ""): Video {
-        val videoUrl = getHlsStreamUrl(kwikUrl, referer)
+        val hlsStream = getHlsStream(kwikUrl, referer)
 
         return Video(
-            videoUrl,
+            hlsStream.url,
             quality,
-            videoUrl,
-            headers = kwikHeaders,
+            hlsStream.url,
+            headers = kwikHeaders.newBuilder()
+                .set("Referer", hlsStream.referer)
+                .build(),
         )
     }
 
-    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String {
-        val eContent = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
-            .awaitSuccess().useAsJsoup()
-        val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
-            ?.substringAfterLast("eval(function(")
-            ?: throw KwikException.ExtractionException("JsUnpacker not found.")
-        val unpacked = JsUnpacker.unpackAndCombine("eval(function($script")
-            ?: throw KwikException.ExtractionException("JsUnpacker failed to unpack Kwik script.")
-        return unpacked.substringAfter("const source=\\'").substringBefore("\\';")
-    }
+    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String = getHlsStream(kwikUrl, referer).url
+
+    private suspend fun getHlsStream(kwikUrl: String, referer: String): HlsStream = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
+        .awaitSuccess().use { response ->
+            val finalUrl = response.request.url.toString()
+            val eContent = response.useAsJsoup()
+            val script = eContent.selectFirst("script:containsData(eval\\(function)")?.data()
+                ?.substringAfterLast("eval(function(")
+                ?: throw KwikException.ExtractionException("JsUnpacker not found.")
+            val unpacked = JsUnpacker.unpackAndCombine("eval(function($script")
+                ?: throw KwikException.ExtractionException("JsUnpacker failed to unpack Kwik script.")
+            HlsStream(
+                url = unpacked.substringAfter("const source=\\'").substringBefore("\\';"),
+                referer = finalUrl,
+            )
+        }
 
     suspend fun getStreamVideo(paheUrl: String, quality: String = ""): Video {
         val videoUrl = getStreamUrlFromKwik(paheUrl)

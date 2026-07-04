@@ -47,6 +47,15 @@ class AnimePahe :
         .addInterceptor(interceptor)
         .build()
 
+    private val extractorClient by lazy {
+        network.client.newBuilder().apply {
+            interceptors().clear()
+            networkInterceptors().clear()
+        }.build()
+    }
+
+    private val hlsServer by lazy { AnimePaheHlsServer(extractorClient) }
+
     override val name = "AnimePahe"
 
     override val baseUrl by lazy {
@@ -342,10 +351,11 @@ class AnimePahe :
         }
 
         return videos.ifEmpty {
-            links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(client, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+            val hlsVideos = links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
+                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                     .let(::listOf)
             }
+            hlsServer.processVideoList(hlsVideos)
         }
     }
 
