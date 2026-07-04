@@ -16,11 +16,11 @@ class CloudExtractor(private val client: OkHttpClient, private val headers: Head
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun getEpisodesFromCloudUrl(cloudUrl: String): List<SEpisode> {
+    fun getEpisodesFromCloudUrl(cloudUrl: String, prefix: String = ""): List<SEpisode> {
         val (baseUrl, segments) = splitUrl(cloudUrl)
         val initialUrl = urlToBase64(baseUrl, segments)
         val episodes = mutableListOf<SEpisode>()
-        traverseFolder(baseUrl, initialUrl, episodes, floatArrayOf(1f))
+        traverseFolder(baseUrl, initialUrl, episodes, floatArrayOf(1f), prefix)
         return episodes
     }
 
@@ -39,8 +39,23 @@ class CloudExtractor(private val client: OkHttpClient, private val headers: Head
         return Pair(baseUrl, pathSegments)
     }
 
+    private fun encodeSegment(s: String): String {
+        val decoded = URLDecoder.decode(s, "UTF-8")
+        return try {
+            val bytes = Base64.decode(decoded, Base64.DEFAULT)
+            val reencoded = Base64.encodeToString(bytes, Base64.DEFAULT or Base64.NO_WRAP)
+            if (reencoded.trimEnd('=') == decoded.trimEnd('=')) {
+                decoded
+            } else {
+                Base64.encodeToString(decoded.toByteArray(), Base64.DEFAULT or Base64.NO_WRAP)
+            }
+        } catch (e: Exception) {
+            Base64.encodeToString(decoded.toByteArray(), Base64.DEFAULT or Base64.NO_WRAP)
+        }
+    }
+
     private fun urlToBase64(baseUrl: String, segments: List<String>): String {
-        val encodedSegments = segments.joinToString("/") { encode2Base64(it) }
+        val encodedSegments = segments.joinToString("/") { encodeSegment(it) }
         return if (encodedSegments.isEmpty()) {
             "$baseUrl/"
         } else {
@@ -48,15 +63,25 @@ class CloudExtractor(private val client: OkHttpClient, private val headers: Head
         }
     }
 
-    private fun traverseFolder(baseUrl: String, folderUrl: String, episodes: MutableList<SEpisode>, epCounter: FloatArray) {
+    private fun traverseFolder(baseUrl: String, folderUrl: String, episodes: MutableList<SEpisode>, epCounter: FloatArray, prefix: String = "") {
         var responseBody: String? = null
         try {
+            // drive.animetoki.com requires a session cookie which is set on GET request
+            if (folderUrl.contains("drive.animetoki.com")) {
+                try {
+                    client.newCall(eu.kanade.tachiyomi.network.GET(folderUrl, headers)).execute().close()
+                } catch (e: Exception) {
+                    Log.e("AnimeToki", "Failed preliminary GET for session cookie: $folderUrl", e)
+                }
+            }
+
             for (i in 1..3) {
                 try {
-                    val response = client.newCall(POST(folderUrl, headers)).execute()
-                    if (response.isSuccessful) {
-                        responseBody = response.body?.string()
-                        break
+                    client.newCall(POST(folderUrl, headers)).execute().use { response ->
+                        if (response.isSuccessful) {
+                            responseBody = response.body.string()
+                            break
+                        }
                     }
                 } catch (e: Exception) {
                     if (i == 3) throw e
@@ -81,7 +106,12 @@ class CloudExtractor(private val client: OkHttpClient, private val headers: Head
                 if (file.actualMimeType.contains("video", ignoreCase = true)) {
                     val downloadUrl = "$baseUrl/?a=download&id=${file.id}&name=${encode2Base64(file.name)}&n=$nodeIndex"
                     val episode = SEpisode.create().apply {
-                        this.name = file.name
+                        val cleanName = file.name.replace("[AnimeToki] ", "", ignoreCase = true)
+                            .replace("[AnimeSakura] ", "", ignoreCase = true).trim()
+                        this.name = cleanName
+                        if (prefix.isNotBlank()) {
+                            this.scanlator = prefix
+                        }
                         this.url = downloadUrl
                         this.episode_number = epCounter[0]++
                     }
@@ -92,7 +122,8 @@ class CloudExtractor(private val client: OkHttpClient, private val headers: Head
                     } else {
                         folderUrl + "/" + encode2Base64(file.name) + "/"
                     }
-                    traverseFolder(baseUrl, nextUrl, episodes, epCounter)
+                    val newPrefix = if (prefix.isNotBlank()) "$prefix / ${file.name}" else file.name
+                    traverseFolder(baseUrl, nextUrl, episodes, epCounter, newPrefix)
                 }
             }
         } catch (e: Exception) {
