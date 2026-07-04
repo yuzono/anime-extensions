@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.animetoki
 
 import android.util.Base64
 import android.util.Log
+import eu.kanade.tachiyomi.animeextension.en.animetoki.extractors.CloudExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -184,7 +185,7 @@ class AnimeToki : ParsedAnimeHttpSource() {
 
         val normalizedInfoHtml = java.text.Normalizer.normalize(infoHtml, java.text.Normalizer.Form.NFKD)
         status = parseStatus(normalizedInfoHtml)
-        author = Regex("(?i)studios?\\s*[\\p{Punct}⋩]*\\s*(.*?)(?:<br>|$)").find(normalizedInfoHtml)?.groupValues?.get(1)?.replace(Regex("<.*?>"), "")?.trim()
+        author = Regex("(?i)studios?\\s*[\\p{Punct}⋩]*\\s*(.*?)(?:<br>|$)").find(normalizedInfoHtml)?.groupValues?.get(1)?.replace(Regex("<.*?>"), "")?.replace("⋩", "")?.trim()
         initialized = true
     }
 
@@ -202,14 +203,12 @@ class AnimeToki : ParsedAnimeHttpSource() {
         val document = response.asJsoup()
         val episodes = mutableListOf<SEpisode>()
 
-
         val cloudLinks = document.select("a[href^=\"//cloud.animetoki.com/\"], a[href^=\"//drive.animetoki.com/\"]")
         cloudLinks.forEach { link ->
             val attrHref = link.attr("href")
             val href = if (attrHref.startsWith("//")) "https:$attrHref" else attrHref
             episodes.addAll(cloudExtractor.getEpisodesFromCloudUrl(href))
         }
-
 
         val cdnLinks = document.select("a.shortc-button[href]").filterNot {
             it.attr("href").startsWith("//cloud.animetoki.com/") || it.attr("href").startsWith("//drive.animetoki.com/")
