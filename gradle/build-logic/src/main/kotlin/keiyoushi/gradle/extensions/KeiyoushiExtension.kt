@@ -54,7 +54,6 @@ abstract class KeiyoushiExtension @Inject constructor(
     abstract val contentWarning: Property<ContentWarning>
     abstract val theme: Property<String>
     abstract val libVersion: Property<String>
-    abstract val baseUrl: Property<String>
 
     abstract val deeplinks: ListProperty<DeeplinkSpec>
     abstract val sources: ListProperty<SourceSpec>

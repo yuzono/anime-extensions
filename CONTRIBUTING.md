@@ -356,8 +356,10 @@ The extension's version name is generated automatically by concatenating `libVer
 With the example used above, the version would be `14.1`.
 
 > [!NOTE]
-> `className` (and `baseUrl` for themed extensions) in the `yuzono {}` block is the legacy way to point at the source
-> class. Only `src/all/jellyfin` still uses it; every other extension declares its sources with `source {}`.
+> `className` in the `yuzono {}` block is the legacy way to load a hand-written source class, such as an
+> `AnimeSourceFactory`. Only `src/all/jellyfin` still uses it; every other extension declares its sources with
+> `source {}` and a `@Source` class. Nothing is generated for a `className`, but it still needs `source {}` blocks: they
+> only describe its sources (`name`, `lang`, `id`, `baseUrl`) for the repo index, so keep them in step with the class.
 
 ### Source declaration
 

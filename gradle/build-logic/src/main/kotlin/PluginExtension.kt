@@ -138,28 +138,19 @@ class PluginExtension : Plugin<Project> {
             versionCodeProvider.map { "$libVersion.$it" }
         }
 
-        val classNameProvider = keiyoushi.sources.flatMap { sources ->
-            if (sources.isNotEmpty()) {
-                providers.provider { "ExtensionGenerated" }
-            } else {
-                keiyoushi.className.map { name ->
-                    assertWithoutFlag(!name.startsWith(".")) { "className must not start with '.'" }
-                    name
-                }
-            }
-        }
+        // A legacy className loads a hand-written class, such as a factory; its source { } blocks are then metadata only
+        val classNameProvider = keiyoushi.className.map { name ->
+            assertWithoutFlag(!name.startsWith(".")) { "className must not start with '.'" }
+            name
+        }.orElse("ExtensionGenerated")
 
         val themeDeeplinks = themeExtension
             .flatMap { it.deeplinks }
             .orElse(emptyList())
 
-        val defaultHostsProvider = keiyoushi.sources.flatMap { sources ->
-            if (sources.isNotEmpty()) {
-                providers.provider { sources.flatMap { it.resolvedBaseUrl.get().allUrls() }.mapNotNull(::extractHost) }
-            } else {
-                keiyoushi.baseUrl.map { listOfNotNull(extractHost(it)) }
-            }
-        }.orElse(emptyList())
+        val defaultHostsProvider = keiyoushi.sources.map { sources ->
+            sources.flatMap { it.resolvedBaseUrl.get().allUrls() }.mapNotNull(::extractHost)
+        }
 
         val deeplinksProvider = keiyoushi.deeplinks
             .zip(themeDeeplinks) { local, theme -> local + theme }
@@ -218,21 +209,24 @@ class PluginExtension : Plugin<Project> {
 
         afterEvaluate {
             val specs = keiyoushi.sources.get()
-            if (specs.isNotEmpty()) {
-                val extName = keiyoushi.name.get()
-                val resolvedSources = specs.map { spec ->
-                    val name = spec.name.orElse(extName).get()
-                    val lang = spec.lang.get()
-                    val baseUrlSpec = spec.resolvedBaseUrl.get()
+            check(specs.isNotEmpty()) { "At least one source { } block is required" }
 
-                    val baseUrl = baseUrlSpec.toData()
-                    val id = spec.id.orElse(
-                        providers.provider {
-                            computeSourceId(name, lang, spec.versionId.orElse(1).get())
-                        },
-                    ).get()
-                    ResolvedSourceData(name, lang, id, baseUrl)
-                }
+            val extName = keiyoushi.name.get()
+            val resolvedSources = specs.map { spec ->
+                val name = spec.name.orElse(extName).get()
+                val lang = spec.lang.get()
+                val baseUrlSpec = spec.resolvedBaseUrl.get()
+
+                val baseUrl = baseUrlSpec.toData()
+                val id = spec.id.orElse(
+                    providers.provider {
+                        computeSourceId(name, lang, spec.versionId.orElse(1).get())
+                    },
+                ).get()
+                ResolvedSourceData(name, lang, id, baseUrl)
+            }
+            // With a legacy className nothing is generated, and the source { } blocks only describe its sources
+            if (!keiyoushi.className.isPresent) {
                 val translationsFile = project(":core").projectDir.resolve("translations/strings.json")
                 extensions.configure<KspExtension> {
                     arg("kei_sources", Json.encodeToString<List<ResolvedSourceData>>(resolvedSources))
