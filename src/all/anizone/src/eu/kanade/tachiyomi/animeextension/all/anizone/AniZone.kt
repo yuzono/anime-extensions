@@ -482,7 +482,7 @@ class AniZone :
         )
     }
 
-    private fun Document.getSnapshot(): String? = this.selectFirst("main > div[wire:snapshot]")
+    private fun Document.getSnapshot(): String? = this.selectFirst("[wire:snapshot]")
         ?.attr("wire:snapshot")
         ?.replace("&quot;", "\"")
 
