@@ -29,6 +29,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -263,21 +264,33 @@ class AnimePahe :
      * @see animeDetailsRequest
      */
     override fun episodeListRequest(anime: SAnime): Request {
-        val session = anime.getId()?.let { fetchSession(it) }
+        val animeId = anime.getId()
+        val session = animeId?.let { fetchSession(it) }
             ?: sessionIdRegex.find(anime.url)?.groupValues?.get(1)
             ?: throw IllegalStateException("Anime session not found")
-        return GET("$baseUrl/api?m=release&id=$session&sort=episode_asc&page=1")
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("m", "release")
+            addQueryParameter("id", session)
+            addQueryParameter("sort", "episode_asc")
+            animeId?.let { addQueryParameter("anime_id", it) }
+            addQueryParameter("page", "1")
+        }.build()
+
+        return GET(url)
     }
 
     private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
-    private val animeSessionRegex by lazy { Regex("""&id=([\w-]+)&""") }
+    private val stableEpisodeRegex by lazy { Regex("""/play/anime/(\d+)/episode/([\d.]+)""") }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val url = response.request.url.toString()
-        val session = animeSessionRegex.find(url)?.groupValues?.get(1)
+        val url = response.request.url
+        val session = url.queryParameter("id")
             ?: throw IllegalStateException("Anime session not found in URL: $url")
+        val animeId = url.queryParameter("anime_id")
         val episodeList = mutableListOf<SEpisode>()
-        recursivePages(episodeList, response, session)
+        recursivePages(episodeList, response, session, animeId)
 
         return episodeList
             .mapIndexed { index, episode ->
@@ -289,11 +302,11 @@ class AnimePahe :
             .reversed()
     }
 
-    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
+    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String, animeId: String?): MutableList<SEpisode> = episodes.map { episode ->
         SEpisode.create().apply {
             date_upload = episode.createdAt.let { DATE_FORMATTER.tryParse(it) }
             val session = episode.session
-            setUrlWithoutDomain("/play/$animeSession/$session")
+            setUrlWithoutDomain(animeId?.let { "/play/anime/$it/episode/${episode.episodeNumber}" } ?: "/play/$animeSession/$session")
             val epNum = episode.episodeNumber
             episode_number = epNum
             val epName = if (floor(epNum) == ceil(epNum)) {
@@ -305,14 +318,14 @@ class AnimePahe :
         }
     }.toMutableList()
 
-    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String) {
+    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String, animeId: String?) {
         val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
         val page = episodesData.currentPage
         val hasNextPage = page < episodesData.lastPage
-        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
+        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession, animeId))
         if (hasNextPage) {
             nextPageRequest(response.request.url.toString(), page + 1).use { nextPage ->
-                recursivePages(episodeList, nextPage, animeSession)
+                recursivePages(episodeList, nextPage, animeSession, animeId)
             }
         }
     }
@@ -323,6 +336,17 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
+
+    override fun videoListRequest(episode: SEpisode): Request {
+        val stableEpisode = stableEpisodeRegex.find(episode.url)
+            ?: return GET("$baseUrl${episode.url}")
+
+        val animeId = stableEpisode.groupValues[1]
+        val episodeNumber = stableEpisode.groupValues[2].toFloat()
+        val animeSession = fetchSession(animeId)
+        val episodeSession = fetchEpisodeSession(animeSession, episodeNumber)
+        return GET("$baseUrl/play/$animeSession/$episodeSession")
+    }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
@@ -441,6 +465,24 @@ class AnimePahe :
             it.request.url.pathSegments.last()
         }
         return sessionId
+    }
+
+    private fun fetchEpisodeSession(animeSession: String, episodeNumber: Float): String {
+        var page = 1
+        while (true) {
+            val request = GET("$baseUrl/api?m=release&id=$animeSession&sort=episode_asc&page=$page")
+            val episodesData = client.newCall(request).execute().use { response ->
+                response.parseAs<ResponseDto<EpisodeDto>>()
+            }
+
+            episodesData.items.firstOrNull { abs(it.episodeNumber - episodeNumber) < 0.001f }
+                ?.let { return it.session }
+
+            if (page >= episodesData.lastPage) break
+            page++
+        }
+
+        throw IllegalStateException("Episode session not found")
     }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
