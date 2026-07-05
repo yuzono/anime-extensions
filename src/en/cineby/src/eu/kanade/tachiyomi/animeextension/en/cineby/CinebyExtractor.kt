@@ -85,7 +85,7 @@ class CinebyExtractor(
             .build()
 
         val seed = client.newCall(
-            GET("https://api.wingsdatabase.com/seed?mediaId=$tmdbId", backendHeaders),
+            GET("$VIDEASY_API_BASE/seed?mediaId=$tmdbId", backendHeaders),
         ).awaitSuccess().parseAs<SeedDto>().seed
 
         val videoList = eligibleServers.parallelCatchingFlatMap { server ->
@@ -197,18 +197,19 @@ class CinebyExtractor(
             return false
         }
 
-        // Only hide if it matches a specific audio label that isn't a generic placeholder.
-        val isGeneric = quality.equals("Original", ignoreCase = true) ||
-            quality.equals("Auto", ignoreCase = true) ||
-            quality.contains("Video", ignoreCase = true) ||
-            quality.isBlank()
-
-        if (isGeneric) {
+        if (isGenericQuality(quality)) {
             return true
         }
 
         return quality.equals(server.audioLabel, ignoreCase = true) ||
             (server.qualityFilter != null && quality.equals(server.qualityFilter, ignoreCase = true))
+    }
+
+    private fun isGenericQuality(quality: String): Boolean {
+        val normalized = quality.trim().lowercase()
+        return normalized in GENERIC_QUALITY_PLACEHOLDERS ||
+            normalized.isBlank() ||
+            GENERIC_QUALITY_REGEX.matches(normalized)
     }
 
     /**
@@ -263,9 +264,7 @@ class CinebyExtractor(
                     // Always expand HLS/Dash to extract multiple audio tracks and resolutions.
                     // For servers with generic playlists (like Yoru/Neon), we must expand
                     // to find the actual resolutions.
-                    val isGeneric = rawQuality.equals("Original", ignoreCase = true) ||
-                        rawQuality.equals("Auto", ignoreCase = true) ||
-                        rawQuality.contains("HLS", ignoreCase = true)
+                    val isGeneric = isGenericQuality(rawQuality)
                     val needsExpansion = isHls || isDash || isLang || isGeneric
 
                     if (needsExpansion) {
@@ -364,7 +363,7 @@ class CinebyExtractor(
             parts += quality
         }
 
-        val isUhd = quality.startsWith("2160") || quality.contains("4k", ignoreCase = true)
+        val isUhd = quality.contains("2160") || quality.contains("4k", ignoreCase = true)
         if (isUhd && !quality.contains("4k", ignoreCase = true)) {
             parts += "4K"
         }
@@ -390,6 +389,7 @@ class CinebyExtractor(
     }
 
     companion object {
+        private const val VIDEASY_API_BASE = "https://api.wingsdatabase.com"
         private const val DECRYPTION_API_URL = "https://enc-dec.app/api/dec-videasy"
         private const val HEX = "0123456789ABCDEF"
 
@@ -400,6 +400,19 @@ class CinebyExtractor(
         private const val CIRCUIT_COOLDOWN_MS = 180_000L
 
         private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
+
+        private val GENERIC_QUALITY_PLACEHOLDERS = setOf(
+            "original",
+            "auto",
+            "video",
+            "full video",
+            "watch video",
+            "play video",
+            "hls",
+            "dash",
+        )
+
+        private val GENERIC_QUALITY_REGEX = Regex("""^(video|stream|hls|dash)(\s+.*)?$""")
 
         //   Official servers (verified against website JS + reference table)
         //   Jett    = jett                                   (api.wingsdatabase.com)
@@ -417,77 +430,77 @@ class CinebyExtractor(
         val VIDEASY_SERVERS = listOf(
             VideasyServer(
                 "Jett",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "jett",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Yoru",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "cdn",
                 mayHave4K = true,
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Tejo",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "tejo",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Neon",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "neon2",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Sage",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "ym",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Cypher",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "downloader2",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Breach",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "m4uhd",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Vyse",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "hdmovie",
                 qualityFilter = "English",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Killjoy",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "meine",
                 language = "german",
                 audioLabel = "German",
             ),
             VideasyServer(
                 "Fade",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "hdmovie",
                 qualityFilter = "Hindi",
                 audioLabel = "Hindi",
             ),
             VideasyServer(
                 "Omen",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "lamovie",
                 audioLabel = "Spanish",
             ),
             VideasyServer(
                 "Raze",
-                "https://api.wingsdatabase.com",
+                VIDEASY_API_BASE,
                 "superflix",
                 audioLabel = "Portuguese",
             ),
