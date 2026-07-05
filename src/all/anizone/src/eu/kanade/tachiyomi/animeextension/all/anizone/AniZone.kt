@@ -273,8 +273,10 @@ class AniZone :
     override fun episodeListParse(response: Response): List<SEpisode> {
         val html = if (response.code == 419) {
             token = ""
-            client.newCall(response.request).execute()
-                .parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
+            val doc = client.newCall(response.request).execute().asJsoup()
+            doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
+            doc.getSnapshot()?.let { snapShots[EPISODE_SNAPSHOT_KEY] = it }
+            doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
         } else if (response.request.url.encodedPath.contains("/livewire/update")) {
             response.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
         } else {
@@ -301,13 +303,12 @@ class AniZone :
             }
 
             var resp = client.newCall(
-                createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls),
+                createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
             ).execute()
-
             if (resp.code == 419) {
                 token = ""
                 resp = client.newCall(
-                    createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls),
+                    createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
                 ).execute()
             }
 
@@ -545,7 +546,7 @@ class AniZone :
                 if (endIdx != -1) {
                     val jsonString = xData.substring(startIdx, endIdx)
                         .replace("\\u0022", "\"")
-                        .replace("\\u0026", "\\")
+                        .replace("\\u0026", "&")
                         .replace("\\'", "'")
                     try {
                         jsonString.parseAs<Map<String, String>>()
@@ -578,6 +579,7 @@ class AniZone :
         if (endIdx != -1) {
             val jsonString = xData.substring(startIdx, endIdx)
                 .replace("\\u0022", "\"")
+                .replace("\\u0026", "&")
                 .replace("\\'", "'")
             return try {
                 jsonString.parseAs<Map<String, Map<String, String>>>()
