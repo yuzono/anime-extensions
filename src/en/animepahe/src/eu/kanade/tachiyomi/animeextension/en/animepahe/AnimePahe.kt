@@ -396,14 +396,10 @@ class AnimePahe :
         return this.sortedWith(
             compareByDescending<Video> { it.quality.contains(preferredQuality) }
                 .thenByDescending {
-                    val quality = it.quality.lowercase()
-                    when {
-                        quality.contains("1080") -> 1080
-                        quality.contains("720") -> 720
-                        quality.contains("480") -> 480
-                        quality.contains("360") -> 360
-                        else -> 0
-                    }
+                    val quality = it.quality
+                    QUALITY_REGEX_P.find(quality)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: QUALITY_REGEX.find(quality)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: 0
                 }
                 .thenByDescending {
                     val quality = it.quality.lowercase()
@@ -429,14 +425,6 @@ class AnimePahe :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_QUALITY_KEY,
-            title = PREF_QUALITY_TITLE,
-            entries = PREF_QUALITY_ENTRIES,
-            entryValues = PREF_QUALITY_ENTRIES,
-            default = PREF_QUALITY_DEFAULT,
-            summary = "%s",
-        )
-        screen.addListPreference(
             key = PREF_DOMAIN_KEY,
             title = PREF_DOMAIN_TITLE,
             entries = PREF_DOMAIN_ENTRIES,
@@ -444,6 +432,14 @@ class AnimePahe :
             default = PREF_DOMAIN_DEFAULT,
             summary = "%s",
             restartRequired = true,
+        )
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
         )
         screen.addListPreference(
             key = PREF_SUB_KEY,
@@ -545,13 +541,16 @@ class AnimePahe :
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
 
+        private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
+        private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred Domain (requires app restart)"
+        private const val PREF_DOMAIN_TITLE = "Preferred Domain (Requires App Restart)"
         private val PREF_DOMAIN_ENTRIES = listOf(
             "animepahe.pw",
             "animepahe.com",
