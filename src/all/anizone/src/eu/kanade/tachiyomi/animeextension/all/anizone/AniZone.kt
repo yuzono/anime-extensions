@@ -108,14 +108,19 @@ class AniZone :
     }
 
     private fun animeFromElement(element: Element): SAnime? {
-        val titleLink = element.select("a").firstOrNull { it.attr("href").contains("/anime/") }
-            ?: return null
+        val allLinks = element.select("a[href*=/anime/]")
+        val titleLink = allLinks.firstOrNull {
+            val path = it.attr("href").substringAfter("/anime/").trim('/')
+            path.isNotEmpty() && !path.contains("/")
+        } ?: allLinks.firstOrNull() ?: return null
+
         val xData = element.attr("x-data")
 
         return SAnime.create().apply {
             setUrlWithoutDomain(titleLink.absUrl("href"))
 
-            title = getPreferredTitle(xData, titleLink.text()) ?: return null
+            val fallback = titleLink.text().takeIf { it.isNotBlank() } ?: titleLink.attr("title")
+            title = getPreferredTitle(xData, fallback) ?: return null
 
             thumbnail_url = element.selectFirst("img")?.attr("abs:src") ?: ""
         }
