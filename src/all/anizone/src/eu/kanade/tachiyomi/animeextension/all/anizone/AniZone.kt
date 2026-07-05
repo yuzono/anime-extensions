@@ -19,7 +19,6 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.jsonInstance
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.tryParse
@@ -29,8 +28,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.Request
@@ -197,29 +194,24 @@ class AniZone :
 
             title = getPreferredTitle(xData, fallbackText) ?: throw Exception("Could not find title")
 
-            status = document.select("span.inline-block").map { it.text() }.firstOrNull { spanText ->
-                spanText.lowercase() in listOf("completed", "ongoing", "upcoming", "cancelled")
-            }?.let {
-                when (it.lowercase()) {
-                    "completed" -> SAnime.COMPLETED
-                    "ongoing" -> SAnime.ONGOING
-                    else -> SAnime.UNKNOWN
-                }
-            } ?: SAnime.UNKNOWN
+            status = document.select("span.inline-block")
+                .firstOrNull {
+                    it.text().lowercase() in listOf("completed", "ongoing", "upcoming", "cancelled")
+                }?.text()?.let {
+                    when (it.lowercase()) {
+                        "completed" -> SAnime.COMPLETED
+                        "ongoing" -> SAnime.ONGOING
+                        else -> SAnime.UNKNOWN
+                    }
+                } ?: SAnime.UNKNOWN
 
             genre = document.select("a[href*=/tag/]").joinToString { it.text() }
 
-            val descEl = document.selectFirst("div:has(> h3:contains(Synopsis)) > div")
-            description = descEl?.html()
-                ?.replace(BR_REGEX, "\n")
-                ?.replace(TAG_REGEX, "")
-                ?.replace("&amp;", "&")
-                ?.replace("&quot;", "\"")
-                ?.replace("&lt;", "<")
-                ?.replace("&gt;", ">")
-                ?.replace("&#39;", "'")
-                ?.replace("`", "'")
-                ?.trim()
+            description = document.selectFirst("div:has(> h3:contains(Synopsis)) > div")
+                ?.html()
+                ?.replace(BR_REGEX, "___br___")
+                ?.clean()
+                ?.replace("___br___", "\n")
         }
     }
 
@@ -287,7 +279,7 @@ class AniZone :
         val xData = element.attr("x-data")
 
         val h3 = element.selectFirst("h3")
-        val baseName = h3?.ownText() ?: "Episode"
+        val baseName = h3?.ownText()?.clean() ?: "Episode"
 
         val fallbackTitle = h3?.selectFirst("span")?.text()
             ?.substringAfter(":")?.trim()
@@ -303,9 +295,10 @@ class AniZone :
                 baseName
             }
 
-            date_upload = element.select("span").map { it.text() }.firstOrNull { text ->
-                text.matches(DATE_REGEX)
-            }?.let { parseDate(it) } ?: 0L
+            date_upload = element.select("span")
+                .firstOrNull { it.text().matches(DATE_REGEX) }
+                ?.text()
+                ?.let { parseDate(it) } ?: 0L
         }
     }
 
@@ -326,13 +319,19 @@ class AniZone :
             Track(it.attr("src"), it.attr("label"))
         }
 
-        val m3u8List = mutableListOf(
-            VideoData(
-                url = document.selectFirst("media-player")!!.attr("src"),
-                name = serverSelects.first().text(),
-                subtitles = subtitles,
-            ),
-        )
+        val mediaPlayer = document.selectFirst("media-player")
+        val m3u8List = mutableListOf<VideoData>()
+
+        mediaPlayer?.attr("src")?.also {
+            m3u8List.add(
+                VideoData(
+                    url = it,
+                    name = serverSelects.firstOrNull()?.text() ?: "Default",
+                    subtitles = subtitles,
+                ),
+            )
+        }
+
         snapShots[VIDEO_SNAPSHOT_KEY] = document.getSnapshot()
 
         serverSelects.drop(1).forEach { video ->
@@ -461,9 +460,7 @@ class AniZone :
 
     private fun getPreferredTitle(xData: String, fallbackText: String? = null): String? {
         val fallbackTitle = FALLBACK_TITLE_REGEX.find(xData)?.groupValues?.get(1)
-            ?.replace("&quot;", "\"")
-            ?.replace("&amp;", "&")
-            ?.takeIf { it.isNotBlank() }
+            ?.clean()
             ?: fallbackText
 
         val parseMarker = "JSON.parse('"
@@ -475,24 +472,24 @@ class AniZone :
                 val jsonString = xData.substring(startIdx, endIdx)
                     .replace("\\u0022", "\"")
                     .replace("\\u0026", "\\&")
+                    .replace("\\u0027", "'")
                 try {
-                    val titlesMap = jsonInstance.parseToJsonElement(jsonString).jsonObject
-                    return (
-                        titlesMap[preferences.preferredTitleLang]?.jsonPrimitive?.content
-                            ?: titlesMap["1"]?.jsonPrimitive?.content
-                            ?: titlesMap["5"]?.jsonPrimitive?.content
-                            ?: fallbackTitle
-                        )
-                        ?.replace("&quot;", "\"")
-                        ?.replace("&amp;", "&")
+                    val titlesMap = jsonString.parseAs<Map<String, String>>()
+                    val title = titlesMap[preferences.preferredTitleLang]
+                        ?: titlesMap["1"]
+                        ?: titlesMap["5"]
+                        ?: fallbackTitle
+
+                    return title?.clean()
                 } catch (_: Exception) {
                     // If JSON parsing fails, keep using fallbackTitle
                 }
             }
         }
-        return fallbackTitle?.replace("&quot;", "\"")
-            ?.replace("&amp;", "&")
+        return fallbackTitle?.clean()
     }
+
+    private fun String.clean() = parseBodyFragment(this).text().replace("`", "'")
 
     private fun parseDate(dateStr: String): Long = DATE_FORMAT.tryParse(dateStr)
 
@@ -507,7 +504,6 @@ class AniZone :
 
     companion object {
         private val BR_REGEX = Regex("(?i)<br\\s*/?>")
-        private val TAG_REGEX = Regex("<[^>]+>")
         private val FALLBACK_TITLE_REGEX = Regex("""getTitle\(this\.(?:anmTitles|epsTitles)\s*,\s*'([^']+)'\)""")
         private val SET_VIDEO_REGEX = Regex("""setVideo\('(\d+)'\)""")
         private val DATE_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
@@ -545,11 +541,6 @@ class AniZone :
             entryValues = PREF_TITLE_LANG_ENTRY_VALUES
             setDefaultValue(PREF_TITLE_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, new ->
-                val index = findIndexOfValue(new as String)
-                preferences.edit().putString(key, entryValues[index] as String).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -559,22 +550,12 @@ class AniZone :
             entryValues = PREF_QUALITY_ENTRY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, new ->
-                val index = findIndexOfValue(new as String)
-                preferences.edit().putString(key, entryValues[index] as String).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
             key = PREF_DUB_KEY
             title = PREF_DUB_TITLE
             setDefaultValue(PREF_DUB_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val new = newValue as Boolean
-                preferences.edit().putBoolean(key, new).commit()
-            }
         }.also(screen::addPreference)
     }
 }
