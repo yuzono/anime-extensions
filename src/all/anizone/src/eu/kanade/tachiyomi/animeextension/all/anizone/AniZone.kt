@@ -243,8 +243,10 @@ class AniZone :
                     when (it.lowercase()) {
                         "completed" -> SAnime.COMPLETED
                         "ongoing" -> SAnime.ONGOING
+                        "upcoming" -> SAnime.UPCOMING
+                        "cancelled" -> SAnime.CANCELLED
                         else -> SAnime.UNKNOWN
-                    }
+                    } 
                 } ?: SAnime.UNKNOWN
 
             genre = document.select("a[href*=/tag/]").joinToString { it.text() }
