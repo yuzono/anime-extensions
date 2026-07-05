@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
+import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
@@ -291,12 +292,18 @@ class AnimePahe :
         val animeId = url.queryParameter("anime_id")
         val episodeList = mutableListOf<SEpisode>()
         recursivePages(episodeList, response, session, animeId)
+        val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
 
         return episodeList
             .mapIndexed { index, episode ->
+                val siteEpisodeNumber = episode.name.removePrefix("Episode ")
                 episode.apply {
                     episode_number = (index + 1).toFloat()
-                    name = "Episode ${index + 1}"
+                    name = if (showSiteEpisodeNumber && siteEpisodeNumber != (index + 1).toString()) {
+                        "Episode ${index + 1} ($siteEpisodeNumber)"
+                    } else {
+                        "Episode ${index + 1}"
+                    }
                 }
             }
             .reversed()
@@ -382,17 +389,29 @@ class AnimePahe :
 
     override fun List<Video>.sort(): List<Video> {
         val subPreference = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
         val shouldEndWithEng = subPreference == "eng"
 
         return this.sortedWith(
-            compareBy(
-                { it.quality.contains(quality) },
-                { Regex("""\beng\b""").containsMatchIn(it.quality.lowercase()) == shouldEndWithEng },
-                { it.quality.lowercase().contains("av1") == shouldBeAv1 },
-            ),
-        ).reversed()
+            compareByDescending<Video> { it.quality.contains(preferredQuality) }
+                .thenByDescending {
+                    val quality = it.quality.lowercase()
+                    when {
+                        quality.contains("1080") -> 1080
+                        quality.contains("720") -> 720
+                        quality.contains("480") -> 480
+                        quality.contains("360") -> 360
+                        else -> 0
+                    }
+                }
+                .thenByDescending {
+                    val quality = it.quality.lowercase()
+                    val isDub = quality.contains("eng") || quality.contains("dub")
+                    if (shouldEndWithEng) isDub else !isDub
+                }
+                .thenByDescending { it.quality.lowercase().contains("av1") == shouldBeAv1 },
+        )
     }
 
     // ============================== Filters ===============================
@@ -435,6 +454,12 @@ class AnimePahe :
             summary = "%s",
         )
         screen.addSwitchPreference(
+            key = PREF_SHOW_SITE_NUMBER_KEY,
+            title = PREF_SHOW_SITE_NUMBER_TITLE,
+            summary = PREF_SHOW_SITE_NUMBER_SUMMARY,
+            default = PREF_SHOW_SITE_NUMBER_DEFAULT,
+        )
+        screen.addSwitchPreference(
             key = PREF_LINK_TYPE_KEY,
             title = PREF_LINK_TYPE_TITLE,
             summary = PREF_LINK_TYPE_SUMMARY,
@@ -451,6 +476,14 @@ class AnimePahe :
             title = PREF_CF_UA_TITLE,
             summary = PREF_CF_UA_SUMMARY,
             default = PREF_CF_UA_DEFAULT,
+            onChange = { preference, newValue ->
+                if (newValue.isBlank()) {
+                    (preference as EditTextPreference).text = PREF_CF_UA_DEFAULT
+                    false
+                } else {
+                    true
+                }
+            },
         )
     }
 
@@ -498,10 +531,14 @@ class AnimePahe :
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
 
     private val cfBypassUserAgent: String
-        get() = preferences.getString(PREF_CF_UA_KEY, PREF_CF_UA_DEFAULT)
-            ?.trim()
-            .takeIf { !it.isNullOrBlank() }
-            ?: PREF_CF_UA_DEFAULT
+        get() {
+            val stored = preferences.getString(PREF_CF_UA_KEY, PREF_CF_UA_DEFAULT)
+            return if (stored.isNullOrBlank()) {
+                PREF_CF_UA_DEFAULT
+            } else {
+                stored.trim()
+            }
+        }
 
     companion object {
         private val DATE_FORMATTER by lazy {
@@ -509,12 +546,12 @@ class AnimePahe :
         }
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Preferred quality"
+        private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
+        private const val PREF_DOMAIN_TITLE = "Preferred Domain (requires app restart)"
         private val PREF_DOMAIN_ENTRIES = listOf(
             "animepahe.pw",
             "animepahe.com",
@@ -524,31 +561,36 @@ class AnimePahe :
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
         private const val PREF_SUB_KEY = "preferred_sub"
-        private const val PREF_SUB_TITLE = "Prefer subs or dubs?"
+        private const val PREF_SUB_TITLE = "Preferred Type"
         private const val PREF_SUB_DEFAULT = "jpn"
-        private val PREF_SUB_ENTRIES = listOf("sub", "dub")
+        private val PREF_SUB_ENTRIES = listOf("Sub", "Dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
-        private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
+        private const val PREF_LINK_TYPE_TITLE = "Use HLS Links"
         private const val PREF_LINK_TYPE_DEFAULT = true
         private val PREF_LINK_TYPE_SUMMARY = """Enable this if you are having Cloudflare issues.
-            |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
         """.trimMargin()
 
         // Big slap to whoever misspelled `preferred`
         private const val PREF_AV1_KEY = "preferred_av1"
-        private const val PREF_AV1_TITLE = "Use AV1 codec"
+        private const val PREF_AV1_TITLE = "Use AV1 Codec"
         private const val PREF_AV1_DEFAULT = false
         private val PREF_AV1_SUMMARY = """Enable to use AV1 if available
             |Turn off to never select av1 as preferred codec
         """.trimMargin()
+
+        private const val PREF_SHOW_SITE_NUMBER_KEY = "pref_show_site_number"
+        private const val PREF_SHOW_SITE_NUMBER_TITLE = "Show Site Episode Number"
+        private const val PREF_SHOW_SITE_NUMBER_DEFAULT = false
+        private const val PREF_SHOW_SITE_NUMBER_SUMMARY = "Show the actual episode number from the site in the episode title"
+
         const val UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
         private const val PREF_CF_UA_KEY = "cf_bypass_ua"
         private const val PREF_CF_UA_TITLE = "Custom User-Agent"
         private const val PREF_CF_UA_DEFAULT = UA
         private val PREF_CF_UA_SUMMARY = """Custom User-Agent string for the Cloudflare WebView bypass.
-            |Leave blank to use the default.
+            |Leave blank to revert to the default.
         """.trimMargin()
     }
 }
