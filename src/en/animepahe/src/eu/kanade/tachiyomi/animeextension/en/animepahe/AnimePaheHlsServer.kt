@@ -9,9 +9,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayInputStream
+import java.io.FilterInputStream
 import java.io.IOException
 import java.net.URLEncoder
 import java.security.GeneralSecurityException
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -26,6 +28,11 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
 
     @Volatile
     private var client: OkHttpClient? = null
+
+    @Volatile
+    private var mp4Client: OkHttpClient? = null
+
+    private val mp4Headers = ConcurrentHashMap<String, Headers>()
 
     private val hlsAttributeRegex = Regex("""([A-Z0-9-]+)=("[^"]*"|[^,]*)""")
 
@@ -53,9 +60,20 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
     }
 
+    fun processMp4VideoList(client: OkHttpClient, videos: List<Video>): List<Video> {
+        mp4Client = client
+        ensureStarted()
+        return videos.map { video ->
+            val localUrl = createLocalMp4Url(video.url)
+            mp4Headers[video.url] = video.headers ?: Headers.Builder().build()
+            video.copyWithLocalMp4Url(localUrl)
+        }
+    }
+
     override fun serve(session: IHTTPSession): Response = when {
         session.uri.startsWith("/m3u8") -> handleM3u8Request(session)
         session.uri.startsWith("/segment") -> handleSegmentRequest(session)
+        session.uri.startsWith("/mp4") -> handleMp4Request(session)
         else -> newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
     }
 
@@ -88,6 +106,40 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
     }
 
+    private fun handleMp4Request(session: IHTTPSession): Response {
+        val url = session.parameters["url"]?.first()
+            ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing url parameter")
+
+        return try {
+            val upstream = fetchMp4(url, session)
+            val body = upstream.body
+            val contentLength = upstream.header("Content-Length")?.toLongOrNull() ?: -1L
+            val contentType = upstream.header("Content-Type") ?: "video/mp4"
+            val status = Status.lookup(upstream.code) ?: Status.OK
+            val stream = object : FilterInputStream(body.byteStream()) {
+                override fun close() {
+                    try {
+                        super.close()
+                    } finally {
+                        upstream.close()
+                    }
+                }
+            }
+
+            val localResponse = if (contentLength >= 0) {
+                newFixedLengthResponse(status, contentType, stream, contentLength)
+            } else {
+                newChunkedResponse(status, contentType, stream)
+            }
+            localResponse.apply {
+                upstream.header("Accept-Ranges")?.let { addHeader("Accept-Ranges", it) }
+                upstream.header("Content-Range")?.let { addHeader("Content-Range", it) }
+            }
+        } catch (e: Exception) {
+            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+        }
+    }
+
     @Synchronized
     private fun ensureStarted() {
         if (!isRunning) {
@@ -100,9 +152,23 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         return "http://localhost:$port/m3u8?url=$encodedUrl"
     }
 
+    private fun createLocalMp4Url(mp4Url: String): String {
+        val encodedUrl = URLEncoder.encode(mp4Url, Charsets.UTF_8.name())
+        return "http://localhost:$port/mp4?url=$encodedUrl"
+    }
+
     private fun Video.copyWithLocalUrl(localUrl: String): Video = Video(
         videoUrl = localUrl,
         url = url,
+        quality = quality,
+        subtitleTracks = subtitleTracks,
+        audioTracks = audioTracks,
+        headers = headers,
+    )
+
+    private fun Video.copyWithLocalMp4Url(localUrl: String): Video = Video(
+        videoUrl = localUrl,
+        url = localUrl,
         quality = quality,
         subtitleTracks = subtitleTracks,
         audioTracks = audioTracks,
@@ -118,6 +184,25 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
             }
         }
     }.build()
+
+    private fun fetchMp4(url: String, session: IHTTPSession): okhttp3.Response {
+        val headers = Headers.Builder().apply {
+            mp4Headers[url]?.let { sourceHeaders ->
+                for (index in 0 until sourceHeaders.size) {
+                    add(sourceHeaders.name(index), sourceHeaders.value(index))
+                }
+            }
+            session.headers["range"]?.let { set("Range", it) }
+        }.build()
+
+        val response = requireMp4Client().newCall(Request.Builder().url(url).headers(headers).build()).execute()
+        if (!response.isSuccessful) {
+            val code = response.code
+            response.close()
+            throw IOException("Failed to fetch MP4: $code")
+        }
+        return response
+    }
 
     private fun fetchString(url: String, headers: Headers): String = requireClient().newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
         if (!response.isSuccessful) {
@@ -149,6 +234,8 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
     }
 
     private fun requireClient(): OkHttpClient = client ?: throw IOException("AnimePahe HLS server is not initialized")
+
+    private fun requireMp4Client(): OkHttpClient = mp4Client ?: throw IOException("AnimePahe MP4 server is not initialized")
 
     private fun rewritePlaylist(content: String, originalUrl: String): String {
         val baseHttpUrl = originalUrl.toHttpUrlOrNull()

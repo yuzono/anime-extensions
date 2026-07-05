@@ -35,6 +35,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.useAsJsoup
+import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -52,10 +53,18 @@ class KwikExtractor(
     private val kwikDUrl by lazy { Regex("action=\"([^\"]+)\"") }
     private val kwikDToken by lazy { Regex("value=\"([^\"]+)\"") }
 
-    // Clone the base client so interceptors, cookie jars, logging, etc. are preserved,
+    // MP4 extraction runs qualities in parallel; use explicit per-response cookies
+    // so one Kwik page does not overwrite another page's session in the app jar.
+    private val cookieFreeClient by lazy {
+        client.newBuilder()
+            .cookieJar(CookieJar.NO_COOKIES)
+            .build()
+    }
+
+    // Clone the base client so interceptors, logging, etc. are preserved,
     // and only override redirect behavior.
     private val noRedirectClient by lazy {
-        client.newBuilder()
+        cookieFreeClient.newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
@@ -135,7 +144,7 @@ class KwikExtractor(
         var kwikLocation: String? = null
         var code = 419
         var tries = 0
-        val tryLimit = 5
+        val tryLimit = 2
 
         while (code != 302 && tries < tryLimit) {
             tries++
@@ -153,7 +162,7 @@ class KwikExtractor(
             }
 
             // Cloudflare/Session Timeout Handling
-            if (code == 403 || code == 419) {
+            if ((code == 403 || code == 419) && tries < tryLimit) {
                 // Pass the custom User-Agent to the bypass
                 cloudFlareBypassResult = CloudflareBypass().getCookies(kwikUrl, cfBypassUserAgent)
                     ?: throw KwikException.CloudflareBlockedException("Cloudflare bypass failed to return result.")
@@ -185,10 +194,10 @@ class KwikExtractor(
                 }
                 .build()
 
-            // Use the base client directly so all interceptors are preserved.
+            // Use the cookie-free client so interceptors are preserved without sharing Kwik sessions.
             return try {
                 // try-catch the `Failed to bypass Cloudflare` exception
-                client.newCall(GET(kwikUrl, headers)).awaitSuccess().use { resp ->
+                cookieFreeClient.newCall(GET(kwikUrl, headers)).awaitSuccess().use { resp ->
                     val html = resp.bodyString()
                     if (html.contains("eval(function(")) {
                         val respCookies = resp.extractCookies()
