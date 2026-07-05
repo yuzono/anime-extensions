@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.getPreferencesLazy
@@ -50,6 +51,10 @@ class AniZone :
     override val lang = "all"
 
     override val supportsLatest = true
+
+    override val client = network.client.newBuilder()
+        .rateLimit(2)
+        .build()
 
     private val preferences by getPreferencesLazy()
 
