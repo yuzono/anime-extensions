@@ -111,7 +111,7 @@ class AniZone :
         return SAnime.create().apply {
             setUrlWithoutDomain(titleLink.absUrl("href"))
 
-            title = getPreferredTitle(xData) ?: return null
+            title = getPreferredTitle(xData, titleLink.text()) ?: return null
 
             thumbnail_url = element.selectFirst("img")?.attr("abs:src") ?: ""
         }
