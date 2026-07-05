@@ -53,7 +53,7 @@ class AniZone :
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .rateLimit(2)
+        .rateLimit(3)
         .build()
 
     private val preferences by getPreferencesLazy()
@@ -66,12 +66,12 @@ class AniZone :
         VIDEO_SNAPSHOT_KEY to "",
     )
 
-    private var loadCount: Int = 0
+    private var animeLoadCount: Int = 0
 
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
-        loadCount = 0
+        animeLoadCount = 0
         snapShots[ANIME_SNAPSHOT_KEY] = ""
 
         val updates = buildJsonObject {
@@ -96,12 +96,13 @@ class AniZone :
     override fun popularAnimeParse(response: Response): AnimesPage {
         val html = response.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
 
-        val animeList = html.select("div.grid > div, li.space-y-3").drop(loadCount)
+        val allElements = html.select("div.grid > div, li.space-y-3")
+        val animeList = allElements.drop(animeLoadCount)
             .mapNotNull(::animeFromElement)
 
         val hasNextPage = html.selectFirst("div[x-intersect~=loadMore]") != null
 
-        loadCount += animeList.size
+        animeLoadCount = allElements.size
 
         return AnimesPage(animeList, hasNextPage)
     }
@@ -123,7 +124,7 @@ class AniZone :
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
-        loadCount = 0
+        animeLoadCount = 0
         snapShots[ANIME_SNAPSHOT_KEY] = ""
 
         val updates = buildJsonObject {
@@ -144,7 +145,7 @@ class AniZone :
         val sortFilter = filters.firstInstance<SortFilter>()
 
         return if (page == 1) {
-            loadCount = 0
+            animeLoadCount = 0
             snapShots[ANIME_SNAPSHOT_KEY] = ""
 
             val updates = buildJsonObject {
@@ -242,10 +243,9 @@ class AniZone :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
-        val episodeList = document.select(episodeSelector)
-            .mapNotNull(::episodeFromElement)
-            .toMutableList()
-        loadCount = episodeList.size
+        val allElements = document.select(episodeSelector)
+        val episodeList = allElements.mapNotNull(::episodeFromElement).toMutableList()
+        var epLoadCount = allElements.size
 
         var hasMore = document.selectFirst("div[x-intersect~=loadMore]") != null
 
@@ -263,12 +263,12 @@ class AniZone :
                 createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls),
             ).execute().parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
 
-            val episodes = resp.select(episodeSelector)
-                .drop(loadCount)
+            val newElements = resp.select(episodeSelector)
+            val episodes = newElements.drop(epLoadCount)
                 .mapNotNull(::episodeFromElement)
 
             episodeList.addAll(episodes)
-            loadCount += episodes.size
+            epLoadCount = newElements.size
 
             hasMore = resp.selectFirst("div[x-intersect~=loadMore]") != null
         }
@@ -448,7 +448,8 @@ class AniZone :
         }
 
         val headers = headersBuilder().apply {
-            add("X-Livewire", "")
+            add("X-Livewire", "true")
+            add("X-CSRF-TOKEN", token)
         }.build()
 
         val body = LivewireRequestDto(
