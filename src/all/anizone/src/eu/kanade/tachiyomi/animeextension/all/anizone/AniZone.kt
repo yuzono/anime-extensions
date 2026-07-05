@@ -35,6 +35,7 @@ import okhttp3.Response
 import org.jsoup.Jsoup.parseBodyFragment
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -210,8 +211,9 @@ class AniZone :
             description = document.selectFirst("div:has(> h3:contains(Synopsis)) > div")
                 ?.html()
                 ?.replace(BR_REGEX, "___br___")
-                ?.clean()
+                ?.let { parseBodyFragment(it).text() }
                 ?.replace("___br___", "\n")
+                ?.replace("`", "'")
         }
     }
 
@@ -282,7 +284,7 @@ class AniZone :
         val baseName = h3?.ownText()?.clean() ?: "Episode"
 
         val fallbackTitle = h3?.selectFirst("span")?.text()
-            ?.substringAfter(":")?.trim()
+            ?.substringAfter(":")
 
         val episodeTitle = getPreferredTitle(xData, fallbackTitle)
 
@@ -460,6 +462,7 @@ class AniZone :
 
     private fun getPreferredTitle(xData: String, fallbackText: String? = null): String? {
         val fallbackTitle = FALLBACK_TITLE_REGEX.find(xData)?.groupValues?.get(1)
+            ?.takeIf { it.isNotBlank() }
             ?.clean()
             ?: fallbackText
 
@@ -471,8 +474,8 @@ class AniZone :
             if (endIdx != -1) {
                 val jsonString = xData.substring(startIdx, endIdx)
                     .replace("\\u0022", "\"")
-                    .replace("\\u0026", "\\&")
-                    .replace("\\u0027", "'")
+                    .replace("\\u0026", "\\")
+                    .replace("\\'", "'")
                 try {
                     val titlesMap = jsonString.parseAs<Map<String, String>>()
                     val title = titlesMap[preferences.preferredTitleLang]
@@ -489,7 +492,7 @@ class AniZone :
         return fallbackTitle?.clean()
     }
 
-    private fun String.clean() = parseBodyFragment(this).text().replace("`", "'")
+    private fun String.clean() = Parser.unescapeEntities(this, false).replace("`", "'")
 
     private fun parseDate(dateStr: String): Long = DATE_FORMAT.tryParse(dateStr)
 
