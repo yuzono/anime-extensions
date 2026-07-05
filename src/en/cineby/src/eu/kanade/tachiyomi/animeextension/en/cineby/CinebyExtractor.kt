@@ -77,6 +77,10 @@ class CinebyExtractor(
             (!server.movieOnly || isMovie) && server.displayName in enabledServers
         }
 
+        if (eligibleServers.isEmpty()) {
+            return emptyList()
+        }
+
         // API headers use full domain (preserving www. if present)
         val apiOrigin = getOrigin(baseUrl, stripWww = false)
         val backendHeaders = headers.newBuilder()
