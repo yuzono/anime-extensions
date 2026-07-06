@@ -318,10 +318,12 @@ class Torrentio :
             "TV", "ONA", "OVA" -> {
                 aniZipResponse.episodes
                     ?.let { episodes ->
-                        if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
-                            episodes
-                        } else {
-                            episodes.filter { (_, episode) -> episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis() }
+                        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
+                        val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
+
+                        episodes.filter { (_, episode) ->
+                            val isUpcoming = episode?.airDate.let(DATE_FORMATTER::tryParse) > System.currentTimeMillis()
+                            (showUpcoming || !isUpcoming) && (!hideSeasonZero || episode?.seasonNumber != 0)
                         }
                     }
                     ?.mapNotNull { (_, episode) ->
@@ -580,6 +582,15 @@ class Torrentio :
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
+            key = HIDE_SEASON_ZERO_KEY
+            title = "Hide Season 0 Episodes"
+            setDefaultValue(HIDE_SEASON_ZERO_DEFAULT)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putBoolean(key, newValue as Boolean).commit()
+            }
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
             key = IS_DUB_KEY
             title = "Dubbed Video Priority"
             setDefaultValue(IS_DUB_DEFAULT)
@@ -628,6 +639,7 @@ class Torrentio :
             "Premiumize",
             "AllDebrid",
             "DebridLink",
+            "EasyDebrid",
             "Offcloud",
             "TorBox",
         )
@@ -637,6 +649,7 @@ class Torrentio :
             "premiumize",
             "alldebrid",
             "debridlink",
+            "easydebrid",
             "offcloud",
             "torbox",
         )
@@ -671,15 +684,17 @@ class Torrentio :
             "NyaaSi",
             "TokyoTosho",
             "AniDex",
+            "nekoBT",
             "🇷🇺 Rutor",
             "🇷🇺 Rutracker",
             "🇵🇹 Comando",
             "🇵🇹 BluDV",
             "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
             "🇪🇸 MejorTorrent",
-            "🇲🇽 Cinecalidad",
-            "🇮🇹 ilCorsaroNero",
             "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
 
         private val PREF_PROVIDERS_VALUE = arrayOf(
@@ -695,15 +710,17 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
             "rutor",
             "rutracker",
             "comando",
             "bludv",
             "torrent9",
-            "mejortorrent",
-            "cinecalidad",
             "ilcorsaronero",
+            "mejortorrent",
             "wolfmax4k",
+            "cinecalidad",
+            "besttorrents",
         )
 
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -719,6 +736,7 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
@@ -884,6 +902,9 @@ class Torrentio :
 
         private const val UPCOMING_EP_KEY = "upcoming_ep"
         private const val UPCOMING_EP_DEFAULT = false
+
+        private const val HIDE_SEASON_ZERO_KEY = "hide_season_zero"
+        private const val HIDE_SEASON_ZERO_DEFAULT = false
 
         private const val IS_DUB_KEY = "dubbed"
         private const val IS_DUB_DEFAULT = false
