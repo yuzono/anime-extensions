@@ -318,12 +318,10 @@ class Torrentio :
             "TV", "ONA", "OVA" -> {
                 aniZipResponse.episodes
                     ?.let { episodes ->
-                        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
-                        val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
-
-                        episodes.filter { (_, episode) ->
-                            val isUpcoming = episode?.airDate.let(DATE_FORMATTER::tryParse) > System.currentTimeMillis()
-                            (showUpcoming || !isUpcoming) && (!hideSeasonZero || episode?.seasonNumber != 0)
+                        if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
+                            episodes
+                        } else {
+                            episodes.filter { (_, episode) -> episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis() }
                         }
                     }
                     ?.mapNotNull { (_, episode) ->
@@ -579,15 +577,6 @@ class Torrentio :
             key = UPCOMING_EP_KEY
             title = "Show Upcoming Episodes"
             setDefaultValue(UPCOMING_EP_DEFAULT)
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = HIDE_SEASON_ZERO_KEY
-            title = "Hide Season 0 Episodes"
-            setDefaultValue(HIDE_SEASON_ZERO_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -902,9 +891,6 @@ class Torrentio :
 
         private const val UPCOMING_EP_KEY = "upcoming_ep"
         private const val UPCOMING_EP_DEFAULT = false
-
-        private const val HIDE_SEASON_ZERO_KEY = "hide_season_zero"
-        private const val HIDE_SEASON_ZERO_DEFAULT = false
 
         private const val IS_DUB_KEY = "dubbed"
         private const val IS_DUB_DEFAULT = false
