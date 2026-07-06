@@ -53,9 +53,10 @@ class CinebyExtractor(
         val lastFailureAtMillis: Long,
     )
 
-    private fun apiOrigin(url: String): String = url
-        .removePrefix("https://www.").removePrefix("http://www.")
-        .let { if (it.startsWith("http")) it else "https://$it" }
+    private fun getOrigin(url: String, stripWww: Boolean = true): String {
+        val origin = url.toHttpUrl().run { "$scheme://$host" }
+        return if (stripWww) origin.replace("://www.", "://") else origin
+    }
 
     @RequiresApi(Build.VERSION_CODES.N)
     suspend fun videosFromUrl(
@@ -70,10 +71,26 @@ class CinebyExtractor(
     ): List<Video> {
         val pathParts = path.split("/")
         val isMovie = pathParts.first() == "movie"
+        val tmdbId = pathParts[1]
 
         val eligibleServers = VIDEASY_SERVERS.filter { server ->
             (!server.movieOnly || isMovie) && server.displayName in enabledServers
         }
+
+        if (eligibleServers.isEmpty()) {
+            return emptyList()
+        }
+
+        // API headers use full domain (preserving www. if present)
+        val apiOrigin = getOrigin(baseUrl, stripWww = false)
+        val backendHeaders = headers.newBuilder()
+            .set("Referer", "$apiOrigin/")
+            .set("Origin", apiOrigin)
+            .build()
+
+        val seed = client.newCall(
+            GET("$VIDEASY_API_BASE/seed?mediaId=$tmdbId", backendHeaders),
+        ).awaitSuccess().parseAs<SeedDto>().seed
 
         val videoList = eligibleServers.parallelCatchingFlatMap { server ->
             val now = System.currentTimeMillis()
@@ -107,25 +124,20 @@ class CinebyExtractor(
                     addQueryParameter("year", year)
                     addQueryParameter("episodeId", episodeId)
                     addQueryParameter("seasonId", seasonId)
-                    addQueryParameter("tmdbId", pathParts[1])
+                    addQueryParameter("tmdbId", tmdbId)
                     if (imdbId.isNotBlank()) addQueryParameter("imdbId", imdbId)
                     if (server.language != null) {
                         addQueryParameter("language", server.language)
                     }
+                    addQueryParameter("enc", "2")
+                    addQueryParameter("seed", seed)
                 }.build()
-
-                // API headers use stripped domain (Videasy expects no www.)
-                val apiOrigin = apiOrigin(baseUrl)
-                val backendHeaders = headers.newBuilder()
-                    .set("Referer", "$apiOrigin/")
-                    .set("Origin", apiOrigin)
-                    .build()
 
                 val encryptedText = client.newCall(
                     GET(serverUrl.toString(), backendHeaders),
                 ).awaitSuccess().bodyString()
 
-                val requestBody = mapOf("text" to encryptedText, "id" to pathParts[1])
+                val requestBody = mapOf("text" to encryptedText, "id" to tmdbId, "seed" to seed)
                     .toJsonRequestBody()
                 val decrypted = client.newCall(POST(DECRYPTION_API_URL, body = requestBody))
                     .awaitSuccess()
@@ -182,20 +194,27 @@ class CinebyExtractor(
     /**
      * Returns true if the given quality string is a language name masquerading
      * as a resolution label. Checks both audioLabel (e.g. "German" from meine)
-     * and qualityFilter (e.g. "English"/"Hindi" from hdmovie) since the
-     * audioLabel for English servers is now "Original" instead of "English".
+     * and qualityFilter (e.g. "English"/"Hindi" from hdmovie).
      */
-    private fun isLanguageAsQuality(server: VideasyServer, quality: String): Boolean = quality.equals(server.audioLabel, ignoreCase = true) ||
-        (server.qualityFilter != null && quality.equals(server.qualityFilter, ignoreCase = true))
+    private fun isLanguageAsQuality(server: VideasyServer, quality: String): Boolean {
+        if (qualityRegex.containsMatchIn(quality) || quality.contains("4k", ignoreCase = true)) {
+            return false
+        }
 
-    /**
-     * Returns true if the quality string already represents a real resolution
-     * (e.g. "1080p", "720p", "480p", "4K", "2160p", or bare digits like "1080").
-     * These don't need HLS expansion — the server already provided the correct label.
-     */
-    private fun isRealResolution(quality: String): Boolean = qualityRegex.containsMatchIn(quality) ||
-        quality.contains("4k", ignoreCase = true) ||
-        quality.all { it.isDigit() }
+        if (isGenericQuality(quality)) {
+            return true
+        }
+
+        return quality.equals(server.audioLabel, ignoreCase = true) ||
+            (server.qualityFilter != null && quality.equals(server.qualityFilter, ignoreCase = true))
+    }
+
+    private fun isGenericQuality(quality: String): Boolean {
+        val normalized = quality.trim().lowercase()
+        return normalized in GENERIC_QUALITY_PLACEHOLDERS ||
+            normalized.isBlank() ||
+            GENERIC_QUALITY_REGEX.matches(normalized)
+    }
 
     /**
      * Extracts a numeric quality value for sorting. Maps "4K" to 2160
@@ -224,10 +243,9 @@ class CinebyExtractor(
             }
             .take(subLimit.coerceAtLeast(0))
 
-        // Use stripped domain (no www.) for video headers — matches what the
-        // original working code sent. Some CDNs/Cloudflare configs are sensitive
-        // to the exact Referer value.
-        val streamOrigin = apiOrigin(baseUrl)
+        // Use full domain (preserve www.) for video headers — some CDNs
+        // (especially Jett's shegu.net) are sensitive to the exact Referer.
+        val streamOrigin = getOrigin(baseUrl, stripWww = false)
         val videoHeaders = headers.newBuilder()
             .set("Referer", "$streamOrigin/")
             .set("Origin", streamOrigin)
@@ -239,21 +257,19 @@ class CinebyExtractor(
             } ?: sources
         }
 
-        return when {
+        val videos = when {
             !filteredSources.isNullOrEmpty() -> {
-                filteredSources.flatMap { source ->
+                filteredSources.distinctBy { it.url }.flatMap { source ->
                     val rawQuality = source.quality?.takeIf { it.isNotBlank() } ?: "Auto"
                     val isHls = source.url.lowercase().contains(".m3u8")
+                    val isDash = source.url.lowercase().contains(".mpd")
                     val isLang = isLanguageAsQuality(server, rawQuality)
 
-                    // Expand when quality is NOT a real resolution AND either:
-                    // - URL is .m3u8 (standard HLS), or
-                    // - Quality is a language name (these are almost always HLS
-                    //   even if the URL doesn't contain .m3u8 explicitly)
-                    // Don't expand when quality is already "1080p" etc —
-                    // those servers provide correct labels per source.
-                    val needsExpansion = !isRealResolution(rawQuality) &&
-                        (isHls || isLang)
+                    // Always expand HLS/Dash to extract multiple audio tracks and resolutions.
+                    // For servers with generic playlists (like Yoru/Neon), we must expand
+                    // to find the actual resolutions.
+                    val isGeneric = isGenericQuality(rawQuality)
+                    val needsExpansion = isHls || isDash || isLang || isGeneric
 
                     if (needsExpansion) {
                         val expanded = runCatching {
@@ -316,6 +332,19 @@ class CinebyExtractor(
             }
             else -> emptyList()
         }
+
+        return videos.distinctBy { it.videoUrl }.map { video ->
+            if (video.audioTracks.size > 1 && !video.quality.contains("Multi audio", ignoreCase = true)) {
+                val newQuality = if (video.quality.contains("audio")) {
+                    video.quality.replace(Regex("""\w+ audio"""), "Multi audio")
+                } else {
+                    video.quality + " · Multi audio"
+                }
+                video.copy(quality = newQuality)
+            } else {
+                video
+            }
+        }
     }
 
     private fun cacheKey(
@@ -332,17 +361,17 @@ class CinebyExtractor(
         url: String,
         subCount: Int,
     ): String {
-        val parts = mutableListOf("Server: ${server.displayName}")
+        val parts = mutableListOf(server.displayName)
 
-        // If the "quality" is actually a language name (e.g. "German" from
-        // meine, "English"/"Hindi" from hdmovie), don't show it as video
-        // quality — the audioLabel already conveys the language.
         if (!isLanguageAsQuality(server, quality)) {
             parts += quality
         }
 
         val isUhd = quality.contains("2160") || quality.contains("4k", ignoreCase = true)
-        if (isUhd && !quality.contains("4k", ignoreCase = true)) parts += "4K"
+        if (isUhd && !quality.contains("4k", ignoreCase = true)) {
+            parts += "4K"
+        }
+
         val lower = url.lowercase()
         val container = when {
             ".m3u8" in lower -> "HLS"
@@ -352,13 +381,19 @@ class CinebyExtractor(
             ".webm" in lower -> "WebM"
             else -> null
         }
-        if (container != null) parts += container
+        if (container != null) {
+            parts += container
+        }
+
         server.audioLabel?.let { parts += "$it audio" }
-        if (subCount > 0) parts += "$subCount subs"
+        if (subCount > 0) {
+            parts += "$subCount subs"
+        }
         return parts.joinToString(" · ")
     }
 
     companion object {
+        private const val VIDEASY_API_BASE = "https://api.wingsdatabase.com"
         private const val DECRYPTION_API_URL = "https://enc-dec.app/api/dec-videasy"
         private const val HEX = "0123456789ABCDEF"
 
@@ -370,96 +405,106 @@ class CinebyExtractor(
 
         private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
 
+        private val GENERIC_QUALITY_PLACEHOLDERS = setOf(
+            "original",
+            "auto",
+            "video",
+            "full video",
+            "watch video",
+            "play video",
+            "hls",
+            "dash",
+        )
+
+        private val GENERIC_QUALITY_REGEX = Regex("""^(video|stream|hls|dash)(\s+.*)?$""")
+
         //   Official servers (verified against website JS + reference table)
-        //   Neon    = mb-flix                                (api.videasy.to)
-        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.videasy.to)
-        //   Cypher  = downloader2                            (api.videasy.to)
-        //   Sage    = 1movies                                (api.videasy.to)
-        //   Breach  = m4uhd                                  (api.videasy.to)
-        //   Vyse    = hdmovie      [FILTERS quality=English] (api.videasy.to)
-        //   Killjoy = meine ?lang=german  - German          (api.videasy.to)
-        //   Harbor  = meine ?lang=italian - Italian         (api.videasy.to)
-        //   Chamber = meine ?lang=french  - French [MOVIE ONLY] (api.videasy.to)
-        //   Fade    = hdmovie      [FILTERS quality=Hindi]  (api.videasy.to)
-        //   Omen    = lamovie             - Spanish          (api.videasy.to)
-        //   Raze    = superflix           - Portuguese       (api.videasy.to)
+        //   Jett    = jett                                   (api.wingsdatabase.com)
+        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.wingsdatabase.com)
+        //   Tejo    = tejo                                   (api.wingsdatabase.com)
+        //   Neon    = neon2                                  (api.wingsdatabase.com)
+        //   Sage    = ym                                     (api.wingsdatabase.com)
+        //   Cypher  = downloader2                            (api.wingsdatabase.com)
+        //   Breach  = m4uhd                                  (api.wingsdatabase.com)
+        //   Vyse    = hdmovie      [FILTERS quality=English] (api.wingsdatabase.com)
+        //   Killjoy = meine ?lang=german  - German           (api.wingsdatabase.com)
+        //   Fade    = hdmovie      [FILTERS quality=Hindi]   (api.wingsdatabase.com)
+        //   Omen    = lamovie             - Spanish          (api.wingsdatabase.com)
+        //   Raze    = superflix           - Portuguese       (api.wingsdatabase.com)
         val VIDEASY_SERVERS = listOf(
             VideasyServer(
-                "Neon",
-                "https://api.videasy.to",
-                "mb-flix",
+                "Jett",
+                VIDEASY_API_BASE,
+                "jett",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Yoru",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "cdn",
                 mayHave4K = true,
                 audioLabel = "Original",
             ),
             VideasyServer(
-                "Cypher",
-                "https://api.videasy.to",
-                "downloader2",
+                "Tejo",
+                VIDEASY_API_BASE,
+                "tejo",
+                audioLabel = "Original",
+            ),
+            VideasyServer(
+                "Neon",
+                VIDEASY_API_BASE,
+                "neon2",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Sage",
-                "https://api.videasy.to",
-                "1movies",
+                VIDEASY_API_BASE,
+                "ym",
+                audioLabel = "Original",
+            ),
+            VideasyServer(
+                "Cypher",
+                VIDEASY_API_BASE,
+                "downloader2",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Breach",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "m4uhd",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Vyse",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "hdmovie",
                 qualityFilter = "English",
                 audioLabel = "Original",
             ),
             VideasyServer(
                 "Killjoy",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "meine",
                 language = "german",
                 audioLabel = "German",
             ),
             VideasyServer(
-                "Harbor",
-                "https://api.videasy.to",
-                "meine",
-                language = "italian",
-                audioLabel = "Italian",
-            ),
-            VideasyServer(
-                "Chamber",
-                "https://api.videasy.to",
-                "meine",
-                language = "french",
-                movieOnly = true,
-                audioLabel = "French",
-            ),
-            VideasyServer(
                 "Fade",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "hdmovie",
                 qualityFilter = "Hindi",
                 audioLabel = "Hindi",
             ),
             VideasyServer(
                 "Omen",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "lamovie",
                 audioLabel = "Spanish",
             ),
             VideasyServer(
                 "Raze",
-                "https://api.videasy.to",
+                VIDEASY_API_BASE,
                 "superflix",
                 audioLabel = "Portuguese",
             ),
