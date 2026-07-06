@@ -346,7 +346,7 @@ class AnimeSaturn :
         private val QUALITY_DEFAULT = QUALITY_VALUES.first()
 
         private const val PREF_DOMAIN = "preferred_domain"
-        private val DOMAIN_ENTRIES = listOf("anisaturn.net", "animesaturn.cx", "animesaturn.cc", "animesaturn.com", "animemars.org")
+        private val DOMAIN_ENTRIES = listOf("animesaturn.net", "animesaturn.cx", "animesaturn.cc", "animesaturn.com", "animemars.org")
         private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
         private val DOMAIN_DEFAULT = DOMAIN_VALUES.first()
     }
