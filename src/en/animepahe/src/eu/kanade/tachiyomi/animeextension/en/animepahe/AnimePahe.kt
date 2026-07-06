@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
+import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.LatestAnimeDto
@@ -29,6 +30,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -46,6 +48,12 @@ class AnimePahe :
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
+
+    private val extractorClient by lazy {
+        client.newBuilder().apply {
+            interceptors().removeAll { it is DdosGuardInterceptor }
+        }.build()
+    }
 
     override val name = "AnimePahe"
 
@@ -257,37 +265,55 @@ class AnimePahe :
      * @see animeDetailsRequest
      */
     override fun episodeListRequest(anime: SAnime): Request {
-        val session = anime.getId()?.let { fetchSession(it) }
+        val animeId = anime.getId()
+        val session = animeId?.let { fetchSession(it) }
             ?: sessionIdRegex.find(anime.url)?.groupValues?.get(1)
             ?: throw IllegalStateException("Anime session not found")
-        return GET("$baseUrl/api?m=release&id=$session&sort=episode_asc&page=1")
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("m", "release")
+            addQueryParameter("id", session)
+            addQueryParameter("sort", "episode_asc")
+            animeId?.let { addQueryParameter("anime_id", it) }
+            addQueryParameter("page", "1")
+        }.build()
+
+        return GET(url)
     }
 
     private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
-    private val animeSessionRegex by lazy { Regex("""&id=([\w-]+)&""") }
+    private val stableEpisodeRegex by lazy { Regex("""/play/anime/(\d+)/episode/([\d.]+)""") }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val url = response.request.url.toString()
-        val session = animeSessionRegex.find(url)?.groupValues?.get(1)
+        val url = response.request.url
+        val session = url.queryParameter("id")
             ?: throw IllegalStateException("Anime session not found in URL: $url")
+        val animeId = url.queryParameter("anime_id")
         val episodeList = mutableListOf<SEpisode>()
-        recursivePages(episodeList, response, session)
+        recursivePages(episodeList, response, session, animeId)
+        val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
 
         return episodeList
             .mapIndexed { index, episode ->
+                val siteEpisodeNumber = episode.name.removePrefix("Episode ")
                 episode.apply {
                     episode_number = (index + 1).toFloat()
-                    name = "Episode ${index + 1}"
+                    name = if (showSiteEpisodeNumber && siteEpisodeNumber != (index + 1).toString()) {
+                        "Episode ${index + 1} ($siteEpisodeNumber)"
+                    } else {
+                        "Episode ${index + 1}"
+                    }
                 }
             }
             .reversed()
     }
 
-    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
+    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String, animeId: String?): MutableList<SEpisode> = episodes.map { episode ->
         SEpisode.create().apply {
             date_upload = episode.createdAt.let { DATE_FORMATTER.tryParse(it) }
             val session = episode.session
-            setUrlWithoutDomain("/play/$animeSession/$session")
+            setUrlWithoutDomain(animeId?.let { "/play/anime/$it/episode/${episode.episodeNumber}" } ?: "/play/$animeSession/$session")
             val epNum = episode.episodeNumber
             episode_number = epNum
             val epName = if (floor(epNum) == ceil(epNum)) {
@@ -299,14 +325,14 @@ class AnimePahe :
         }
     }.toMutableList()
 
-    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String) {
+    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String, animeId: String?) {
         val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
         val page = episodesData.currentPage
         val hasNextPage = page < episodesData.lastPage
-        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
+        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession, animeId))
         if (hasNextPage) {
             nextPageRequest(response.request.url.toString(), page + 1).use { nextPage ->
-                recursivePages(episodeList, nextPage, animeSession)
+                recursivePages(episodeList, nextPage, animeSession, animeId)
             }
         }
     }
@@ -317,6 +343,17 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
+
+    override fun videoListRequest(episode: SEpisode): Request {
+        val stableEpisode = stableEpisodeRegex.find(episode.url)
+            ?: return GET("$baseUrl${episode.url}")
+
+        val animeId = stableEpisode.groupValues[1]
+        val episodeNumber = stableEpisode.groupValues[2].toFloat()
+        val animeSession = fetchSession(animeId)
+        val episodeSession = fetchEpisodeSession(animeSession, episodeNumber)
+        return GET("$baseUrl/play/$animeSession/$episodeSession")
+    }
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
@@ -332,36 +369,45 @@ class AnimePahe :
         val cfUA = cfBypassUserAgent // Get the custom UA once
 
         val videos = if (!useHLS) {
-            links.parallelCatchingFlatMapBlocking { (_, paheWinLink, quality) ->
+            val mp4Videos = links.parallelCatchingFlatMapBlocking { (_, paheWinLink, quality) ->
                 if (paheWinLink.isNullOrBlank()) return@parallelCatchingFlatMapBlocking emptyList()
-                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality)
-                    .let(::listOf)
+                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
             }
+            AnimePaheHlsServer.processMp4VideoList(client, mp4Videos)
         } else {
             emptyList()
         }
 
         return videos.ifEmpty {
-            links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(client, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+            val hlsVideos = links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
+                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                     .let(::listOf)
             }
+            AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
         }
     }
 
     override fun List<Video>.sort(): List<Video> {
         val subPreference = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
         val shouldEndWithEng = subPreference == "eng"
 
         return this.sortedWith(
-            compareBy(
-                { it.quality.contains(quality) },
-                { Regex("""\beng\b""").containsMatchIn(it.quality.lowercase()) == shouldEndWithEng },
-                { it.quality.lowercase().contains("av1") == shouldBeAv1 },
-            ),
-        ).reversed()
+            compareByDescending<Video> { it.quality.contains(preferredQuality) }
+                .thenByDescending {
+                    val quality = it.quality
+                    QUALITY_REGEX_P.find(quality)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: QUALITY_REGEX.find(quality)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: 0
+                }
+                .thenByDescending {
+                    val quality = it.quality.lowercase()
+                    val isDub = quality.contains("eng") || quality.contains("dub")
+                    if (shouldEndWithEng) isDub else !isDub
+                }
+                .thenByDescending { it.quality.lowercase().contains("av1") == shouldBeAv1 },
+        )
     }
 
     // ============================== Filters ===============================
@@ -379,14 +425,6 @@ class AnimePahe :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_QUALITY_KEY,
-            title = PREF_QUALITY_TITLE,
-            entries = PREF_QUALITY_ENTRIES,
-            entryValues = PREF_QUALITY_ENTRIES,
-            default = PREF_QUALITY_DEFAULT,
-            summary = "%s",
-        )
-        screen.addListPreference(
             key = PREF_DOMAIN_KEY,
             title = PREF_DOMAIN_TITLE,
             entries = PREF_DOMAIN_ENTRIES,
@@ -396,12 +434,26 @@ class AnimePahe :
             restartRequired = true,
         )
         screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = PREF_QUALITY_TITLE,
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
             key = PREF_SUB_KEY,
             title = PREF_SUB_TITLE,
             entries = PREF_SUB_ENTRIES,
             entryValues = PREF_SUB_VALUES,
             default = PREF_SUB_DEFAULT,
             summary = "%s",
+        )
+        screen.addSwitchPreference(
+            key = PREF_SHOW_SITE_NUMBER_KEY,
+            title = PREF_SHOW_SITE_NUMBER_TITLE,
+            summary = PREF_SHOW_SITE_NUMBER_SUMMARY,
+            default = PREF_SHOW_SITE_NUMBER_DEFAULT,
         )
         screen.addSwitchPreference(
             key = PREF_LINK_TYPE_KEY,
@@ -420,6 +472,14 @@ class AnimePahe :
             title = PREF_CF_UA_TITLE,
             summary = PREF_CF_UA_SUMMARY,
             default = PREF_CF_UA_DEFAULT,
+            onChange = { preference, newValue ->
+                if (newValue.isBlank()) {
+                    (preference as EditTextPreference).text = PREF_CF_UA_DEFAULT
+                    false
+                } else {
+                    true
+                }
+            },
         )
     }
 
@@ -436,6 +496,24 @@ class AnimePahe :
         return sessionId
     }
 
+    private fun fetchEpisodeSession(animeSession: String, episodeNumber: Float): String {
+        var page = 1
+        while (true) {
+            val request = GET("$baseUrl/api?m=release&id=$animeSession&sort=episode_asc&page=$page")
+            val episodesData = client.newCall(request).execute().use { response ->
+                response.parseAs<ResponseDto<EpisodeDto>>()
+            }
+
+            episodesData.items.firstOrNull { abs(it.episodeNumber - episodeNumber) < 0.001f }
+                ?.let { return it.session }
+
+            if (page >= episodesData.lastPage) break
+            page++
+        }
+
+        throw IllegalStateException("Episode session not found")
+    }
+
     private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING
         "Finished Airing" -> SAnime.COMPLETED
@@ -449,23 +527,30 @@ class AnimePahe :
         ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
 
     private val cfBypassUserAgent: String
-        get() = preferences.getString(PREF_CF_UA_KEY, PREF_CF_UA_DEFAULT)
-            ?.trim()
-            .takeIf { !it.isNullOrBlank() }
-            ?: PREF_CF_UA_DEFAULT
+        get() {
+            val stored = preferences.getString(PREF_CF_UA_KEY, PREF_CF_UA_DEFAULT)
+            return if (stored.isNullOrBlank()) {
+                PREF_CF_UA_DEFAULT
+            } else {
+                stored.trim()
+            }
+        }
 
     companion object {
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
 
+        private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
+        private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Preferred quality"
+        private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
+        private const val PREF_DOMAIN_TITLE = "Preferred Domain (Requires App Restart)"
         private val PREF_DOMAIN_ENTRIES = listOf(
             "animepahe.pw",
             "animepahe.com",
@@ -475,31 +560,36 @@ class AnimePahe :
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
         private const val PREF_SUB_KEY = "preferred_sub"
-        private const val PREF_SUB_TITLE = "Prefer subs or dubs?"
+        private const val PREF_SUB_TITLE = "Preferred Type"
         private const val PREF_SUB_DEFAULT = "jpn"
-        private val PREF_SUB_ENTRIES = listOf("sub", "dub")
+        private val PREF_SUB_ENTRIES = listOf("Sub", "Dub")
         private val PREF_SUB_VALUES = listOf("jpn", "eng")
 
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
-        private const val PREF_LINK_TYPE_TITLE = "Use HLS links"
+        private const val PREF_LINK_TYPE_TITLE = "Use HLS Links"
         private const val PREF_LINK_TYPE_DEFAULT = true
         private val PREF_LINK_TYPE_SUMMARY = """Enable this if you are having Cloudflare issues.
-            |Note that this will break the ability to seek inside of the video unless the episode is downloaded in advance.
         """.trimMargin()
 
         // Big slap to whoever misspelled `preferred`
         private const val PREF_AV1_KEY = "preferred_av1"
-        private const val PREF_AV1_TITLE = "Use AV1 codec"
+        private const val PREF_AV1_TITLE = "Use AV1 Codec"
         private const val PREF_AV1_DEFAULT = false
         private val PREF_AV1_SUMMARY = """Enable to use AV1 if available
             |Turn off to never select av1 as preferred codec
         """.trimMargin()
+
+        private const val PREF_SHOW_SITE_NUMBER_KEY = "pref_show_site_number"
+        private const val PREF_SHOW_SITE_NUMBER_TITLE = "Show Site Episode Number"
+        private const val PREF_SHOW_SITE_NUMBER_DEFAULT = false
+        private const val PREF_SHOW_SITE_NUMBER_SUMMARY = "Show the actual episode number from the site in the episode title"
+
         const val UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
         private const val PREF_CF_UA_KEY = "cf_bypass_ua"
         private const val PREF_CF_UA_TITLE = "Custom User-Agent"
         private const val PREF_CF_UA_DEFAULT = UA
         private val PREF_CF_UA_SUMMARY = """Custom User-Agent string for the Cloudflare WebView bypass.
-            |Leave blank to use the default.
+            |Leave blank to revert to the default.
         """.trimMargin()
     }
 }
