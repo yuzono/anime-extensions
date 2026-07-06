@@ -323,10 +323,11 @@ class Torrentio :
                     ?.let { videos ->
                         val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
                         val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
+                        val now = System.currentTimeMillis()
 
                         videos.filter { video ->
-                            val isUpcoming = (video.released?.let { parseDate(it) } ?: 0L) > System.currentTimeMillis()
-                            (showUpcoming || !isUpcoming) && (!hideSeasonZero || video.season != 0)
+                            val isNotSeasonZero = !hideSeasonZero || video.season != 0
+                            isNotSeasonZero && (showUpcoming || (video.released?.let { parseDate(it) } ?: 0L) <= now)
                         }
                     }
                     ?.map { video ->
@@ -583,9 +584,6 @@ class Torrentio :
             key = HIDE_SEASON_ZERO_KEY
             title = "Hide Season 0 Episodes"
             setDefaultValue(HIDE_SEASON_ZERO_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
