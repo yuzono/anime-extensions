@@ -128,6 +128,10 @@ class Stremio : Source() {
         val catalogFilter = filterList.filterIsInstance<CatalogFilter>().firstOrNull()
 
         val selectedCatalog: CatalogDto = when {
+            filters.isNotEmpty() && catalogFilter != null -> {
+                selectedCatalogIndex = catalogFilter.state
+                catalogFilter.getSelection()
+            }
             preferredCatalog != null && (query.isNotBlank() || !preferredCatalog.hasRequired(ExtraType.SEARCH)) -> {
                 preferredCatalog
             }
@@ -686,7 +690,7 @@ class Stremio : Source() {
         private const val PREF_FETCH_LIBRARY_KEY = "pref_fetch_library"
         private const val PREF_FETCH_LIBRARY_DEFAULT = false
 
-        const val AUTHKEY_KEY = ""
+        const val AUTHKEY_KEY = "auth_key"
 
         private val SUBSTITUTE_VALUES = mapOf(
             "name" to "",
@@ -848,7 +852,7 @@ class Stremio : Source() {
         val defaultPopularCatalogPref = screen.getListPreference(
             key = DEFAULT_POPULAR_CATALOG_KEY,
             title = "Default popular catalog",
-            summary = "Catalog used for Popular (browsable catalogs with genres or no extras)",
+            summary = "The catalog displayed on the Popular screen. If 'None', the extension will automatically pick a suitable one.",
             entries = listOf("Loading catalogs…"),
             entryValues = listOf(""),
             default = DEFAULT_POPULAR_CATALOG_DEFAULT,
@@ -857,7 +861,7 @@ class Stremio : Source() {
         val defaultCatalogPref = screen.getListPreference(
             key = DEFAULT_CATALOG_KEY,
             title = "Default search catalog",
-            summary = "Catalog used when searching without filter selection",
+            summary = "The default catalog used for searching. This is also used by apps that do not support the filter UI.",
             entries = listOf("Loading catalogs…"),
             entryValues = listOf(""),
             default = DEFAULT_CATALOG_DEFAULT,
