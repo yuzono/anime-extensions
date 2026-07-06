@@ -245,7 +245,7 @@ class Animetsu :
             if (titleWords.isEmpty()) return@async emptyList()
 
             val query = titleWords.joinToString(" ")
-            runCatching {
+            try {
                 val searchUrl = "$apiUrl/anime/search/".toHttpUrl().newBuilder().apply {
                     addQueryParameter("sort", "trending")
                     addQueryParameter("page", "1")
@@ -256,14 +256,17 @@ class Animetsu :
                 resp.parseAs<AnimetsuSearchDto>().results
                     .filter { it.id != dto.id && (!hideAdult || !it.isAdult) }
                     .mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
-            }.getOrDefault(emptyList())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                emptyList()
+            }
         }
 
         val genreSearch = async {
             if (genres.isEmpty()) return@async emptyList()
 
             val genreQuery = genres.take(2).joinToString(",")
-            runCatching {
+            try {
                 val searchUrl = "$apiUrl/anime/search/".toHttpUrl().newBuilder().apply {
                     addQueryParameter("sort", "trending")
                     addQueryParameter("page", "1")
@@ -274,7 +277,10 @@ class Animetsu :
                 resp.parseAs<AnimetsuSearchDto>().results
                     .filter { it.id != dto.id && (!hideAdult || !it.isAdult) }
                     .mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
-            }.getOrDefault(emptyList())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                emptyList()
+            }
         }
 
         (explicitRelated + listOf(titleSearch, genreSearch).awaitAll().flatten())
@@ -630,6 +636,7 @@ class Animetsu :
                 m3u8ServerManager.stopServer()
                 delay(500L)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e("Animetsu", "M3U8 server start failed on attempt ${attempt + 1}: ${e.message}")
                 m3u8ServerManager.stopServer()
                 delay(500L)
@@ -720,7 +727,6 @@ class Animetsu :
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING
             "FINISHED" -> SAnime.COMPLETED
-            "NOT_YET_RELEASED" -> SAnime.LICENSED
             "CANCELLED" -> SAnime.CANCELLED
             else -> SAnime.UNKNOWN
         }
