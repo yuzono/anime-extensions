@@ -218,7 +218,7 @@ internal fun EpisodeAvailability.toSEpisode(animeUrl: String): SEpisode {
         .setQueryParameter(EPISODE_SEASON_PARAM, key.season.toString())
         .setQueryParameter(EPISODE_NUMBER_PARAM, key.episode.toString())
         .build()
-    episode.url = url.encodedPath + url.query?.let { "?$it" }.orEmpty()
+    episode.url = url.encodedPath + url.encodedQuery?.let { "?$it" }.orEmpty()
     return episode
 }
 
