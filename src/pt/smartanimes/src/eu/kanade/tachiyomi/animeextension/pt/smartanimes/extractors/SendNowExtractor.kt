@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -33,10 +34,14 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         // Use the WebView's native UA so its Chrome version matches the actual engine.
         // Cloudflare Turnstile fails (runs the challenge but never issues a token) when the
         // UA's Chrome version doesn't match the WebView engine version (Mihon #3177).
-        val userAgent = WebSettings.getDefaultUserAgent(applicationContext).ifBlank {
+        // getDefaultUserAgent can throw on devices without the WebView package, so fall back.
+        val fallbackUa =
             headers["User-Agent"]
                 ?: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36"
-        }
+        val userAgent = runCatching { WebSettings.getDefaultUserAgent(applicationContext) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: fallbackUa
         Log.d(tag, "Using UA: $userAgent")
 
         val chromeVersion = CHROME_REGEX.find(userAgent)?.groupValues?.get(1) ?: "143"
@@ -82,6 +87,11 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
             withTimeout(45_000) { solveTurnstile(url, userAgent) }
         } catch (_: TimeoutCancellationException) {
             Log.e(tag, "Turnstile solving timed out")
+            return emptyList()
+        } catch (e: Exception) {
+            // Preserve coroutine cancellation; only treat other failures as "no videos".
+            if (e is CancellationException) throw e
+            Log.e(tag, "Turnstile solving failed", e)
             return emptyList()
         }
 
