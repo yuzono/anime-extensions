@@ -56,8 +56,11 @@ object Filters {
         val parts = text.split('-', ';', ' ', ',')
             .map(String::trim)
             .filter(String::isNotBlank)
-        if (parts.size < 2) return null
-        return "${parts[0]};${parts[1]}"
+        return when (parts.size) {
+            0 -> null
+            1 -> "${parts[0]};${parts[0]}"
+            else -> "${parts[0]};${parts[1]}"
+        }
     }
 
     private fun encodePathValue(value: String): String = URLEncoder.encode(value, "UTF-8")
