@@ -215,8 +215,8 @@ internal fun EpisodeAvailability.toSEpisode(animeUrl: String): SEpisode {
     episode.scanlator = buildScanlatorLabel()
     episode.date_upload = 0L
     val url = animeUrl.toHttpUrl().newBuilder()
-        .addQueryParameter(EPISODE_SEASON_PARAM, key.season.toString())
-        .addQueryParameter(EPISODE_NUMBER_PARAM, key.episode.toString())
+        .setQueryParameter(EPISODE_SEASON_PARAM, key.season.toString())
+        .setQueryParameter(EPISODE_NUMBER_PARAM, key.episode.toString())
         .build()
     episode.url = url.encodedPath + url.query?.let { "?$it" }.orEmpty()
     return episode
