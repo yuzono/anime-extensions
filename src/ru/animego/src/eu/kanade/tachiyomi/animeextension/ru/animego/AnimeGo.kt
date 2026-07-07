@@ -296,7 +296,7 @@ class AnimeGo :
             }
         }
 
-        return videos.sort()
+        return applyQualityPreference(videos).sort()
     }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
@@ -305,15 +305,25 @@ class AnimeGo :
 
     override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
-    // Preferred quality first; voice-overs before subtitles.
-    override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        return sortedWith(
-            compareBy(
-                { !it.quality.contains("${quality}p") },
-                { it.quality.contains("Субтитры", ignoreCase = true) },
-            ),
-        )
+    // Keep only the quality selected in the extension settings; if it is not available,
+    // fall back to the closest one (ties prefer the higher quality). Videos whose quality
+    // cannot be parsed are always kept, so the list never ends up empty.
+    private fun applyQualityPreference(videos: List<Video>): List<Video> {
+        val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.toIntOrNull()
+            ?: return videos
+        val available = videos.mapNotNull { it.quality.parseQuality() }.distinct()
+        if (available.isEmpty()) return videos
+        val target = available.minWithOrNull(
+            compareBy({ kotlin.math.abs(it - pref) }, { -it }),
+        ) ?: return videos
+        return videos.filter { video -> video.quality.parseQuality()?.let { it == target } ?: true }
+    }
+
+    private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()
+
+    // Voice-overs before subtitles.
+    override fun List<Video>.sort(): List<Video> = sortedBy {
+        it.quality.contains("Субтитры", ignoreCase = true)
     }
 
     // ─── Kodik player ─────────────────────────────────────────────────────
@@ -501,6 +511,7 @@ class AnimeGo :
         private val EP_COUNT_REGEX = Regex("""\((\d+)\s*эп""")
         private val ATOB_REGEX = Regex("atob\\([^\"]")
         private val SELF_CLOSING_SCRIPT_REGEX = Regex("""<script([^>]*)/>""")
+        private val QUALITY_REGEX = Regex("""(\d{3,4})\s*p""")
     }
 }
 
