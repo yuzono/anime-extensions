@@ -12,6 +12,7 @@ import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
 class SmartAnimesExtractor(private val client: OkHttpClient, private val headers: Headers) {
@@ -25,7 +26,7 @@ class SmartAnimesExtractor(private val client: OkHttpClient, private val headers
     private val sendNowExtractor by lazy { SendNowExtractor(client, headers) }
 
     suspend fun videosFromUrl(url: String, name: String): List<Video> {
-        Log.d(tag, "videosFromUrl: $url")
+        Log.d(tag, "videosFromUrl: ${url.toHttpUrlOrNull()?.host ?: "unknown"}")
         val content = client.newCall(GET(url, headers)).awaitSuccess().bodyString()
 
         val item = content.substringAfter("var item = ", "")
@@ -61,7 +62,7 @@ class SmartAnimesExtractor(private val client: OkHttpClient, private val headers
                     Log.e(tag, "No redirect location from soralink POST")
                     return emptyList()
                 }
-        Log.d(tag, "Resolved source url: $sourceUrl")
+        Log.d(tag, "Resolved source host: ${sourceUrl.toHttpUrlOrNull()?.host ?: "unknown"}")
 
         return when {
             "drive.google.com" in sourceUrl -> {

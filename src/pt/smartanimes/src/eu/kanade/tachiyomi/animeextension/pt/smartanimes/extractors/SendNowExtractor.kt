@@ -22,6 +22,7 @@ import kotlinx.coroutines.withTimeout
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import kotlin.coroutines.resume
 
@@ -42,7 +43,7 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         val isMobile = userAgent.contains("Android") || userAgent.contains("Mobile")
 
         val secChUa =
-            "\"Google Chrome\";v=\"$chromeVersion\", \"Chromium\";v=\"$chromeVersion\", \"Not A(Brand)\";v=\"24\""
+            "\"Google Chrome\";v=\"$chromeVersion\", \"Chromium\";v=\"$chromeVersion\", \"Not A(Brand\";v=\"24\""
 
         val platform = when {
             userAgent.contains("Windows") -> "\"Windows\""
@@ -78,7 +79,7 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         // same page the WebView loaded (avoids a second OkHttp GET that would re-trigger Cloudflare).
         Log.d(tag, "Opening WebView to solve Cloudflare Turnstile...")
         val result = try {
-            withTimeout(30_000) { solveTurnstile(url, userAgent) }
+            withTimeout(45_000) { solveTurnstile(url, userAgent) }
         } catch (_: TimeoutCancellationException) {
             Log.e(tag, "Turnstile solving timed out")
             return emptyList()
@@ -92,7 +93,7 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
 
         val host = url.toHttpUrl().host
         val cookies = webViewCookies("https://$host/")
-        Log.d(tag, "Challenge page loaded: id='${result.id}' rand='${result.rand}' referer='${result.referer}'")
+        Log.d(tag, "Challenge page loaded: id='${result.id}' rand='${result.rand}' refererHost='${result.referer.toHttpUrlOrNull()?.host ?: "unknown"}'")
 
         val postHeaders = newHeaders.newBuilder().apply {
             set("Origin", "https://$host")
@@ -120,7 +121,7 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         }
 
         val videoUrl = source.attr("src")
-        Log.d(tag, "Video source found: $videoUrl")
+        Log.d(tag, "Video source found: ${videoUrl.toHttpUrlOrNull()?.host ?: "unknown"}")
 
         val videoHeaders = Headers.headersOf("Referer", "https://$host/")
 
@@ -134,49 +135,52 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         return withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { continuation ->
                 val handler = Handler(Looper.getMainLooper())
-                lateinit var wv: WebView
+                var injected = false
 
+                val webView = WebView(applicationContext)
                 val jsInterface = TurnstileJsInterface { res ->
                     if (continuation.isActive) {
-                        handler.post { wv.destroy() }
+                        handler.post { webView.destroy() }
                         continuation.resume(res)
                     }
                 }
 
-                wv = WebView(applicationContext).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.userAgentString = userAgent
-                    // Cloudflare's challenge runs on challenges.cloudflare.com (cross-origin from
-                    // the target host). Without third-party cookies the challenge state can't be
-                    // persisted, so Turnstile errors out and never issues a token.
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    addJavascriptInterface(jsInterface, "turnstileBridge")
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                            if (loadedUrl?.contains("/cdn-cgi/") == true) return
-                            view?.evaluateJavascript(POLL_SCRIPT) {}
-                        }
+                webView.settings.javaScriptEnabled = true
+                webView.settings.domStorageEnabled = true
+                webView.settings.userAgentString = userAgent
+                // Cloudflare's challenge runs on challenges.cloudflare.com (cross-origin from
+                // the target host). Without third-party cookies the challenge state can't be
+                // persisted, so Turnstile errors out and never issues a token.
+                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                webView.addJavascriptInterface(jsInterface, "turnstileBridge")
+                webView.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                        if (loadedUrl?.contains("/cdn-cgi/") == true) return
+                        if (injected) return
+                        injected = true
+                        view?.evaluateJavascript(POLL_SCRIPT) {}
                     }
-                    loadUrl(url)
                 }
+                webView.loadUrl(url)
 
                 continuation.invokeOnCancellation {
-                    handler.post { wv.destroy() }
+                    handler.post { webView.destroy() }
                 }
             }
         }
     }
 
-    private fun webViewCookies(url: String): String = runCatching {
-        CookieManager.getInstance()
-            .getCookie(url)
-            ?.split(";")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?.joinToString("; ")
-    }.getOrNull().orEmpty()
+    private suspend fun webViewCookies(url: String): String = withContext(Dispatchers.Main) {
+        runCatching {
+            CookieManager.getInstance()
+                .getCookie(url)
+                ?.split(";")
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?.joinToString("; ")
+        }.getOrNull().orEmpty()
+    }
 
     private data class TurnstileResult(
         val token: String,
