@@ -31,6 +31,6 @@ class TurboVidHlsExtractor(private val client: OkHttpClient, private val headers
     }
 
     companion object {
-        private val URLPLAY = Regex("""urlPlay\s*=\s*\'([^\']+)""")
+        private val URLPLAY = Regex("""urlPlay\s*=\s*['"]([^'"]+)""")
     }
 }

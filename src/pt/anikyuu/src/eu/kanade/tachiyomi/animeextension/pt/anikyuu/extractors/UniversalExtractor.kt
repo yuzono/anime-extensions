@@ -24,7 +24,6 @@ class UniversalExtractor(private val client: OkHttpClient) {
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     @SuppressLint("SetJavaScriptEnabled")
-    @Synchronized
     fun videosFromUrl(
         origRequestUrl: String,
         origRequestHeader: Headers,

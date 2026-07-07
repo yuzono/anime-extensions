@@ -193,9 +193,18 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
         // Step 3: Captcha (get PoW challenge)
         val captchaUrl = "$origin/api/videos/$mediaId/embed/captcha"
+        val refererUrl = apiHeaders["Referer"] ?: pageUrl
+        val refererHttpUrl = try {
+            refererUrl.toHttpUrl()
+        } catch (e: Exception) {
+            pageUrl.toHttpUrl()
+        }
+        val refererHost = refererHttpUrl.host
+        val refererOrigin = "${refererHttpUrl.scheme}://$refererHost"
+
         val embedExtraHeaders = Headers.Builder().apply {
-            set("X-Embed-Origin", "anikyuu.to")
-            set("X-Embed-Referer", "https://anikyuu.to/")
+            set("X-Embed-Origin", refererHost)
+            set("X-Embed-Referer", "$refererOrigin/")
             set("X-Embed-Parent", pageUrl)
             set("Cookie", "byse_viewer_id=$viewerId; byse_device_id=$deviceId")
         }.build()
@@ -240,11 +249,15 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         }
 
         val captchaToken = verifyData.token
+        if (captchaToken.isNullOrBlank()) {
+            Log.e("FilemoonExtractor", "Captcha token is null or blank")
+            return null
+        }
 
         // Step 5: Get playback with captcha token
         val playbackUrl = "$origin/api/videos/$mediaId/embed/playback"
         val playbackHeaders = captchaHeaders.newBuilder().apply {
-            set("X-Captcha-Token", captchaToken!!)
+            set("X-Captcha-Token", captchaToken)
         }.build()
 
         return try {
@@ -474,7 +487,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             }
             outVal = (outVal xor s2) and mask32
 
-            val leading = if (outVal == 0L) 32 else 32 - outVal.toString(2).length
+            val leading = outVal.toInt().countLeadingZeroBits()
             if (leading >= difficulty) {
                 return counter.toString()
             }
