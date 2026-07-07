@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.ru.animego
 
-import java.util.Locale
-
 internal object AnimegoPatterns {
     val KODIK_URL_PARAMS = Regex("""var urlParams = '(.*?)';""")
     val KODIK_VINFO_TYPE = Regex("""vInfo\.type = '(.*?)';""")
@@ -39,6 +37,5 @@ internal object AnimegoPatterns {
 }
 
 internal fun String.containsToken(token: String): Boolean {
-    val normalized = lowercase(Locale.ROOT)
-    return normalized.contains(token.lowercase(Locale.ROOT))
+    return contains(token, ignoreCase = true)
 }
