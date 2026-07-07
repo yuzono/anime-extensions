@@ -21,8 +21,6 @@ class Anikyuu :
     // ============================ Video Links =============================
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
 
-    // ============================ Video Links =============================
-
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val strmupExtractor by lazy { StrmupExtractor(client, headers) }
     private val turboVidHlsExtractor by lazy { TurboVidHlsExtractor(client, headers) }

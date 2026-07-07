@@ -9,14 +9,13 @@ import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.KeyPairGenerator
 import java.security.SecureRandom
@@ -30,7 +29,6 @@ import kotlin.math.max
 
 class FilemoonExtractor(private val client: OkHttpClient) {
     private val playlistUtils by lazy { PlaylistUtils(client) }
-    private val json = Json { ignoreUnknownKeys = true }
 
     // Credit: https://github.com/skoruppa/docchi-players/blob/b03fb310aba1d73c6c97ed62a7db2569a49f8d79/filemoon.py
     fun videosFromUrl(
@@ -50,7 +48,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             val baseHeaders = (headers?.newBuilder() ?: Headers.Builder()).apply {
                 set("User-Agent", userAgent)
                 set("Accept", "*/*")
-                set("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
+                set("Accept-Language", "en-US,en;q=0.9")
                 set("Cache-Control", "no-cache")
                 set("Pragma", "no-cache")
             }.build()
@@ -69,7 +67,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             }.build()
 
             // Use only the new challenge flow
-            val data = challengeFlow(embedHost, mediaId, apiHeaders, embedUrl, origin, pageReferer, userAgent, url)
+            val data = challengeFlow(mediaId, apiHeaders, origin, userAgent, url)
 
             if (data == null) {
                 Log.w("FilemoonExtractor", "No data from challenge flow for $url")
@@ -134,19 +132,14 @@ class FilemoonExtractor(private val client: OkHttpClient) {
     }
 
     private fun challengeFlow(
-        host: String,
         mediaId: String,
         apiHeaders: Headers,
-        embedUrl: String,
         origin: String,
-        pageReferer: String,
         userAgent: String,
         pageUrl: String,
     ): PlaybackResponse? {
-        val base = origin
-
         // Step 1: Challenge
-        val challengeUrl = "$base/api/videos/access/challenge"
+        val challengeUrl = "$origin/api/videos/access/challenge"
         val challengeData = try {
             val response = client.newCall(POST(challengeUrl, apiHeaders, "{}".toRequestBody("application/json".toMediaType()))).execute()
             response.parseAs<ChallengeResponse>()
@@ -155,7 +148,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             return null
         }
 
-        val challengeId = challengeData.challenge_id
+        val challengeId = challengeData.challengeId
         val nonce = challengeData.nonce
 
         // Step 2: Attest (ECDSA sign nonce + fingerprint)
@@ -163,14 +156,14 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         val signature = signNonce(privateKey, nonce)
         val clientFingerprint = generateClientFingerprint(userAgent)
 
-        val attestUrl = "$base/api/videos/access/attest"
+        val attestUrl = "$origin/api/videos/access/attest"
         val attestPayload = AttestRequest(
-            viewer_id = "",
-            device_id = "",
-            challenge_id = challengeId,
+            viewerId = "",
+            deviceId = "",
+            challengeId = challengeId,
             nonce = nonce,
             signature = signature,
-            public_key = publicKeyJwk,
+            publicKey = publicKeyJwk,
             client = clientFingerprint,
             storage = emptyMap(),
             attributes = mapOf("entropy" to "low"),
@@ -185,21 +178,21 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         }
 
         val token = attestData.token
-        val viewerId = attestData.viewer_id
-        val deviceId = attestData.device_id
+        val viewerId = attestData.viewerId
+        val deviceId = attestData.deviceId
         val confidence = attestData.confidence
 
         val fingerprintPayload = FingerprintPayload(
             fingerprint = FingerprintData(
                 token = token,
-                viewer_id = viewerId,
-                device_id = deviceId,
+                viewerId = viewerId,
+                deviceId = deviceId,
                 confidence = confidence,
             ),
         )
 
         // Step 3: Captcha (get PoW challenge)
-        val captchaUrl = "$base/api/videos/$mediaId/embed/captcha"
+        val captchaUrl = "$origin/api/videos/$mediaId/embed/captcha"
         val embedExtraHeaders = Headers.Builder().apply {
             set("X-Embed-Origin", "anikyuu.to")
             set("X-Embed-Referer", "https://anikyuu.to/")
@@ -219,16 +212,16 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             return null
         }
 
-        val powNonce = captchaData.pow_nonce
-        val powDifficulty = captchaData.pow_difficulty
-        val powToken = captchaData.pow_token
+        val powNonce = captchaData.powNonce
+        val powDifficulty = captchaData.powDifficulty
+        val powToken = captchaData.powToken
 
         // Step 4: Solve PoW and verify
         val solution = solvePow(powNonce, powDifficulty)
 
-        val verifyUrl = "$base/api/videos/$mediaId/embed/captcha/verify"
+        val verifyUrl = "$origin/api/videos/$mediaId/embed/captcha/verify"
         val verifyPayload = VerifyRequest(
-            pow_token = powToken,
+            powToken = powToken,
             solution = solution,
             fingerprint = fingerprintPayload.fingerprint,
         )
@@ -249,7 +242,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         val captchaToken = verifyData.token
 
         // Step 5: Get playback with captcha token
-        val playbackUrl = "$base/api/videos/$mediaId/embed/playback"
+        val playbackUrl = "$origin/api/videos/$mediaId/embed/playback"
         val playbackHeaders = captchaHeaders.newBuilder().apply {
             set("X-Captcha-Token", captchaToken!!)
         }.build()
@@ -281,15 +274,15 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
     private fun decrypt(input: PlaybackData): String {
         val keyBytes = when (input.version) {
-            null -> input.key_parts.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
+            null -> input.keyParts.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
             else -> {
                 val v = input.version.toIntOrNull() ?: 1
-                val parts = input.key_parts
+                val parts = input.keyParts
                 if (parts.size >= v) {
                     val selected = listOf(parts[v - 1], parts[parts.size - v])
                     selected.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
                 } else {
-                    input.key_parts.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
+                    input.keyParts.map { decodeBase64Url(it) }.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
                 }
             }
         }
@@ -332,8 +325,8 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         keyPairGenerator.initialize(ECGenParameterSpec("secp256r1"), SecureRandom())
         val keyPair = keyPairGenerator.generateKeyPair()
         val publicKey = keyPair.public as ECPublicKey
-        val x = publicKey.w.getAffineX().toByteArray()
-        val y = publicKey.w.getAffineY().toByteArray()
+        val x = publicKey.w.affineX.toByteArray()
+        val y = publicKey.w.affineY.toByteArray()
         // Ensure 32 bytes each (P-256)
         val xPadded = if (x.size < 32) ByteArray(32 - x.size) + x else x.copyOfRange(max(0, x.size - 32), x.size)
         val yPadded = if (y.size < 32) ByteArray(32 - y.size) + y else y.copyOfRange(max(0, y.size - 32), y.size)
@@ -341,7 +334,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             alg = "ES256",
             crv = "P-256",
             ext = true,
-            key_ops = listOf("verify"),
+            keyOps = listOf("verify"),
             kty = "EC",
             x = encodeBase64Url(xPadded),
             y = encodeBase64Url(yPadded),
@@ -365,31 +358,31 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             return encodeBase64Url(bytes)
         }
         return ClientFingerprint(
-            user_agent = userAgent,
-            pixel_ratio = 1,
-            screen_width = 1920,
-            screen_height = 1080,
-            color_depth = 24,
-            languages = listOf("pt-BR", "pt", "en-US", "en"),
-            timezone = "America/Sao_Paulo",
-            hardware_concurrency = 8,
-            touch_points = 0,
-            webgl_vendor = "Google Inc. (Intel)",
-            webgl_renderer = "ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.5)",
-            canvas_hash = randHash(),
-            audio_hash = randHash(),
-            webgl_params_hash = randHash(),
-            fonts_hash = randHash(),
-            codecs_hash = randHash(),
-            media_devices = "ai0ao0vi0",
-            pointer_type = "fine,hover",
+            userAgent = userAgent,
+            pixelRatio = 1,
+            screenWidth = 1920,
+            screenHeight = 1080,
+            colorDepth = 24,
+            languages = listOf("en-US", "en"),
+            timezone = "America/New_York",
+            hardwareConcurrency = 8,
+            touchPoints = 0,
+            webglVendor = "Google Inc. (Intel)",
+            webglRenderer = "ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.5)",
+            canvasHash = randHash(),
+            audioHash = randHash(),
+            webglParamsHash = randHash(),
+            fontsHash = randHash(),
+            codecsHash = randHash(),
+            mediaDevices = "ai0ao0vi0",
+            pointerType = "fine,hover",
             extra = mapOf("vendor" to "", "appVersion" to "5.0 (X11)"),
         )
     }
 
     // --- PoW Solver (Memory-hard hash from Python) ---
     private fun solvePow(nonce: String, difficulty: Int, maxIterations: Int = 200000): String {
-        val prefix = (nonce + ":").toByteArray(Charsets.ISO_8859_1)
+        val prefix = ("$nonce:").toByteArray(Charsets.ISO_8859_1)
         val bufferSize = 512
         val bufferMask = 511
         val initConst = 2654435761L
@@ -493,18 +486,18 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
     @Serializable
     data class ChallengeResponse(
-        val challenge_id: String,
+        @SerialName("challenge_id") val challengeId: String,
         val nonce: String,
     )
 
     @Serializable
     data class AttestRequest(
-        val viewer_id: String,
-        val device_id: String,
-        val challenge_id: String,
+        @SerialName("viewer_id") val viewerId: String,
+        @SerialName("device_id") val deviceId: String,
+        @SerialName("challenge_id") val challengeId: String,
         val nonce: String,
         val signature: String,
-        val public_key: EcJwk,
+        @SerialName("public_key") val publicKey: EcJwk,
         val client: ClientFingerprint,
         val storage: Map<String, String>,
         val attributes: Map<String, String>,
@@ -513,8 +506,8 @@ class FilemoonExtractor(private val client: OkHttpClient) {
     @Serializable
     data class AttestResponse(
         val token: String,
-        val viewer_id: String,
-        val device_id: String,
+        @SerialName("viewer_id") val viewerId: String,
+        @SerialName("device_id") val deviceId: String,
         val confidence: Double,
     )
 
@@ -523,7 +516,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         val alg: String,
         val crv: String,
         val ext: Boolean,
-        val key_ops: List<String>,
+        @SerialName("key_ops") val keyOps: List<String>,
         val kty: String,
         val x: String,
         val y: String,
@@ -531,24 +524,24 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
     @Serializable
     data class ClientFingerprint(
-        val user_agent: String,
-        val pixel_ratio: Int,
-        val screen_width: Int,
-        val screen_height: Int,
-        val color_depth: Int,
+        @SerialName("user_agent") val userAgent: String,
+        @SerialName("pixel_ratio") val pixelRatio: Int,
+        @SerialName("screen_width") val screenWidth: Int,
+        @SerialName("screen_height") val screenHeight: Int,
+        @SerialName("color_depth") val colorDepth: Int,
         val languages: List<String>,
         val timezone: String,
-        val hardware_concurrency: Int,
-        val touch_points: Int,
-        val webgl_vendor: String,
-        val webgl_renderer: String,
-        val canvas_hash: String,
-        val audio_hash: String,
-        val webgl_params_hash: String,
-        val fonts_hash: String,
-        val codecs_hash: String,
-        val media_devices: String,
-        val pointer_type: String,
+        @SerialName("hardware_concurrency") val hardwareConcurrency: Int,
+        @SerialName("touch_points") val touchPoints: Int,
+        @SerialName("webgl_vendor") val webglVendor: String,
+        @SerialName("webgl_renderer") val webglRenderer: String,
+        @SerialName("canvas_hash") val canvasHash: String,
+        @SerialName("audio_hash") val audioHash: String,
+        @SerialName("webgl_params_hash") val webglParamsHash: String,
+        @SerialName("fonts_hash") val fontsHash: String,
+        @SerialName("codecs_hash") val codecsHash: String,
+        @SerialName("media_devices") val mediaDevices: String,
+        @SerialName("pointer_type") val pointerType: String,
         val extra: Map<String, String>,
     )
 
@@ -560,21 +553,21 @@ class FilemoonExtractor(private val client: OkHttpClient) {
     @Serializable
     data class FingerprintData(
         val token: String,
-        val viewer_id: String,
-        val device_id: String,
+        @SerialName("viewer_id") val viewerId: String,
+        @SerialName("device_id") val deviceId: String,
         val confidence: Double,
     )
 
     @Serializable
     data class CaptchaResponse(
-        val pow_nonce: String,
-        val pow_difficulty: Int,
-        val pow_token: String,
+        @SerialName("pow_nonce") val powNonce: String,
+        @SerialName("pow_difficulty") val powDifficulty: Int,
+        @SerialName("pow_token") val powToken: String,
     )
 
     @Serializable
     data class VerifyRequest(
-        val pow_token: String,
+        @SerialName("pow_token") val powToken: String,
         val solution: String,
         val fingerprint: FingerprintData,
     )
@@ -594,7 +587,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
     @Serializable
     data class PlaybackData(
         val iv: String,
-        val key_parts: List<String>,
+        @SerialName("key_parts") val keyParts: List<String>,
         val payload: String,
         val version: String? = null,
     )
@@ -605,27 +598,4 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         val url: String? = null,
         val label: String? = "Default",
     )
-}
-
-fun String.encodeUrlPath(): String {
-    val uri = java.net.URI(this)
-
-    val encodedPath = uri.rawPath
-        .split("/")
-        .joinToString("/") { segment ->
-            if (segment.isEmpty()) {
-                ""
-            } else {
-                URLEncoder.encode(segment, StandardCharsets.UTF_8.toString())
-                    .replace("+", "%20")
-            }
-        }
-
-    return java.net.URI(
-        uri.scheme,
-        uri.rawAuthority,
-        encodedPath,
-        uri.rawQuery,
-        uri.rawFragment,
-    ).toString()
 }
