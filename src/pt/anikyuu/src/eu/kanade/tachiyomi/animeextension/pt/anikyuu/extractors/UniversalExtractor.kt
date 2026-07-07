@@ -67,7 +67,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 ): WebResourceResponse? {
                     val url = request.url.toString()
                     Log.d(tag, "Intercepted URL: $url")
-                    if (VIDEO_REGEX.containsMatchIn(url)) {
+                    if (latch.count > 0 && VIDEO_REGEX.containsMatchIn(url)) {
                         resultUrl = url
                         latch.countDown()
                     }
@@ -90,6 +90,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
 
         return when {
             "m3u8" in resultUrl || "txt" in resultUrl -> {
+                // .txt is treated as HLS (see VIDEO_REGEX): some hosts use it instead of .m3u8
                 Log.d(tag, "Extracting HLS from: $resultUrl")
                 playlistUtils.extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
             }
@@ -124,6 +125,9 @@ class UniversalExtractor(private val client: OkHttpClient) {
         const val TIMEOUT_SEC: Long = 15
         private const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+
+        // .txt is matched on purpose: some hosts serve HLS playlists with a .txt extension
+        // instead of .m3u8, so we must capture it to extract those streams.
         private val VIDEO_REGEX by lazy { Regex(".*\\.(mp4|m3u8|mpd|txt)(\\?.*)?$", RegexOption.IGNORE_CASE) }
 
         // Script injected after page load (onPageFinished) for additional player interaction

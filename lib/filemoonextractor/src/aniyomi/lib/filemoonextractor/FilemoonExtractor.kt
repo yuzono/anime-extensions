@@ -404,6 +404,8 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
         fun rotl(value: Long, shift: Int): Long = ((value shl shift) or (value ushr (32 - shift))) and mask32
 
+        // Reused across iterations to avoid allocating a 512-element array on every loop pass.
+        val buf = LongArray(bufferSize)
         for (counter in 0..maxIterations) {
             val counterBytes = counter.toString().toByteArray(Charsets.ISO_8859_1)
             val input = prefix + counterBytes
@@ -437,7 +439,6 @@ class FilemoonExtractor(private val client: OkHttpClient) {
                 s1 = rotl(s1 xor s2, 7)
             }
 
-            val buf = LongArray(bufferSize)
             for (i in 0 until bufferSize) {
                 s0 = (s0 + s1) and mask32
                 s3 = rotl(s3 xor s0, 16)

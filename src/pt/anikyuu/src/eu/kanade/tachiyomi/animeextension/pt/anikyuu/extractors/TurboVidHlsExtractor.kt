@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.anikyuu.extractors
 
+import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -13,21 +14,26 @@ class TurboVidHlsExtractor(private val client: OkHttpClient, private val headers
     private val playlistExtractor by lazy { PlaylistUtils(client, headers) }
 
     fun getVideos(url: String): List<Video> {
-        val document = client.newCall(GET(url, headers)).execute().asJsoup()
+        return try {
+            val document = client.newCall(GET(url, headers)).execute().asJsoup()
 
-        val script = document.selectFirst("script:containsData(urlplay)")
-            ?.data()
-            ?: return emptyList()
+            val script = document.selectFirst("script:containsData(urlplay)")
+                ?.data()
+                ?: return emptyList()
 
-        val urlPlay = URLPLAY.find(script)?.groupValues?.get(1)
-            ?: return emptyList()
+            val urlPlay = URLPLAY.find(script)?.groupValues?.get(1)
+                ?: return emptyList()
 
-        if (urlPlay.toHttpUrlOrNull() == null) {
-            return emptyList()
+            if (urlPlay.toHttpUrlOrNull() == null) {
+                return emptyList()
+            }
+
+            playlistExtractor.extractFromHls(urlPlay, url, videoNameGen = { quality -> "TurboVidHls: $quality" })
+                .distinctBy { it.url }
+        } catch (e: Exception) {
+            Log.e("TurboVidHlsExtractor", "Failed to extract videos from $url", e)
+            emptyList()
         }
-
-        return playlistExtractor.extractFromHls(urlPlay, url, videoNameGen = { quality -> "TurboVidHls: $quality" })
-            .distinctBy { it.url }
     }
 
     companion object {
