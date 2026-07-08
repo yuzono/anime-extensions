@@ -4,30 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class EpisodeDto(
-    val episodio: String,
-    val link: String,
-    @SerialName("episode_name")
-    val episodeName: String,
-    val audio: String?,
-    val update: String,
-)
-
-@Serializable
-data class SearchResponseDto(
-    val data: List<SearchAnimeDto>,
-)
-
-@Serializable
-data class SearchAnimeDto(
-    val id: Int,
-    val name: String,
-    val image: String,
-    val url: String,
-    val type: String,
-)
-
-@Serializable
 data class AnimeDto(
     @SerialName("@context")
     val context: String? = null,
@@ -112,7 +88,7 @@ data class EpisodeSchemaDto(
     val type: String? = null,
     val episodeNumber: String,
     val name: String? = null,
-    val datePublished: String,
+    val datePublished: String? = null,
     val url: String,
 )
 

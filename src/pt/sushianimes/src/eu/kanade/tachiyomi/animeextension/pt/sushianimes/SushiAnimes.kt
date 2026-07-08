@@ -1,5 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.pt.sushianimes
 
+import android.util.Log
+import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -9,7 +13,10 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
@@ -17,10 +24,14 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 
-class SushiAnimes : ParsedAnimeHttpSource() {
+class SushiAnimes :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Sushi Animes"
 
@@ -34,10 +45,7 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         .add("Referer", baseUrl)
         .add("Origin", baseUrl)
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/trends", headers)
@@ -71,28 +79,35 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage {
-        if (query.startsWith("https://")) {
-            val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
-                throw Exception("Unsupported url")
-            }
-            val searchQuery = if (url.pathSegments.size > 1) {
-                "${url.pathSegments[0]}/${url.pathSegments[1]}"
-            } else {
-                url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
-                    ?: throw Exception("Unsupported url")
-            }
-            return getSearchAnime(page, "${PREFIX_SEARCH}$searchQuery", filters)
-        }
+    ): AnimesPage = when {
+        query.startsWith("https://") -> handleUrlSearch(page, query, filters)
+        query.startsWith(PREFIX_SEARCH) -> handlePathSearch(query)
+        else -> super.getSearchAnime(page, query, filters)
+    }
 
-        if (query.startsWith(PREFIX_SEARCH)) {
-            val path = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/$path"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
+    private suspend fun handleUrlSearch(
+        page: Int,
+        query: String,
+        filters: AnimeFilterList,
+    ): AnimesPage {
+        val url = query.toHttpUrl()
+        if (url.host != baseUrl.toHttpUrl().host) {
+            throw IllegalArgumentException("Unsupported URL host: ${url.host}")
         }
-        return super.getSearchAnime(page, query, filters)
+        val searchQuery = if (url.pathSegments.size > 1) {
+            "${url.pathSegments[0]}/${url.pathSegments[1]}"
+        } else {
+            url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
+                ?: throw IllegalArgumentException("Unsupported URL path: ${url.pathSegments}")
+        }
+        return getSearchAnime(page, "${PREFIX_SEARCH}$searchQuery", filters)
+    }
+
+    private suspend fun handlePathSearch(query: String): AnimesPage {
+        val path = query.removePrefix(PREFIX_SEARCH)
+        return client.newCall(GET("$baseUrl/$path"))
+            .awaitSuccess()
+            .use(::searchAnimeByIdParse)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -105,6 +120,7 @@ class SushiAnimes : ParsedAnimeHttpSource() {
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        // addPathSegment already percent-encodes the query safely.
         val url = "$baseUrl/search".toHttpUrl().newBuilder()
             .addPathSegment(query)
             .build()
@@ -128,7 +144,8 @@ class SushiAnimes : ParsedAnimeHttpSource() {
 
         return SAnime.create().apply {
             setUrlWithoutDomain(doc.location())
-            title = doc.selectFirst("#title")!!.text()
+            title = doc.selectFirst("#title")?.text()
+                ?: throw IllegalStateException("Title element not found in anime details")
             thumbnail_url = doc.selectFirst(".media-cover img")?.attr("src")
             description =
                 doc.selectFirst(".detail-attr:contains(Sinopse) .text,.detail-attr:contains(Descrição) .text")
@@ -144,21 +161,29 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         val script = document.selectFirst("script[type=\"application/ld+json\"]")
             ?: return emptyList()
 
-        val btnMovie = document.selectFirst("a.btn:contains(Assistir)")
-        if (btnMovie !== null) {
-            return listOf(
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(btnMovie.attr("href"))
-                    name = "Filme"
-                    episode_number = 1F
-                },
-            )
+        // Movies expose a single "Assistir" button instead of a season list.
+        document.selectFirst("a.btn:contains(Assistir)")?.let { btnMovie ->
+            return parseMovieEpisode(btnMovie)
         }
 
-        val jsonString = script.data().trim()
-            .let(::sanitizeLdJsonNames)
+        return parseSeriesEpisodes(script.data().trim().let(::sanitizeLdJsonNames))
+    }
 
-        val anime = jsonString.parseAs<AnimeDto>(json)
+    private fun parseMovieEpisode(btnMovie: Element): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            setUrlWithoutDomain(btnMovie.attr("href"))
+            name = "Filme"
+            episode_number = 1F
+        },
+    )
+
+    private fun parseSeriesEpisodes(jsonString: String): List<SEpisode> {
+        val anime = try {
+            jsonString.parseAs<AnimeDto>(JSON)
+        } catch (e: Exception) {
+            Log.w("SushiAnimes", "Failed to parse LD+JSON: ${e.message}")
+            return emptyList()
+        }
 
         val episodes = anime.containsSeason.flatMap { season ->
             season.episode.map { episode ->
@@ -170,6 +195,7 @@ class SushiAnimes : ParsedAnimeHttpSource() {
                 }
             }
         }
+        // Reverse so the list reads newest-first (site exposes oldest-first).
         return episodes.reversed()
     }
 
@@ -178,24 +204,124 @@ class SushiAnimes : ParsedAnimeHttpSource() {
     override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
+
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
 
-        val id = document.selectFirst("[data-embed]")?.attr("data-embed") ?: return emptyList()
+        val embeds = document.select("[data-embed]")
+        if (embeds.isEmpty()) return emptyList()
 
-        val formBody = FormBody.Builder()
-            .add("id", id)
-            .build()
+        // The site requires a CSRF token (meta[name="csrf-token"] / var _TOKEN) on
+        // POST requests, sent both as the X-CSRF-TOKEN header and the _TOKEN form field.
+        val csrfToken = extractCsrfToken(document)
 
-        val request = POST("$baseUrl/ajax/embed", headers, formBody)
-        val body = client.newCall(request).execute().bodyString()
+        val requestHeaders = headers.newBuilder().apply {
+            if (csrfToken.isNotBlank()) add("X-CSRF-TOKEN", csrfToken)
+        }.build()
 
-        val videoUrl = body.substringAfterLast("playerEmbed", "")
-            .substringAfter("\"")
-            .substringBefore("\"")
-            .replace("\\", "")
+        // Each [data-embed] is a video source; fetch in parallel and ignore failures.
+        return embeds.parallelCatchingFlatMapBlocking { embed ->
+            val id = embed.attr("data-embed")
 
-        return listOf(Video(videoUrl, "Sushi Animes", videoUrl))
+            val formBody = FormBody.Builder()
+                .add("id", id)
+                .apply { if (csrfToken.isNotBlank()) add("_TOKEN", csrfToken) }
+                .build()
+
+            val request = POST("$baseUrl/ajax/embed", requestHeaders, formBody)
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.w("SushiAnimes", "Failed to fetch embed for id=$id: HTTP ${response.code}")
+                return@parallelCatchingFlatMapBlocking emptyList()
+            }
+            val body = response.bodyString()
+
+            parseEmbedVideos(body)
+        }
+    }
+
+    /**
+     * Parses the HTML returned by /ajax/embed. It can be:
+     *  - one or more <iframe src="..."> (e.g. the proxy.php?src=<real url> wrapper);
+     *  - a script-based response exposing `var playerEmbed = "<url>"` and
+     *    `var playerName = "<label>"` (e.g. "FullHD / HLS").
+     */
+    private suspend fun parseEmbedVideos(body: String): List<Video> {
+        val doc = Jsoup.parse(body)
+        val iframes = doc.select("iframe[src]")
+
+        return if (iframes.isNotEmpty()) {
+            parseIframeVideos(iframes)
+        } else {
+            parseScriptVideos(body)
+        }
+    }
+
+    private suspend fun parseIframeVideos(iframes: Elements): List<Video> = iframes.flatMap { iframe ->
+        val rawSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
+        val videoUrl = if (rawSrc.contains("proxy.php")) {
+            // The proxy wraps the real player URL in ?src=<real url>.
+            rawSrc.toHttpUrl().queryParameter("src") ?: rawSrc
+        } else {
+            rawSrc
+        }
+        getVideosFromUrl(videoUrl)
+    }
+
+    private fun parseScriptVideos(body: String): List<Video> {
+        // Script-based response: extract the direct URL and quality label.
+        val directUrl = PLAYER_EMBED_REGEX.find(body)?.groupValues?.get(1) ?: return emptyList()
+
+        val quality = PLAYER_NAME_REGEX.find(body)?.groupValues?.get(1)
+            ?.let(::qualityFromLabel)
+            .orEmpty()
+
+        val label = if (quality.isBlank()) "Sushi Animes" else "Sushi Animes - $quality"
+
+        return listOf(Video(directUrl, label, directUrl))
+    }
+
+    /**
+     * Maps a player label (e.g. "FHD", "fullhd", "FullHD / HLS", "1080") to a quality tag.
+     */
+    private fun qualityFromLabel(label: String): String {
+        val l = label.lowercase()
+        return when {
+            "fullhd" in l || "fhd" in l || "1080" in l -> "1080p"
+            "720" in l || ("hd" in l && "fullhd" !in l) -> "720p"
+            "480" in l || "sd" in l -> "480p"
+            "360" in l -> "360p"
+            "240" in l -> "240p"
+            else -> label
+        }
+    }
+
+    /**
+     * Decides how to extract videos based on the player URL.
+     */
+    private suspend fun getVideosFromUrl(url: String): List<Video> = when {
+        url.contains("blogger.com") -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> emptyList()
+    }
+
+    /**
+     * Extracts the CSRF token the site expects on POST requests, trying in order:
+     *  - `<meta name="csrf-token" content="...">`;
+     *  - `var _TOKEN = "..."` inside an inline script.
+     * Returns an empty string when no token is found (the request may still succeed).
+     */
+    private fun extractCsrfToken(document: Document): String {
+        val fromMeta = document.selectFirst("meta[name=\"csrf-token\"]")?.attr("content")
+        if (!fromMeta.isNullOrBlank()) return fromMeta
+
+        val fromScript = document.selectFirst("script:containsData(_TOKEN)")?.data()
+            ?.substringAfter("_TOKEN = \"")
+            ?.substringBefore("\"")
+        if (!fromScript.isNullOrBlank()) return fromScript
+
+        Log.w("SushiAnimes", "CSRF token not found on page")
+        return ""
     }
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
@@ -209,16 +335,20 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         val menu = document.selectFirst(".episode-nav .home-list a")
         if (menu != null) {
             val originalUrl = menu.attr("href")
-            val response = client.newCall(GET(originalUrl, headers)).execute()
-            return response.useAsJsoup()
+            return try {
+                client.newCall(GET(originalUrl, headers)).execute().useAsJsoup()
+            } catch (e: Exception) {
+                Log.w("SushiAnimes", "Failed to resolve real doc from $originalUrl: ${e.message}")
+                document
+            }
         }
 
         return document
     }
 
     /**
-     * Usa regex para achar o valor de `"name": "..."` e escapar apenas as aspas
-     * internas não escapadas dentro desse valor.
+     * Uses regex to find the value of `"name": "..."` and escape only the
+     * unescaped inner quotes within that value.
      */
     private fun sanitizeLdJsonNames(input: String): String = NAME_VALUE_REGEX.replace(input) { match ->
         val value = match.groupValues[1]
@@ -226,8 +356,42 @@ class SushiAnimes : ParsedAnimeHttpSource() {
         "\"name\": \"$escaped\""
     }
 
+    // =========================== Preferences =============================
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Qualidade de vídeo preferida",
+            entries = QUALITY_LIST,
+            entryValues = QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+    }
+
+    override fun List<Video>.sort(): List<Video> {
+        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        return sortedWith(
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+        )
+    }
+
     companion object {
         const val PREFIX_SEARCH = "path:"
+
+        val JSON = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "1080p"
+        private val QUALITY_LIST = listOf("1080p", "720p", "480p", "360p", "240p")
+
+        private val QUALITY_REGEX = Regex("(\\d+)p")
+
+        private val PLAYER_EMBED_REGEX = Regex("""var playerEmbed\s*=\s*["']([^"']+)["']""")
+        private val PLAYER_NAME_REGEX = Regex("""var playerName\s*=\s*["']([^"']+)["']""")
 
         private val NAME_VALUE_REGEX = "\"name\"\\s*:\\s*\"(.*?)\",".toRegex()
     }
