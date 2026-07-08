@@ -23,6 +23,8 @@ class SmartAnimes :
 
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
 
+    override val animeDescriptionSelector = ".entry-content[itemprop=description]"
+
     // ============================ Video Links =============================
     override fun videoListSelector() = ".dlbox li:not(.head)"
 
