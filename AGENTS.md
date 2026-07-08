@@ -90,9 +90,6 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   `by lazy` keeps serving the stale value. See `src/fr/animesama`.
 - Do not eagerly initialize `client` in a theme base class: the initializer runs before subclass
   constructors, so an overridden `open val rateLimit` reads `0`.
-- Do not create `android.*` objects (e.g. `LruCache`) in a source's constructor or property
-  initializers – use `by lazy`. The repo publisher instantiates sources on a plain JVM where they
-  throw `Stub!`, which blocks the publish for every extension. See `CONTRIBUTING.md#misc-notes`.
 
 ## Referring to commits
 
@@ -122,14 +119,14 @@ PR. Keep upstream's code and layout so later picks still apply, and change only 
 - **Index schema:** `.github/scripts/index_pb2.py` follows the Aniyomi spec (`aniyomiorg/extensions-lib`
   `index/index.proto`), not Mihon's – `Extension.isTorrent = 8`, `sources = 9`, `Source.message = 6`. Keep these
   numbers when a pick regenerates the bindings.
-- **CI:** `build_pull_request.yml` has an anime-only `publish` job ("Check extension repo") that runs `create-repo.py`
-  and `merge-repo.py` the same way `build_push.yml` does. Upstream has no such job, so mirror into it any dependency or
-  argument change a pick makes to `build_push.yml`.
+- **CI:** `build_pull_request.yml` has an anime-only `publish` job ("Check extension repo") that runs `publish-repo.py`
+  the same way `build_push.yml` does. Upstream has no such job, so mirror into it any dependency or argument change a
+  pick makes to `build_push.yml`.
 
 **Torrent is the exception:** it is anime-only and has no manga counterpart, so no upstream change carries it – keep it
 when resolving conflicts and add it to any rewritten script. `torrent = true` in `yuzono { }` → the
-`tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`) → `torrent` in `index.min.json` (Anikku's
-`ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
+`tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`), and `isTorrent` in `keiyoushi-source-info.json`
+→ `torrent` in `index.min.json` (Anikku's `ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
 
 **A pick commit holds only that upstream change**, plus its `O` row in `cherrypick_log.md`. Uncommitted changes that
 are already in the tree when you pick, such as notes added to `cherrypick_log.md` or work on another file, stay out of
