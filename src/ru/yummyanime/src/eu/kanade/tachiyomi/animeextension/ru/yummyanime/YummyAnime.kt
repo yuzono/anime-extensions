@@ -129,7 +129,10 @@ class YummyAnime :
 
     // ─── Anime Details ────────────────────────────────────────────────────────
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url}", headers)
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url.substringAfterLast('/')}", headers)
+
+    // WebView opens this URL (by default it would be animeDetailsRequest — the API).
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/catalog/item/${anime.url.substringAfterLast('/')}"
 
     override fun animeDetailsParse(response: Response): SAnime {
         val obj = json.parseToJsonElement(response.body.string())
@@ -153,7 +156,7 @@ class YummyAnime :
 
     // ─── Episodes ─────────────────────────────────────────────────────────────
 
-    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url}?need_videos=true", headers)
+    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url.substringAfterLast('/')}?need_videos=true", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val animeSlug = response.request.url.pathSegments.last()
@@ -162,7 +165,10 @@ class YummyAnime :
 
         val videos = obj["videos"]?.jsonArray ?: return emptyList()
 
-        return videos
+        val isMovie = obj["type"]?.jsonObject?.get("alias")?.jsonPrimitive?.content
+            ?.contains("movie") == true
+
+        val episodes = videos
             .groupBy { it.jsonObject["number"]?.jsonPrimitive?.content ?: "1" }
             .map { (num, _) ->
                 SEpisode.create().apply {
@@ -172,6 +178,13 @@ class YummyAnime :
                 }
             }
             .sortedByDescending { it.episode_number }
+
+        // A full-length movie with a single entry is "Фильм", not "Серия 1".
+        if (isMovie && episodes.size == 1) {
+            episodes.first().name = "Фильм"
+        }
+
+        return episodes
     }
 
     // ─── Videos ──────────────────────────────────────────────────────────────
