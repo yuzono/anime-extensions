@@ -233,6 +233,7 @@ class SushiAnimes :
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
                 Log.w("SushiAnimes", "Failed to fetch embed for id=$id: HTTP ${response.code}")
+                response.close()
                 return@parallelCatchingFlatMapBlocking emptyList()
             }
             val body = response.bodyString()
@@ -271,7 +272,9 @@ class SushiAnimes :
 
     private fun parseScriptVideos(body: String): List<Video> {
         // Script-based response: extract the direct URL and quality label.
-        val directUrl = PLAYER_EMBED_REGEX.find(body)?.groupValues?.get(1) ?: return emptyList()
+        val rawUrl = PLAYER_EMBED_REGEX.find(body)?.groupValues?.get(1) ?: return emptyList()
+        // The site escapes slashes (e.g. "https:\/\/..."); normalize before use.
+        val directUrl = rawUrl.replace("\\/", "/")
 
         val quality = PLAYER_NAME_REGEX.find(body)?.groupValues?.get(1)
             ?.let(::qualityFromLabel)
@@ -316,8 +319,7 @@ class SushiAnimes :
         if (!fromMeta.isNullOrBlank()) return fromMeta
 
         val fromScript = document.selectFirst("script:containsData(_TOKEN)")?.data()
-            ?.substringAfter("_TOKEN = \"")
-            ?.substringBefore("\"")
+            ?.let { CSRF_TOKEN_REGEX.find(it)?.groupValues?.get(1) }
         if (!fromScript.isNullOrBlank()) return fromScript
 
         Log.w("SushiAnimes", "CSRF token not found on page")
@@ -392,6 +394,7 @@ class SushiAnimes :
 
         private val PLAYER_EMBED_REGEX = Regex("""var playerEmbed\s*=\s*["']([^"']+)["']""")
         private val PLAYER_NAME_REGEX = Regex("""var playerName\s*=\s*["']([^"']+)["']""")
+        private val CSRF_TOKEN_REGEX = Regex("""_TOKEN\s*=\s*["']([^"']+)["']""")
 
         private val NAME_VALUE_REGEX = "\"name\"\\s*:\\s*\"(.*?)\",".toRegex()
     }
