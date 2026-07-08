@@ -22,6 +22,7 @@ import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -249,7 +250,7 @@ class SushiAnimes :
      *    `var playerName = "<label>"` (e.g. "FullHD / HLS").
      */
     private suspend fun parseEmbedVideos(body: String): List<Video> {
-        val doc = Jsoup.parse(body)
+        val doc = Jsoup.parse(body, baseUrl)
         val iframes = doc.select("iframe[src]")
 
         return if (iframes.isNotEmpty()) {
@@ -263,10 +264,12 @@ class SushiAnimes :
         val rawSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
         val videoUrl = if (rawSrc.contains("proxy.php")) {
             // The proxy wraps the real player URL in ?src=<real url>.
-            rawSrc.toHttpUrl().queryParameter("src") ?: rawSrc
+            rawSrc.toHttpUrlOrNull()?.queryParameter("src") ?: rawSrc
         } else {
             rawSrc
         }
+        // Guard against relative/malformed URLs that would crash downstream extractors.
+        if (videoUrl.toHttpUrlOrNull() == null) return@flatMap emptyList()
         getVideosFromUrl(videoUrl)
     }
 
