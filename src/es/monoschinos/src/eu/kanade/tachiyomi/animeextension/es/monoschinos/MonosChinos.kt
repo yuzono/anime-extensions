@@ -382,4 +382,3 @@ class MonosChinos :
             summary = "%s"
         }.also(screen::addPreference)
     }
-    }
