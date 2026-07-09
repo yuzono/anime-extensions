@@ -19,6 +19,8 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -83,7 +85,7 @@ class MundoDonghua :
 
     private fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
-        val epNum = element.attr("href").split("/").last().toFloat()
+        val epNum = element.attr("href").trimEnd('/').split("/").lastOrNull()?.toFloatOrNull() ?: 0f
         episode.setUrlWithoutDomain(element.absUrl("href"))
         episode.episode_number = epNum
         episode.name = "Episodio ${epNum.toString().removeSuffix(".0")}"
@@ -97,84 +99,95 @@ class MundoDonghua :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
+        val tasks = mutableListOf<suspend () -> List<Video>>()
+
         document.select("script").forEach { script ->
-            if (script.data().contains("eval(function(p,a,c,k,e")) {
-                PACKED_REGEX.findAll(script.data()).map {
-                    it.value
-                }.toList().forEach {
-                    val unpack = autoUnpacker(it) ?: return@forEach
-                    if (unpack.contains("amagi_tab")) {
-                        fetchUrls(unpack).forEach { url ->
+            val scriptData = script.data()
+            if (scriptData.contains("eval(function(p,a,c,k,e")) {
+                val unpack = autoUnpacker(scriptData) ?: return@forEach
+                val urls = fetchUrls(unpack)
+
+                if (unpack.contains("amagi_tab")) {
+                    urls.forEach { url ->
+                        tasks.add {
                             try {
-                                VoeExtractor(client, headers).videosFromUrl(url).also(videoList::addAll)
-                            } catch (_: Exception) {}
+                                VoeExtractor(client, headers).videosFromUrl(url)
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
                         }
                     }
-                    if (unpack.contains("fmoon_tab")) {
-                        fetchUrls(unpack).forEach { url ->
+                }
+                if (unpack.contains("fmoon_tab")) {
+                    urls.forEach { url ->
+                        tasks.add {
                             try {
                                 val newHeaders = headers.newBuilder()
                                     .add("authority", url.toHttpUrl().host)
                                     .add("referer", "$baseUrl/")
                                     .add("Origin", "https://${url.toHttpUrl().host}")
                                     .build()
-                                FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:", headers = newHeaders).also(videoList::addAll)
-                            } catch (_: Exception) {}
-                        }
-                    }
-                    if (unpack.contains("vhide_tab")) {
-                        val vidhideUrls = fetchUrls(unpack).filter { it.contains("vidhide") }
-                        if (vidhideUrls.isNotEmpty()) {
-                            runBlocking {
-                                vidhideUrls.forEach { url ->
-                                    try {
-                                        val newHeaders = headers.newBuilder()
-                                            .add("authority", url.toHttpUrl().host)
-                                            .add("referer", "$baseUrl/")
-                                            .add("Origin", baseUrl)
-                                            .build()
-                                        VidHideExtractor(client, newHeaders).videosFromUrl(url) { "VidHide:$it" }.also(videoList::addAll)
-                                    } catch (_: Exception) {}
-                                }
+                                FilemoonExtractor(client).videosFromUrl(url, prefix = "Filemoon:", headers = newHeaders)
+                            } catch (_: Exception) {
+                                emptyList()
                             }
                         }
                     }
-                    if (unpack.contains("swish_tab")) {
-                        val swishUrls = fetchUrls(unpack).filter { it.contains("embedwish") }
-                        if (swishUrls.isNotEmpty()) {
-                            runBlocking {
-                                swishUrls.forEach { url ->
-                                    try {
-                                        val newHeaders = headers.newBuilder()
-                                            .add("referer", "$baseUrl/")
-                                            .add("Origin", baseUrl)
-                                            .build()
-                                        StreamWishExtractor(client, newHeaders).videosFromUrl(url, "StreamWish:").also(videoList::addAll)
-                                    } catch (_: Exception) {}
-                                }
-                            }
-                        }
-                    }
-                    if (unpack.contains("asura_tab")) {
-                        fetchUrls(unpack).forEach { url ->
+                }
+                if (unpack.contains("vhide_tab")) {
+                    urls.filter { it.contains("vidhide") }.forEach { url ->
+                        tasks.add {
                             try {
-                                if (url.contains("redirector")) {
-                                    val newHeaders = headers.newBuilder()
-                                        .add("authority", "www.mdnemonicplayer.xyz")
-                                        .add("accept", "*/*")
-                                        .add("Origin", baseUrl)
-                                        .add("referer", "$baseUrl/")
-                                        .build()
-                                    PlaylistUtils(client, newHeaders).extractFromHls(url, videoNameGen = { "Asura:$it" }).let { videoList.addAll(it) }
-                                }
-                            } catch (_: Exception) {}
+                                val newHeaders = headers.newBuilder()
+                                    .add("authority", url.toHttpUrl().host)
+                                    .add("referer", "$baseUrl/")
+                                    .add("Origin", baseUrl)
+                                    .build()
+                                VidHideExtractor(client, newHeaders).videosFromUrl(url) { "VidHide:$it" }
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }
+                }
+                if (unpack.contains("swish_tab")) {
+                    urls.filter { it.contains("embedwish") }.forEach { url ->
+                        tasks.add {
+                            try {
+                                val newHeaders = headers.newBuilder()
+                                    .add("referer", "$baseUrl/")
+                                    .add("Origin", baseUrl)
+                                    .build()
+                                StreamWishExtractor(client, newHeaders).videosFromUrl(url, "StreamWish:")
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }
+                }
+                if (unpack.contains("asura_tab")) {
+                    urls.filter { it.contains("redirector") }.forEach { url ->
+                        tasks.add {
+                            try {
+                                val newHeaders = headers.newBuilder()
+                                    .add("authority", "www.mdnemonicplayer.xyz")
+                                    .add("accept", "*/*")
+                                    .add("Origin", baseUrl)
+                                    .add("referer", "$baseUrl/")
+                                    .build()
+                                PlaylistUtils(client, newHeaders).extractFromHls(url, videoNameGen = { "Asura:$it" })
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
                         }
                     }
                 }
             }
         }
-        return videoList
+
+        return runBlocking {
+            tasks.map { async { it() } }.awaitAll().flatten()
+        }
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -297,8 +310,9 @@ class MundoDonghua :
     }
 
     private fun parseStatus(statusString: String): Int = when {
-        statusString.lowercase().contains("en emisión") -> SAnime.ONGOING
-        statusString.lowercase().contains("finalizada") -> SAnime.COMPLETED
+        statusString.contains("en emisión", ignoreCase = true) -> SAnime.ONGOING
+        statusString.contains("finalizada", ignoreCase = true) -> SAnime.COMPLETED
+        statusString.contains("cancelada", ignoreCase = true) -> SAnime.CANCELLED
         else -> SAnime.UNKNOWN
     }
 
@@ -331,6 +345,5 @@ class MundoDonghua :
 
     companion object {
         private val LINK_REGEX = Regex("(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])")
-        private val PACKED_REGEX = Regex("""eval\(function\(p,a,c,k,e,.*?\)\)""")
     }
 }
