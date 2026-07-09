@@ -10,10 +10,11 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.autoUnpacker
@@ -22,11 +23,10 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class MundoDonghua :
-    ParsedAnimeHttpSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "MundoDonghua"
@@ -39,29 +39,30 @@ class MundoDonghua :
 
     private val preferences by getPreferencesLazy()
 
-    override fun popularAnimeSelector() = "div.md-card-grid > div.md-card > a"
+    private fun popularAnimeSelector() = "div.md-card-grid > div.md-card > a"
 
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/lista-donghuas/$page")
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
+    private fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
+        setUrlWithoutDomain(element.absUrl("href"))
         title = element.selectFirst(".md-card-title")?.text().orEmpty()
         thumbnail_url = element.selectFirst("div.md-card-img img")?.attr("abs:src")
     }
 
-    override fun popularAnimeNextPageSelector() = "nav.md-pagination > a:last-of-type"
+    private fun popularAnimeNextPageSelector() = "nav.md-pagination > a:last-of-type"
 
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+    private fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element).apply {
+    private fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element).apply {
         url = url.replace("/ver/", "/donghua/").substringBeforeLast("/")
     }
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/lista-episodios/$page")
 
-    override fun latestUpdatesSelector() = popularAnimeSelector()
+    private fun latestUpdatesSelector() = popularAnimeSelector()
 
-    override fun animeDetailsParse(document: Document): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
         val anime = SAnime.create()
         anime.thumbnail_url = document.selectFirst("div.md-detail-poster img")?.attr("abs:src")
         anime.title = document.selectFirst("h1.md-detail-title")?.text() ?: ""
@@ -73,21 +74,25 @@ class MundoDonghua :
         return anime
     }
 
-    override fun episodeListSelector() = "ul.md-episode-list li.md-episode-item a.md-ep-link"
+    private fun episodeListSelector() = "ul.md-episode-list li.md-episode-item a.md-ep-link"
 
-    override fun episodeFromElement(element: Element): SEpisode {
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        return document.select(episodeListSelector()).map { episodeFromElement(it) }
+    }
+
+    private fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
         val epNum = element.attr("href").split("/").last().toFloat()
-        episode.setUrlWithoutDomain(element.attr("href"))
+        episode.setUrlWithoutDomain(element.absUrl("href"))
         episode.episode_number = epNum
-        episode.name = "Episodio $epNum"
+        episode.name = "Episodio ${epNum.toString().removeSuffix(".0")}"
         return episode
     }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
-        val linkRegex = "(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])".toRegex()
-        return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
+        return LINK_REGEX.findAll(text).map { it.value.trim().removeSurrounding("\"") }.toList()
     }
 
     override fun videoListParse(response: Response): List<Video> {
@@ -95,8 +100,7 @@ class MundoDonghua :
         val videoList = mutableListOf<Video>()
         document.select("script").forEach { script ->
             if (script.data().contains("eval(function(p,a,c,k,e")) {
-                val packedRegex = Regex("eval\\(function\\(p,a,c,k,e,.*\\)\\)")
-                packedRegex.findAll(script.data()).map {
+                PACKED_REGEX.findAll(script.data()).map {
                     it.value
                 }.toList().forEach {
                     val unpack = autoUnpacker(it) ?: return@forEach
@@ -172,12 +176,6 @@ class MundoDonghua :
         }
         return videoList
     }
-
-    override fun videoListSelector() = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString("preferred_quality", "VoeCDN")
@@ -265,15 +263,42 @@ class MundoDonghua :
         fun toUriPart() = vals[state].second
     }
 
-    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    private fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
-    override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
+    private fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
 
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
+    private fun searchAnimeSelector(): String = popularAnimeSelector()
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).map {
+            popularAnimeFromElement(it)
+        }
+        val hasNextPage = document.select(popularAnimeNextPageSelector()).first() != null
+        return AnimesPage(animes, hasNextPage)
+    }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(latestUpdatesSelector()).map {
+            latestUpdatesFromElement(it)
+        }
+        val hasNextPage = document.select(latestUpdatesNextPageSelector()).first() != null
+        return AnimesPage(animes, hasNextPage)
+    }
+
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(searchAnimeSelector()).map {
+            searchAnimeFromElement(it)
+        }
+        val hasNextPage = document.select(searchAnimeNextPageSelector()).first() != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
     private fun parseStatus(statusString: String): Int = when {
-        statusString.contains("En Emisión") -> SAnime.ONGOING
-        statusString.contains("Finalizada") -> SAnime.COMPLETED
+        statusString.lowercase().contains("en emisión") -> SAnime.ONGOING
+        statusString.lowercase().contains("finalizada") -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
     }
 
@@ -300,14 +325,12 @@ class MundoDonghua :
             entryValues = qualities
             setDefaultValue("VoeCDN")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(videoQualityPref)
+    }
+
+    companion object {
+        private val LINK_REGEX = Regex("(http|ftp|https)://([\\w_-]+(?:\\.[\\w_-]+)+)([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])")
+        private val PACKED_REGEX = Regex("""eval\(function\(p,a,c,k,e,.*?\)\)""")
     }
 }
