@@ -25,10 +25,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 class MonosChinos :
@@ -63,6 +63,10 @@ class MonosChinos :
             "Mp4Upload",
             "LuluStream",
         )
+
+        private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)\$")
+        private val SUB_ES_REGEX = Regex("-sub-espanol\$")
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
     // ====================== POPULAR ======================
@@ -75,7 +79,7 @@ class MonosChinos :
         val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst("h3")?.text()?.trim() ?: return@mapNotNull null
+                title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
@@ -98,15 +102,14 @@ class MonosChinos :
             val episodeUrl = episodeLink.attr("abs:href")
 
             val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-            val animeSlugBase = episodeSlug.replace(Regex("-episodio-\\d+$"), "")
-            val animeUrl = "/anime/${animeSlugBase}-sub-espanol"
+            val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
+            val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
-            val animeTitle = item.selectFirst("h2.fs-5")?.text()?.trim() ?: return@mapNotNull null
-            val episodeNumber = item.selectFirst("span.episode")?.text()?.trim() ?: ""
-            val genre = item.selectFirst("span.text-muted")?.text()?.trim() ?: ""
+            val animeTitle = item.selectFirst("h2.fs-5")?.text() ?: return@mapNotNull null
+            val genre = item.selectFirst("span.text-muted")?.text() ?: ""
 
             SAnime.create().apply {
-                title = "$animeTitle - Episodio $episodeNumber"
+                title = animeTitle
                 setUrlWithoutDomain(animeUrl)
                 description = genre
                 thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
@@ -120,7 +123,7 @@ class MonosChinos :
     // ====================== BÚSQUEDA ======================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val params = MonosChinosFilters.getSearchParameters(filters)
+        val params = Filters.getSearchParameters(filters)
         return when {
             query.isNotBlank() -> GET("$baseUrl/buscar?q=$query&p=$page", headers)
             params.filter.isNotBlank() -> GET("$baseUrl/animes${params.getQuery()}&p=$page", headers)
@@ -134,21 +137,20 @@ class MonosChinos :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
-        val animeDetails = SAnime.create().apply {
-            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text()?.trim() ?: ""
-            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()?.trim()
+        return SAnime.create().apply {
+            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text() ?: ""
+            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()
             genre = document.select("#profile-tab-pane .badge.bg-secondary").joinToString { it.text() }
             thumbnail_url = document.selectFirst(".d-none.d-sm-flex img.lazy")?.getImageUrl()
             status = run {
                 val estadoElement = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child")
-                when (estadoElement?.text()?.trim()) {
+                when (estadoElement?.text()) {
                     "Estreno", "En emisión" -> SAnime.ONGOING
                     "Finalizado" -> SAnime.COMPLETED
                     else -> SAnime.UNKNOWN
                 }
             }
         }
-        return animeDetails
     }
 
     // ====================== EPISODIOS ======================
@@ -168,7 +170,7 @@ class MonosChinos :
             ?.substringBefore("-episodio-")
             ?: run {
                 val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(Regex("-sub-espanol$"), "")
+                animeSlug.replace(SUB_ES_REGEX, "")
             }
         if (episodeSlug.isBlank()) return emptyList()
 
@@ -197,34 +199,17 @@ class MonosChinos :
                 .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            val responseBody = try {
-                client.newCall(request).execute().use { it.body?.string() ?: "" }
-            } catch (_: Exception) {
-                break
-            }
-
-            if (responseBody.isBlank()) break
-
             val json = try {
-                JSONObject(responseBody)
+                client.newCall(request).execute().parseAs<EpisodesDto>()
             } catch (_: Exception) {
                 break
             }
 
-            val epsArray = try {
-                json.getJSONArray("eps")
-            } catch (_: Exception) {
-                break
-            }
-
-            val perpage = json.optInt("perpage", 0)
-
-            for (i in 0 until epsArray.length()) {
-                val obj = epsArray.getJSONObject(i)
-                val numStr = obj.optString("num", "")
+            for (obj in json.eps) {
+                val numStr = obj.num.toString()
                 if (numStr.isBlank()) continue
 
-                val episodeNumber = runCatching { numStr.toFloat() }.getOrNull() ?: continue
+                val episodeNumber = numStr.toFloatOrNull() ?: continue
 
                 val urlNumber = if (episodeNumber % 1 == 0f) {
                     episodeNumber.toInt().toString()
@@ -232,21 +217,24 @@ class MonosChinos :
                     numStr
                 }
 
-                episodes.add(SEpisode.create().apply {
-                    name = if (episodeNumber % 1 == 0f) {
-                        "Episodio ${episodeNumber.toInt()}"
-                    } else {
-                        "Episodio $numStr"
-                    }
-                    episode_number = episodeNumber
-                    setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
-                })
+                episodes.add(
+                    SEpisode.create().apply {
+                        name = if (episodeNumber % 1 == 0f) {
+                            "Episodio ${episodeNumber.toInt()}"
+                        } else {
+                            "Episodio $numStr"
+                        }
+                        episode_number = episodeNumber
+                        setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                    },
+                )
             }
 
-            if (perpage == 0 || epsArray.length() < perpage) {
+            val perpage = json.perpage?.toInt() ?: 0
+
+            if (perpage == 0 || json.eps.size < perpage) {
                 hasMore = false
             } else {
-                Thread.sleep(100)
                 currentPage++
             }
         }
@@ -269,7 +257,7 @@ class MonosChinos :
             } ?: return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
-                ?: button.text().trim().takeIf { it.isNotBlank() }
+                ?: button.text().takeIf { it.isNotBlank() }
                 ?: ""
 
             serverName to decodedUrl
@@ -348,7 +336,7 @@ class MonosChinos :
             compareBy(
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
@@ -371,7 +359,7 @@ class MonosChinos :
 
     // ====================== FILTROS ======================
 
-    override fun getFilterList(): AnimeFilterList = MonosChinosFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // ====================== PREFERENCIAS ======================
 
