@@ -20,17 +20,10 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
 class YummyAnime :
     AnimeHttpSource(),
@@ -42,7 +35,6 @@ class YummyAnime :
     override val supportsLatest = true
 
     private val apiUrl = "https://api.yani.tv"
-    private val json: Json by injectLazy()
     private val appToken = "o0nap18m_7a0od86"
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
     private val preferences by getPreferencesLazy()
@@ -51,7 +43,7 @@ class YummyAnime :
         .add("Accept", "application/json")
         .add("X-Application", appToken)
 
-    // ─── Settings ──────────────────────────────────────────────────────────────
+    // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
@@ -64,7 +56,7 @@ class YummyAnime :
         }.also(screen::addPreference)
     }
 
-    // ─── Popular ─────────────────────────────────────────────────────────────
+    // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
         val offset = (page - 1) * 20
@@ -72,104 +64,68 @@ class YummyAnime :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val root = json.parseToJsonElement(response.body.string()).jsonObject
-        val data = root["response"]?.jsonObject?.get("data")?.jsonArray
-            ?: return AnimesPage(emptyList(), false)
-
-        val animes = data.map { element ->
-            val obj = element.jsonObject
-            SAnime.create().apply {
-                title = obj["title"]?.jsonPrimitive?.content ?: ""
-                url = obj["anime_url"]?.jsonPrimitive?.content ?: ""
-                thumbnail_url = obj["poster"]?.jsonObject?.get("big")?.jsonPrimitive?.content?.fixProtocol()
-            }
-        }
+        val data = response.parseAs<YummyResponse<YummyCatalogDto>>().response
+        val animes = data?.data?.map { it.toSAnime() } ?: emptyList()
         return AnimesPage(animes, animes.size == 20)
     }
 
-    // ─── Latest ──────────────────────────────────────────────────────────────
+    // =============================== Latest ===============================
 
-    // "Latest" shows currently airing titles (ongoings) from the schedule endpoint.
     override fun latestUpdatesRequest(page: Int): Request = GET("$apiUrl/anime/schedule", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val data = json.parseToJsonElement(response.body.string())
-            .jsonObject["response"]?.jsonArray ?: return AnimesPage(emptyList(), false)
-
-        val animes = data.map { element ->
-            val obj = element.jsonObject
-            SAnime.create().apply {
-                title = obj["title"]?.jsonPrimitive?.content ?: ""
-                url = obj["anime_url"]?.jsonPrimitive?.content ?: ""
-                thumbnail_url = obj["poster"]?.jsonObject?.get("big")?.jsonPrimitive?.content?.fixProtocol()
-            }
-        }
-        // The schedule returns the full ongoing list in one response — no pagination.
+        val data = response.parseAs<YummyResponse<List<YummyAnimeDto>>>().response
+        val animes = data?.map { it.toSAnime() } ?: emptyList()
         return AnimesPage(animes, false)
     }
 
-    // ─── Search ──────────────────────────────────────────────────────────────
+    // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$apiUrl/search?q=$query", headers)
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val root = json.parseToJsonElement(response.body.string()).jsonObject
-        val data = root["response"]?.jsonArray ?: return AnimesPage(emptyList(), false)
-
-        val animes = data.map { element ->
-            val obj = element.jsonObject
-            SAnime.create().apply {
-                title = obj["title"]?.jsonPrimitive?.content ?: ""
-                url = obj["anime_url"]?.jsonPrimitive?.content ?: ""
-                thumbnail_url = obj["poster"]?.jsonObject?.get("big")?.jsonPrimitive?.content?.fixProtocol()
-            }
-        }
+        val data = response.parseAs<YummyResponse<List<YummyAnimeDto>>>().response
+        val animes = data?.map { it.toSAnime() } ?: emptyList()
         return AnimesPage(animes, false)
     }
 
-    // ─── Anime Details ────────────────────────────────────────────────────────
+    // =========================== Anime Details ============================
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url.substringAfterLast('/')}", headers)
 
-    // WebView opens this URL (by default it would be animeDetailsRequest — the API).
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/catalog/item/${anime.url.substringAfterLast('/')}"
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val obj = json.parseToJsonElement(response.body.string())
-            .jsonObject["response"]?.jsonObject ?: return SAnime.create()
+        val data = response.parseAs<YummyResponse<YummyDetailsDto>>().response ?: return SAnime.create()
 
         return SAnime.create().apply {
-            title = obj["title"]?.jsonPrimitive?.content ?: ""
-            description = obj["description"]?.jsonPrimitive?.content
-            genre = obj["genres"]?.jsonArray
-                ?.joinToString { it.jsonObject["title"]?.jsonPrimitive?.content ?: "" }
-            status = when (obj["anime_status"]?.jsonObject?.get("value")?.jsonPrimitive?.content) {
+            title = data.title ?: ""
+            description = data.description
+            genre = data.genres?.joinToString { it.title ?: "" }
+            status = when (data.status?.value?.content) {
                 "0" -> SAnime.COMPLETED
                 "1" -> SAnime.ONGOING
                 else -> SAnime.UNKNOWN
             }
-            author = obj["studios"]?.jsonArray
-                ?.joinToString { it.jsonObject["title"]?.jsonPrimitive?.content ?: "" }
-            thumbnail_url = obj["poster"]?.jsonObject?.get("huge")?.jsonPrimitive?.content?.fixProtocol()
+            author = data.studios?.joinToString { it.title ?: "" }
+            thumbnail_url = data.poster?.huge?.fixProtocol() ?: data.poster?.big?.fixProtocol()
         }
     }
 
-    // ─── Episodes ─────────────────────────────────────────────────────────────
+    // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url.substringAfterLast('/')}?need_videos=true", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val animeSlug = response.request.url.pathSegments.last()
-        val obj = json.parseToJsonElement(response.body.string())
-            .jsonObject["response"]?.jsonObject ?: return emptyList()
+        val data = response.parseAs<YummyResponse<YummyDetailsDto>>().response ?: return emptyList()
 
-        val videos = obj["videos"]?.jsonArray ?: return emptyList()
+        val videos = data.videos ?: return emptyList()
 
-        val isMovie = obj["type"]?.jsonObject?.get("alias")?.jsonPrimitive?.content
-            ?.contains("movie") == true
+        val isMovie = data.type?.alias?.contains("movie") == true
 
         val episodes = videos
-            .groupBy { it.jsonObject["number"]?.jsonPrimitive?.content ?: "1" }
+            .groupBy { it.number?.content ?: "1" }
             .map { (num, _) ->
                 SEpisode.create().apply {
                     name = "Серия $num"
@@ -179,7 +135,6 @@ class YummyAnime :
             }
             .sortedByDescending { it.episode_number }
 
-        // A full-length movie with a single entry is "Фильм", not "Серия 1".
         if (isMovie && episodes.size == 1) {
             episodes.first().name = "Фильм"
         }
@@ -187,10 +142,9 @@ class YummyAnime :
         return episodes
     }
 
-    // ─── Videos ──────────────────────────────────────────────────────────────
+    // ============================ Video Links =============================
 
     override fun videoListRequest(episode: SEpisode): Request {
-        // Defensive split: an episode URL without "|" must never throw on destructuring.
         val parts = episode.url.split("|", limit = 2)
         val animeSlug = parts.getOrElse(0) { "" }
         val episodeNum = parts.getOrElse(1) { "1" }
@@ -203,9 +157,6 @@ class YummyAnime :
         .let(::applyQualityPreference)
         .let(::voicesBeforeSubtitles)
 
-    // Voice-overs first, subtitles last. The API labels subtitle tracks with "Субтитры" /
-    // "Subtitles", which is carried into each Video's quality label. sortedBy is stable, so the
-    // original order is preserved within each group.
     private fun voicesBeforeSubtitles(videos: List<Video>): List<Video> = videos.sortedBy {
         if (it.quality.contains("Субтитры", ignoreCase = true) ||
             it.quality.contains("Subtitle", ignoreCase = true)
@@ -216,9 +167,6 @@ class YummyAnime :
         }
     }
 
-    // Keep only the user's preferred quality; if it is not available, fall back to the closest one
-    // (ties prefer the higher quality). Sources whose quality cannot be parsed (e.g. Sibnet) are
-    // always kept, so the list never ends up empty.
     private fun applyQualityPreference(videos: List<Video>): List<Video> {
         val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.toIntOrNull()
             ?: return videos
@@ -230,27 +178,21 @@ class YummyAnime :
         return videos.filter { v -> v.quality.parseQuality()?.let { it == target } ?: true }
     }
 
-    private fun String.parseQuality(): Int? = Regex("""(\d{3,4})\s*p""").find(this)?.groupValues?.get(1)?.toIntOrNull()
+    private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()
 
     private suspend fun videoListParseAsync(response: Response): List<Video> {
         val episodeNum = response.request.url.queryParameter("episode") ?: return emptyList()
 
-        val obj = json.parseToJsonElement(response.body.string())
-            .jsonObject["response"]?.jsonObject ?: return emptyList()
+        val data = response.parseAs<YummyResponse<YummyDetailsDto>>().response ?: return emptyList()
 
-        val allVideos = obj["videos"]?.jsonArray ?: return emptyList()
+        val allVideos = data.videos ?: return emptyList()
 
-        val episodeVideos = allVideos.filter { element ->
-            element.jsonObject["number"]?.jsonPrimitive?.content == episodeNum
-        }
+        val episodeVideos = allVideos.filter { it.number?.content == episodeNum }
 
-        return episodeVideos.parallelCatchingFlatMap { element ->
-            val obj2 = element.jsonObject
-            val dubbing = obj2["data"]?.jsonObject?.get("dubbing")?.jsonPrimitive?.content ?: "Unknown"
-            val player = obj2["data"]?.jsonObject?.get("player")?.jsonPrimitive?.content ?: ""
-            val rawFrame = obj2["iframe_url"]?.jsonPrimitive?.content
-                ?: return@parallelCatchingFlatMap emptyList()
-            val iframeUrl = rawFrame.fixProtocol()
+        return episodeVideos.parallelCatchingFlatMap { video ->
+            val dubbing = video.data?.dubbing ?: "Unknown"
+            val player = video.data?.player ?: ""
+            val iframeUrl = video.iframeUrl?.fixProtocol() ?: return@parallelCatchingFlatMap emptyList()
 
             when {
                 player.contains("Kodik", ignoreCase = true) -> kodikVideoLinks(iframeUrl, dubbing)
@@ -259,9 +201,7 @@ class YummyAnime :
         }
     }
 
-    // ─── Kodik Player ────────────────────────────────────────────────────────
-
-    private val atobRegex = Regex("atob\\([^\"]")
+    // ============================ Kodik Player ===============================
 
     private fun kodikVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
         val kodikHeaders = Headers.Builder()
@@ -275,46 +215,34 @@ class YummyAnime :
 
         val pageHtml = page.html()
 
-        // urlParams is a JSON blob wrapped in quotes; regex tolerates spacing/quote variations.
-        val rawParams = Regex("""urlParams\s*=\s*'([^']+)'""").find(pageHtml)?.groupValues?.get(1)
-            ?: Regex("""urlParams\s*=\s*"([^"]+)"""").find(pageHtml)?.groupValues?.get(1)
+        val rawParams = URL_PARAMS_REGEX.find(pageHtml)?.groupValues?.get(1)
+            ?: URL_PARAMS_REGEX_ALT.find(pageHtml)?.groupValues?.get(1)
             ?: return emptyList()
 
         val formData = runCatching {
-            json.decodeFromString(KodikFormData.serializer(), rawParams)
+            rawParams.parseAs<KodikFormData>()
         }.getOrNull() ?: return emptyList()
 
         if (formData.dSign.isEmpty()) return emptyList()
 
-        // Resolve the real per-episode type/id/hash. Confirmed page format:
-        //     vInfo.type = 'seria';  vInfo.hash = '...';  vInfo.id = '1407443';
-        // For "/video/<id>/<hash>" the path type ("video") already works; for "/season/..." or
-        // "/serial/..." the path type would be "season"/"serial", which /ftor rejects (→ "No videos").
-        // Match on the property name (the object can be renamed between builds), choosing the single
-        // <script> where all three assignments resolve together; fall back to the whole HTML.
-        val typeRe = Regex("""\.type\s*=\s*['"]([^'"]+)['"]""")
-        val hashRe = Regex("""\.hash\s*=\s*['"]([^'"]+)['"]""")
-        val idRe = Regex("""\.id\s*=\s*['"]?([A-Za-z0-9]+)['"]?""")
         var videoType: String? = null
         var videoId: String? = null
         var videoHash: String? = null
         for (script in page.select("script").map { it.data() }) {
-            val t = typeRe.find(script)?.groupValues?.get(1) ?: continue
-            val h = hashRe.find(script)?.groupValues?.get(1) ?: continue
-            val i = idRe.find(script)?.groupValues?.get(1) ?: continue
+            val t = TYPE_REGEX.find(script)?.groupValues?.get(1) ?: continue
+            val h = HASH_REGEX.find(script)?.groupValues?.get(1) ?: continue
+            val i = ID_REGEX.find(script)?.groupValues?.get(1) ?: continue
             videoType = t
             videoHash = h
             videoId = i
             break
         }
         if (videoType == null || videoHash == null || videoId == null) {
-            videoType = videoType ?: typeRe.find(pageHtml)?.groupValues?.get(1)
-            videoHash = videoHash ?: hashRe.find(pageHtml)?.groupValues?.get(1)
-            videoId = videoId ?: idRe.find(pageHtml)?.groupValues?.get(1)
+            videoType = videoType ?: TYPE_REGEX.find(pageHtml)?.groupValues?.get(1)
+            videoHash = videoHash ?: HASH_REGEX.find(pageHtml)?.groupValues?.get(1)
+            videoId = videoId ?: ID_REGEX.find(pageHtml)?.groupValues?.get(1)
         }
 
-        // Fallback to the iframe path: //{host}/{type}/{id}/{hash}/720p?...
-        // getOrNull so a short/malformed iframe URL can never throw IndexOutOfBoundsException.
         val urlParts = iframeUrl.removePrefix("https://").removePrefix("http://").split('/')
         val resolvedType = videoType ?: urlParts.getOrNull(1)
         val resolvedId = videoId ?: urlParts.getOrNull(2)
@@ -341,8 +269,6 @@ class YummyAnime :
             .add("X-Application", appToken)
             .build()
 
-        // POST to the player's own host (the iframe host, e.g. kodikplayer.com) — exactly what the
-        // browser does. `pd` is sent as a signed body field but is not a reliable hostname.
         val playerHost = iframeUrl.removePrefix("https://").removePrefix("http://")
             .substringBefore('/')
             .ifEmpty { "kodikplayer.com" }
@@ -369,8 +295,6 @@ class YummyAnime :
             "720" to kodikData.links.good,
         )
 
-        // Decode each quality with the page's own JS function via QuickJs.
-        // Match any Kodik player script (player_single, player_serial, …).
         val scriptUrl = (
             page.selectFirst("script[src*=player_single]")
                 ?: page.selectFirst("script[src*=player_serial]")
@@ -381,7 +305,7 @@ class YummyAnime :
             client.newCall(GET(scriptUrl, kodikHeaders)).execute().body.string()
         }.getOrNull() ?: return emptyList()
 
-        val atobMatch = atobRegex.find(jsScript) ?: return emptyList()
+        val atobMatch = ATOB_REGEX.find(jsScript) ?: return emptyList()
 
         var encodeScript = "("
         val deque = ArrayDeque<Char>()
@@ -428,7 +352,7 @@ class YummyAnime :
         listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
     }
 
-    // ─── Fallback (Sibnet / generic HLS or DASH) ───────────────────────────────
+    // =========================== Fallback Player =============================
 
     private fun fallbackVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
         val body = runCatching {
@@ -436,8 +360,8 @@ class YummyAnime :
         }.getOrNull() ?: return emptyList()
 
         if (iframeUrl.contains("sibnet.ru") || body.contains("player.src")) {
-            val videoId = Regex("videoid=(\\d+)").find(body)?.groupValues?.get(1)
-                ?: Regex("videoid=(\\d+)").find(iframeUrl)?.groupValues?.get(1)
+            val videoId = VIDEO_ID_REGEX.find(body)?.groupValues?.get(1)
+                ?: VIDEO_ID_REGEX.find(iframeUrl)?.groupValues?.get(1)
 
             if (!videoId.isNullOrBlank()) {
                 runCatching {
@@ -451,7 +375,7 @@ class YummyAnime :
             if (!sibVideos.isNullOrEmpty()) return sibVideos
         }
 
-        val mpd = Regex("""https?://[^"'\s\\]+\.mpd[^"'\s\\]*""").find(body)?.value
+        val mpd = MPD_REGEX.find(body)?.value
         if (mpd != null) {
             val videoHeaders = Headers.Builder()
                 .add("Referer", iframeUrl)
@@ -467,8 +391,7 @@ class YummyAnime :
             )
         }
 
-        val stream = Regex("""https?://[^"'\s\\]+\.m3u8[^"'\s\\]*""").find(body)?.value
-            ?: return emptyList()
+        val stream = M3U8_REGEX.find(body)?.value ?: return emptyList()
 
         val videoHeaders = Headers.Builder()
             .add("Referer", iframeUrl)
@@ -479,39 +402,26 @@ class YummyAnime :
         return listOf(Video(stream, "$dubbing (Unknown)", stream, headers = videoHeaders))
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ============================= Utilities ==============================
 
     private fun String.fixProtocol(): String = if (startsWith("//")) "https:$this" else this
 
-    private fun String.toOrigin(): String = Regex("^(https?://[^/]+)").find(this)?.groupValues?.get(1) ?: this
+    private fun String.toOrigin(): String = ORIGIN_REGEX.find(this)?.groupValues?.get(1) ?: this
 
     companion object {
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
+
+        private val QUALITY_REGEX = Regex("""(\d{3,4})\s*p""")
+        private val ATOB_REGEX = Regex("atob\\([^\"]")
+        private val URL_PARAMS_REGEX = Regex("""urlParams\s*=\s*'([^']+)'""")
+        private val URL_PARAMS_REGEX_ALT = Regex("""urlParams\s*=\s*"([^"]+)"""")
+        private val TYPE_REGEX = Regex("""\.type\s*=\s*['"]([^'"]+)['"]""")
+        private val HASH_REGEX = Regex("""\.hash\s*=\s*['"]([^'"]+)['"]""")
+        private val ID_REGEX = Regex("""\.id\s*=\s*['"]?([A-Za-z0-9]+)['"]?""")
+        private val VIDEO_ID_REGEX = Regex("videoid=(\\d+)")
+        private val MPD_REGEX = Regex("""https?://[^"'\s\\]+\.mpd[^"'\s\\]*""")
+        private val M3U8_REGEX = Regex("""https?://[^"'\s\\]+\.m3u8[^"'\s\\]*""")
+        private val ORIGIN_REGEX = Regex("^(https?://[^/]+)")
     }
 }
-
-// ─── Kodik DTOs ──────────────────────────────────────────────────────────────
-
-@Serializable
-private data class KodikFormData(
-    val d: String = "",
-    @SerialName("d_sign") val dSign: String = "",
-    val pd: String = "",
-    @SerialName("pd_sign") val pdSign: String = "",
-    val ref: String = "",
-    @SerialName("ref_sign") val refSign: String = "",
-)
-
-@Serializable
-private data class KodikVideoInfo(val src: String)
-
-@Serializable
-private data class KodikVideoQuality(
-    @SerialName("360") val ugly: List<KodikVideoInfo> = emptyList(),
-    @SerialName("480") val bad: List<KodikVideoInfo> = emptyList(),
-    @SerialName("720") val good: List<KodikVideoInfo> = emptyList(),
-)
-
-@Serializable
-private data class KodikData(val links: KodikVideoQuality)
