@@ -472,7 +472,7 @@ class JutsuTv :
 
         val jsScript = decodeScriptCache.getOrPut(scriptUrl) {
             runCatching {
-                client.newCall(GET(scriptUrl, kodikHeaders)).execute().body.string()
+                client.newCall(GET(scriptUrl, kodikHeaders)).execute().use { it.body.string() }
             }.getOrNull() ?: return emptyList()
         }
 
