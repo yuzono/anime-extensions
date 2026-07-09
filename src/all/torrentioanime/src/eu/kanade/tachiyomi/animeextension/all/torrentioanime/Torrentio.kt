@@ -628,6 +628,7 @@ class Torrentio :
             "Premiumize",
             "AllDebrid",
             "DebridLink",
+            "EasyDebrid",
             "Offcloud",
             "TorBox",
         )
@@ -637,6 +638,7 @@ class Torrentio :
             "premiumize",
             "alldebrid",
             "debridlink",
+            "easydebrid",
             "offcloud",
             "torbox",
         )
@@ -671,15 +673,17 @@ class Torrentio :
             "NyaaSi",
             "TokyoTosho",
             "AniDex",
+            "nekoBT",
             "🇷🇺 Rutor",
             "🇷🇺 Rutracker",
             "🇵🇹 Comando",
             "🇵🇹 BluDV",
             "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
             "🇪🇸 MejorTorrent",
-            "🇲🇽 Cinecalidad",
-            "🇮🇹 ilCorsaroNero",
             "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
 
         private val PREF_PROVIDERS_VALUE = arrayOf(
@@ -695,15 +699,17 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
             "rutor",
             "rutracker",
             "comando",
             "bludv",
             "torrent9",
-            "mejortorrent",
-            "cinecalidad",
             "ilcorsaronero",
+            "mejortorrent",
             "wolfmax4k",
+            "cinecalidad",
+            "besttorrents",
         )
 
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -719,6 +725,7 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
