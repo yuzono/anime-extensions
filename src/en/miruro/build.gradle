@@ -2,7 +2,7 @@ ext {
     extName = 'Miruro.tv'
     extClass = '.Miruro'
     isNsfw = true
-    extVersionCode = 11
+    extVersionCode = 3
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -10,6 +10,5 @@ apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:omniembedextractor'))
     implementation(project(':lib:anilib'))
-    implementation(project(':lib:cloudscraper'))
-    implementation("com.github.luben:zstd-jni:1.5.6-9@aar")
+    implementation(project(':lib:tlsspoof'))
 }

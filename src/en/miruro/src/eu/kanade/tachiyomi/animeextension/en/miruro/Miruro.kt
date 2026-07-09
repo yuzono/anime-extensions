@@ -16,7 +16,6 @@ import aniyomi.lib.anilib.MediaTitle
 import aniyomi.lib.anilib.StudioEdge
 import aniyomi.lib.anilib.StudioNode
 import aniyomi.lib.anilib.buildDescription
-import com.github.luben.zstd.ZstdInputStream
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -29,7 +28,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import keiyoushi.lib.cloudscraper.CloudScraperInterceptor
+import keiyoushi.lib.tlsspoof.SpoofedTlsSupport
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -46,18 +45,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
-import okio.Buffer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
 class Miruro :
@@ -90,43 +86,187 @@ class Miruro :
     private val SharedPreferences.fillerDisplayMode by preferences.delegate(PREF_FILLER_DISPLAY_KEY, PREF_FILLER_DISPLAY_DEFAULT)
     private val SharedPreferences.fillerMarkMixed by preferences.delegate(PREF_FILLER_MARK_MIXED_KEY, PREF_FILLER_MARK_MIXED_DEFAULT)
 
-    override val client: OkHttpClient = super.client.newBuilder()
-        .addInterceptor(CloudScraperInterceptor(super.client, userAgent = USER_AGENT))
-        .addNetworkInterceptor(ZstdDecompressInterceptor())
-        .build()
+    override val client: OkHttpClient = SpoofedTlsSupport.applyTo(
+        super.client.newBuilder()
+            .addNetworkInterceptor(MiruroBrowserFingerprintInterceptor())
+            .addNetworkInterceptor(MiruroDebugInterceptor()),
+    ).build()
 
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
     }
 
-    /**
-     * Network interceptor that transparently decompresses zstd-encoded response bodies.
-     *
-     * OkHttp's BridgeInterceptor handles gzip transparently but not zstd.
-     * Miruro.tv now returns `content-encoding: zstd` on pipe API responses.
-     * This interceptor strips the Content-Encoding header and decompresses
-     * the body so downstream code receives the plaintext Base64 payload.
-     */
-    private class ZstdDecompressInterceptor : Interceptor {
-        override fun intercept(chain: Interceptor.Chain): Response {
-            val response = chain.proceed(chain.request())
-            val encoding = response.header("Content-Encoding") ?: return response
-            if (!encoding.equals("zstd", ignoreCase = true)) return response
+    // ── Cookie-farming: cold-start + per-episode watch-page warm-up ──────
+    //
+    // Miruro's Cloudflare edge punishes request sequences that don't resemble
+    // a real browser navigating the site: a bare `/api/secure/pipe?e=...`
+    // call with no prior page hit is a bot signal. Two pre-fetches narrow
+    // the gap — see [ensureBaseVisit] (process-once `GET baseUrl`) and
+    // [ensureWatchPageVisited] (per-anilistId `GET watch/<id>` before the
+    // episodes pipe call). Both are idempotent and never re-throw; a failed
+    // warm-up must not block the caller's real fetch.
+    @Volatile
+    private var baseVisitedOnce: Boolean = false
 
-            val body = response.body ?: return response
-            val compressedBytes = body.source().readByteArray()
-            val decompressed = ZstdInputStream(compressedBytes.inputStream()).use { zstd ->
-                Buffer().readFrom(zstd).readByteArray()
+    private val watchPageWarmed: ConcurrentHashMap<Int, Boolean> = ConcurrentHashMap()
+
+    private fun ensureBaseVisit() {
+        if (baseVisitedOnce) return
+        baseVisitedOnce = true
+        val homeUrl = baseUrl
+        runCatching {
+            val req = Request.Builder()
+                .url(homeUrl)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                logD { "ensureBaseVisit: $homeUrl → ${resp.code} (${resp.body?.contentLength() ?: -1}B); cookies warmed for ${homeUrl.toHttpUrl().host}" }
+            }
+        }.onFailure { e ->
+            Log.w(TAG, "ensureBaseVisit: warm-up GET $homeUrl failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    private fun ensureWatchPageVisited(anilistId: Int?) {
+        if (anilistId == null || anilistId <= 0) return
+        if (watchPageWarmed.putIfAbsent(anilistId, true) != null) return
+        val watchUrl = "$baseUrl/watch/$anilistId"
+        runCatching {
+            val req = Request.Builder()
+                .url(watchUrl)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                logD { "ensureWatchPageVisited: $watchUrl → ${resp.code} (${resp.body?.contentLength() ?: -1}B); cookies warmed for ${watchUrl.toHttpUrl().host}" }
+            }
+        }.onFailure { e ->
+            Log.w(TAG, "ensureWatchPageVisited: warm-up GET $watchUrl failed: ${e.javaClass.simpleName}: ${e.message}")
+            // Allow a single retry on the next call if the warm-up failed.
+            watchPageWarmed.remove(anilistId)
+        }
+    }
+
+    /**
+     * Network interceptor that emits structured debug logging for every
+     * request Miruro's [client] makes — the pipe API, the AniList GraphQL
+     * endpoint, and the status-page API.
+     *
+     * **Why this exists:** the previous failure modes (HTTP 403 from the pipe
+     * API, `networkResponse.networkResponse != null` from the CloudScraper
+     * checkpoint-retry leg) leave no breadcrumb in logcat until they surface
+     * as `HttpException` in [MangaScreenModel]. This interceptor pins down
+     * the actual upstream response *before* [OkHttpExtensionsKt.awaitSuccess]
+     * converts it to an exception, capturing the code, response headers, a
+     * body peek (truncated), and a coarse timing mark so issues can be
+     * diagnosed from a logcat paste alone.
+     *
+     * **Output shape (tagged `Miruro`):**
+     * ```
+     * pipe-res 403 Forbidden (583ms) cf_server=N
+     *   url: https://www.miruro.tv/api/secure/pipe?e=(eLen=824)
+     *   resp-headers: Content-Type=text/html | Content-Length=583 | …
+     *   body1: <!DOCTYPE html>…
+     * ```
+     * - 4xx/5xx → `Log.w` (always on — visible without `BuildConfig.DEBUG`).
+     * - 2xx/3xx → `Log.d`.
+     * - `pipe-res`/`anilist-res`/`net-res`: which upstream this is.
+     *
+     * Ordering: registered last in [client]'s network interceptor chain, so it
+     * observes the same Response the rest of the chain consumes (post-fingerprint;
+     * brotli/gzip decompression is handled by aniyomi's `CompressionInterceptor`,
+     * which sits closer to the connection). [MiruroBrowserFingerprintInterceptor]
+     * runs first to shape the request with browser headers before any other
+     * interceptor sees it. (An earlier version had a [ZstdDecompressInterceptor]
+     * between them, but the `zstd-jni` native library was not being packaged into
+     * the extension APK and raised `NoClassDefFoundError` on real Android devices —
+     * removed. The pipe API is now requested with `Accept-Encoding: gzip, deflate, br`
+     * only, and we let the host app's brotli interceptor decompress any `.br`
+     * response transparently. Earlier versions also referenced a `solve_leg=Y`
+     * marker carrying `X-Cloudscraper-Skip: 1` — that header was the internal
+     * retry signal of the old `CloudScraperInterceptor` solve leg, which is no
+     * longer wired into [client]; the marker is retained elsewhere for
+     * diagnostics only.)
+     */
+    private class MiruroDebugInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val request = chain.request()
+            val startedAt = System.nanoTime()
+            val solveLeg = request.header("X-Cloudscraper-Skip") != null
+
+            val isInteresting = request.url.host.endsWith("miruro.", ignoreCase = true) ||
+                request.url.host.endsWith("miruro.com", ignoreCase = true) ||
+                request.url.host.endsWith("anilist.co", ignoreCase = true)
+            if (!isInteresting) return chain.proceed(request)
+
+            val maskedUrl = maskPipeParam(request.url.toString())
+            val cfSkip = if (solveLeg) " solve_leg=Y" else ""
+
+            try {
+                val response = chain.proceed(request)
+                val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
+                val code = response.code
+                val server = response.header("Server") ?: ""
+                val cfMitigated = response.header("cf-mitigated")
+                val cfServerFlag = if (server.equals("cloudflare", true) || server.equals("cloudflare-nginx", true)) " cf_server=Y" else " cf_server=N"
+                val mitigatedStr = cfMitigated?.let { " cf_mitigated=$it" } ?: ""
+                val label = labelFor(request.url.host)
+
+                if (code in 400..599) {
+                    val bodyPeek = runCatching {
+                        response.peekBody(BODY_PEEK_BYTES)
+                            .string()
+                            .take(BODY_PEEK_CHARS)
+                            .replace("\n", "\\n")
+                    }.getOrNull() ?: "<unreadable body>"
+                    Log.w(
+                        TAG,
+                        "$label-res $code ${response.message} (${elapsedMs}ms)$cfSkip$cfServerFlag$mitigatedStr\n" +
+                            "  url: $maskedUrl\n" +
+                            "  resp-headers: ${redactedResponseHeaders(response)}\n" +
+                            "  body1: $bodyPeek",
+                    )
+                } else {
+                    Log.d(
+                        TAG,
+                        "$label-res $code ${response.message} (${elapsedMs}ms)$cfSkip$cfServerFlag$mitigatedStr url=$maskedUrl",
+                    )
+                }
+                return response
+            } catch (e: IOException) {
+                val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
+                Log.w(
+                    TAG,
+                    "${labelFor(request.url.host)}-iofail (${elapsedMs}ms)$cfSkip url=$maskedUrl err=${e.javaClass.simpleName}: ${e.message}",
+                )
+                throw e
+            }
+        }
+
+        private fun maskPipeParam(url: String): String {
+            val idx = url.indexOf("e=")
+            if (idx < 0) return url
+            val tail = url.substring(idx + 2)
+            val end = tail.indexOf('&').let { if (it < 0) tail.length else it }
+            return url.substring(0, idx + 2) + "(eLen=$end)" + if (end < tail.length) tail.substring(end) else ""
+        }
+
+        private fun labelFor(host: String): String = when {
+            host.endsWith("anilist.co", true) -> "anilist"
+            host.endsWith("miruro.com", true) || host.endsWith("miruro.", true) -> "pipe"
+            else -> "net"
+        }
+
+        private fun redactedResponseHeaders(response: Response): String = response.headers
+            .filterNot { (name, _) ->
+                name.equals("Server", true) || name.equals("cf-mitigated", true)
+            }
+            .joinToString(separator = " | ") { (n, v) ->
+                val vs = if (n.equals("Set-Cookie", true)) "<redacted len=${v.length}>" else v
+                "$n=$vs"
             }
 
-            val newBody = decompressed.toResponseBody(
-                body.contentType() ?: "text/plain".toMediaType(),
-            )
-
-            return response.newBuilder()
-                .body(newBody)
-                .removeHeader("Content-Encoding")
-                .build()
+        companion object {
+            private const val TAG = "Miruro"
+            private const val BODY_PEEK_BYTES = 4_096L
+            private const val BODY_PEEK_CHARS = 256
         }
     }
 
@@ -576,7 +716,7 @@ class Miruro :
 
         private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
 
-        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+        internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 
         private const val PREF_PROVIDER_KEY = "preferred_provider"
         private const val PREF_PROVIDER_TITLE = "Preferred Provider"
@@ -704,6 +844,7 @@ class Miruro :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         logD { "getPopularAnime: page=$page" }
+        ensureBaseVisit()
         launchConfigFetch()
         val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = 20)
             ?: return AnimesPage(emptyList(), false)
@@ -719,6 +860,7 @@ class Miruro :
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         logD { "getLatestUpdates: page=$page" }
+        ensureBaseVisit()
         val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = 20)
             ?: return AnimesPage(emptyList(), false)
         val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
@@ -733,6 +875,7 @@ class Miruro :
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         logD { "getSearchAnime: query='${query.take(80)}', page=$page" }
+        ensureBaseVisit()
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
             if (url.host != baseUrl.toHttpUrl().host) {
@@ -793,6 +936,7 @@ class Miruro :
     override fun animeDetailsRequest(anime: SAnime): Request = buildPipeRequest("info/${anime.url}", "GET")
 
     override fun animeDetailsParse(response: Response): SAnime {
+        ensureBaseVisit()
         val json = validateResponse(response).use { extractor.decryptResponse(it) }
         logD { "animeDetailsParse: response length=${json.length}" }
 
@@ -998,6 +1142,10 @@ class Miruro :
 
         val anilistId = extractAnilistIdFromPipeRequest(response.request.url.toString())
         logD { "episodeListParse: anilistId=$anilistId, preferred=$preferredProvider, subType=$preferredSubType, merge=$mergeAcrossProviders" }
+
+        // Warm watch page before downstream sources pipe call — see [ensureWatchPageVisited].
+        ensureBaseVisit()
+        ensureWatchPageVisited(anilistId)
 
         val availableProviders = providers.keys().asSequence().toList()
         logD { "episodeListParse: available providers from response: $availableProviders" }
@@ -1731,17 +1879,7 @@ class Miruro :
         val jsonBytes = payload.toString().toByteArray(Charsets.UTF_8)
         val encoded = Base64.encodeToString(jsonBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
-        return GET(
-            "$baseUrl/api/secure/pipe?e=$encoded",
-            headers = Headers.headersOf(
-                "Accept",
-                "*/*",
-                "User-Agent",
-                USER_AGENT,
-                "Referer",
-                "$baseUrl/",
-            ),
-        )
+        return GET("$baseUrl/api/secure/pipe?e=$encoded")
     }
 
     private fun buildPipeQuery(vararg pairs: Pair<String, Any?>): JSONObject = JSONObject().apply {
