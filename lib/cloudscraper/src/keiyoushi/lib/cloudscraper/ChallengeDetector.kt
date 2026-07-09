@@ -4,173 +4,129 @@ import android.util.Log
 
 /**
  * Detects the type of Cloudflare challenge from the HTML response body
- * and extracts challenge metadata needed for solving.
+ * and extracts the metadata needed for the JSD fast path.
  *
- * Uses compiled regex patterns for efficient, robust parsing — no
- * naive `.contains()` checks that could match false positives.
+ * The taxonomy is deliberately binary:
+ * - **JSD** — silent `__CF$cv$params` sensor challenge. The headless JSD
+ *   solver (`JsdSolver`) attempts this; on failure the hybrid
+ *   `CloudScraperInterceptor` falls back to WebView.
+ * - **UNSOLVABLE** — everything else (managed v2/v3 "Just a moment…",
+ *   legacy IUAM, Turnstile widget, V1 classic JS trace, or an
+ *   unclassifiable 403/503 from a CF server). The interceptor routes
+ *   these directly to the WebView fallback.
+ *
+ * The old multi-type taxonomy (MANAGED / LEGACY_IUAM / TURNSTILE) carried
+ * metadata that only the dead `ManagedChallengeSolver` and
+ * `LegacyIuamSolver` consumed. Both solvers were removed because headless
+ * QuickJS cannot reproduce the fingerprint signals modern CF collects
+ * (real canvas/WebGL rendering, pointer events, focus state). Keeping
+ * those fields would be dead weight and a maintenance trap.
+ *
+ * Detection uses compiled regex patterns for efficient, robust parsing —
+ * no naive `.contains()` checks that could match false positives.
  */
 object ChallengeDetector {
 
     private val TAG = "CloudScraper/Detect"
 
-    // ── Detection patterns ──────────────────────────────────────────
+    // ── JSD detection ────────────────────────────────────────────────
 
     /** JSD sensor challenge: `window.__CF$cv$params = {...}` */
-    private val JSD_REGEX = Regex("""window\.__CF${'$'}cv${'$'}params\s*=\s*(\{[^}]+\})""")
+    private val JSD_REGEX = Regex("window\\.__CF\\\$cv\\\$params\\s*=\\s*(\\{[^}]+\\})")
 
-    /** V2/V3 managed challenge: `/cdn-cgi/challenge-platform/` path in scripts */
-    private val MANAGED_V2_REGEX = Regex("""/cdn-cgi/challenge-platform/""")
-
-    /** V1 classic JS challenge: `/cdn-cgi/images/trace/jsch/` path */
-    private val V1_TRACE_REGEX = Regex("""/cdn-cgi/images/trace/jsch/""")
-
-    /** Legacy IUAM: `jschl_vc` or `jschl_answer` form fields */
-    private val LEGACY_IUAM_REGEX = Regex("""name=["']jschl_vc["']""")
-
-    /** Turnstile widget: `.cf-turnstile` class or `challenges.cloudflare.com/turnstile` */
-    private val TURNSTILE_REGEX = Regex("""(?:class=["'][^"']*cf-turnstile|challenges\.cloudflare\.com/turnstile)""")
-
-    /** CAPTCHA site key: `data-sitekey="..."` */
-    private val SITEKEY_REGEX = Regex("""data-sitekey="([^"]+)"""")
-
-    // ── Metadata extraction patterns ───────────────────────────────
-
-    /** Challenge form action URL */
-    private val FORM_ACTION_REGEX =
-        Regex("""<form[^>]*class="challenge-form"[^>]*id="challenge-form"[^>]*action="([^"]+)"""")
-
-    /** Legacy hidden inputs */
-    private val JSCHL_VC_REGEX = Regex("""name="jschl_vc"\s+value="(\w+)"""")
-    private val PASS_REGEX = Regex("""name="pass"\s+value="([^"]+)"""")
-
-    /** r-value: old format `<input name="r" value="...">` */
-    private val R_VALUE_OLD_REGEX = Regex("""name="r"\s+value="([^"]+)"""")
-
-    /** r-value: modern format `r: '...'` in JS */
-    private val R_VALUE_MODERN_REGEX = Regex("""r:\s*'([^']+)'""")
-
-    /** V1 challenge script: `setTimeout(function(){ var s,t,o,p... a.value = ...` */
-    private val V1_SCRIPT_REGEX =
-        Regex("""setTimeout\(function\(\)\{\s+(var s,t,o,p,b,r,e,a,k,i,n,g,f.+?a\.value =.+?)\r?\n""")
-
-    /** V1 answer expression: `a.value = <expr>.toFixed(10)` */
-    private val V1_ANSWER_REGEX = Regex("""a\.value = (.+?)\.toFixed\(10\)""")
+    /** JSD main.js script URL reference: `src='...main.js...'` */
+    private val JSD_MAINJS_REGEX = Regex("""src=['"]([^'"]*main\.js[^'"]*)['"]""")
 
     /**
      * Analyzes the HTML of a Cloudflare challenge page.
      *
-     * Detection priority (first match wins):
-     * 1. **JSD** — silent sensor challenge, most solvable
-     * 2. **Managed V2/V3** — modern JS challenge, may be solvable via QuickJS DOM shim
-     * 3. **Legacy IUAM** — old math challenge, fully solvable
-     * 4. **Turnstile** — interactive CAPTCHA widget, not solvable without browser
-     *
-     * @return [ChallengeInfo] with the type and all extracted metadata
+     * @return [ChallengeInfo] with the detected [ChallengeType] and, for JSD,
+     *   the raw `__CF$cv$params` string needed by [JsdSolver]
      */
     fun detect(html: String): ChallengeInfo {
-        // JSD sensor challenge — highest priority, most solvable
+        // Reject Cloudflare WAF block pages early. Blocks look like JSD
+        // challenges at the header level (403 + Server: cloudflare) and may
+        // even contain __CF\$cv\$params (injected into a hidden iframe for
+        // analytics). They are NOT solvable — no challenge cookie clears a
+        // WAF block rule — and the synthetic-param path below would
+        // incorrectly classify them as JSD.
+        if (html.contains("cf-error-details") || html.contains("have been blocked")) {
+            Log.d(TAG, "Cloudflare block page detected — not a solvable challenge, returning UNSOLVABLE")
+            return ChallengeInfo(type = ChallengeType.UNSOLVABLE)
+        }
+
+        // JSD — the only challenge type we can attempt headlessly.
         JSD_REGEX.find(html)?.let { match ->
             val rawParams = match.groupValues[1]
-            return ChallengeInfo(
-                type = ChallengeType.JSD,
-                rawCvParams = rawParams,
-                rValue = extractRValue(html),
-            )
+            if (rawParams.contains("\"a\"") || rawParams.contains("'a'") || rawParams.contains("a:")) {
+                return ChallengeInfo(
+                    type = ChallengeType.JSD,
+                    rawCvParams = rawParams,
+                )
+            }
+            // Variant that only carries `r` / `t` — rebuild synthetic a/s/h params.
+            if (rawParams.contains("\"r\"") || rawParams.contains("'r'") || rawParams.contains("r:")) {
+                val mainJsUrl = JSD_MAINJS_REGEX.find(html)?.groupValues?.get(1)
+                    ?: "/cdn-cgi/challenge-platform/scripts/jsd/main.js"
+                val syntheticParams = buildSyntheticCvParams(rawParams, mainJsUrl)
+                if (syntheticParams != null) {
+                    return ChallengeInfo(
+                        type = ChallengeType.JSD,
+                        rawCvParams = syntheticParams,
+                    )
+                }
+            }
         }
 
-        // V2/V3 managed challenge — try DOM shim approach
-        if (MANAGED_V2_REGEX.containsMatchIn(html)) {
-            return ChallengeInfo(
-                type = ChallengeType.MANAGED,
-                formAction = FORM_ACTION_REGEX.find(html)?.groupValues?.get(1),
-                jschlVc = JSCHL_VC_REGEX.find(html)?.groupValues?.get(1),
-                pass = PASS_REGEX.find(html)?.groupValues?.get(1),
-                rValue = extractRValue(html),
-                v1Script = V1_SCRIPT_REGEX.find(html)?.groupValues?.get(1),
-                v1AnswerExpr = V1_ANSWER_REGEX.find(html)?.groupValues?.get(1),
-            )
-        }
-
-        // V1 classic JS challenge trace marker
-        if (V1_TRACE_REGEX.containsMatchIn(html)) {
-            return ChallengeInfo(
-                type = ChallengeType.MANAGED,
-                formAction = FORM_ACTION_REGEX.find(html)?.groupValues?.get(1),
-                jschlVc = JSCHL_VC_REGEX.find(html)?.groupValues?.get(1),
-                pass = PASS_REGEX.find(html)?.groupValues?.get(1),
-                rValue = extractRValue(html),
-                v1Script = V1_SCRIPT_REGEX.find(html)?.groupValues?.get(1),
-                v1AnswerExpr = V1_ANSWER_REGEX.find(html)?.groupValues?.get(1),
-            )
-        }
-
-        // Legacy IUAM — old-style jschl_answer form
-        if (LEGACY_IUAM_REGEX.containsMatchIn(html)) {
-            return ChallengeInfo(
-                type = ChallengeType.LEGACY_IUAM,
-                formAction = FORM_ACTION_REGEX.find(html)?.groupValues?.get(1),
-                jschlVc = JSCHL_VC_REGEX.find(html)?.groupValues?.get(1),
-                pass = PASS_REGEX.find(html)?.groupValues?.get(1),
-                rValue = extractRValue(html),
-                v1Script = V1_SCRIPT_REGEX.find(html)?.groupValues?.get(1),
-                v1AnswerExpr = V1_ANSWER_REGEX.find(html)?.groupValues?.get(1),
-            )
-        }
-
-        // Turnstile — interactive CAPTCHA widget
-        if (TURNSTILE_REGEX.containsMatchIn(html)) {
-            return ChallengeInfo(
-                type = ChallengeType.TURNSTILE,
-                sitekey = SITEKEY_REGEX.find(html)?.groupValues?.get(1),
-            )
-        }
-
-        // Fallback: CF 403/503 but unclassifiable — assume managed
-        Log.w(TAG, "Unclassifiable Cloudflare challenge page, falling back to MANAGED")
-        return ChallengeInfo(type = ChallengeType.MANAGED)
+        // Everything else routes to WebView via UNSOLVABLE. We no longer
+        // try to distinguish managed v2/v3 / legacy IUAM / Turnstile from
+        // each other — none of those distinctions are actionable in the
+        // headless path, and the WebView fallback doesn't need them.
+        Log.d(TAG, "Non-JSD challenge (managed/turnstile/legacy) — deferring to WebView fallback")
+        return ChallengeInfo(type = ChallengeType.UNSOLVABLE)
     }
 
-    private fun extractRValue(html: String): String? = R_VALUE_OLD_REGEX.find(html)?.groupValues?.get(1)
-        ?: R_VALUE_MODERN_REGEX.find(html)?.groupValues?.get(1)
+    /**
+     * Builds synthetic JSD params from an `r`/`t` variant __CF$cv$params object.
+     * Maps: `r` → `a`, `mainJsUrl` → `s`, derived `h` from `a`.
+     * Returns a JSON string parseable by JsdSolver.parseCvParams, or null if `r` not found.
+     */
+    private fun buildSyntheticCvParams(rawParams: String, mainJsUrl: String): String? {
+        val rMatch = Regex("""['"]?r['"]?\s*:\s*['"]([^'"]+)['"]""").find(rawParams) ?: return null
+        val a = rMatch.groupValues[1]
+        val h = a.takeLast(8)
+        return """{"a":"$a","s":"$mainJsUrl","h":"$h"}"""
+    }
 }
 
 /**
- * Classification of Cloudflare challenge types.
+ * Cloudflare challenge classification. Binary by design:
+ * - [JSD] — solvable headlessly via [JsdSolver] (fast path)
+ * - [UNSOLVABLE] — routes to the WebView fallback
  */
 enum class ChallengeType {
     /** Silent JSD sensor challenge using `__CF$cv$params` — solvable without browser. */
     JSD,
 
-    /** Legacy IUAM challenge with `jschl_answer` — solvable without browser. */
-    LEGACY_IUAM,
-
-    /** Managed challenge ("Just a moment…") — may be solvable via QuickJS DOM shim. */
-    MANAGED,
-
-    /** Turnstile interactive widget — requires human interaction or CAPTCHA solver. */
-    TURNSTILE,
+    /**
+     * Anything we cannot solve headlessly: managed v2/v3 ("Just a moment…"),
+     * legacy IUAM, Turnstile widget, V1 classic JS trace, or an unclassifiable
+     * CF 403/503. The interceptor falls back to a WebView solve.
+     */
+    UNSOLVABLE,
 }
 
 /**
  * Parsed challenge metadata extracted from the HTML page.
- * Only the fields relevant to the detected [ChallengeType] will be populated.
+ *
+ * Only [rawCvParams] is populated — it is the sole field the surviving
+ * JSD path consumes. All other fields (form action, `jschl_vc`, `pass`,
+ * `r`-value, V1 script/answer expressions, Turnstile site key) were
+ * stripped because they were only consumed by the removed managed and
+ * legacy solvers.
  */
 data class ChallengeInfo(
     val type: ChallengeType,
     /** Raw `__CF$cv$params` object string (JSD only). */
     val rawCvParams: String? = null,
-    /** Form action URL (MANAGED, LEGACY_IUAM). */
-    val formAction: String? = null,
-    /** `jschl_vc` verification code (MANAGED, LEGACY_IUAM). */
-    val jschlVc: String? = null,
-    /** `pass` form value (MANAGED, LEGACY_IUAM). */
-    val pass: String? = null,
-    /** `r` parameter value (MANAGED, LEGACY_IUAM). */
-    val rValue: String? = null,
-    /** V1 challenge script body (MANAGED if V1 trace detected). */
-    val v1Script: String? = null,
-    /** V1 answer expression before `.toFixed(10)` (MANAGED if V1). */
-    val v1AnswerExpr: String? = null,
-    /** Turnstile/CAPTCHA site key (TURNSTILE only). */
-    val sitekey: String? = null,
 )

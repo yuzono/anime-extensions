@@ -125,14 +125,25 @@ class CookieCache {
      */
     fun lockForHost(host: String): Boolean {
         val lock = hostLocks.getOrPut(host) { ReentrantLock() }
+        // ReentrantLock.tryLock() returns true if the current thread already
+        // holds the lock (reentrant acquire).  We want non-reentrant semantics:
+        // a second attempt by the same thread should fail so the lock acts as
+        // a guard against duplicate solve attempts within the same call stack.
+        if (lock.isHeldByCurrentThread) return false
         return lock.tryLock()
     }
 
     /**
-     * Releases the per-host lock after a solve attempt completes.
+     * Releases the per-host lock after a solve attempt completes. Removes
+     * the [ReentrantLock] from [hostLocks] when no waiter is contending so
+     * the map doesn't grow one entry per host ever visited.
      */
     fun unlockForHost(host: String) {
-        hostLocks[host]?.unlock()
+        val lock = hostLocks[host] ?: return
+        lock.unlock()
+        if (!lock.isLocked && lock.queueLength == 0) {
+            hostLocks.remove(host, lock)
+        }
     }
 
     /**
