@@ -211,6 +211,7 @@ class AnimeGo :
         val document = response.asJsoup()
         val iframeSrc = document.selectFirst("iframe[data-src*=kodik], iframe[src*=kodik]")
             ?.let { it.attr("data-src").ifBlank { it.attr("src") } }
+            ?.takeIf { it.isNotBlank() }
             ?: throw Exception("Плеер Kodik не найден на странице")
 
         val playerUrl = iframeSrc.fixProtocol()
