@@ -61,7 +61,7 @@ class MonosChinos :
             "MixDrop",
             "Streamtape",
             "Mp4Upload",
-            "LuluStream",
+            "LuluStream"
         )
 
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)\$")
