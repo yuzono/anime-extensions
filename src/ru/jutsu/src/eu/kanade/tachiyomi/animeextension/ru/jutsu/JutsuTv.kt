@@ -82,15 +82,21 @@ class JutsuTv :
             if (query.length < 4) throw Exception("Минимальная длина поискового запроса — 4 символа")
 
             val postHeaders = headers.newBuilder()
-                .add("Content-Type", "application/x-www-form-urlencoded")
                 .add("Origin", baseUrl)
                 .build()
 
-            val body = buildString {
-                append("do=search&subaction=search")
-                if (page > 1) append("&search_start=$page&full_search=0&result_from=${(page - 1) * 10 + 1}")
-                append("&story=${Uri.encode(query)}")
-            }.toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            val body = FormBody.Builder()
+                .add("do", "search")
+                .add("subaction", "search")
+                .apply {
+                    if (page > 1) {
+                        add("search_start", page.toString())
+                        add("full_search", "0")
+                        add("result_from", ((page - 1) * 10 + 1).toString())
+                    }
+                }
+                .add("story", query)
+                .build()
 
             return if (page == 1) {
                 POST("$baseUrl/", body = body, headers = postHeaders)
