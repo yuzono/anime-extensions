@@ -64,8 +64,8 @@ class MonosChinos :
             "LuluStream"
         )
 
-        private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)\$")
-        private val SUB_ES_REGEX = Regex("-sub-espanol\$")
+        private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
+        private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
