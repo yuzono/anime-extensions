@@ -1,4 +1,4 @@
-package aniyomi.lib.anilib
+package eu.kanade.tachiyomi.multisrc.anilib
 
 import android.content.SharedPreferences
 import android.util.Log
@@ -51,6 +51,10 @@ object AniLib {
     private const val RATE_LIMIT_RETRY_AFTER_HEADER = "Retry-After"
     private const val CACHE_KEY_PREFIX = "anilib_media_"
     private const val CACHE_BACKOFF_KEY = "anilib_rate_limit_until"
+    private const val MAX_ERROR_BODY_BYTES = 8_192L
+    private const val MAX_ERROR_LOG_CHARS = 512
+    private val ERROR_ARRAY_REGEX = Regex(""""errors"\s*:\s*\[(.*?)]""", RegexOption.DOT_MATCHES_ALL)
+    private val MESSAGE_REGEX = Regex(""""message"\s*:\s*"((?:[^"\\]|\\.)*)"""")
 
     private val graphQLHeaders = Headers.Builder().build()
 
@@ -175,6 +179,20 @@ object AniLib {
 
     // ========================== GraphQL Execution ==========================
 
+    private fun extractGraphQLErrors(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        return runCatching {
+            val trimmed = body.trimStart()
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                val errorsSection = ERROR_ARRAY_REGEX.find(trimmed)?.groupValues?.get(1) ?: return@runCatching null
+                val messages = MESSAGE_REGEX.findAll(errorsSection).map { it.groupValues[1] }.toList()
+                if (messages.isNotEmpty()) messages.joinToString("; ") else null
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
+
     /**
      * Executes a GraphQL query against AniList, using [graphQLPost] from core
      * for request construction and [parseGraphQLAs] for response parsing.
@@ -221,7 +239,13 @@ object AniLib {
                         null
                     }
                     !response.isSuccessful -> {
-                        Log.e(TAG, "AniList request failed: ${response.code}")
+                        val errorBody = runCatching {
+                            response.peekBody(MAX_ERROR_BODY_BYTES).string()
+                        }.getOrNull()
+                        val detail = extractGraphQLErrors(errorBody)
+                            ?: errorBody?.take(MAX_ERROR_LOG_CHARS)
+                            ?: "(empty body)"
+                        Log.e(TAG, "AniList request failed: HTTP ${response.code} — $detail")
                         null
                     }
                     else -> {
@@ -846,7 +870,9 @@ object AniLib {
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "ani.zip request failed: ${response.code}")
+                    val body = runCatching { response.peekBody(MAX_ERROR_BODY_BYTES).string() }.getOrNull()
+                    val detail = body?.take(MAX_ERROR_LOG_CHARS) ?: "(empty body)"
+                    Log.w(TAG, "ani.zip request failed: HTTP ${response.code} — $detail")
                     return EpisodeTitlesResult()
                 }
                 val body = response.body.string()
@@ -943,7 +969,9 @@ object AniLib {
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "AniFiller download failed: ${response.code}")
+                    val body = runCatching { response.peekBody(MAX_ERROR_BODY_BYTES).string() }.getOrNull()
+                    val detail = body?.take(MAX_ERROR_LOG_CHARS) ?: "(empty body)"
+                    Log.w(TAG, "AniFiller download failed: HTTP ${response.code} — $detail")
                     return emptyList()
                 }
                 val body = response.body.string()

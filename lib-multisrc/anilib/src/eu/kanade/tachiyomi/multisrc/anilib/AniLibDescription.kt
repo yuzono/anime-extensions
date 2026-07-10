@@ -1,4 +1,4 @@
-package aniyomi.lib.anilib
+package eu.kanade.tachiyomi.multisrc.anilib
 
 /**
  * Controls which sections are included in the built description string.
