@@ -609,95 +609,6 @@ val MediaSnapshot.completedCount: Int
 // ========================== Media Filter ==========================
 
 /**
- * Builder for constructing [MediaFilter] instances with a fluent API.
- *
- * Usage:
- * ```
- * val filter = MediaFilter.Builder()
- *     .search("Attack on Titan")
- *     .sort("POPULARITY_DESC")
- *     .genre("Action", "Drama")
- *     .excludeGenre("Comedy")
- *     .status("FINISHED")
- *     .season("SPRING", 2023)
- *     .format("TV")
- *     .page(1)
- *     .perPage(20)
- *     .build()
- * ```
- */
-class MediaFilter.Builder {
-    private var search: String? = null
-    private var sort: String? = null
-    private var sortList: List<String>? = null
-    private var format: String? = null
-    private var formatList: List<String>? = null
-    private var status: String? = null
-    private var season: String? = null
-    private var seasonYear: Int? = null
-    private val genres = mutableListOf<String>()
-    private val excludedGenres = mutableListOf<String>()
-    private val tags = mutableListOf<String>()
-    private val excludedTags = mutableListOf<String>()
-    private var minimumTagRank: Int? = null
-    private var yearGreater: Int? = null
-    private var yearLesser: Int? = null
-    private var countryOfOrigin: String? = null
-    private var isAdult: Boolean? = null
-    private var onList: Boolean? = null
-    private var page: Int? = null
-    private var perPage: Int? = null
-
-    fun search(query: String) = apply { this.search = query }
-    fun sort(vararg criteria: String) = apply { this.sortList = criteria.toList() }
-    fun sort(criteria: String) = apply { this.sort = criteria }
-    fun format(vararg formats: String) = apply { this.formatList = formats.toList() }
-    fun format(fmt: String) = apply { this.format = fmt }
-    fun status(status: String) = apply { this.status = status }
-    fun season(season: String, year: Int? = null) = apply {
-        this.season = season.uppercase()
-        this.seasonYear = year
-    }
-    fun genre(vararg genres: String) = apply { this.genres.addAll(genres) }
-    fun excludeGenre(vararg genres: String) = apply { this.excludedGenres.addAll(genres) }
-    fun tag(vararg tags: String) = apply { this.tags.addAll(tags) }
-    fun excludeTag(vararg tags: String) = apply { this.excludedTags.addAll(tags) }
-    fun minimumTagRank(rank: Int) = apply { this.minimumTagRank = rank }
-    fun yearRange(from: Int? = null, to: Int? = null) = apply {
-        this.yearGreater = from
-        this.yearLesser = to
-    }
-    fun countryOfOrigin(code: String) = apply { this.countryOfOrigin = code }
-    fun isAdult(adult: Boolean?) = apply { this.isAdult = adult }
-    fun onList(onList: Boolean?) = apply { this.onList = onList }
-    fun page(page: Int) = apply { this.page = page }
-    fun perPage(perPage: Int) = apply { this.perPage = perPage }
-
-    fun build() = MediaFilter(
-        search = search,
-        sort = sort,
-        sortList = sortList,
-        format = format,
-        formatList = formatList,
-        status = status,
-        season = season,
-        seasonYear = seasonYear,
-        genres = genres.takeIf { it.isNotEmpty() },
-        excludedGenres = excludedGenres.takeIf { it.isNotEmpty() },
-        tags = tags.takeIf { it.isNotEmpty() },
-        excludedTags = excludedTags.takeIf { it.isNotEmpty() },
-        minimumTagRank = minimumTagRank,
-        yearGreater = yearGreater,
-        yearLesser = yearLesser,
-        countryOfOrigin = countryOfOrigin,
-        isAdult = isAdult,
-        onList = onList,
-        page = page,
-        perPage = perPage,
-    )
-}
-
-/**
  * Universal filter parameters for AniList media queries.
  *
  * All fields are nullable strings (or lists of strings) to allow flexible
@@ -791,5 +702,94 @@ data class MediaFilter(
         perPage?.let { put("perPage", it) }
         // type is always ANIME for this library
         put("type", "ANIME")
+    }
+
+    /**
+     * Builder for constructing [MediaFilter] instances with a fluent API.
+     *
+     * Usage:
+     * ```
+     * val filter = MediaFilter.Builder()
+     *     .search("Attack on Titan")
+     *     .sort("POPULARITY_DESC")
+     *     .genre("Action", "Drama")
+     *     .excludeGenre("Comedy")
+     *     .status("FINISHED")
+     *     .season("SPRING", 2023)
+     *     .format("TV")
+     *     .page(1)
+     *     .perPage(20)
+     *     .build()
+     * ```
+     */
+    class Builder {
+        private var search: String? = null
+        private var sort: String? = null
+        private var sortList: List<String>? = null
+        private var format: String? = null
+        private var formatList: List<String>? = null
+        private var status: String? = null
+        private var season: String? = null
+        private var seasonYear: Int? = null
+        private val genres = mutableListOf<String>()
+        private val excludedGenres = mutableListOf<String>()
+        private val tags = mutableListOf<String>()
+        private val excludedTags = mutableListOf<String>()
+        private var minimumTagRank: Int? = null
+        private var yearGreater: Int? = null
+        private var yearLesser: Int? = null
+        private var countryOfOrigin: String? = null
+        private var isAdult: Boolean? = null
+        private var onList: Boolean? = null
+        private var page: Int? = null
+        private var perPage: Int? = null
+
+        fun search(query: String) = apply { this.search = query }
+        fun sort(vararg criteria: String) = apply { this.sortList = criteria.toList() }
+        fun sort(criteria: String) = apply { this.sort = criteria }
+        fun format(vararg formats: String) = apply { this.formatList = formats.toList() }
+        fun format(fmt: String) = apply { this.format = fmt }
+        fun status(status: String) = apply { this.status = status }
+        fun season(season: String, year: Int? = null) = apply {
+            this.season = season.uppercase()
+            this.seasonYear = year
+        }
+        fun genre(vararg genres: String) = apply { this.genres.addAll(genres) }
+        fun excludeGenre(vararg genres: String) = apply { this.excludedGenres.addAll(genres) }
+        fun tag(vararg tags: String) = apply { this.tags.addAll(tags) }
+        fun excludeTag(vararg tags: String) = apply { this.excludedTags.addAll(tags) }
+        fun minimumTagRank(rank: Int) = apply { this.minimumTagRank = rank }
+        fun yearRange(from: Int? = null, to: Int? = null) = apply {
+            this.yearGreater = from
+            this.yearLesser = to
+        }
+        fun countryOfOrigin(code: String) = apply { this.countryOfOrigin = code }
+        fun isAdult(adult: Boolean?) = apply { this.isAdult = adult }
+        fun onList(onList: Boolean?) = apply { this.onList = onList }
+        fun page(page: Int) = apply { this.page = page }
+        fun perPage(perPage: Int) = apply { this.perPage = perPage }
+
+        fun build() = MediaFilter(
+            search = search,
+            sort = sort,
+            sortList = sortList,
+            format = format,
+            formatList = formatList,
+            status = status,
+            season = season,
+            seasonYear = seasonYear,
+            genres = genres.takeIf { it.isNotEmpty() },
+            excludedGenres = excludedGenres.takeIf { it.isNotEmpty() },
+            tags = tags.takeIf { it.isNotEmpty() },
+            excludedTags = excludedTags.takeIf { it.isNotEmpty() },
+            minimumTagRank = minimumTagRank,
+            yearGreater = yearGreater,
+            yearLesser = yearLesser,
+            countryOfOrigin = countryOfOrigin,
+            isAdult = isAdult,
+            onList = onList,
+            page = page,
+            perPage = perPage,
+        )
     }
 }
