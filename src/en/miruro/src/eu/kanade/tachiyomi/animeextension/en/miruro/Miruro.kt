@@ -42,8 +42,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -199,6 +202,7 @@ class Miruro :
 
             val maskedUrl = maskPipeParam(request.url.toString())
             val cfSkip = if (solveLeg) " solve_leg=Y" else ""
+            val label = labelFor(request.url.host)
 
             try {
                 val response = chain.proceed(request)
@@ -208,7 +212,6 @@ class Miruro :
                 val cfMitigated = response.header("cf-mitigated")
                 val cfServerFlag = if (server.equals("cloudflare", true) || server.equals("cloudflare-nginx", true)) " cf_server=Y" else " cf_server=N"
                 val mitigatedStr = cfMitigated?.let { " cf_mitigated=$it" } ?: ""
-                val label = labelFor(request.url.host)
 
                 if (code in 400..599) {
                     val bodyPeek = runCatching {
@@ -235,7 +238,7 @@ class Miruro :
                 val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
                 Log.w(
                     TAG,
-                    "${labelFor(request.url.host)}-iofail (${elapsedMs}ms)$cfSkip url=$maskedUrl err=${e.javaClass.simpleName}: ${e.message}",
+                    "$label-iofail (${elapsedMs}ms)$cfSkip url=$maskedUrl err=${e.javaClass.simpleName}: ${e.message}",
                 )
                 throw e
             }
@@ -713,6 +716,7 @@ class Miruro :
         }
 
         private const val MAX_FETCH_ATTEMPTS = 3
+        private const val ANIME_META_CACHE_CAP = 16
         private const val PREF_CACHED_CONFIG_KEY = "cached_config_json"
 
         private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
@@ -867,7 +871,7 @@ class Miruro :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         logD { "getLatestUpdates: page=$page" }
         ensureBaseVisit()
-        val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = 20)
+        val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
         val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
         return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
@@ -916,7 +920,7 @@ class Miruro :
         launchConfigFetch()
 
         if (query.isNotEmpty()) {
-            val (mediaList, pageInfo) = AniLib.fetchSearchAnime(client, query = query, page = page, perPage = 20)
+            val (mediaList, pageInfo) = AniLib.fetchSearchAnime(client, query = query, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
                 ?: return AnimesPage(emptyList(), false)
             val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
             val dubLang = MiruroFilters.getSearchParameters(filters).dubLanguage
@@ -926,7 +930,7 @@ class Miruro :
 
         val params = MiruroFilters.getSearchParameters(filters)
         val mediaFilter = params.toMediaFilter(page = page, perPage = 20)
-        val (mediaList, pageInfo) = AniLib.fetchFilteredMedia(client, mediaFilter)
+        val (mediaList, pageInfo) = AniLib.fetchFilteredMedia(client, mediaFilter, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
         val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
         val results = applyDubPostFilter(mediaList, params.dubLanguage)
@@ -1216,15 +1220,16 @@ class Miruro :
             }
         }
 
+        val sortedEntries = crossProviderMap.entries.sortedBy { it.key }
+
         for (providerKey in providersToProcess) {
             if (providerKey != primaryProvider) {
                 if (mergeAcrossProviders && episodes.isEmpty()) continue
                 if (!mergeAcrossProviders && episodes.isNotEmpty()) break
             }
 
-            crossProviderMap.entries
+            sortedEntries
                 .filter { it.value.containsKey(providerKey) }
-                .sortedBy { it.key }
                 .forEach { (number, providerEpMap) ->
                     if (seenNumbers.add(number)) {
                         val (rawNumber, title) = episodeMetaMap[number] ?: return@forEach
@@ -1242,59 +1247,74 @@ class Miruro :
                 }
         }
 
-        val airingSchedule = if (anilistId != null && anilistId > 0) {
-            val meta = getMeta(anilistId)
-            if (meta?.airingSchedule != null) {
-                meta.airingSchedule!!
-            } else {
-                try {
-                    val snapshot = AniLib.fetchMediaDetails(client, anilistId, preferences)
-                    if (snapshot != null) {
-                        AniLib.extractAiringSchedule(snapshot).schedule.also { schedule ->
-                            if (schedule.isNotEmpty()) {
-                                getOrCreateMeta(anilistId).airingSchedule = schedule
+        // Three independent AniLib network calls (AniList GraphQL / ani.zip / GitHub AniFiller)
+        // run concurrently instead of sequentially. Each async block preserves its exact
+        // fallback cascade and side effects so one upstream failing doesn't crash the others.
+        val (airingSchedule, epTitles, fillerResult) = runBlocking {
+            coroutineScope {
+                val airingDeferred = async {
+                    if (anilistId != null && anilistId > 0) {
+                        val meta = getMeta(anilistId)
+                        if (meta?.airingSchedule != null) {
+                            meta.airingSchedule!!
+                        } else {
+                            try {
+                                val snapshot = AniLib.fetchMediaDetails(client, anilistId, preferences)
+                                if (snapshot != null) {
+                                    AniLib.extractAiringSchedule(snapshot).schedule.also { schedule ->
+                                        if (schedule.isNotEmpty()) {
+                                            getOrCreateMeta(anilistId).airingSchedule = schedule
+                                        }
+                                    }
+                                } else {
+                                    AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
+                                        if (schedule.isNotEmpty()) {
+                                            getOrCreateMeta(anilistId).airingSchedule = schedule
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                logD { "episodeListParse: fetchMediaDetails failed, trying fallback schedule: ${e.message}" }
+                                AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
+                                    if (schedule.isNotEmpty()) {
+                                        getOrCreateMeta(anilistId).airingSchedule = schedule
+                                    }
+                                }
                             }
                         }
                     } else {
-                        AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
-                            if (schedule.isNotEmpty()) {
-                                getOrCreateMeta(anilistId).airingSchedule = schedule
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    logD { "episodeListParse: fetchMediaDetails failed, trying fallback schedule: ${e.message}" }
-                    AniLib.fetchAiringSchedule(client, anilistId, preferences).schedule.also { schedule ->
-                        if (schedule.isNotEmpty()) {
-                            getOrCreateMeta(anilistId).airingSchedule = schedule
-                        }
+                        emptyMap()
                     }
                 }
-            }
-        } else {
-            emptyMap()
-        }
 
-        val epTitles = if (anilistId != null && anilistId > 0) {
-            try {
-                AniLib.fetchEpisodeTitles(client, anilistId, preferences)
-            } catch (e: Exception) {
-                logD { "episodeListParse: ani.zip title fetch failed: ${e.message}" }
-                null
-            }
-        } else {
-            null
-        }
+                val epTitlesDeferred = async {
+                    if (anilistId != null && anilistId > 0) {
+                        try {
+                            AniLib.fetchEpisodeTitles(client, anilistId, preferences)
+                        } catch (e: Exception) {
+                            logD { "episodeListParse: ani.zip title fetch failed: ${e.message}" }
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                }
 
-        val fillerResult = if (anilistId != null && anilistId > 0 && preferences.fillerDisplayMode != "show") {
-            try {
-                AniLib.fetchFillerData(client, anilistId, preferences)
-            } catch (e: Exception) {
-                logD { "episodeListParse: AniFiller fetch failed: ${e.message}" }
-                null
+                val fillerDeferred = async {
+                    if (anilistId != null && anilistId > 0 && preferences.fillerDisplayMode != "show") {
+                        try {
+                            AniLib.fetchFillerData(client, anilistId, preferences)
+                        } catch (e: Exception) {
+                            logD { "episodeListParse: AniFiller fetch failed: ${e.message}" }
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                }
+
+                Triple(airingDeferred.await(), epTitlesDeferred.await(), fillerDeferred.await())
             }
-        } else {
-            null
         }
 
         val episodeZero = episodes.filter { it.episode_number.toInt() == 0 }
@@ -1464,19 +1484,16 @@ class Miruro :
         @Volatile var airingSchedule: Map<Float, Long>? = null,
     )
 
-    private val animeMetaCache = java.util.Collections.synchronizedMap(
-        object : LinkedHashMap<Int, AnimeMeta>(8, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnimeMeta>?): Boolean = size > 16
-        },
-    )
+    private val animeMetaCache = ConcurrentHashMap<Int, AnimeMeta>()
 
-    private fun getOrCreateMeta(anilistId: Int, malId: Int? = null): AnimeMeta = synchronized(animeMetaCache) {
-        animeMetaCache.getOrPut(anilistId) { AnimeMeta(anilistId, malId) }
+    private fun getOrCreateMeta(anilistId: Int, malId: Int? = null): AnimeMeta = animeMetaCache.computeIfAbsent(anilistId) {
+        if (animeMetaCache.size > ANIME_META_CACHE_CAP) {
+            animeMetaCache.clear()
+        }
+        AnimeMeta(anilistId, malId)
     }
 
-    private fun getMeta(anilistId: Int): AnimeMeta? = synchronized(animeMetaCache) {
-        animeMetaCache[anilistId]
-    }
+    private fun getMeta(anilistId: Int): AnimeMeta? = animeMetaCache[anilistId]
 
     override fun videoListRequest(episode: SEpisode): Request {
         val episodeData = JSONObject(episode.url)
@@ -1549,7 +1566,7 @@ class Miruro :
                         fbRequests.add(subTypeKey to fbEpId)
                     }
                     logD { "videoListParse: trying fallback provider '$fbProvider' with ${fbRequests.size} sub-types" }
-                    fbRequests.flatMap { (subTypeKey, fbEpId) ->
+                    fbRequests.parallelCatchingFlatMapBlocking { (subTypeKey, fbEpId) ->
                         val query = buildPipeQuery(
                             "episodeId" to fbEpId,
                             "provider" to fbProvider,
@@ -1560,7 +1577,7 @@ class Miruro :
                                 extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider, fbEpId, anilistId)
                             }
                         } catch (e: Exception) {
-                            Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
+                            Log.w(TAG, "videoListParse: fallback provider '$fbProvider' sub-type '$subTypeKey' failed: ${e.message}")
                             emptyList()
                         }
                     }
