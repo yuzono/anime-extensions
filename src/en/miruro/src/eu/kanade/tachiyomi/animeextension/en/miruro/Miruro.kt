@@ -93,7 +93,7 @@ class Miruro :
     ).build()
 
     private val extractor by lazy {
-        MiruroExtractor(client, PIPE_KEY, headers) { providerDisplayName(it) }
+        MiruroExtractor(client, PIPE_KEY, PROXY_KEY, headers, preferences, baseUrl) { providerDisplayName(it) }
     }
 
     // ── Cookie-farming: cold-start + per-episode watch-page warm-up ──────
@@ -715,6 +715,7 @@ class Miruro :
         private const val PREF_CACHED_CONFIG_KEY = "cached_config_json"
 
         private val PIPE_KEY = "71951034f8fbcf53d89db52ceb3dc22c".decodeHex()
+        private val PROXY_KEY = "a54d389c18527d9fd3e7f0643e27edbe".decodeHex()
 
         internal const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 
@@ -1489,11 +1490,19 @@ class Miruro :
         val subTypesObj = episodeData?.optJSONObject("subTypes")
         val defaultSubType = episodeData?.optString("defaultSubType", "sub") ?: "sub"
         val fallbackProvidersObj = episodeData?.optJSONObject("fallbackProviders")
+        val anilistId = episodeData?.optString("anilistId", "") ?: ""
         logD { "videoListParse: provider=$provider, defaultSubType=$defaultSubType, hasSubTypes=${subTypesObj != null}, hasFallbacks=${fallbackProvidersObj != null}" }
 
         val videos = mutableListOf<Video>()
 
-        val primaryVideos = extractor.parseStreamsFromResponse(response, defaultSubType, provider)
+        val primaryEpisodeId = episodeData?.optString("episodeId", "") ?: ""
+        val primaryVideos = extractor.parseStreamsFromResponse(
+            response,
+            defaultSubType,
+            provider,
+            primaryEpisodeId,
+            anilistId,
+        )
         logD { "videoListParse: ${primaryVideos.size} primary streams (subType=$defaultSubType, provider=$provider)" }
         videos.addAll(primaryVideos)
 
@@ -1515,7 +1524,7 @@ class Miruro :
                         "category" to subTypeKey,
                     )
                     client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
-                        extractor.parseStreamsFromResponse(resp, subTypeKey, provider)
+                        extractor.parseStreamsFromResponse(resp, subTypeKey, provider, subEpId, anilistId)
                     }
                 },
             )
@@ -1543,7 +1552,7 @@ class Miruro :
                         )
                         try {
                             client.newCall(buildPipeRequest("sources", "GET", query = query)).execute().use { resp ->
-                                extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider)
+                                extractor.parseStreamsFromResponse(resp, subTypeKey, fbProvider, fbEpId, anilistId)
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "videoListParse: fallback provider '$fbProvider' failed: ${e.message}")
