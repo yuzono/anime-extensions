@@ -29,7 +29,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.concurrent.TimeUnit
 
-class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
+class AnimeID :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeID"
     override val baseUrl = "https://wwv.animeid2.com"
@@ -55,7 +57,7 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
                 val newReq = original.newBuilder()
                     .header(
                         "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
                     )
                     .header("Accept-Language", "es-ES,es;q=0.9")
                     .build()
@@ -177,61 +179,64 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         GenreFilter(),
         YearFilter(),
         StatusFilter(),
-        OrderFilter()
+        OrderFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Acción", "accion"),
-            Pair("Aventura", "aventura"),
-            Pair("Comedia", "comedia"),
-            Pair("Drama", "drama"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Romance", "romance"),
-            Pair("Sci-Fi", "ciencia-ficcion"),
-            Pair("Seinen", "seinen"),
-            Pair("Shounen", "shounen"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror")
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("Acción", "accion"),
+                Pair("Aventura", "aventura"),
+                Pair("Comedia", "comedia"),
+                Pair("Drama", "drama"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Romance", "romance"),
+                Pair("Sci-Fi", "ciencia-ficcion"),
+                Pair("Seinen", "seinen"),
+                Pair("Shounen", "shounen"),
+                Pair("Suspenso", "suspenso"),
+                Pair("Terror", "terror"),
+            ),
         )
-    )
 
-    private class YearFilter : UriPartFilter(
-        "Año",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("2026", "2026"),
-            Pair("2025", "2025"),
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020")
+    private class YearFilter :
+        UriPartFilter(
+            "Año",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("2026", "2026"),
+                Pair("2025", "2025"),
+                Pair("2024", "2024"),
+                Pair("2023", "2023"),
+                Pair("2022", "2022"),
+                Pair("2021", "2021"),
+                Pair("2020", "2020"),
+            ),
         )
-    )
 
-    private class StatusFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("En emisión", "en-emision"),
-            Pair("Finalizado", "finalizado")
+    private class StatusFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("En emisión", "en-emision"),
+                Pair("Finalizado", "finalizado"),
+            ),
         )
-    )
 
-    private class OrderFilter : UriPartFilter(
-        "Ordenar por",
-        arrayOf(
-            Pair("Recientes", "newest"),
-            Pair("Popularidad", "views"),
-            Pair("A-Z", "asc")
+    private class OrderFilter :
+        UriPartFilter(
+            "Ordenar por",
+            arrayOf(
+                Pair("Recientes", "newest"),
+                Pair("Popularidad", "views"),
+                Pair("A-Z", "asc"),
+            ),
         )
-    )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = if (state > 0) vals[state].second else ""
     }
 
@@ -298,27 +303,25 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return allEpisodes.distinctBy { it.url }.sortedByDescending { it.episode_number }
     }
 
-    private fun fetchEpisodesPage(animeId: String, animeSlug: String, page: Int): String {
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/id")
-                .post(
-                    FormBody.Builder()
-                        .add("acc", "episodes")
-                        .add("i", animeId)
-                        .add("u", animeSlug)
-                        .add("p", page.toString())
-                        .build()
-                )
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("Referer", baseUrl)
-                .build()
-            customClient.newCall(request).execute().use { response ->
-                response.body?.string() ?: ""
-            }
-        } catch (e: Exception) {
-            ""
+    private fun fetchEpisodesPage(animeId: String, animeSlug: String, page: Int): String = try {
+        val request = Request.Builder()
+            .url("$baseUrl/id")
+            .post(
+                FormBody.Builder()
+                    .add("acc", "episodes")
+                    .add("i", animeId)
+                    .add("u", animeSlug)
+                    .add("p", page.toString())
+                    .build(),
+            )
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .addHeader("Referer", baseUrl)
+            .build()
+        customClient.newCall(request).execute().use { response ->
+            response.body?.string() ?: ""
         }
+    } catch (e: Exception) {
+        ""
     }
 
     // ============================== Videos ===============================
@@ -386,25 +389,23 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return orderVideosByPreferences(videos)
     }
 
-    private fun fetchServerList(encryptId: String): String {
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/id")
-                .post(
-                    FormBody.Builder()
-                        .add("acc", "opt")
-                        .add("i", encryptId)
-                        .build()
-                )
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("Referer", baseUrl)
-                .build()
-            customClient.newCall(request).execute().use { response ->
-                response.body?.string() ?: ""
-            }
-        } catch (e: Exception) {
-            ""
+    private fun fetchServerList(encryptId: String): String = try {
+        val request = Request.Builder()
+            .url("$baseUrl/id")
+            .post(
+                FormBody.Builder()
+                    .add("acc", "opt")
+                    .add("i", encryptId)
+                    .build(),
+            )
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .addHeader("Referer", baseUrl)
+            .build()
+        customClient.newCall(request).execute().use { response ->
+            response.body?.string() ?: ""
         }
+    } catch (e: Exception) {
+        ""
     }
 
     private fun parseServerUrls(html: String): List<Pair<String, String>> {
@@ -424,19 +425,17 @@ class AnimeID : ParsedAnimeHttpSource(), ConfigurableAnimeSource {
         return result
     }
 
-    private fun hexToString(hex: String): String {
-        return try {
-            val output = StringBuilder()
-            var i = 0
-            while (i < hex.length) {
-                val str = hex.substring(i, minOf(i + 2, hex.length))
-                output.append(str.toInt(16).toChar())
-                i += 2
-            }
-            output.toString()
-        } catch (e: Exception) {
-            ""
+    private fun hexToString(hex: String): String = try {
+        val output = StringBuilder()
+        var i = 0
+        while (i < hex.length) {
+            val str = hex.substring(i, minOf(i + 2, hex.length))
+            output.append(str.toInt(16).toChar())
+            i += 2
         }
+        output.toString()
+    } catch (e: Exception) {
+        ""
     }
 
     private fun orderVideosByPreferences(videos: List<Video>): List<Video> {
