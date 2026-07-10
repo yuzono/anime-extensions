@@ -903,8 +903,14 @@ val variables = MyVariablesDto(page = 1)
 val request = graphQLPost(
     url = "$baseUrl/graphql",
     headers = headers,
-    operationName = "SearchManga",
-    query = $$"""query SearchManga($page: Int!) { ... }""",
+    operationName = "SearchAnime",
+    query = $$"""
+    query SearchAnime($page: Int!) {
+      animes(page: $page) {
+        id
+      }
+    }
+    """,
     variables = variables
 )
 
@@ -922,7 +928,13 @@ import keiyoushi.utils.graphQLGet
 val request = graphQLGet(
     url = "$baseUrl/graphql",
     headers = headers,
-    query = $$"""query SearchAnime($page: Int!) { ... }""",
+    query = $$"""
+    query SearchAnime($page: Int!) {
+      animes(page: $page) {
+        id
+      }
+    }
+    """,
     variables = variables
 )
 ```
@@ -1119,7 +1131,7 @@ overrides only the hoster flow.
 - **Never use `Thread.sleep()`:** Do not use `Thread.sleep()` for rate limiting. Use the `keiyoushi.network.rateLimit` builder extension function on your `OkHttpClient.Builder` instead.
 - **Avoid synchronous calls in `parse` methods:** Do not call `client.newCall(...).execute()` inside parsing methods like `videoListParse` or `episodeListParse`. Make the request part of the standard flow by overriding the corresponding request method (e.g., `hosterListRequest`) or the suspend function (e.g., `getVideoList(hoster)`).
 - **Pass `HttpUrl` directly:** The `GET()` and `POST()` helpers accept an `HttpUrl` object. Do not call `.toString()` on a built `HttpUrl` before passing it.
-- **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments()` or `queryParameter()`) over manual string splitting (e.g., `.split("/")`) or regex. This ensures proper separation of concerns and protects against unexpected inputs-such as URL fragments or query parameters-without you needing to manually account for all edge cases.
+- **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments` property, `encodedPathSegments`, or `queryParameter("id")`) over manual string splitting (e.g., `.split("/")`) or regex. This ensures proper separation of concerns and protects against unexpected inputs-such as URL fragments or query parameters-without you needing to manually account for all edge cases.
 - **Use `addCookie` for custom cookies:** See [Custom cookies - `addCookie`](#custom-cookies---addcookie). Do not manually add `Cookie` headers: doing so can discard unrelated cookies already attached to the request, whereas `addCookie` preserves them and replaces only cookies with matching names.
 
 ### Extension call flow
@@ -1297,7 +1309,7 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 - **Anime/episode URLs:** Prefer storing just the ID or slug in `SAnime.url` and `SEpisode.url`. Storing the relative URL with `setUrlWithoutDomain()` is also acceptable. Avoid absolute URLs to make future domain migrations easier.
 - **Follow `AnimeHttpSource` workflow:** Stick to the general workflow from this base class when possible; deviating may introduce unnecessary complexity.
 - **Separate custom headers:** When adding custom headers to a request (e.g., for AJAX endpoints), avoid building them inline within the `GET()` or `POST()` call. Instead, assign the modified headers to a separate variable or define them as a class-level property. This improves readability and allows for reuse across multiple requests.
-- **Do not override default `AnimeHttpSource` methods:** Avoid overriding methods like `animeDetailsRequest` or `episodeListRequest` if they only replicate the default behavior (`GET(baseUrl + anime.url, headers)`). Only override them if the source requires a different URL structure or custom headers for those specific requests.
+- **Do not override default `AnimeHttpSource` methods:** Avoid overriding methods like `animeDetailsRequest` or `episodeListRequest` if they only replicate the default behavior `GET(baseUrl + anime.url, headers)`. Only override them if the source requires a different URL structure or custom headers for those specific requests.
 - **Configurable sources:** By implementing `ConfigurableAnimeSource`, you can add settings backed by `SharedPreferences`.
 - **Code organization:** For readability, group related methods together in your extension class (e.g., all popular anime methods, then all latest anime methods, then search methods, and so on). A logical ordering like Popular → Latest → Search → Details → Episodes → Videos → Filters → Utilities makes the class easier to navigate and maintain without needing explicit section header comments.
 - **DTO extensions:** Move mapping extensions for DTOs (like `fun MyDto.toSAnime()`) into the DTO file itself to keep the main source class clean.
@@ -1311,7 +1323,7 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 - **Optional fields:** For all other fields, prefer safe calls (`?.`) and avoid the non-null assertion (`!!`). Missing data like thumbnails or descriptions should not crash the parsing process. Consider using Kotlin's `mapNotNull` when parsing lists of elements so that if a single item fails, the rest of the list can still load successfully.
 - **Extension `name` field:** Do not add a language suffix or other qualifier to `name` (e.g., `"MySite EN"`). The app already groups sources by language.
 - **`supportsLatest` convention:** If a source only has the latest listing, use that for the popular listing and set `supportsLatest = false`.
-- **When to bump `versionId`:** The `versionId` property dictates how the app tracks the source. **Only override and bump `versionId` if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
+- **When to bump `source { versionId = ... }`:** The `versionId` field in the `source {}` block dictates how the source's ID is auto-computed. **Only bump it if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
 - **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), implement the `UnmeteredSource` interface in your class. This tells the app not to apply standard rate-limiting to the user's local server.
 - **Preference listeners:** When implementing `ConfigurableAnimeSource`, you do not need to manually save values inside `setOnPreferenceChangeListener`. The Android preference framework saves the value to `SharedPreferences` automatically.
 - **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
@@ -1381,7 +1393,10 @@ override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilt
         if (!slug.isNullOrEmpty()) {
             val path = "/anime/$slug"
             val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
-                .apply { this.url = path }
+                .apply {
+                    this.url = path
+                    initialized = true
+                }
             return AnimesPage(listOf(anime), false)
         }
 
@@ -1561,6 +1576,11 @@ Because themes are provided as libraries, your extension's main class inherits d
 annotated with `@Source` like any other source class:
 
 ```kotlin
+// MySourceName.kt
+package eu.kanade.tachiyomi.animeextension.en.mysourcename
+
+import keiyoushi.annotation.Source
+
 @Source
 abstract class MySourceName : ThemeName()
 ```
@@ -1636,7 +1656,7 @@ and filter by the `OkHttpClient` tag.
 To check the calls made by OkHttp, you must enable verbose logging in the app; it is not enabled by default. To enable it, go to More → Settings → Advanced → Verbose logging. Afterward, restart the app.
 
 Inspecting the Logcat allows you to see the call flow and is sufficient in most
-cases. Alternatively, you can use an external tool like `mitm-proxy`.
+cases. Alternatively, you can use an external tool like `mitmproxy`.
 For that, refer to the subsequent sections.
 
 On newer Android Studio versions, you can use the built-in Network Inspector inside the
@@ -1648,19 +1668,17 @@ and select the app's package name in the process list.
 ### Using external network inspecting tools
 
 If you want a deeper look into the network flow, such as inspecting the request and response bodies,
-you can use an external tool like `mitm-proxy`.
+you can use an external tool like `mitmproxy`.
 
 #### Set up your proxy server
 
-We are going to use [mitm-proxy](https://mitmproxy.org/), but you can replace it with any other Web
+We are going to use [mitmproxy](https://mitmproxy.org/), but you can replace it with any other Web
 Debugger (e.g., Charles, Burp Suite, Fiddler). To install and execute, follow the commands below.
 
-```console
-# Install the tool.
-$ sudo pip3 install mitmproxy
-# Execute the web interface and the proxy.
-$ mitmweb
-```
+> [!WARNING]
+> Do NOT use `sudo pip` to install `mitmproxy`. Follow the [official installation methods](https://docs.mitmproxy.org/stable/overview-installation/).
+
+After installing it, you can run `mitmweb` to open the web interface.
 
 Alternatively, use the Docker image:
 
@@ -1675,7 +1693,12 @@ After installing and running, open your browser and navigate to <http://127.0.0.
 
 #### OkHttp proxy setup
 
-Since most anime sources use HTTPS, we must disable SSL verification to use the web debugger. For that, add this code inside your source class:
+Since most anime sources use HTTPS, we must disable SSL verification to use the web debugger.
+
+> [!CAUTION]
+> The following code disables certificate and hostname verification. Use it **only** in a local debug build, **never** submit it as production source code, and **remove it** before opening a Pull Request.
+
+For that, add this code inside your source class:
 
 ```kotlin
 package eu.kanade.tachiyomi.animeextension.en.mysource
