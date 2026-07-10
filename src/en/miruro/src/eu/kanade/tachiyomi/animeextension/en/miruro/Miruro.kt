@@ -85,6 +85,7 @@ class Miruro :
     private val SharedPreferences.includeAllProviders by preferences.delegate(PREF_INCLUDE_ALL_PROVIDERS_KEY, PREF_INCLUDE_ALL_PROVIDERS_DEFAULT)
     private val SharedPreferences.fillerDisplayMode by preferences.delegate(PREF_FILLER_DISPLAY_KEY, PREF_FILLER_DISPLAY_DEFAULT)
     private val SharedPreferences.fillerMarkMixed by preferences.delegate(PREF_FILLER_MARK_MIXED_KEY, PREF_FILLER_MARK_MIXED_DEFAULT)
+    private val SharedPreferences.includeNSFW by preferences.delegate(PREF_INCLUDE_NSFW_KEY, PREF_INCLUDE_NSFW_DEFAULT)
 
     override val client: OkHttpClient = SpoofedTlsSupport.applyTo(
         super.client.newBuilder()
@@ -820,6 +821,10 @@ class Miruro :
         private const val PREF_FILLER_MARK_MIXED_TITLE = "Also mark mixed-canon episodes"
         private const val PREF_FILLER_MARK_MIXED_DEFAULT = true
 
+        private const val PREF_INCLUDE_NSFW_KEY = "include_nsfw"
+        private const val PREF_INCLUDE_NSFW_TITLE = "Show NSFW"
+        private const val PREF_INCLUDE_NSFW_DEFAULT = false
+
         private const val PREF_MIRROR_KEY = "preferred_mirror"
         private const val PREF_MIRROR_TITLE = "Preferred mirror"
         private val DEFAULT_MIRROR_ENTRIES = listOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
@@ -847,7 +852,7 @@ class Miruro :
         logD { "getPopularAnime: page=$page" }
         ensureBaseVisit()
         launchConfigFetch()
-        val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = 20)
+        val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
         val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
         return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
@@ -1813,6 +1818,13 @@ class Miruro :
             title = PREF_FILLER_MARK_MIXED_TITLE,
             default = PREF_FILLER_MARK_MIXED_DEFAULT,
             summary = "When enabled, mixed-canon episodes are also tagged. Only applies when filler handling is set to 'Mark in scanlator'.",
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_INCLUDE_NSFW_KEY,
+            title = PREF_INCLUDE_NSFW_TITLE,
+            default = PREF_INCLUDE_NSFW_DEFAULT,
+            summary = "Includes adult/NSFW anime in search and browse results. Note: Miruro providers seldom have fully NSFW anime (hentai) available regardless of this setting.",
         )
     }
 
