@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
 import android.content.SharedPreferences
-import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -12,6 +11,7 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import eu.kanade.tachiyomi.animeextension.en.allanime.EpisodeResult.DataEpisode.Episode.SourceUrl
 import eu.kanade.tachiyomi.animeextension.en.allanime.extractors.AllAnimeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -34,16 +34,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
-import java.security.MessageDigest
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 class AllAnime :
     AnimeHttpSource(),
@@ -260,7 +257,20 @@ class AllAnime :
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request {
+    private val keyManager by lazy {
+        AllAnimeKeyManager(client, headers, preferences)
+    }
+
+    override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
+
+    // videoListRequest no longer yields a usable URL, so point "Open in WebView" at the show page.
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
+        val showId = variables["showId"]!!.jsonPrimitive.content
+        return "${preferences.siteUrl}/bangumi/$showId"
+    }
+
+    private fun videoListRequest(episode: SEpisode, material: AllAnimeKeyManager.Material): Request {
         val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
         val extensions = buildJsonObject {
@@ -268,6 +278,7 @@ class AllAnime :
                 put("version", 1)
                 put("sha256Hash", STREAM_HASH)
             }
+            put("aaReq", keyManager.aaReq(material))
         }
 
         val url = apiUrl.toHttpUrl().newBuilder().apply {
@@ -289,25 +300,11 @@ class AllAnime :
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val responseBody = client.newCall(videoListRequest(episode))
-            .awaitSuccess().bodyString()
-
-        // 1. Check for encrypted response (tobeparsed present)
-        val tobeparsed = runCatching {
-            responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
-        }.getOrNull()
-
-        // 2. If encrypted, decrypt directly (errors surface to user); otherwise parse as plain text
-        val sourceUrls = if (!tobeparsed.isNullOrBlank()) {
-            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode?.sourceUrls
-        } else {
-            responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls
-        } ?: emptyList()
+        val sourceUrls = fetchSourceUrls(episode)
 
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
 
-        // list of alternative hosters
         val mappings = listOf(
             "vidstreaming" to listOf("vidstreaming", "https://gogo", "playgo1.cc", "playtaku", "vidcloud"),
             "doodstream" to listOf("dood"),
@@ -344,12 +341,7 @@ class AllAnime :
             }
         }
 
-        // Fetch and cache the endpoint BEFORE the parallel processing
-        val iframeEndpoint = runCatching {
-            client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
-                .parseAs<AllAnimeExtractor.VersionResponse>()
-                .episodeIframeHead
-        }.getOrDefault(FALLBACK_PLAYER_DOMAIN)
+        val iframeEndpoint = PLAYER_DOMAIN
 
         return serverList.parallelCatchingFlatMap { server ->
             val sName = server.sourceName
@@ -510,31 +502,55 @@ class AllAnime :
 
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
-    private fun decryptTobeparsed(base64Payload: String): String {
-        // 1. Decode the Base64 payload
-        val blob = Base64.decode(base64Payload, Base64.DEFAULT)
+    // The aaReq token fails two ways: partB/epoch rotated (a refetch fixes it) or the client
+    // mask rotated with a new site build (needs a re-extract). Remediate in that order,
+    // retrying between each.
+    private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
+        var maskHealed = false
 
-        // 2. Extract version byte (blob[0]), IV (blob[1..12]), and ciphertext (blob[13+])
-        if (blob.size < 13) return ""
-        val versionByte = blob[0].toInt() and 0xFF
-        val iv = blob.sliceArray(1 until 13)
-        val encryptedData = blob.sliceArray(13 until blob.size)
+        repeat(MAX_KEY_ATTEMPTS) { attempt ->
+            val material = keyManager.material(forceRefresh = attempt > 0)
 
-        // 3. Derive the AES-GCM key: SHA-256("${DECRYPT_SECRET}:v${versionByte}")
-        val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
-            .digest("${DECRYPT_SECRET}:v$versionByte".toByteArray(Charsets.UTF_8))
+            // A failed request (or a response we can't turn into sources) is treated as a key
+            // failure and remediated below, rather than surfacing a raw error to the user.
+            val responseBody = runCatching {
+                client.newCall(videoListRequest(episode, material)).awaitSuccess().bodyString()
+            }.getOrNull()
 
-        // 4. Initialize the AES-GCM Cipher
-        val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
-        val gcmSpec = GCMParameterSpec(DECRYPT_TAG_LENGTH, iv)
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE), gcmSpec)
+            if (responseBody != null) {
+                val tobeparsed = runCatching {
+                    responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
+                }.getOrNull()
 
-        // 5. Decrypt and return JSON string
-        return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
+                when {
+                    // A decrypted but empty result is legitimate.
+                    !tobeparsed.isNullOrBlank() -> {
+                        runCatching { keyManager.decrypt(tobeparsed, material)?.parseAs<DecryptedEpisodeResult>() }
+                            .getOrNull()
+                            ?.let { return it.episode?.sourceUrls.orEmpty() }
+                    }
+                    // No payload and no crypto error: an older, unencrypted show.
+                    !keyManager.isCryptoError(responseBody) -> {
+                        runCatching { responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls.orEmpty() }
+                            .getOrNull()
+                            ?.let { return it }
+                    }
+                }
+            }
+
+            // Attempt 1 already refetched partB + epoch; if that still failed, the mask itself
+            // rotated, so re-extract it before the final attempt.
+            if (attempt == 1 && !maskHealed) {
+                maskHealed = keyManager.healMask()
+            }
+            keyManager.invalidate()
+        }
+
+        throw Exception("AllAnime changed its stream encryption; update the extension")
     }
 
     companion object {
-        private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
+        private const val PAGE_SIZE = 26
         private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
         private val INTERAL_HOSTER_NAMES = arrayOf(
             "Default", "Ac", "Ak", "Kir", "Rab", "Luf-mp4",
@@ -561,7 +577,9 @@ class AllAnime :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://api.allanime.day"
 
-        private const val FALLBACK_PLAYER_DOMAIN = "https://blog.allanime.day"
+        // The site's hardcoded default iframe host (was previously served by /getVersion,
+        // now removed). Used as the base for legacy internal/player servers.
+        private const val PLAYER_DOMAIN = "https://allanime.day"
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private val PREF_SERVER_ENTRIES = arrayOf("Site Default") +
@@ -604,11 +622,7 @@ class AllAnime :
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
 
-        private const val DECRYPT_SECRET = "Xot36i3lK3"
-        private const val DECRYPT_TAG_LENGTH = 128
-        private const val DECRYPT_KEY_ALGO = "SHA-256"
-        private const val DECRYPT_KEY_TYPE = "AES"
-        private const val DECRYPT_CIPHER_ALGO = "AES/GCM/NoPadding"
+        private const val MAX_KEY_ATTEMPTS = 3
 
         // XOR keys indexed by source-URL prefix type: '--'=3  '#-'=2  '##'=1  '-#'=4  '#'=0
         private val XOR_KEYS = arrayOf(
@@ -619,7 +633,6 @@ class AllAnime :
             "feqx1",
         )
 
-        // Pre-compute cumulative XOR mask for each key (XOR of all char codes)
         private val XOR_MASKS = XOR_KEYS.map { key ->
             key.fold(0) { mask, ch -> mask xor ch.code }
         }.toIntArray()
