@@ -61,7 +61,7 @@ class MonosChinos :
             "MixDrop",
             "Streamtape",
             "Mp4Upload",
-            "LuluStream"
+            "LuluStream",
         )
 
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
@@ -337,7 +337,7 @@ class MonosChinos :
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
                 { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-            ).reserved(),
+            ).reversed(),
         )
     }
 
