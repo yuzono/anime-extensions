@@ -212,9 +212,10 @@ class MiruroExtractor(
 
         return try {
             val decoded = Base64.decode(bodyStr, Base64.URL_SAFE)
-            val data = decoded.mapIndexed { i, b ->
-                (b.toInt() xor pipeKey[i % pipeKey.size].toInt()).toByte()
-            }.toByteArray()
+            val data = decoded
+            for (i in data.indices) {
+                data[i] = (data[i].toInt() xor pipeKey[i % pipeKey.size].toInt()).toByte()
+            }
 
             val result = GZIPInputStream(java.io.ByteArrayInputStream(data)).use { gzipStream ->
                 gzipStream.bufferedReader(Charsets.UTF_8).readText()
@@ -354,7 +355,7 @@ class MiruroExtractor(
                     url = embedUrl,
                     type = "Multi",
                     name = qualityLabel,
-                    withM3u8Server = true,
+                    withM3u8Server = false,
                 )
             }.onFailure {
                 Log.w(TAG, "MegaCloud extraction failed: ${it.message}")
