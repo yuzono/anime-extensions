@@ -70,6 +70,18 @@ data class MediaSnapshot(
     val countryOfOrigin: String? = null,
     val source: String? = null,
     val siteUrl: String? = null,
+    // --- Extended fields ---
+    val meanScore: Int? = null,
+    val trending: Int? = null,
+    val favourites: Int? = null,
+    val isLicensed: Boolean? = null,
+    val hashtag: String? = null,
+    val updatedAt: Int? = null,
+    val seasonInt: Int? = null,
+    val streamingEpisodes: List<MediaStreamingEpisode>? = null,
+    val externalLinks: List<MediaExternalLink>? = null,
+    val rankings: List<MediaRank>? = null,
+    val stats: MediaStats? = null,
 )
 
 @Serializable
@@ -224,6 +236,131 @@ data class Trailer(
     }
 }
 
+// ========================== Streaming Episodes ==========================
+
+@Serializable
+data class MediaStreamingEpisode(
+    val title: String? = null,
+    val thumbnail: String? = null,
+    val url: String? = null,
+    val site: String? = null,
+)
+
+// ========================== External Links ==========================
+
+@Serializable
+data class MediaExternalLink(
+    val id: Int = 0,
+    val url: String? = null,
+    val site: String? = null,
+    val siteId: Int? = null,
+    val type: String? = null,
+    val language: String? = null,
+    val color: String? = null,
+    val icon: String? = null,
+    val isDisabled: Boolean = false,
+)
+
+// ========================== Rankings ==========================
+
+@Serializable
+data class MediaRank(
+    val id: Int = 0,
+    val rank: Int = 0,
+    val type: String? = null,
+    val format: String? = null,
+    val year: Int? = null,
+    val season: String? = null,
+    val allTime: Boolean = false,
+    val context: String? = null,
+)
+
+// ========================== Media Stats ==========================
+
+@Serializable
+data class MediaStats(
+    val scoreDistribution: List<ScoreDistribution>? = null,
+    val statusDistribution: List<StatusDistribution>? = null,
+)
+
+@Serializable
+data class ScoreDistribution(
+    val score: Int = 0,
+    val amount: Int = 0,
+)
+
+@Serializable
+data class StatusDistribution(
+    val status: String? = null,
+    val amount: Int = 0,
+)
+
+// ========================== Media Trend ==========================
+
+@Serializable
+data class MediaTrend(
+    val mediaId: Int = 0,
+    val date: Int = 0,
+    val trending: Int = 0,
+    val averageScore: Int? = null,
+    val popularity: Int? = null,
+    val inProgress: Int? = null,
+    val releasing: Boolean = false,
+    val episode: Int? = null,
+    val media: MediaSnapshot? = null,
+)
+
+@Serializable
+data class MediaTrendConnection(
+    val edges: List<MediaTrendEdge>? = null,
+)
+
+@Serializable
+data class MediaTrendEdge(
+    val node: MediaTrend? = null,
+)
+
+// ========================== Studio Details ==========================
+
+@Serializable
+data class StudioData(
+    @SerialName("Studio") val studio: Studio? = null,
+)
+
+@Serializable
+data class Studio(
+    val id: Int = 0,
+    val name: String? = null,
+    val isAnimationStudio: Boolean = false,
+    val favourites: Int = 0,
+    val siteUrl: String? = null,
+    val media: StudioMediaConnection? = null,
+)
+
+@Serializable
+data class StudioMediaConnection(
+    val edges: List<StudioMediaEdge>? = null,
+    val pageInfo: PageInfo? = null,
+)
+
+@Serializable
+data class StudioMediaEdge(
+    val node: MediaSnapshot? = null,
+    val isMain: Boolean = false,
+)
+
+// ========================== Genre/Tag Collections ==========================
+
+@Serializable
+data class GenreCollectionData(
+    @SerialName("GenreCollection") val genres: List<String>? = null,
+)
+
+@Serializable
+data class MediaTagCollectionData(
+    @SerialName("MediaTagCollection") val tags: List<MediaTag>? = null,
+)
+
 // ========================== Ani.zip Episode Data ==========================
 
 @Serializable
@@ -323,7 +460,242 @@ data class FillerDataResult(
     val episodes: Map<Int, FillerEpisodeData> = emptyMap(),
 )
 
+// ========================== MediaSnapshot Extensions ==========================
+
+/**
+ * Whether this media is classified as adult/NSFW content.
+ * Checks both the `isAdult` GraphQL field (via tags) and genre-based heuristics.
+ */
+val MediaSnapshot.isAdultContent: Boolean
+    get() = genres.any { it.equals("Ecchi", ignoreCase = true) } ||
+        tags?.any { it.name.equals("Nudity", ignoreCase = true) || it.name.equals("Ero Guro", ignoreCase = true) } == true
+
+/**
+ * Human-readable status label derived from the AniList status string.
+ */
+val MediaSnapshot.formattedStatus: String
+    get() = when (status?.uppercase()) {
+        "RELEASING" -> "Airing"
+        "FINISHED" -> "Finished"
+        "CANCELLED" -> "Cancelled"
+        "HIATUS" -> "Hiatus"
+        "NOT_YET_RELEASED" -> "Not Yet Aired"
+        else -> status?.replaceFirstChar { it.uppercase() } ?: "Unknown"
+    }
+
+/**
+ * All available title variants (userPreferred, romaji, english, native) excluding blanks.
+ */
+val MediaSnapshot.allTitleVariants: List<String>
+    get() = listOfNotNull(
+        title?.userPreferred?.ifBlank { null },
+        title?.romaji?.ifBlank { null },
+        title?.english?.ifBlank { null },
+        title?.native?.ifBlank { null },
+    ).distinct()
+
+/**
+ * Human-readable format label (e.g. "TV Short", "OVA", "Movie").
+ */
+val MediaSnapshot.formattedFormat: String
+    get() = when (format?.uppercase()) {
+        "TV" -> "TV"
+        "TV_SHORT" -> "TV Short"
+        "MOVIE" -> "Movie"
+        "SPECIAL" -> "Special"
+        "OVA" -> "OVA"
+        "ONA" -> "ONA"
+        "MUSIC" -> "Music"
+        else -> format?.replaceFirstChar { it.uppercase() } ?: "Unknown"
+    }
+
+/**
+ * Season label with year (e.g. "Spring 2024"), or null if unavailable.
+ */
+val MediaSnapshot.seasonLabel: String?
+    get() {
+        if (season.isNullOrBlank() || seasonYear == null) return null
+        val seasonName = when (season.uppercase()) {
+            "WINTER" -> "Winter"
+            "SPRING" -> "Spring"
+            "SUMMER" -> "Summer"
+            "FALL" -> "Fall"
+            else -> season.replaceFirstChar { it.uppercase() }
+        }
+        return "$seasonName $seasonYear"
+    }
+
+/**
+ * Formatted episode count string (e.g. "12 episodes" or "1 episode").
+ */
+val MediaSnapshot.episodeLabel: String?
+    get() {
+        if (episodes == null || episodes <= 0) return null
+        return if (episodes == 1) "1 episode" else "$episodes episodes"
+    }
+
+/**
+ * Formatted duration string (e.g. "24 min/ep").
+ */
+val MediaSnapshot.durationLabel: String?
+    get() {
+        if (duration == null || duration <= 0) return null
+        return "$duration min/ep"
+    }
+
+/**
+ * Average score as a display string (e.g. "85%" or "N/A").
+ */
+val MediaSnapshot.scoreLabel: String
+    get() = if (averageScore != null && averageScore > 0) "$averageScore%" else "N/A"
+
+/**
+ * AniList site URL for this media, or null if not available.
+ */
+val MediaSnapshot.anilistUrl: String?
+    get() = siteUrl?.ifBlank { null }
+
+val MediaSnapshot.meanScoreLabel: String
+    get() = if (meanScore != null && meanScore > 0) "$meanScore%" else "N/A"
+
+val MediaSnapshot.favouritesLabel: String
+    get() = when {
+        favourites == null || favourites <= 0 -> "0"
+        favourites >= 1000 -> "${"%.1f".format(favourites / 1000.0)}k"
+        else -> favourites.toString()
+    }
+
+val MediaSnapshot.sourceLabel: String?
+    get() = when (source?.uppercase()) {
+        "ORIGINAL" -> "Original"
+        "MANGA" -> "Manga"
+        "LIGHT_NOVEL" -> "Light Novel"
+        "VISUAL_NOVEL" -> "Visual Novel"
+        "GAME" -> "Game"
+        "OTHER" -> "Other"
+        "NOVEL" -> "Novel"
+        "DOUJINSHI" -> "Doujinshi"
+        "ANIME" -> "Anime"
+        else -> source?.replaceFirstChar { it.uppercase() }
+    }
+
+val MediaSnapshot.streamingLinks: List<MediaStreamingEpisode>
+    get() = streamingEpisodes?.filter { !it.url.isNullOrBlank() } ?: emptyList()
+
+val MediaSnapshot.streamingSites: List<String>
+    get() = streamingEpisodes?.mapNotNull { it.site?.ifBlank { null } }?.distinct() ?: emptyList()
+
+val MediaSnapshot.externalStreamingLinks: List<MediaExternalLink>
+    get() = externalLinks?.filter { it.type == "STREAMING" && !it.isDisabled } ?: emptyList()
+
+val MediaSnapshot.externalInfoLinks: List<MediaExternalLink>
+    get() = externalLinks?.filter { it.type == "INFO" && !it.isDisabled } ?: emptyList()
+
+val MediaSnapshot.topRanking: MediaRank?
+    get() = rankings?.filter { it.type == "RATED" }?.minByOrNull { it.rank }
+
+val MediaSnapshot.popularityRanking: MediaRank?
+    get() = rankings?.filter { it.type == "POPULAR" }?.minByOrNull { it.rank }
+
+val MediaSnapshot.scoreDistributionMap: Map<Int, Int>
+    get() = stats?.scoreDistribution?.associate { it.score to it.amount } ?: emptyMap()
+
+val MediaSnapshot.watchingCount: Int
+    get() = stats?.statusDistribution?.firstOrNull { it.status == "CURRENT" }?.amount ?: 0
+
+val MediaSnapshot.completedCount: Int
+    get() = stats?.statusDistribution?.firstOrNull { it.status == "COMPLETED" }?.amount ?: 0
+
 // ========================== Media Filter ==========================
+
+/**
+ * Builder for constructing [MediaFilter] instances with a fluent API.
+ *
+ * Usage:
+ * ```
+ * val filter = MediaFilter.Builder()
+ *     .search("Attack on Titan")
+ *     .sort("POPULARITY_DESC")
+ *     .genre("Action", "Drama")
+ *     .excludeGenre("Comedy")
+ *     .status("FINISHED")
+ *     .season("SPRING", 2023)
+ *     .format("TV")
+ *     .page(1)
+ *     .perPage(20)
+ *     .build()
+ * ```
+ */
+class MediaFilter.Builder {
+    private var search: String? = null
+    private var sort: String? = null
+    private var sortList: List<String>? = null
+    private var format: String? = null
+    private var formatList: List<String>? = null
+    private var status: String? = null
+    private var season: String? = null
+    private var seasonYear: Int? = null
+    private val genres = mutableListOf<String>()
+    private val excludedGenres = mutableListOf<String>()
+    private val tags = mutableListOf<String>()
+    private val excludedTags = mutableListOf<String>()
+    private var minimumTagRank: Int? = null
+    private var yearGreater: Int? = null
+    private var yearLesser: Int? = null
+    private var countryOfOrigin: String? = null
+    private var isAdult: Boolean? = null
+    private var onList: Boolean? = null
+    private var page: Int? = null
+    private var perPage: Int? = null
+
+    fun search(query: String) = apply { this.search = query }
+    fun sort(vararg criteria: String) = apply { this.sortList = criteria.toList() }
+    fun sort(criteria: String) = apply { this.sort = criteria }
+    fun format(vararg formats: String) = apply { this.formatList = formats.toList() }
+    fun format(fmt: String) = apply { this.format = fmt }
+    fun status(status: String) = apply { this.status = status }
+    fun season(season: String, year: Int? = null) = apply {
+        this.season = season.uppercase()
+        this.seasonYear = year
+    }
+    fun genre(vararg genres: String) = apply { this.genres.addAll(genres) }
+    fun excludeGenre(vararg genres: String) = apply { this.excludedGenres.addAll(genres) }
+    fun tag(vararg tags: String) = apply { this.tags.addAll(tags) }
+    fun excludeTag(vararg tags: String) = apply { this.excludedTags.addAll(tags) }
+    fun minimumTagRank(rank: Int) = apply { this.minimumTagRank = rank }
+    fun yearRange(from: Int? = null, to: Int? = null) = apply {
+        this.yearGreater = from
+        this.yearLesser = to
+    }
+    fun countryOfOrigin(code: String) = apply { this.countryOfOrigin = code }
+    fun isAdult(adult: Boolean?) = apply { this.isAdult = adult }
+    fun onList(onList: Boolean?) = apply { this.onList = onList }
+    fun page(page: Int) = apply { this.page = page }
+    fun perPage(perPage: Int) = apply { this.perPage = perPage }
+
+    fun build() = MediaFilter(
+        search = search,
+        sort = sort,
+        sortList = sortList,
+        format = format,
+        formatList = formatList,
+        status = status,
+        season = season,
+        seasonYear = seasonYear,
+        genres = genres.takeIf { it.isNotEmpty() },
+        excludedGenres = excludedGenres.takeIf { it.isNotEmpty() },
+        tags = tags.takeIf { it.isNotEmpty() },
+        excludedTags = excludedTags.takeIf { it.isNotEmpty() },
+        minimumTagRank = minimumTagRank,
+        yearGreater = yearGreater,
+        yearLesser = yearLesser,
+        countryOfOrigin = countryOfOrigin,
+        isAdult = isAdult,
+        onList = onList,
+        page = page,
+        perPage = perPage,
+    )
+}
 
 /**
  * Universal filter parameters for AniList media queries.

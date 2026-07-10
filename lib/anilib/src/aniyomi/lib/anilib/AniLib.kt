@@ -426,6 +426,17 @@ object AniLib {
                     countryOfOrigin
                     source
                     siteUrl
+                    meanScore
+                    trending
+                    favourites
+                    isLicensed
+                    hashtag
+                    updatedAt
+                    seasonInt
+                    streamingEpisodes { title thumbnail url site }
+                    externalLinks { id url site siteId type language color icon isDisabled }
+                    rankings { id rank type format year season allTime context }
+                    stats { scoreDistribution { score amount } statusDistribution { status amount } }
                 }
             }
         """.trimIndent()
@@ -449,7 +460,7 @@ object AniLib {
         id idMal title { userPreferred romaji english native }
         coverImage { extraLarge large medium }
         bannerImage status format episodes season seasonYear
-        genres averageScore siteUrl
+        genres averageScore siteUrl trending favourites isLicensed source
     """.trimIndent()
 
     private val FILTERED_MEDIA_QUERY = """
@@ -504,8 +515,14 @@ object AniLib {
     fun fetchFilteredMedia(
         client: OkHttpClient = defaultClient,
         filter: MediaFilter,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? {
-        val variables = filter.toVariables()
+        val effectiveFilter = if (includeNSFW != null) {
+            filter.copy(isAdult = if (includeNSFW) null else false)
+        } else {
+            filter
+        }
+        val variables = effectiveFilter.toVariables()
         val result = executeQuery<PageDataWrapper>(client, FILTERED_MEDIA_QUERY, variables)
             ?: return null
         return result.page.media to result.page.pageInfo
@@ -525,6 +542,7 @@ object AniLib {
         query: String,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -533,6 +551,7 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
 
     // ========================== Trending ==========================
@@ -541,6 +560,7 @@ object AniLib {
         client: OkHttpClient = defaultClient,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -548,6 +568,7 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
 
     // ========================== Seasonal ==========================
@@ -558,6 +579,7 @@ object AniLib {
         year: Int,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -567,6 +589,7 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
 
     // ========================== Convenience Wrappers ==========================
@@ -575,6 +598,7 @@ object AniLib {
         client: OkHttpClient = defaultClient,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -583,12 +607,14 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
 
     fun fetchUpcoming(
         client: OkHttpClient = defaultClient,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -597,12 +623,14 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
 
     fun fetchRecentlyUpdated(
         client: OkHttpClient = defaultClient,
         page: Int = 1,
         perPage: Int = 20,
+        includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
         client,
         MediaFilter(
@@ -611,7 +639,145 @@ object AniLib {
             page = page,
             perPage = perPage,
         ),
+        includeNSFW = includeNSFW,
     )
+
+    // ========================== Top Rated ==========================
+
+    fun fetchTopAnime(
+        client: OkHttpClient = defaultClient,
+        page: Int = 1,
+        perPage: Int = 20,
+        includeNSFW: Boolean? = null,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? = fetchFilteredMedia(
+        client,
+        MediaFilter(
+            sort = "SCORE_DESC",
+            page = page,
+            perPage = perPage,
+        ),
+        includeNSFW = includeNSFW,
+    )
+
+    // ========================== Airing This Season ==========================
+
+    private fun currentSeasonPair(): Pair<String, Int> {
+        val cal = java.util.Calendar.getInstance()
+        val month = cal.get(java.util.Calendar.MONTH)
+        val year = cal.get(java.util.Calendar.YEAR)
+        return when (month) {
+            java.util.Calendar.JANUARY, java.util.Calendar.FEBRUARY, java.util.Calendar.MARCH -> "WINTER" to year
+            java.util.Calendar.APRIL, java.util.Calendar.MAY, java.util.Calendar.JUNE -> "SPRING" to year
+            java.util.Calendar.JULY, java.util.Calendar.AUGUST, java.util.Calendar.SEPTEMBER -> "SUMMER" to year
+            else -> "FALL" to year
+        }
+    }
+
+    fun fetchAiringThisSeason(
+        client: OkHttpClient = defaultClient,
+        page: Int = 1,
+        perPage: Int = 20,
+        includeNSFW: Boolean? = null,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? {
+        val (season, year) = currentSeasonPair()
+        return fetchSeasonal(client, season, year, page, perPage, includeNSFW)
+    }
+
+    // ========================== Genres & Tags ==========================
+
+    fun fetchGenres(client: OkHttpClient = defaultClient): List<String>? {
+        val query = """
+            query {
+                GenreCollection
+            }
+        """.trimIndent()
+        return executeQuery<GenreCollectionData>(client, query, buildJsonObject {})
+            ?.genres
+    }
+
+    fun fetchTags(client: OkHttpClient = defaultClient): List<MediaTag>? {
+        val query = """
+            query {
+                MediaTagCollection {
+                    name description rank isGeneralSpoiler isMediaSpoiler
+                }
+            }
+        """.trimIndent()
+        return executeQuery<MediaTagCollectionData>(client, query, buildJsonObject {})
+            ?.tags
+    }
+
+    // ========================== Studio Details ==========================
+
+    fun fetchStudioProductions(
+        client: OkHttpClient = defaultClient,
+        studioId: Int,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): Pair<List<MediaSnapshot>, PageInfo?>? {
+        val query = """
+            query (${"$"}id: Int, ${"$"}page: Int, ${"$"}perPage: Int) {
+                Studio(id: ${"$"}id) {
+                    name isAnimationStudio favourites siteUrl
+                    media(sort: FAVOURITES_DESC, page: ${"$"}page, perPage: ${"$"}perPage, type: ANIME) {
+                        pageInfo { total currentPage lastPage hasNextPage perPage }
+                        edges { isMain node { id idMal title { userPreferred romaji english native } coverImage { extraLarge large medium } status format episodes averageScore } }
+                    }
+                }
+            }
+        """.trimIndent()
+        val variables = buildJsonObject {
+            put("id", studioId)
+            put("page", page)
+            put("perPage", perPage)
+        }
+        val result = executeQuery<StudioData>(client, query, variables)
+            ?: return null
+        val studio = result.studio ?: return null
+        val media = studio.media?.edges?.mapNotNull { it.node } ?: emptyList()
+        return media to studio.media?.pageInfo
+    }
+
+    // ========================== Media Trends ==========================
+
+    fun fetchMediaTrends(
+        client: OkHttpClient = defaultClient,
+        anilistId: Int,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): List<MediaTrend>? {
+        val query = """
+            query (${"$"}mediaId: Int, ${"$"}page: Int, ${"$"}perPage: Int) {
+                Media(id: ${"$"}mediaId, type: ANIME) {
+                    trends(sort: DATE_DESC, page: ${"$"}page, perPage: ${"$"}perPage, releasing: true) {
+                        nodes { mediaId date trending averageScore popularity inProgress releasing episode }
+                    }
+                }
+            }
+        """.trimIndent()
+        val variables = buildJsonObject {
+            put("mediaId", anilistId)
+            put("page", page)
+            put("perPage", perPage)
+        }
+        val result = executeQuery<MediaData>(client, query, variables)
+            ?: return null
+        return result.media?.let { media ->
+            executeQuery<MediaTrendConnection>(
+                client,
+                """
+                    query (${"$"}mediaId: Int) {
+                        Media(id: ${"$"}mediaId, type: ANIME) {
+                            trends(sort: DATE_DESC, releasing: true) {
+                                nodes { mediaId date trending averageScore popularity inProgress releasing episode }
+                            }
+                        }
+                    }
+                """.trimIndent(),
+                buildJsonObject { put("mediaId", anilistId) },
+            )?.edges?.mapNotNull { it.node }
+        }
+    }
 
     // ========================== Related Media ==========================
 
