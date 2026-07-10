@@ -145,18 +145,6 @@ class MiruroExtractor(
     private val embedExtractor by lazy { OmniEmbedExtractor(client, headers) }
 
     /**
-     * The active Miruro mirror origin (`https://www.miruro.tv/`, mirror
-     * `.to`, `.bz`, etc.). Used as the default Referer when the pipe API
-     * stream carries the kwik.cx placeholder for a non-kwik CDN. The
-     * owocdn.top Miruro CDN expects a Miruro referer; the kwik.cx server
-     * expects kwik.cx — the resolution at [resolveHlsReferer] routes
-     * correctly based on the stream URL's host.
-     */
-    private val activeMirrorReferer: String? by lazy {
-        mirrorBaseUrl.trimEnd('/').takeIf { it.startsWith("http") }
-    }
-
-    /**
      * Dedicated HTTP/1.1 client for media / m3u8 fetches. Some provider CDNs
      * (notably Zoro's edge) reject HTTP/2 connections with the host app's
      * default OkHttp fingerprint by stamping a 444 status and closing the
@@ -350,39 +338,6 @@ class MiruroExtractor(
         val proxied = m3u8Integration.processVideoList(videos)
         Log.d(TAG, "parseStreamsFromResponse: built ${videos.size} videos from ${sourcesDto.streams.size} streams, ${proxied.size} proxied via m3u8server")
         return proxied
-    }
-
-    /**
-     * Resolve the Referer to attach to an HLS video.
-     *
-     * The pipe API populates [StreamDto.referer] with `https://kwik.cx/` as
-     * a default placeholder for kwik-served AnimePahe HLS streams. For
-     * non-kwik hosts (notably Miruro's own `vault-*.owocdn.top` CDN), the
-     * kwik.cx referer is wrong: the owocdn edge expects a Miruro referer
-     * (the active mirror's origin) and 403s otherwise. That 403 previously
-     * cascaded: CloudflareInterceptor saw the 403 (Cloudflare-signed), ran
-     * a WebView solve that produced no cookies, threw IOException, and
-     * mpv saw HTTP 500.
-     *
-     * Resolution: when the stream host is NOT in the kwik.cx family, swap
-     * the kwik.cx placeholder Referer for [activeMirrorReferer] (the
-     * extension's current mirror origin from `headers`). When the stream
-     * URL IS on kwik.cx, the explicit kwik.cx Referer stays — that's what
-     * kwik.cx wants and what [KwikExtractor] uses elsewhere in the repo.
-     */
-    private fun resolveHlsReferer(stream: StreamDto): String {
-        val streamReferer = stream.referer.trim()
-        val streamHost = runCatching { stream.url.toHttpUrlOrNull()?.host }.getOrNull() ?: ""
-        val onKwik = streamHost.endsWith("kwik.cx", ignoreCase = true) ||
-            streamHost.endsWith("kwik.si", ignoreCase = true)
-
-        if (streamReferer.isEmpty()) {
-            return activeMirrorReferer.orEmpty()
-        }
-        if (streamReferer == KWIK_DEFAULT_REFERER && !onKwik) {
-            return activeMirrorReferer.orEmpty()
-        }
-        return streamReferer
     }
 
     private fun extractPreRoutedEmbed(

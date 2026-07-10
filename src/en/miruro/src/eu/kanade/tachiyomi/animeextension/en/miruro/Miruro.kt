@@ -1983,37 +1983,6 @@ class Miruro :
         return mediaList
     }
 
-    @Deprecated("Kept for PREFIX_SEARCH path via pipe API; browse/search now uses AniLib")
-    private fun parseAnimeListResponse(
-        response: Response,
-        fallbackKeys: List<String> = emptyList(),
-    ): AnimesPage {
-        val json = response.use { extractor.decryptResponse(it) }
-        logD { "parseAnimeListResponse: json length=${json.length}, fallbackKeys=$fallbackKeys" }
-
-        var hasNextPage = false
-        val mediaArray = try {
-            JSONArray(json)
-        } catch (_: Exception) {
-            val jsonObj = JSONObject(json)
-            val pageInfo = jsonObj.optJSONObject("pageInfo")
-            hasNextPage = pageInfo?.optBoolean("hasNextPage", false) ?: false
-            jsonObj.optJSONArray("media")
-                ?: fallbackKeys.firstNotNullOfOrNull { jsonObj.optJSONArray(it) }
-                ?: return AnimesPage(emptyList(), false)
-        }
-
-        val animeList = (0 until mediaArray.length()).map { i ->
-            parseAnimeFromMediaObj(mediaArray.getJSONObject(i))
-        }
-
-        if (!hasNextPage && animeList.size >= 20) {
-            hasNextPage = true
-        }
-
-        return AnimesPage(animeList, hasNextPage)
-    }
-
     private fun resolveTitle(titleObj: JSONObject, style: String): String {
         val fallbackChain = when (style) {
             "romaji" -> listOf("romaji", "userPreferred", "english", "native")
