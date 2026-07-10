@@ -71,6 +71,9 @@ object AniLib {
 
     // ========================== Rate-Limit State ==========================
 
+    /** Lock guarding all mutable rate-limit state below. */
+    private val rateLimitLock = Any()
+
     /**
      * Timestamp (ms) until which requests should be throttled.
      * Set when we receive a 429 with Retry-After, or when X-RateLimit-Remaining hits 0.
@@ -86,14 +89,37 @@ object AniLib {
     private var rateLimitDegraded: Boolean = false
 
     /**
+     * Timestamp (ms) when we entered degraded mode.
+     * Used to recover back to normal rate after a cooling period.
+     */
+    @Volatile
+    private var degradedSince: Long = 0L
+
+    /**
+     * How long (ms) to stay in degraded mode before recovering.
+     * 5 minutes — long enough to ride out transient spikes, short enough
+     * to restore full throughput once the server has recovered.
+     */
+    private const val DEGRADED_COOLDOWN_MS = 5 * 60_000L
+
+    /**
      * Minimum interval (ms) between consecutive requests.
      * Calculated from the current rate limit tier.
      */
     private val minRequestInterval: Long
-        get() = if (rateLimitDegraded) {
-            60_000L / RATE_LIMIT_DEGRADED
-        } else {
-            60_000L / RATE_LIMIT_NORMAL
+        get() {
+            val now = System.currentTimeMillis()
+            // Auto-recover from degraded mode after cooldown
+            if (rateLimitDegraded && degradedSince > 0L && (now - degradedSince) >= DEGRADED_COOLDOWN_MS) {
+                rateLimitDegraded = false
+                degradedSince = 0L
+                Log.i(TAG, "Rate-limit degraded cooldown expired, recovering to $RATE_LIMIT_NORMAL req/min")
+            }
+            return if (rateLimitDegraded) {
+                60_000L / RATE_LIMIT_DEGRADED
+            } else {
+                60_000L / RATE_LIMIT_NORMAL
+            }
         }
 
     @Volatile
@@ -105,24 +131,26 @@ object AniLib {
      * active Retry-After backoff.
      */
     private fun throttle() {
-        // If we're in a Retry-After backoff, wait it out
-        val backoffEnd = rateLimitUntil
-        if (backoffEnd > 0L) {
-            val waitMs = backoffEnd - System.currentTimeMillis()
+        synchronized(rateLimitLock) {
+            // If we're in a Retry-After backoff, wait it out
+            val backoffEnd = rateLimitUntil
+            if (backoffEnd > 0L) {
+                val waitMs = backoffEnd - System.currentTimeMillis()
+                if (waitMs > 0) {
+                    Log.d(TAG, "Rate-limit backoff: waiting ${waitMs}ms")
+                    Thread.sleep(waitMs)
+                }
+                rateLimitUntil = 0L
+            }
+
+            // Enforce minimum interval between requests
+            val elapsed = System.currentTimeMillis() - lastRequestTime
+            val waitMs = minRequestInterval - elapsed
             if (waitMs > 0) {
-                Log.d(TAG, "Rate-limit backoff: waiting ${waitMs}ms")
                 Thread.sleep(waitMs)
             }
-            rateLimitUntil = 0L
+            lastRequestTime = System.currentTimeMillis()
         }
-
-        // Enforce minimum interval between requests
-        val elapsed = System.currentTimeMillis() - lastRequestTime
-        val waitMs = minRequestInterval - elapsed
-        if (waitMs > 0) {
-            Thread.sleep(waitMs)
-        }
-        lastRequestTime = System.currentTimeMillis()
     }
 
     /**
@@ -130,12 +158,15 @@ object AniLib {
      * Should be called even on successful responses to track remaining quota.
      */
     private fun handleRateLimitHeaders(response: okhttp3.Response) {
-        // Check X-RateLimit-Remaining
-        val remaining = response.header(RATE_LIMIT_HEADER)?.toIntOrNull()
-        if (remaining != null && remaining <= 1) {
-            // We're about to exhaust our quota — set a brief backoff
-            rateLimitUntil = System.currentTimeMillis() + 60_000L
-            Log.w(TAG, "Rate limit nearly exhausted (remaining=$remaining), backing off 60s")
+        val remaining = response.header(RATE_LIMIT_HEADER)?.toIntOrNull() ?: return
+        if (remaining == 0) {
+            // Quota exhausted — back off for 60 seconds
+            synchronized(rateLimitLock) {
+                rateLimitUntil = System.currentTimeMillis() + 60_000L
+            }
+            Log.w(TAG, "Rate limit exhausted (remaining=0), backing off 60s")
+        } else if (remaining <= 5) {
+            Log.d(TAG, "Rate limit low (remaining=$remaining)")
         }
     }
 
@@ -144,14 +175,17 @@ object AniLib {
      * Also degrades the rate limit tier for future requests.
      */
     private fun handle429(response: okhttp3.Response) {
-        rateLimitDegraded = true
         val retryAfter = response.header(RATE_LIMIT_RETRY_AFTER_HEADER)?.toIntOrNull()
         val waitMs = if (retryAfter != null && retryAfter > 0) {
             retryAfter * 1000L
         } else {
             60_000L // default 60s if no Retry-After header
         }
-        rateLimitUntil = System.currentTimeMillis() + waitMs
+        synchronized(rateLimitLock) {
+            rateLimitDegraded = true
+            degradedSince = System.currentTimeMillis()
+            rateLimitUntil = System.currentTimeMillis() + waitMs
+        }
         Log.w(TAG, "Received 429 rate limit, backing off ${waitMs}ms, degrading to $RATE_LIMIT_DEGRADED req/min")
     }
 
@@ -162,6 +196,8 @@ object AniLib {
         prefs ?: return
         prefs.edit()
             .putLong(CACHE_BACKOFF_KEY, rateLimitUntil)
+            .putBoolean("anilib_rate_limit_degraded", rateLimitDegraded)
+            .putLong("anilib_degraded_since", degradedSince)
             .apply()
     }
 
@@ -171,9 +207,24 @@ object AniLib {
     private fun restoreRateLimitState(prefs: SharedPreferences?) {
         prefs ?: return
         val savedUntil = prefs.getLong(CACHE_BACKOFF_KEY, 0L)
+        val savedDegraded = prefs.getBoolean("anilib_rate_limit_degraded", false)
+        val savedDegradedSince = prefs.getLong("anilib_degraded_since", 0L)
         if (savedUntil > System.currentTimeMillis()) {
             rateLimitUntil = savedUntil
-            rateLimitDegraded = true
+        }
+        if (savedDegraded && savedDegradedSince > 0L) {
+            // Check if the cooldown has already expired
+            if ((System.currentTimeMillis() - savedDegradedSince) < DEGRADED_COOLDOWN_MS) {
+                rateLimitDegraded = true
+                degradedSince = savedDegradedSince
+                Log.d(TAG, "Restored degraded rate-limit state from prefs")
+            } else {
+                // Cooldown expired while app was closed — clear degraded state
+                prefs.edit()
+                    .putBoolean("anilib_rate_limit_degraded", false)
+                    .putLong("anilib_degraded_since", 0L)
+                    .apply()
+            }
         }
     }
 
