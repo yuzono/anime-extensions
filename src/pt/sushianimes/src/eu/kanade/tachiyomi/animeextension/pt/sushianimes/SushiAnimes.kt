@@ -9,7 +9,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -31,7 +31,7 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
 class SushiAnimes :
-    ParsedAnimeHttpSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Sushi Animes"
@@ -43,7 +43,7 @@ class SushiAnimes :
     override val supportsLatest = true
 
     override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", baseUrl)
+        .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
 
     private val preferences by getPreferencesLazy()
@@ -51,29 +51,34 @@ class SushiAnimes :
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/trends", headers)
 
-    override fun popularAnimeSelector() = "a.list-trend"
-
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst(".list-title")!!.text()
-        thumbnail_url = element.selectFirst(".media-cover")?.attr("data-src")
-        description = element.selectFirst(".list-description")?.text()
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val anime = document.select("a.list-trend").map { element ->
+            SAnime.create().apply {
+                setUrlWithoutDomain(element.absUrl("href"))
+                title = element.selectFirst(".list-title")!!.text()
+                thumbnail_url = element.selectFirst(".media-cover")?.attr("data-src")
+                description = element.selectFirst(".list-description")?.text()
+            }
+        }
+        return AnimesPage(anime, false)
     }
-
-    override fun popularAnimeNextPageSelector() = null
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/episodios?page=$page", headers)
 
-    override fun latestUpdatesSelector() = ".episode-grid a.list-movie:not(:has(.hentai-list-media))"
-
-    override fun latestUpdatesFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst(".list-caption")!!.text()
-        thumbnail_url = element.selectFirst(".media-episode")?.attr("data-src")
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val anime = document.select(".episode-grid a.list-movie:not(:has(.hentai-list-media))").map { element ->
+            SAnime.create().apply {
+                setUrlWithoutDomain(element.absUrl("href"))
+                title = element.selectFirst(".list-caption")!!.text()
+                thumbnail_url = element.selectFirst(".media-episode")?.attr("data-src")
+            }
+        }
+        val hasNextPage = document.selectFirst("a.btn.btn-theme.ml-2") != null
+        return AnimesPage(anime, hasNextPage)
     }
-
-    override fun latestUpdatesNextPageSelector(): String = "a.btn.btn-theme.ml-2"
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(
@@ -106,13 +111,10 @@ class SushiAnimes :
 
     private suspend fun handlePathSearch(query: String): AnimesPage {
         val path = query.removePrefix(PREFIX_SEARCH)
-        return client.newCall(GET("$baseUrl/$path"))
-            .awaitSuccess()
-            .use(::searchAnimeByIdParse)
-    }
-
-    private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.useAsJsoup()).apply {
+        val response = client.newCall(GET("$baseUrl/$path", headers)).awaitSuccess()
+        val document = response.useAsJsoup()
+        val doc = resolveRealDoc(document)
+        val details = parseAnimeDetails(doc).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -121,7 +123,6 @@ class SushiAnimes :
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        // addPathSegment already percent-encodes the query safely.
         val url = "$baseUrl/search".toHttpUrl().newBuilder()
             .addPathSegment(query)
             .build()
@@ -129,50 +130,61 @@ class SushiAnimes :
         return GET(url, headers = headers)
     }
 
-    override fun searchAnimeSelector() = "div.list-movie"
-
-    override fun searchAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-        title = element.selectFirst(".list-title")!!.text()
-        thumbnail_url = element.selectFirst(".media-cover")?.attr("data-src")
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val anime = document.select("div.list-movie").map { element ->
+            SAnime.create().apply {
+                setUrlWithoutDomain(element.selectFirst("a")!!.absUrl("href"))
+                title = element.selectFirst(".list-title")!!.text()
+                thumbnail_url = element.selectFirst(".media-cover")?.attr("data-src")
+            }
+        }
+        return AnimesPage(anime, false)
     }
-
-    override fun searchAnimeNextPageSelector() = null
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        val doc = getRealDoc(document)
-
-        return SAnime.create().apply {
-            setUrlWithoutDomain(doc.location())
-            title = doc.selectFirst("#title")?.text()
-                ?: throw IllegalStateException("Title element not found in anime details")
-            thumbnail_url = doc.selectFirst(".media-cover img")?.attr("src")
-            description =
-                doc.selectFirst(".detail-attr:contains(Sinopse) .text,.detail-attr:contains(Descrição) .text")
-                    ?.text()
-            genre = doc.select(".category-list a, .categories a").eachText().joinToString(", ")
-            status = SAnime.UNKNOWN
-        }
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val response = client.newCall(animeDetailsRequest(anime)).awaitSuccess()
+        val document = response.useAsJsoup()
+        val doc = resolveRealDoc(document)
+        return parseAnimeDetails(doc)
     }
 
+    private fun parseAnimeDetails(doc: Document): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(doc.location())
+        title = doc.selectFirst("#title")?.text()
+            ?: throw IllegalStateException("Title element not found in anime details")
+        thumbnail_url = doc.selectFirst(".media-cover img")?.attr("src")
+        description =
+            doc.selectFirst(".detail-attr:contains(Sinopse) .text,.detail-attr:contains(Descrição) .text")
+                ?.text()
+        genre = doc.select(".category-list a, .categories a").eachText().joinToString()
+        status = SAnime.UNKNOWN
+    }
+
+    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
+
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = getRealDoc(response.useAsJsoup())
-        val script = document.selectFirst("script[type=\"application/ld+json\"]")
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val response = client.newCall(episodeListRequest(anime)).awaitSuccess()
+        val document = response.useAsJsoup()
+        val doc = resolveRealDoc(document)
+        val script = doc.selectFirst("script[type=\"application/ld+json\"]")
             ?: return emptyList()
 
         // Movies expose a single "Assistir" button instead of a season list.
-        document.selectFirst("a.btn:contains(Assistir)")?.let { btnMovie ->
+        doc.selectFirst("a.btn:contains(Assistir)")?.let { btnMovie ->
             return parseMovieEpisode(btnMovie)
         }
 
         return parseSeriesEpisodes(script.data().trim().let(::sanitizeLdJsonNames))
     }
 
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
     private fun parseMovieEpisode(btnMovie: Element): List<SEpisode> = listOf(
         SEpisode.create().apply {
-            setUrlWithoutDomain(btnMovie.attr("href"))
+            setUrlWithoutDomain(btnMovie.absUrl("href"))
             name = "Filme"
             episode_number = 1F
         },
@@ -200,14 +212,11 @@ class SushiAnimes :
         return episodes.reversed()
     }
 
-    override fun episodeListSelector() = throw UnsupportedOperationException()
-
-    override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
-
     // ============================ Video Links =============================
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
-    override fun videoListParse(response: Response): List<Video> {
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val response = client.newCall(videoListRequest(episode)).awaitSuccess()
         val document = response.useAsJsoup()
 
         val embeds = document.select("[data-embed]")
@@ -240,8 +249,10 @@ class SushiAnimes :
             val body = response.bodyString()
 
             parseEmbedVideos(body)
-        }
+        }.sort()
     }
+
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
     /**
      * Parses the HTML returned by /ajax/embed. It can be:
@@ -260,17 +271,21 @@ class SushiAnimes :
         }
     }
 
-    private suspend fun parseIframeVideos(iframes: Elements): List<Video> = iframes.flatMap { iframe ->
-        val rawSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
-        val videoUrl = if (rawSrc.contains("proxy.php")) {
-            // The proxy wraps the real player URL in ?src=<real url>.
-            rawSrc.toHttpUrlOrNull()?.queryParameter("src") ?: rawSrc
-        } else {
-            rawSrc
+    private suspend fun parseIframeVideos(iframes: Elements): List<Video> {
+        val videos = mutableListOf<Video>()
+        for (iframe in iframes) {
+            val rawSrc = iframe.attr("abs:src").ifBlank { iframe.attr("src") }
+            val videoUrl = if (rawSrc.contains("proxy.php")) {
+                // The proxy wraps the real player URL in ?src=<real url>.
+                rawSrc.toHttpUrlOrNull()?.queryParameter("src") ?: rawSrc
+            } else {
+                rawSrc
+            }
+            // Guard against relative/malformed URLs that would crash downstream extractors.
+            if (videoUrl.toHttpUrlOrNull() == null) continue
+            videos.addAll(getVideosFromUrl(videoUrl))
         }
-        // Guard against relative/malformed URLs that would crash downstream extractors.
-        if (videoUrl.toHttpUrlOrNull() == null) return@flatMap emptyList()
-        getVideosFromUrl(videoUrl)
+        return videos
     }
 
     private fun parseScriptVideos(body: String): List<Video> {
@@ -329,19 +344,13 @@ class SushiAnimes :
         return ""
     }
 
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
-
     // ============================= Utilities ==============================
-    private fun getRealDoc(document: Document): Document {
+    private suspend fun resolveRealDoc(document: Document): Document {
         val menu = document.selectFirst(".episode-nav .home-list a")
         if (menu != null) {
             val originalUrl = menu.attr("href")
             return try {
-                client.newCall(GET(originalUrl, headers)).execute().useAsJsoup()
+                client.newCall(GET(originalUrl, headers)).awaitSuccess().useAsJsoup()
             } catch (e: Exception) {
                 Log.w("SushiAnimes", "Failed to resolve real doc from $originalUrl: ${e.message}")
                 document
@@ -357,7 +366,7 @@ class SushiAnimes :
      */
     private fun sanitizeLdJsonNames(input: String): String = NAME_VALUE_REGEX.replace(input) { match ->
         val value = match.groupValues[1]
-        val escaped = value.replace(Regex("(?<!\\\\)\""), "\\\\\"")
+        val escaped = value.replace(UNESCAPED_QUOTE_REGEX, "\\\\\"")
         "\"name\": \"$escaped\""
     }
 
@@ -399,6 +408,7 @@ class SushiAnimes :
         private val PLAYER_NAME_REGEX = Regex("""var playerName\s*=\s*["']([^"']+)["']""")
         private val CSRF_TOKEN_REGEX = Regex("""_TOKEN\s*=\s*["']([^"']+)["']""")
 
-        private val NAME_VALUE_REGEX = "\"name\"\\s*:\\s*\"(.*?)\",".toRegex()
+        private val NAME_VALUE_REGEX = Regex("\"name\"\\s*:\\s*\"(.*?)\",")
+        private val UNESCAPED_QUOTE_REGEX = Regex("(?<!\\\\)\"")
     }
 }
