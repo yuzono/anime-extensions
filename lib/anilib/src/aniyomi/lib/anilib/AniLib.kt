@@ -518,7 +518,7 @@ object AniLib {
         includeNSFW: Boolean? = null,
     ): Pair<List<MediaSnapshot>, PageInfo?>? {
         val effectiveFilter = if (includeNSFW != null) {
-            filter.copy(isAdult = if (includeNSFW) null else false)
+            filter.copy(isAdult = if (includeNSFW) true else false)
         } else {
             filter
         }
