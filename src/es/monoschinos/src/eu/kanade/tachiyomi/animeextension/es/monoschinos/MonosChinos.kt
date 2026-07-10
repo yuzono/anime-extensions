@@ -337,8 +337,8 @@ class MonosChinos :
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
                 { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-            ),
-        ).reversed()
+            ).reserved(),
+        )
     }
 
     // ====================== AUXILIARES ======================
