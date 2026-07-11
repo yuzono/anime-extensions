@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.sibnetextractor.SibnetExtractor
 import app.cash.quickjs.QuickJs
@@ -22,8 +23,10 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import rx.Observable
 
 class YummyAnime :
     AnimeHttpSource(),
@@ -37,6 +40,7 @@ class YummyAnime :
     private val apiUrl = "https://api.yani.tv"
     private val appToken = "o0nap18m_7a0od86"
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
+    private val allohaExtractor by lazy { AllohaExtractor(client) }
     private val preferences by getPreferencesLazy()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
@@ -53,6 +57,23 @@ class YummyAnime :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_ALLOHA_KEY
+            title = "Парсить плеер Alloha / Parse Alloha player"
+            summary = "Alloha извлекается через WebView при запуске видео (5-25 секунд). " +
+                "Отключите, если озвучки Alloha не воспроизводятся."
+            setDefaultValue(PREF_ALLOHA_DEFAULT)
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_ALLOHA_SUBS_KEY
+            title = "Субтитры Alloha (медленный режим)"
+            summary = "Извлекать Alloha сразу при построении списка видео, чтобы " +
+                "прикрепить дорожки субтитров. Открытие серии станет заметно дольше. " +
+                "Работает только при включённом парсинге Alloha."
+            setDefaultValue(PREF_ALLOHA_SUBS_DEFAULT)
         }.also(screen::addPreference)
     }
 
@@ -81,7 +102,12 @@ class YummyAnime :
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$apiUrl/search?q=$query", headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val url = "$apiUrl/search".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .build()
+        return GET(url, headers)
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<YummyResponse<List<YummyAnimeDto>>>().response
@@ -153,7 +179,7 @@ class YummyAnime :
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
         .awaitSuccess()
-        .use { videoListParseAsync(it) }
+        .use { videoListParseAsync(it, episodePlaybackIdentity(episode)) }
         .let(::applyQualityPreference)
         .let(::voicesBeforeSubtitles)
 
@@ -180,30 +206,141 @@ class YummyAnime :
 
     private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()
 
-    private suspend fun videoListParseAsync(response: Response): List<Video> {
+    private suspend fun videoListParseAsync(response: Response, episodePlaybackIdentity: String): List<Video> {
         val episodeNum = response.request.url.queryParameter("episode") ?: return emptyList()
-
         val data = response.parseAs<YummyResponse<YummyDetailsDto>>().response ?: return emptyList()
 
         val allVideos = data.videos ?: return emptyList()
 
         val episodeVideos = allVideos.filter { it.number?.content == episodeNum }
 
-        return episodeVideos.parallelCatchingFlatMap { video ->
-            val dubbing = video.data?.dubbing ?: "Unknown"
+        return episodeVideos.withIndex().parallelCatchingFlatMap { (index, video) ->
+            // Placeholder name when the API does not provide the dubbing title.
+            val dubbing = video.data?.dubbing?.takeIf { it.isNotBlank() } ?: "Озвучка ${index + 1}"
             val player = video.data?.player ?: ""
             val iframeUrl = video.iframeUrl?.fixProtocol() ?: return@parallelCatchingFlatMap emptyList()
 
             when {
-                player.contains("Kodik", ignoreCase = true) -> kodikVideoLinks(iframeUrl, dubbing)
-                else -> fallbackVideoLinks(iframeUrl, dubbing)
+                player.contains("Kodik", ignoreCase = true) -> {
+                    kodikVideoLinks(iframeUrl, dubbing, episodePlaybackIdentity)
+                }
+                player.contains("Alloha", ignoreCase = true) -> {
+                    when {
+                        !preferences.getBoolean(PREF_ALLOHA_KEY, PREF_ALLOHA_DEFAULT) -> emptyList()
+
+                        // Slow mode: extract right now (WebView per dubbing) — the only
+                        // way to attach subtitle tracks, since the lazy fetchVideoUrl
+                        // path can only return a stream URL, not tracks.
+                        preferences.getBoolean(PREF_ALLOHA_SUBS_KEY, PREF_ALLOHA_SUBS_DEFAULT) -> {
+                            allohaExtractor.videosFromUrl(
+                                iframeUrl,
+                                "$baseUrl/",
+                                prefix = dubbing,
+                                episodePlaybackIdentity = episodePlaybackIdentity,
+                                cacheKey = "$episodePlaybackIdentity|$dubbing (Alloha)",
+                            ).map { v ->
+                                // The cache may hold entries created by the lazy path
+                                // (default "Alloha" prefix) — normalize the label and
+                                // the shared episode identity on read. Rebuilt via the
+                                // constructor, NOT copy(): the runtime Video class may
+                                // differ from the compile-time stub, and a failing
+                                // copy() silently drops every entry.
+                                Video(
+                                    url = episodePlaybackIdentity,
+                                    quality = "$dubbing (Alloha)",
+                                    videoUrl = v.videoUrl,
+                                    headers = v.headers,
+                                    subtitleTracks = v.subtitleTracks,
+                                )
+                            }
+                        }
+
+                        // Alloha needs a slow WebView round-trip, so it is resolved
+                        // lazily in fetchVideoUrl when the user starts playback
+                        // (videoUrl = null), exactly like the YummyTV app does.
+                        // url is the shared episode identity (like the Kodik videos)
+                        // so the player keeps the position when switching dubbings;
+                        // the iframe URL itself is NOT stored — its token_movie is
+                        // short-lived, so fetchVideoUrl re-requests a fresh one from
+                        // the API (slug/episode come from the identity, the dubbing
+                        // from the quality label).
+                        else -> listOf(
+                            Video(
+                                url = episodePlaybackIdentity,
+                                quality = "$dubbing (Alloha)",
+                                videoUrl = null,
+                                headers = AllohaExtractor.playbackHeaders(iframeUrl),
+                            ),
+                        )
+                    }
+                }
+                else -> fallbackVideoLinks(iframeUrl, dubbing, episodePlaybackIdentity)
             }
         }
     }
 
+    /**
+     * Lazy resolution for Alloha videos (videoUrl == null).
+     *
+     * MUST NEVER THROW: with the pre-Hoster extension API the app (Anikku's
+     * EpisodeLoader.parseVideoUrls) resolves every unresolved video of the episode in
+     * one batch when the player opens, and a single exception marks the whole batch as
+     * HosterState.Error — the user sees "No available videos" even though Kodik links
+     * were fine. On failure the iframe URL is returned instead, so only this one entry
+     * fails if the user actually selects it.
+     */
+    override fun fetchVideoUrl(video: Video): Observable<String> = Observable.fromCallable {
+        runCatching {
+            // The token_movie in the Alloha iframe URL is short-lived and consumed by
+            // the first open, so a fresh iframe URL is requested from the API right
+            // before extraction.
+            val playerUrl = runCatching { freshAllohaIframeUrl(video) }.getOrNull() ?: video.url
+            // "lazy|" separates this cache from the slow-mode one: entries created here
+            // carry the default "Alloha (Alloha)" label and must never be served into
+            // the video list (only videoUrl is read on this path).
+            allohaExtractor.videosFromUrl(
+                playerUrl,
+                "$baseUrl/",
+                cacheKey = "lazy|${video.url}|${video.quality}",
+            )
+                .firstOrNull()
+                ?.videoUrl
+                ?: playerUrl
+        }.getOrDefault(video.url)
+    }
+
+    /**
+     * video.url is the shared episode identity "$baseUrl/episode/{slug}/{num}" — all
+     * videos of the episode share it so the player keeps the position when switching
+     * dubbings. The Alloha dubbing is recovered from the quality label
+     * "<dubbing> (Alloha)", and a fresh (short-lived) iframe URL for it is requested
+     * from the API.
+     */
+    private fun freshAllohaIframeUrl(video: Video): String? {
+        val segments = video.url.toHttpUrl().pathSegments
+        val animeSlug = segments.getOrNull(1) ?: return null
+        val episodeNum = segments.getOrNull(2) ?: return null
+        val dubbing = video.quality.substringBeforeLast(" (Alloha)")
+        val data = client.newCall(
+            GET("$apiUrl/anime/$animeSlug?need_videos=true&episode=$episodeNum", headers),
+        ).execute().parseAs<YummyResponse<YummyDetailsDto>>().response ?: return null
+        return data.videos
+            ?.firstOrNull { v ->
+                v.number?.content == episodeNum &&
+                    v.data?.player?.contains("Alloha", ignoreCase = true) == true &&
+                    v.data?.dubbing == dubbing
+            }
+            ?.iframeUrl
+            ?.fixProtocol()
+    }
+
     // ============================ Kodik Player ===============================
 
-    private fun kodikVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
+    private fun kodikVideoLinks(
+        iframeUrl: String,
+        dubbing: String,
+        episodePlaybackIdentity: String,
+    ): List<Video> {
         val kodikHeaders = Headers.Builder()
             .add("Referer", "$baseUrl/")
             .add("X-Application", appToken)
@@ -331,7 +468,7 @@ class YummyAnime :
                     Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
                 }.getOrNull()?.fixProtocol() ?: return@flatMap emptyList()
 
-                buildKodikVideos(hlsUrl, qualityName, dubbing, hlsHeaders)
+                buildKodikVideos(hlsUrl, qualityName, dubbing, hlsHeaders, episodePlaybackIdentity)
             }
         }
     }
@@ -341,20 +478,32 @@ class YummyAnime :
         qualityName: String,
         dubbing: String,
         hlsHeaders: Headers,
+        episodePlaybackIdentity: String,
     ): List<Video> = if (hlsUrl.contains(".mpd")) {
         PlaylistUtils(client, headers).extractFromDash(
             hlsUrl,
             { res: String -> "$dubbing (${qualityName}p Kodik - $res)" },
             hlsHeaders,
             hlsHeaders,
-        )
+        ).map { it.copy(url = episodePlaybackIdentity) }
     } else {
-        listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+        listOf(
+            Video(
+                url = episodePlaybackIdentity,
+                quality = "$dubbing (${qualityName}p Kodik)",
+                videoUrl = hlsUrl,
+                headers = hlsHeaders,
+            ),
+        )
     }
 
     // =========================== Fallback Player =============================
 
-    private fun fallbackVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
+    private fun fallbackVideoLinks(
+        iframeUrl: String,
+        dubbing: String,
+        episodePlaybackIdentity: String,
+    ): List<Video> {
         val body = runCatching {
             client.newCall(GET(iframeUrl, headers)).execute().body.string()
         }.getOrNull() ?: return emptyList()
@@ -372,7 +521,9 @@ class YummyAnime :
             }
 
             val sibVideos = runCatching { sibnetExtractor.videosFromUrl(iframeUrl, "$dubbing (Sibnet) ") }.getOrNull()
-            if (!sibVideos.isNullOrEmpty()) return sibVideos
+            if (!sibVideos.isNullOrEmpty()) {
+                return sibVideos.map { it.copy(url = episodePlaybackIdentity) }
+            }
         }
 
         val mpd = MPD_REGEX.find(body)?.value
@@ -388,7 +539,7 @@ class YummyAnime :
                 { res: String -> "$dubbing (DASH $res)" },
                 videoHeaders,
                 videoHeaders,
-            )
+            ).map { it.copy(url = episodePlaybackIdentity) }
         }
 
         val stream = M3U8_REGEX.find(body)?.value ?: return emptyList()
@@ -399,18 +550,31 @@ class YummyAnime :
             .add("X-Application", appToken)
             .build()
 
-        return listOf(Video(stream, "$dubbing (Unknown)", stream, headers = videoHeaders))
+        return listOf(
+            Video(
+                url = episodePlaybackIdentity,
+                quality = "$dubbing (Unknown)",
+                videoUrl = stream,
+                headers = videoHeaders,
+            ),
+        )
     }
 
     // ============================= Utilities ==============================
 
     private fun String.fixProtocol(): String = if (startsWith("//")) "https:$this" else this
 
+    private fun episodePlaybackIdentity(episode: SEpisode): String = "$baseUrl/episode/${episode.url.replace("|", "/")}"
+
     private fun String.toOrigin(): String = ORIGIN_REGEX.find(this)?.groupValues?.get(1) ?: this
 
     companion object {
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
+        private const val PREF_ALLOHA_KEY = "pref_parse_alloha"
+        private const val PREF_ALLOHA_DEFAULT = true
+        private const val PREF_ALLOHA_SUBS_KEY = "pref_alloha_subs"
+        private const val PREF_ALLOHA_SUBS_DEFAULT = false
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})\s*p""")
         private val ATOB_REGEX = Regex("atob\\([^\"]")
