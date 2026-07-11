@@ -328,6 +328,8 @@ Your extension code must be placed in the package `eu.kanade.tachiyomi.animeexte
 Extensions' `build.gradle.kts` should look like this:
 
 ```kotlin
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
