@@ -8,11 +8,9 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Stateless AES-GCM primitives for AllAnime's stream-auth ("aaReq") scheme.
- *
- * The key is `clientMask (partA) XOR partB`; the same key encrypts the request token and
- * decrypts the `tobeparsed` response payload. Both use the wire layout
- * `[0x01] + iv(12) + AES-GCM(ciphertext‖tag)`.
+ * Stateless AES-GCM primitives for AllAnime's "aaReq" scheme (wire layout
+ * `[0x01] + iv(12) + AES-GCM(ciphertext‖tag)`). Request token keyed with `clientMask XOR partB`;
+ * response payload with the legacy static key, falling back to the mask key.
  */
 object AllAnimeCrypto {
 
@@ -21,8 +19,10 @@ object AllAnimeCrypto {
     private const val KEY_TYPE = "AES"
     private const val CIPHER_ALGO = "AES/GCM/NoPadding"
 
+    private const val LEGACY_SECRET = "Xot36i3lK3"
+
     // aaReq time bucket: the token is valid for its rounded-down 5-minute window.
-    const val WINDOW_MS = 5 * 60 * 1000L
+    private const val WINDOW_MS = 5 * 60 * 1000L
 
     fun deriveKey(mask: ByteArray, partB: ByteArray): SecretKeySpec {
         val keyBytes = ByteArray(32) { i ->
@@ -52,17 +52,30 @@ object AllAnimeCrypto {
         return Base64.encodeToString(blob, Base64.NO_WRAP)
     }
 
-    fun decrypt(base64Payload: String, key: SecretKeySpec): String? = runCatching {
-        val blob = Base64.decode(base64Payload, Base64.DEFAULT)
-        if (blob.size < 13 || blob[0].toInt() != 1) return null
+    fun decrypt(base64Payload: String, materialKey: SecretKeySpec): String? {
+        val blob = runCatching { Base64.decode(base64Payload, Base64.DEFAULT) }.getOrNull() ?: return null
+        if (blob.size < 13) return null
 
+        val version = blob[0].toInt() and 0xFF
         val iv = blob.sliceArray(1 until 13)
         val encryptedData = blob.sliceArray(13 until blob.size)
 
-        val cipher = Cipher.getInstance(CIPHER_ALGO)
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_LENGTH, iv))
-        String(cipher.doFinal(encryptedData), Charsets.UTF_8)
-    }.getOrNull()
+        // The GCM tag guarantees only the correct key yields output, so trying both is safe.
+        for (key in listOf(legacyKey(version), materialKey)) {
+            runCatching {
+                val cipher = Cipher.getInstance(CIPHER_ALGO)
+                cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_LENGTH, iv))
+                String(cipher.doFinal(encryptedData), Charsets.UTF_8)
+            }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun legacyKey(version: Int): SecretKeySpec {
+        val bytes = MessageDigest.getInstance(HASH_ALGO)
+            .digest("$LEGACY_SECRET:v$version".toByteArray(Charsets.UTF_8))
+        return SecretKeySpec(bytes, KEY_TYPE)
+    }
 
     fun hexToBytesOrNull(hex: String): ByteArray? = runCatching {
         require(hex.isNotEmpty() && hex.length % 2 == 0)
