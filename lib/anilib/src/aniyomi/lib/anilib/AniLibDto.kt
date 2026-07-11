@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.multisrc.anilib
+package aniyomi.lib.anilib
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

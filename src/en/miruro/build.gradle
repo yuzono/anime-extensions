@@ -9,7 +9,7 @@ apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(':lib:omniembedextractor'))
-    implementation(project(':lib-multisrc:anilib'))
+    implementation(project(':lib:anilib'))
     implementation(project(':lib:tlsspoof'))
     implementation(project(':lib:m3u8server'))
     implementation(project(':lib:cloudflareinterceptor'))
