@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
+import aniyomi.lib.anilib.MediaFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter.TriState
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.multisrc.anilib.MediaFilter
 import java.util.Calendar
 
 object MiruroFilters {
