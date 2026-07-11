@@ -34,7 +34,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -56,7 +55,11 @@ class AllAnime :
 
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy()
+    private val preferences by getPreferencesLazy {
+        if (getString(PREF_SITE_DOMAIN_KEY, null) == LEGACY_SITE_DOMAIN) {
+            edit().putString(PREF_SITE_DOMAIN_KEY, PREF_SITE_DOMAIN_DEFAULT).apply()
+        }
+    }
 
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
@@ -188,11 +191,8 @@ class AllAnime :
     }
 
     override fun getAnimeUrl(anime: SAnime): String {
-        val (id, time, slug) = anime.url.split("<&sep>")
-        val slugTime = if (time.isNotEmpty()) "-st-$time" else time
-        val siteUrl = preferences.siteUrl
-
-        return "$siteUrl/bangumi/$id"
+        val id = anime.url.split("<&sep>").first()
+        return "${preferences.siteUrl}/anime/$id"
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -258,16 +258,15 @@ class AllAnime :
     // ============================ Video Links =============================
 
     private val keyManager by lazy {
-        AllAnimeKeyManager(client, headers, preferences)
+        AllAnimeKeyManager(client, headers, preferences, preferences.siteUrl)
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
 
-    // videoListRequest no longer yields a usable URL, so point "Open in WebView" at the show page.
+    // videoListRequest no longer yields a usable URL, so point "Open in WebView" at the watch page.
     override fun getEpisodeUrl(episode: SEpisode): String {
-        val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
-        val showId = variables["showId"]!!.jsonPrimitive.content
-        return "${preferences.siteUrl}/bangumi/$showId"
+        val vars = episode.url.parseAs<EpisodeVariables>().variables
+        return "${preferences.siteUrl}/anime/${vars.showId}/p-${vars.episodeString}-${vars.translationType}"
     }
 
     private fun videoListRequest(episode: SEpisode, material: AllAnimeKeyManager.Material): Request {
@@ -285,7 +284,7 @@ class AllAnime :
             addPathSegment("api")
             addQueryParameter("variables", variables.toJsonString())
             addQueryParameter("extensions", extensions.toJsonString())
-        }.build().toString()
+        }.build()
 
         return GET(url, headers)
     }
@@ -502,28 +501,28 @@ class AllAnime :
 
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
-    // The aaReq token fails two ways: partB/epoch rotated (a refetch fixes it) or the client
-    // mask rotated with a new site build (needs a re-extract). Remediate in that order,
-    // retrying between each.
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
+        var lastError: Throwable? = null
         var maskHealed = false
 
         repeat(MAX_KEY_ATTEMPTS) { attempt ->
             val material = keyManager.material(forceRefresh = attempt > 0)
 
-            // A failed request (or a response we can't turn into sources) is treated as a key
-            // failure and remediated below, rather than surfacing a raw error to the user.
+            // Keep the real request error so it's surfaced instead of the generic crypto message.
             val responseBody = runCatching {
                 client.newCall(videoListRequest(episode, material)).awaitSuccess().bodyString()
-            }.getOrNull()
+            }.getOrElse {
+                lastError = it
+                null
+            }
 
             if (responseBody != null) {
+                lastError = null
                 val tobeparsed = runCatching {
                     responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
                 }.getOrNull()
 
                 when {
-                    // A decrypted but empty result is legitimate.
                     !tobeparsed.isNullOrBlank() -> {
                         runCatching { keyManager.decrypt(tobeparsed, material)?.parseAs<DecryptedEpisodeResult>() }
                             .getOrNull()
@@ -536,17 +535,16 @@ class AllAnime :
                             ?.let { return it }
                     }
                 }
-            }
 
-            // Attempt 1 already refetched partB + epoch; if that still failed, the mask itself
-            // rotated, so re-extract it before the final attempt.
-            if (attempt == 1 && !maskHealed) {
-                maskHealed = keyManager.healMask()
+                // Only a server-side crypto rejection means the mask likely rotated; heal once.
+                if (attempt >= 1 && !maskHealed && keyManager.isCryptoError(responseBody)) {
+                    maskHealed = keyManager.healMask()
+                }
             }
             keyManager.invalidate()
         }
 
-        throw Exception("AllAnime changed its stream encryption; update the extension")
+        throw lastError ?: Exception("AllAnime changed its stream encryption; update the extension")
     }
 
     companion object {
@@ -572,13 +570,14 @@ class AllAnime :
         private const val THUMBNAIL_PROXY_SUB = "https://wp.youtube-anime.com/aln.youtube-anime.com/%s?w=250"
 
         private const val PREF_SITE_DOMAIN_KEY = "preferred_site_domain"
-        private const val PREF_SITE_DOMAIN_DEFAULT = "https://allmanga.to"
+        private const val PREF_SITE_DOMAIN_DEFAULT = "https://mkissa.to"
+
+        private const val LEGACY_SITE_DOMAIN = "https://allmanga.to"
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://api.allanime.day"
 
-        // The site's hardcoded default iframe host (was previously served by /getVersion,
-        // now removed). Used as the base for legacy internal/player servers.
+        // The site's default iframe host, for the legacy internal/player servers.
         private const val PLAYER_DOMAIN = "https://allanime.day"
 
         private const val PREF_SERVER_KEY = "preferred_server"
@@ -645,8 +644,8 @@ class AllAnime :
         ListPreference(screen.context).apply {
             key = PREF_SITE_DOMAIN_KEY
             title = "Preferred domain for site (requires app restart)"
-            entries = arrayOf("allmanga.to")
-            entryValues = arrayOf("https://allmanga.to")
+            entries = arrayOf("mkissa.to")
+            entryValues = arrayOf("https://mkissa.to")
             setDefaultValue(PREF_SITE_DOMAIN_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
