@@ -28,7 +28,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import keiyoushi.lib.tlsspoof.SpoofedTlsSupport
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -90,11 +89,11 @@ class Miruro :
     private val SharedPreferences.fillerMarkMixed by preferences.delegate(PREF_FILLER_MARK_MIXED_KEY, PREF_FILLER_MARK_MIXED_DEFAULT)
     private val SharedPreferences.includeNSFW by preferences.delegate(PREF_INCLUDE_NSFW_KEY, PREF_INCLUDE_NSFW_DEFAULT)
 
-    override val client: OkHttpClient = SpoofedTlsSupport.applyTo(
+    override val client: OkHttpClient =
         super.client.newBuilder()
             .addNetworkInterceptor(MiruroBrowserFingerprintInterceptor())
-            .addNetworkInterceptor(MiruroDebugInterceptor()),
-    ).build()
+            .addNetworkInterceptor(MiruroDebugInterceptor())
+            .build()
 
     private val extractor by lazy {
         MiruroExtractor(client, PIPE_KEY, PROXY_KEY, headers, preferences, baseUrl) { providerDisplayName(it) }
