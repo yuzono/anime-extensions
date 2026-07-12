@@ -1,7 +1,7 @@
 ext {
     extName = 'MissAV'
     extClass = '.MissAV'
-    extVersionCode = 25
+    extVersionCode = 26
     isNsfw = true
 }
 
@@ -11,4 +11,5 @@ dependencies {
     implementation(project(':lib:unpacker'))
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:javcoverfetcher'))
+    implementation(project(':lib:m3u8server'))
 }
