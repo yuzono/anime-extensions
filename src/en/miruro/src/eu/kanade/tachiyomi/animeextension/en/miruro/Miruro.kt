@@ -850,15 +850,189 @@ class Miruro :
         .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
         .build()
 
+    // ============================== Pipe Search ==============================
+    //
+    // Miruro's pipe API exposes two search endpoints that mirror the AniList
+    // GraphQL media query surface but route through Miruro's own backend:
+    //   path "search"        — text search; pagination {limit, offset};
+    //                          response is a bare JSON array of media.
+    //   path "search/browse" — filtered browse; pagination {page, perPage};
+    //                          response is {media:[...], pageInfo:{hasNextPage}}
+    //                          OR a bare JSON array. Used for trending/seasonal/
+    //                          genre-filtered browse — the "related by genre"
+    //                          path goes through here.
+    // Media objects in both responses have the same shape as the pipe "info"
+    // endpoint, so [parseAnimeFromMediaObj] consumes them directly. Responses
+    // are XOR-decoded + gzip-decompressed via [MiruroExtractor.decryptResponse].
+    // AniLib (AniList GraphQL) is preserved as a synchronous fallback so a
+    // Miruro backend hiccup never blanks the user's browse/search page.
+
+    private fun parseMediaListFromPipeJson(json: String): List<SAnime> {
+        val trimmed = json.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        val root = runCatching { JSONObject(trimmed) }.getOrNull()
+        if (root != null) {
+            val mediaArr = root.optJSONArray("media")
+            if (mediaArr != null) {
+                return (0 until mediaArr.length()).mapNotNull { idx ->
+                    mediaArr.optJSONObject(idx)?.let { parseAnimeFromMediaObj(it) }
+                }
+            }
+            if (root.has("id")) return listOf(parseAnimeFromMediaObj(root))
+        }
+        val arr = runCatching { JSONArray(trimmed) }.getOrNull() ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { idx ->
+            arr.optJSONObject(idx)?.let { parseAnimeFromMediaObj(it) }
+        }
+    }
+
+    private fun extractHasNextPageFromPipeJson(json: String, perPage: Int): Boolean {
+        val trimmed = json.trim()
+        if (trimmed.isEmpty()) return false
+        runCatching {
+            val root = JSONObject(trimmed)
+            root.optJSONObject("pageInfo")?.let { info ->
+                return info.optBoolean("hasNextPage", false)
+            }
+            root.optJSONArray("media")?.let { media ->
+                return media.length() >= perPage
+            }
+        }
+        runCatching {
+            val arr = JSONArray(trimmed)
+            return arr.length() >= perPage
+        }
+        return false
+    }
+
+    private suspend fun runPipeSearchRequest(
+        path: String,
+        query: JSONObject,
+        perPage: Int,
+    ): Pair<List<SAnime>, Boolean>? = try {
+        val request = buildPipeRequest(path, "GET", query = query)
+        val json = client.newCall(request).awaitSuccess().use { response ->
+            extractor.decryptResponse(response)
+        }
+        if (json.isBlank()) {
+            logD { "runPipeSearchRequest: empty response from $path" }
+            null
+        } else {
+            val results = parseMediaListFromPipeJson(json)
+            val hasNext = extractHasNextPageFromPipeJson(json, perPage)
+            logD { "runPipeSearchRequest: $path returned ${results.size} results, hasNext=$hasNext" }
+            results to hasNext
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Pipe search request '$path' failed: ${e.message}, falling back to AniLib")
+        null
+    }
+
+    private fun filterParamsToPipeQuery(
+        params: MiruroFilters.FilterSearchParams,
+        type: String = "ANIME",
+        isAdult: Boolean? = null,
+    ): JSONObject {
+        val q = JSONObject()
+        q.put("type", type)
+        params.sort.takeIf { it != "all" }?.let { q.put("sort", it) }
+        params.genres.takeIf { it.isNotEmpty() }?.let {
+            val arr = JSONArray()
+            it.forEach { arr.put(it) }
+            q.put("genres", arr)
+        }
+        params.excludedGenres.takeIf { it.isNotEmpty() }?.let {
+            val arr = JSONArray()
+            it.forEach { arr.put(it) }
+            q.put("excludedGenres", arr)
+        }
+        params.tags.takeIf { it.isNotEmpty() }?.let {
+            val arr = JSONArray()
+            it.forEach { arr.put(it) }
+            q.put("tags", arr)
+        }
+        params.excludedTags.takeIf { it.isNotEmpty() }?.let {
+            val arr = JSONArray()
+            it.forEach { arr.put(it) }
+            q.put("excludedTags", arr)
+        }
+        params.formats.takeIf { it.isNotEmpty() }?.let {
+            val arr = JSONArray()
+            it.forEach { arr.put(it) }
+            q.put("format", arr)
+        }
+        params.status.takeIf { it != "all" }?.let { q.put("status", it) }
+        params.season.takeIf { it != "all" }?.let { q.put("season", it) }
+        params.year.takeIf { it != "all" }?.let {
+            it.toIntOrNull()?.let { year -> q.put("seasonYear", year) }
+        }
+        params.dubLanguage.takeIf { it != "all" }?.let { q.put("dubLanguage", it) }
+        isAdult?.let { q.put("isAdult", it) }
+        return q
+    }
+
+    private suspend fun fetchTrendingViaPipe(page: Int, perPage: Int): Pair<List<SAnime>, Boolean>? = runPipeSearchRequest(
+        "search/browse",
+        JSONObject().apply {
+            put("type", "ANIME")
+            put("status", "RELEASING")
+            put("sort", "TRENDING_DESC")
+            put("page", page)
+            put("perPage", perPage)
+        },
+        perPage,
+    )
+
+    private suspend fun fetchRecentViaPipe(page: Int, perPage: Int): Pair<List<SAnime>, Boolean>? = runPipeSearchRequest(
+        "search/browse",
+        JSONObject().apply {
+            put("type", "ANIME")
+            put("status", "RELEASING")
+            put("sort", "UPDATED_AT_DESC")
+            put("page", page)
+            put("perPage", perPage)
+        },
+        perPage,
+    )
+
+    private suspend fun fetchSearchViaPipe(query: String, page: Int, perPage: Int): Pair<List<SAnime>, Boolean>? = runPipeSearchRequest(
+        "search",
+        JSONObject().apply {
+            put("type", "ANIME")
+            put("q", query)
+            put("sort", "SEARCH_MATCH")
+            put("limit", perPage)
+            put("offset", (page - 1) * perPage)
+        },
+        perPage,
+    )
+
+    private suspend fun fetchBrowseViaPipe(
+        params: MiruroFilters.FilterSearchParams,
+        page: Int,
+        perPage: Int,
+    ): Pair<List<SAnime>, Boolean>? {
+        val query = filterParamsToPipeQuery(params)
+        query.put("page", page)
+        query.put("perPage", perPage)
+        return runPipeSearchRequest("search/browse", query, perPage)
+    }
+
+    private fun toAnimesPage(results: Pair<List<SAnime>, Boolean>?) = if (results == null) AnimesPage(emptyList(), false) else AnimesPage(results.first, results.second)
+
     // ============================== Trending ===============================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         logD { "getPopularAnime: page=$page" }
         ensureBaseVisit()
         launchConfigFetch()
-        val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
+        val perPage = 20
+        val pipeResult = fetchTrendingViaPipe(page, perPage)
+        if (pipeResult != null) return toAnimesPage(pipeResult)
+        logD { "getPopularAnime: pipe search/browse returned null — falling back to AniLib" }
+        val (mediaList, pageInfo) = AniLib.fetchTrending(client, page = page, perPage = perPage, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
-        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= perPage)
         return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
 
@@ -871,9 +1045,13 @@ class Miruro :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         logD { "getLatestUpdates: page=$page" }
         ensureBaseVisit()
-        val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
+        val perPage = 20
+        val pipeResult = fetchRecentViaPipe(page, perPage)
+        if (pipeResult != null) return toAnimesPage(pipeResult)
+        logD { "getLatestUpdates: pipe search/browse returned null — falling back to AniLib" }
+        val (mediaList, pageInfo) = AniLib.fetchRecentlyUpdated(client, page = page, perPage = perPage, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
-        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= perPage)
         return AnimesPage(mediaList.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
 
@@ -919,20 +1097,33 @@ class Miruro :
 
         launchConfigFetch()
 
+        val perPage = 20
+        val params = MiruroFilters.getSearchParameters(filters)
+
         if (query.isNotEmpty()) {
-            val (mediaList, pageInfo) = AniLib.fetchSearchAnime(client, query = query, page = page, perPage = 20, includeNSFW = preferences.includeNSFW)
+            val pipeResult = fetchSearchViaPipe(query, page, perPage)
+            if (pipeResult != null) {
+                logD { "getSearchAnime: used pipe 'search' for query '${query.take(40)}'" }
+                return toAnimesPage(pipeResult)
+            }
+            logD { "getSearchAnime: pipe 'search' returned null — falling back to AniLib" }
+            val (mediaList, pageInfo) = AniLib.fetchSearchAnime(client, query = query, page = page, perPage = perPage, includeNSFW = preferences.includeNSFW)
                 ?: return AnimesPage(emptyList(), false)
-            val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
-            val dubLang = MiruroFilters.getSearchParameters(filters).dubLanguage
-            val results = applyDubPostFilter(mediaList, dubLang)
+            val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= perPage)
+            val results = applyDubPostFilter(mediaList, params.dubLanguage)
             return AnimesPage(results.map { animeFromMediaSnapshot(it) }, hasNextPage)
         }
 
-        val params = MiruroFilters.getSearchParameters(filters)
-        val mediaFilter = params.toMediaFilter(page = page, perPage = 20)
+        val pipeBrowseResult = fetchBrowseViaPipe(params, page, perPage)
+        if (pipeBrowseResult != null) {
+            logD { "getSearchAnime: used pipe 'search/browse' with filters=$params" }
+            return toAnimesPage(pipeBrowseResult)
+        }
+        logD { "getSearchAnime: pipe 'search/browse' returned null — falling back to AniLib" }
+        val mediaFilter = params.toMediaFilter(page = page, perPage = perPage)
         val (mediaList, pageInfo) = AniLib.fetchFilteredMedia(client, mediaFilter, includeNSFW = preferences.includeNSFW)
             ?: return AnimesPage(emptyList(), false)
-        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= 20)
+        val hasNextPage = pageInfo?.hasNextPage ?: (mediaList.size >= perPage)
         val results = applyDubPostFilter(mediaList, params.dubLanguage)
         return AnimesPage(results.map { animeFromMediaSnapshot(it) }, hasNextPage)
     }
