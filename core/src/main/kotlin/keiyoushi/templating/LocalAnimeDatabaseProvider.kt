@@ -22,9 +22,24 @@ class LocalAnimeDatabaseProvider(
 ) : MetadataSubProvider {
 
     override suspend fun provide(context: MetaproviderContext): ExtensionMetadata {
-        val anilistId = context.anilistId ?: return ExtensionMetadata()
         val dbCache = cache ?: return ExtensionMetadata()
 
+        val anilistId = context.anilistId ?: resolveAnilistIdFromContext(context, dbCache)
+            ?: return ExtensionMetadata()
+
         return dbCache.getMetadata(anilistId) ?: ExtensionMetadata()
+    }
+
+    private suspend fun resolveAnilistIdFromContext(
+        context: MetaproviderContext,
+        dbCache: AnimeDatabaseCache,
+    ): Int? {
+        context.nativeIds["mal"]?.let { malId ->
+            dbCache.resolveAnilistIdFromMal(malId)?.let { return it }
+        }
+        context.nativeIds["kitsu"]?.let { kitsuId ->
+            dbCache.resolveAnilistIdFromKitsu(kitsuId)?.let { return it }
+        }
+        return null
     }
 }

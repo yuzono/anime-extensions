@@ -105,12 +105,36 @@ class MetadataProvider(
     }
 
     private suspend fun resolveNativeIds(context: MetaproviderContext): MetaproviderContext {
-        val anilistId = context.anilistId ?: return context
         val cache = databaseCache ?: return context
 
-        val nativeIds = cache.resolveNativeIds(anilistId)
+        if (context.anilistId != null) {
+            val nativeIds = cache.resolveNativeIds(context.anilistId)
+            if (nativeIds.isEmpty()) return context
+            return context.copy(nativeIds = context.nativeIds + nativeIds)
+        }
+
+        val resolvedAnilistId = resolveAnilistIdFromNativeIds(context, cache)
+            ?: return context
+
+        val nativeIds = cache.resolveNativeIds(resolvedAnilistId)
         if (nativeIds.isEmpty()) return context
 
-        return context.copy(nativeIds = context.nativeIds + nativeIds)
+        return context.copy(
+            anilistId = resolvedAnilistId,
+            nativeIds = context.nativeIds + nativeIds,
+        )
+    }
+
+    private suspend fun resolveAnilistIdFromNativeIds(
+        context: MetaproviderContext,
+        cache: AnimeDatabaseCache,
+    ): Int? {
+        context.nativeIds["mal"]?.let { malId ->
+            cache.resolveAnilistIdFromMal(malId)?.let { return it }
+        }
+        context.nativeIds["kitsu"]?.let { kitsuId ->
+            cache.resolveAnilistIdFromKitsu(kitsuId)?.let { return it }
+        }
+        return null
     }
 }
