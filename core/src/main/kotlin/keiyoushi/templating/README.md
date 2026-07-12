@@ -133,6 +133,20 @@ All providers receive `MetaproviderContext.anilistId` — the universal AniList 
 // context.nativeIds["anidb"] = 1     (AniDB ID)
 ```
 
+**Reverse ID Resolution:** If a source only provides a native ID (MAL or Kitsu) without an AniList ID, the orchestrator automatically looks up the corresponding AniList ID via the database's reverse index. This allows the full provider chain to work even when starting from a MAL or Kitsu ID:
+
+```kotlin
+// Source provides only MAL ID → orchestrator resolves AniList ID automatically
+val context = MetaproviderContext(
+    baseUrl = "https://example.com",
+    nativeIds = mapOf("mal" to 100),
+)
+// After orchestration:
+// context.anilistId = 12345  (resolved from MAL ID)
+// context.nativeIds["kitsu"] = 200  (resolved from AniList ID)
+// context.nativeIds["anidb"] = 300  (resolved from AniList ID)
+```
+
 Providers that use a different ID space read their native ID from `context.nativeIds`:
 
 ```kotlin
@@ -146,7 +160,7 @@ Key convention: `"mal"` for MyAnimeList, `"kitsu"` for Kitsu, `"anidb"` for AniD
 
 | Provider | Priority | ID Source | Description |
 |---|---|---|---|
-| `LocalAnimeDatabaseProvider` | 0 | `anilistId` | Reads from cached anime-offline-database (no network) |
+| `LocalAnimeDatabaseProvider` | 0 | `anilistId` or `nativeIds["mal"]`/`nativeIds["kitsu"]` | Reads from cached anime-offline-database (no network). Resolves AniList ID from native IDs when needed. |
 | `TenraiMetadataProvider` | 10 | `nativeIds["mal"]` | Jikan v4 compatible REST API |
 | `KitsuMetadataProvider` | 15 | `nativeIds["kitsu"]` | Kitsu REST API |
 | `AniLibMetadataProvider` | 20 | `anilistId` | AniList GraphQL via AniLib |
@@ -201,12 +215,12 @@ The provider chain depends on IDs to look up external metadata. If a source has 
 
 | Provider | Required ID | Returns when missing |
 |---|---|---|
-| `LocalAnimeDatabaseProvider` | `anilistId` | empty |
+| `LocalAnimeDatabaseProvider` | `anilistId` or `nativeIds["mal"]`/`nativeIds["kitsu"]` | empty |
 | `TenraiMetadataProvider` | `nativeIds["mal"]` | empty |
 | `KitsuMetadataProvider` | `nativeIds["kitsu"]` | empty |
 | `AniLibMetadataProvider` | `anilistId` | empty |
 
-Sources that only have a MAL ID (but no AniList ID) can still use Tenrai — the delegate must populate `nativeIds["mal"]` manually. Similarly, sources with no external IDs at all should populate metadata entirely from their own API response via the delegate:
+Sources that only have a MAL ID (but no AniList ID) can still use `LocalAnimeDatabaseProvider` and `TenraiMetadataProvider` — the orchestrator automatically resolves the AniList ID from the MAL ID, then populates all other native IDs. Similarly, sources with no external IDs at all should populate metadata entirely from their own API response via the delegate:
 
 ```kotlin
 override val metadataMergeStrategy = MergeStrategy.FILL_NULLS
@@ -227,7 +241,7 @@ In this scenario the delegate seeds all fields, and the (empty) provider chain h
 
 #### Manually Populating `nativeIds[]`
 
-The `ExtensionMetadata.nativeIds` map is a `Map<String, Int>` that carries provider-specific IDs (MAL, Kitsu, AniDB, etc.). The orchestrator automatically populates the context's native IDs when an AniList ID is available. However, when a source only has a different ID type, you must include the IDs in your delegate's returned metadata.
+The `ExtensionMetadata.nativeIds` map is a `Map<String, Int>` that carries provider-specific IDs (MAL, Kitsu, AniDB, etc.). The orchestrator automatically populates the context's native IDs when an AniList ID is available, and also resolves the AniList ID when only a native ID is provided. When a source only has a different ID type, you can include the IDs in your delegate's returned metadata — the orchestrator will use them to resolve the AniList ID and populate other native IDs automatically.
 
 **Key convention:** `"mal"` for MyAnimeList, `"kitsu"` for Kitsu, `"anidb"` for AniDB, `"anilist"` for AniList.
 
@@ -249,7 +263,7 @@ override val metadataDelegate = { ctx: MetaproviderContext ->
 }
 ```
 
-This pattern allows the `TenraiMetadataProvider` (which reads `nativeIds["mal"]`) to fetch additional metadata from Tenrai even when you don't have an AniList ID.
+This pattern allows the orchestrator to automatically resolve the AniList ID from the MAL ID, then populate all other native IDs (Kitsu, AniDB) from the database. The `LocalAnimeDatabaseProvider` and `TenraiMetadataProvider` will then have access to the full set of IDs.
 
 **Multiple native IDs:**
 
@@ -273,7 +287,7 @@ override val metadataDelegate = { ctx: MetaproviderContext ->
 }
 ```
 
-**Important:** When you provide `nativeIds` in the delegate, they are merged into the context for providers. The orchestrator will also populate IDs from the anime-offline-database if an AniList ID is available — your delegate's IDs take precedence for any keys you set. Providers can then read their specific ID from the map:
+**Important:** When you provide `nativeIds` in the delegate, they are merged into the context for providers. The orchestrator will also populate IDs from the anime-offline-database if an AniList ID is available — your delegate's IDs take precedence for any keys you set. If no AniList ID is provided but a MAL or Kitsu ID is present, the orchestrator automatically resolves the AniList ID from the database's reverse index, then populates all other native IDs. Providers can then read their specific ID from the map:
 
 ```kotlin
 // In TenraiMetadataProvider:
@@ -333,9 +347,10 @@ class MyAnimeExtension : AnimeExtension() {
 
     // The orchestrator automatically:
     // 1. Downloads/caches anime-offline-database (7-day expiry)
-    // 2. Resolves native IDs (MAL, Kitsu, AniDB) from AniList ID
-    // 3. Populates context.nativeIds before providers run
-    // 4. Runs delegate first, then providers in priority order
+    // 2. Resolves AniList ID from native IDs if needed (MAL/Kitsu → AniList)
+    // 3. Resolves native IDs (MAL, Kitsu, AniDB) from AniList ID
+    // 4. Populates context.nativeIds before providers run
+    // 5. Runs delegate first, then providers in priority order
 }
 ```
 
