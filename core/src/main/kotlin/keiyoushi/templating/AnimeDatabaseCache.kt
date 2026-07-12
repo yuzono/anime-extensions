@@ -18,9 +18,9 @@ import java.util.concurrent.TimeUnit
  * This is used by [MetadataProvider] to populate [MetaproviderContext.nativeIds]
  * before sub-providers run.
  */
-class AnimeDatabaseCache(
-    private val context: Context,
-    private val client: OkHttpClient,
+open class AnimeDatabaseCache(
+    private val context: Context?,
+    private val client: OkHttpClient?,
 ) {
     companion object {
         private const val DB_FILENAME = "anime-offline-database.json"
@@ -37,6 +37,12 @@ class AnimeDatabaseCache(
 
     @Volatile
     private var inMemoryIndex: JSONObject? = null
+
+    @Volatile
+    private var malToAnilistIndex: JSONObject? = null
+
+    @Volatile
+    private var kitsuToAnilistIndex: JSONObject? = null
 
     private val lock = Any()
 
@@ -58,7 +64,7 @@ class AnimeDatabaseCache(
         }
     }
 
-    suspend fun resolveNativeIds(anilistId: Int): Map<String, Int> {
+    open suspend fun resolveNativeIds(anilistId: Int): Map<String, Int> {
         val index = getIndex()
         val entry = index.optJSONObject(anilistId.toString()) ?: return emptyMap()
         val nativeIds = mutableMapOf<String, Int>()
@@ -68,7 +74,66 @@ class AnimeDatabaseCache(
         return nativeIds
     }
 
-    suspend fun getMetadata(anilistId: Int): ExtensionMetadata? {
+    open suspend fun resolveAnilistIdFromNative(nativeType: String, nativeId: Int): Int? {
+        return when (nativeType) {
+            "mal" -> resolveAnilistIdFromMal(nativeId)
+            "kitsu" -> resolveAnilistIdFromKitsu(nativeId)
+            else -> null
+        }
+    }
+
+    open suspend fun resolveAnilistIdFromMal(malId: Int): Int? {
+        val index = getMalToAnilistIndex()
+        return index.optInt(malId.toString()).takeIf { it > 0 }
+    }
+
+    open suspend fun resolveAnilistIdFromKitsu(kitsuId: Int): Int? {
+        val index = getKitsuToAnilistIndex()
+        return index.optInt(kitsuId.toString()).takeIf { it > 0 }
+    }
+
+    private suspend fun getMalToAnilistIndex(): JSONObject {
+        malToAnilistIndex?.let { return it }
+
+        // Ensure main index is built first
+        getIndex()
+
+        synchronized(lock) {
+            malToAnilistIndex?.let { return it }
+            val index = buildReverseIndex("malId")
+            malToAnilistIndex = index
+            return index
+        }
+    }
+
+    private suspend fun getKitsuToAnilistIndex(): JSONObject {
+        kitsuToAnilistIndex?.let { return it }
+
+        // Ensure main index is built first
+        getIndex()
+
+        synchronized(lock) {
+            kitsuToAnilistIndex?.let { return it }
+            val index = buildReverseIndex("kitsuId")
+            kitsuToAnilistIndex = index
+            return index
+        }
+    }
+
+    private fun buildReverseIndex(nativeIdField: String): JSONObject {
+        val mainIndex = readIndex()
+        val reverseIndex = JSONObject()
+
+        for (anilistIdStr in mainIndex.keys()) {
+            val entry = mainIndex.optJSONObject(anilistIdStr) ?: continue
+            val nativeId = entry.optInt(nativeIdField).takeIf { it > 0 } ?: continue
+            reverseIndex.put(nativeId.toString(), anilistIdStr.toIntOrNull() ?: continue)
+        }
+
+        return reverseIndex
+    }
+
+    open suspend fun getMetadata(anilistId: Int): ExtensionMetadata? {
         val index = getIndex()
         val entry = index.optJSONObject(anilistId.toString()) ?: return null
         return ExtensionMetadata(
@@ -96,12 +161,13 @@ class AnimeDatabaseCache(
     }
 
     private fun downloadDatabase() {
+        val httpClient = client ?: return
         val request = Request.Builder()
             .url(DB_URL)
             .header("Accept", "application/json")
             .build()
 
-        val response = client.newCall(request).execute()
+        val response = httpClient.newCall(request).execute()
         if (!response.isSuccessful) return
 
         val body = response.body?.string() ?: return
