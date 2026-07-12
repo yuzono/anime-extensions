@@ -77,14 +77,16 @@ class DopeFlixExtractor(
             .execute().use { it.body.string() }
         val data = json.decodeFromString<SourceResponseDto>(srcRes)
 
-        val key by lazy { requestNewKey() }
-
-        return data.sources.map { source ->
+        return data.sources.mapNotNull { source ->
             val encoded = source.file
 
             val m3u8: String = if (!data.encrypted || ".m3u8" in encoded) {
                 encoded
             } else {
+                val key = requestNewKeyOrNull() ?: run {
+                    Log.w("MegaCloudExtractor", "Skipping encrypted source — decryption keys unavailable")
+                    return@mapNotNull null
+                }
                 val fullUrl = buildString {
                     append(megaCloudAPI)
                     append("?encrypted_data=").append(URLEncoder.encode(encoded, "UTF-8"))
@@ -104,17 +106,27 @@ class DopeFlixExtractor(
         }
     }
 
-    private fun requestNewKey(): String = client.newCall(GET("https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json"))
-        .execute()
-        .use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("Failed to fetch keys.json")
-            val jsonStr = response.body.string()
-            if (jsonStr.isEmpty()) throw IllegalStateException("keys.json is empty")
-            val key = json.decodeFromString<Map<String, String>>(jsonStr)["mega"]
-                ?: throw IllegalStateException("Mega key not found in keys.json")
-            Log.d("MegaCloudExtractor", "Using Mega Key: $key")
-            key
-        }
+    private fun requestNewKeyOrNull(): String? = try {
+        client.newCall(GET("https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json"))
+            .execute()
+            .use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("MegaCloudExtractor", "keys.json fetch failed: HTTP ${response.code}")
+                    return@use null
+                }
+                val jsonStr = response.body.string()
+                if (jsonStr.isEmpty()) {
+                    Log.w("MegaCloudExtractor", "keys.json is empty")
+                    return@use null
+                }
+                json.decodeFromString<Map<String, String>>(jsonStr)["mega"]?.also {
+                    Log.d("MegaCloudExtractor", "Using Mega Key: $it")
+                }
+            }
+    } catch (e: Exception) {
+        Log.w("MegaCloudExtractor", "requestNewKey failed: ${e.message}")
+        null
+    }
 
     @Serializable
     data class VideoDto(

@@ -8,6 +8,7 @@ import okhttp3.OkHttpClient
  */
 class M3u8ServerManager(
     private val client: OkHttpClient,
+    private val fallbackClient: OkHttpClient? = null,
 ) {
     private val tag by lazy { javaClass.simpleName }
     private var server: M3u8HttpServer? = null
@@ -24,7 +25,7 @@ class M3u8ServerManager(
         }
 
         try {
-            server = M3u8HttpServer(client, port)
+            server = M3u8HttpServer(client, port, fallbackClient)
             server?.start()
             Log.d(tag, "Server started on port: ${server?.port}")
         } catch (e: Exception) {
@@ -55,11 +56,16 @@ class M3u8ServerManager(
     fun getServerUrl(): String? = server?.let { "http://localhost:${it.port}" }
 
     /**
-     * Processes an M3U8 file through the server
+     * Processes an M3U8 file through the server.
+     *
      * @param m3u8Url Original M3U8 file URL
-     * @return Processed M3U8 content
+     * @param referer optional Referer to encode into the proxied URL — see
+     *   [M3u8HttpServer.createLocalUrl] for why this is the root-cause fix
+     *   for Cloudflare-fronted CDNs that 403 on null-Referer requests.
+     * @param userAgent optional User-Agent to encode alongside the referer.
+     * @return Processed M3U8 content as a local URL string
      */
-    fun processM3u8Url(m3u8Url: String): String? = server?.createLocalUrl(m3u8Url)
+    fun processM3u8Url(m3u8Url: String, referer: String? = null, userAgent: String? = null): String? = server?.createLocalUrl(m3u8Url, referer, userAgent)
 
     /**
      * Processes a segment through the server
