@@ -294,8 +294,8 @@ class MissAV :
 
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
-        private val PREF_QUALITY_ENTRIES = listOf("720p", "480p", "360p")
-        private val PREF_QUALITY_VALUES = listOf("720", "480", "360")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private val PREF_QUALITY_DEFAULT = PREF_QUALITY_VALUES.first()
 
         private const val PREF_UUID_KEY = "missav_uuid"
