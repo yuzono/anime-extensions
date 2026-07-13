@@ -236,6 +236,7 @@ class MissAV :
         val masterPlaylist = playlists.substringAfter("source=\"").substringBefore("\";")
 
         return playlistExtractor.extractFromHls(masterPlaylist, referer = "$baseUrl/")
+            .let { MissAvHlsServer.processVideoList(client, it, docHeaders) }
     }
 
     override fun List<Video>.sort(): List<Video> {
