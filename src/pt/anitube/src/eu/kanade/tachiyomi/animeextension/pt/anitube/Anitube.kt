@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -38,6 +39,10 @@ class Anitube :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
+
+    init {
+        migrateQualityPreference()
+    }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -217,17 +222,30 @@ class Anitube :
         // Always use three resolutions: 480p, 720p, 1080p (SD, HD, FHD)
         val qualities = listOf("480p", "720p", "1080p")
 
-        return videoLinks
-            .mapIndexed { index, url ->
-                url to qualities[index]
-            }
-            .flatMap { (url, quality) ->
-                runCatching {
-                    runBlocking {
-                        anitubeExtractor.getVideosFromUrl(url, quality)
-                    }
-                }.getOrElse { emptyList() }
-            }
+        return runBlocking(Dispatchers.IO) {
+            videoLinks
+                .mapIndexed { index, url ->
+                    url to qualities[index]
+                }
+                .flatMap { (url, quality) ->
+                    runCatching { anitubeExtractor.getVideosFromUrl(url, quality) }
+                        .getOrElse { emptyList() }
+                }
+        }
+    }
+
+    private fun migrateQualityPreference() {
+        val oldKey = "preferred_quality"
+        val oldValue = preferences.getString(oldKey, null) ?: return
+        val newValue = when (oldValue) {
+            "SD" -> "480p"
+            "FULLHD" -> "1080p"
+            else -> "720p"
+        }
+        preferences.edit()
+            .putString(PREF_QUALITY_KEY, newValue)
+            .remove(oldKey)
+            .apply()
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
