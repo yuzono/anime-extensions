@@ -12,6 +12,7 @@ import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 
 class AnitubeExtractor(
     private val headers: Headers,
@@ -20,6 +21,9 @@ class AnitubeExtractor(
 ) {
 
     private val tag by lazy { javaClass.simpleName }
+
+    // Cache for the host-wide ADS widget content, shared across concurrent calls.
+    private val adsContentCache = ConcurrentHashMap<String, String>()
 
     private data class PlayerInfo(
         val playerUrl: String,
@@ -131,7 +135,9 @@ class AnitubeExtractor(
             "https://widgets.outbrain.com/outbrain.js" to "https://ads.anitube.vip/adblock2.php"
         }
 
-        val adsContent = client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
+        val adsContent = adsContentCache.getOrPut(adsUrl) {
+            client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
+        }
 
         val videoUrl = playerInfo.playerUrl.toHttpUrl().queryParameter("url")!!
 
@@ -173,12 +179,11 @@ class AnitubeExtractor(
         val videoToken = fetchVideoToken(playerInfo)
         return if (!videoToken.isNullOrBlank()) {
             val finalUrl = playerInfo.videoUrl + videoToken
-            listOf(Video(finalUrl, quality, finalUrl, headers = headers))
+            listOf(Video(finalUrl, "Anitube - $quality", finalUrl, headers = headers))
         } else {
             emptyList()
         }
     }
-
     companion object {
         private val ADS_URL_REGEX = Regex("""(?:urlToFetch|ADS_URL)\s*=\s*['"]([^'"]+)['"]""")
     }

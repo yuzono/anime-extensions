@@ -14,9 +14,9 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -214,15 +214,19 @@ class Anitube :
             .map { it.attr("href") }
             .take(3) // Limit to 3 links maximum
 
-        // Always use three qualities: SD, HD, FHD
-        val qualities = listOf("SD", "HD", "FHD")
+        // Always use three resolutions: 480p, 720p, 1080p (SD, HD, FHD)
+        val qualities = listOf("480p", "720p", "1080p")
 
         return videoLinks
             .mapIndexed { index, url ->
                 url to qualities[index]
             }
-            .parallelCatchingFlatMapBlocking { (url, quality) ->
-                anitubeExtractor.getVideosFromUrl(url, quality)
+            .flatMap { (url, quality) ->
+                runCatching {
+                    runBlocking {
+                        anitubeExtractor.getVideosFromUrl(url, quality)
+                    }
+                }.getOrElse { emptyList() }
             }
     }
 
@@ -292,11 +296,9 @@ class Anitube :
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return sortedWith(
-            compareBy<Video>(
-                { it.quality.startsWith(quality) },
-                { PREF_QUALITY_ENTRIES.indexOf(it.quality.substringBefore(" ")) },
-            ).thenByDescending { it.quality },
-        ).reversed()
+            compareBy<Video> { it.quality.substringAfter(" - ") != quality }
+                .thenByDescending { it.quality.substringAfter(" - ").substringBefore("p").toIntOrNull() ?: 0 },
+        )
     }
 
     private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
@@ -314,9 +316,9 @@ class Anitube :
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_TITLE = "Domínio preferido (requer reinicialização da app)"
         private const val PREF_DOMAIN_DEFAULT = "https://www.anitube.vip"
-        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_KEY = "preferred_quality_new"
         private const val PREF_QUALITY_TITLE = "Qualidade preferida"
-        private const val PREF_QUALITY_DEFAULT = "HD"
-        private val PREF_QUALITY_ENTRIES = arrayOf("SD", "HD", "FULLHD")
+        private const val PREF_QUALITY_DEFAULT = "720p"
+        private val PREF_QUALITY_ENTRIES = arrayOf("480p", "720p", "1080p")
     }
 }
