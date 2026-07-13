@@ -41,6 +41,10 @@ class FilemoonExtractor(private val client: OkHttpClient) {
             val httpUrl = url.toHttpUrl()
             val host = httpUrl.host
             val mediaId = extractMediaId(httpUrl)
+            if (mediaId.isBlank()) {
+                Log.w("FilemoonExtractor", "Could not extract media ID from $url")
+                return emptyList()
+            }
 
             val userAgent = headers?.get("User-Agent")
                 ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -210,7 +214,9 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         }.build()
 
         val captchaHeaders = apiHeaders.newBuilder().apply {
-            embedExtraHeaders.forEach { (k, v) -> set(k, v) }
+            for ((name, value) in embedExtraHeaders) {
+                set(name, value)
+            }
         }.build()
 
         val captchaData = try {
@@ -302,6 +308,11 @@ class FilemoonExtractor(private val client: OkHttpClient) {
 
         val ivBytes = decodeBase64Url(input.iv)
         val payloadBytes = decodeBase64Url(input.payload)
+
+        if (payloadBytes.size < 16) {
+            Log.e("FilemoonExtractor", "Payload too short for AES-GCM tag (${payloadBytes.size} bytes)")
+            return ""
+        }
 
         // AES-GCM: last 16 bytes are the authentication tag
         val ciphertext = payloadBytes.copyOfRange(0, payloadBytes.size - 16)
