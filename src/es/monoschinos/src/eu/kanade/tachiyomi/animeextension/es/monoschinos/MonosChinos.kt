@@ -75,7 +75,6 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
         val elements = document.select("article a.card-wrap")
         val nextPage = document.selectFirst("a[rel='next']") != null
         val animeList = elements.mapNotNull { element ->
@@ -97,7 +96,6 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-
         val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) article a.card-wrap")
         val animeList = episodeItems.mapNotNull { a ->
             val episodeUrl = a.attr("abs:href")
@@ -106,14 +104,12 @@ class MonosChinos :
             val animeUrl = "/anime/$animeSlugBase-sub-espanol"
 
             val title = a.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
-
             val episodeNumber = a.selectFirst("div.absolute.top-2.5")?.text()
                 ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
                 this.title = "$title - Episodio $episodeNumber"
                 setUrlWithoutDomain(animeUrl)
-
                 description = a.selectFirst("div.mt-1 span")?.text()?.trim()
                 thumbnail_url = a.selectFirst("img.lazy")?.getImageUrl()
             }
@@ -140,11 +136,8 @@ class MonosChinos :
         val document = response.asJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("h1.font-extrabold")?.text()?.trim() ?: ""
-
             thumbnail_url = document.selectFirst("div.relative[aspect-ratio='2/3'] img.lazy")?.getImageUrl()
-
             description = document.selectFirst(".max-w-\\[640px\\] p.text-white\\/75")?.text()?.trim()
-
             genre = document.select("div.flex.gap-2.flex-wrap a").joinToString { it.text() }
 
             val statusBadge = document.selectFirst("div.absolute.top-3.left-3")
@@ -351,12 +344,17 @@ class MonosChinos :
 
     // ====================== AUXILIARES ======================
 
-    private fun Element.getImageUrl(): String? = when {
-        isValidUrl("data-src") -> attr("abs:data-src")
-        isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-        isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-        isValidUrl("src") -> attr("abs:src")
-        else -> null
+    
+    private fun Element.getImageUrl(): String? {
+        val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
+        return candidates.mapNotNull { attr ->
+            when (attr) {
+                "srcset" -> attr("abs:srcset").substringBefore(" ")
+                else -> attr("abs:$attr")
+            }
+        }.firstOrNull { url ->
+            url.isNotBlank() && !url.contains("anime.png")
+        }
     }
 
     private fun Element.isValidUrl(attrName: String): Boolean {
