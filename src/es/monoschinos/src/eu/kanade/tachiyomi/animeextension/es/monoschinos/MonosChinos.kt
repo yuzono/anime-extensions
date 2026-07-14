@@ -25,10 +25,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parseAs
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import org.jsoup.nodes.Element
 
 class MonosChinos :
@@ -63,10 +63,6 @@ class MonosChinos :
             "Mp4Upload",
             "LuluStream",
         )
-
-        private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
-        private val SUB_ES_REGEX = Regex("-sub-espanol$")
-        private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 
     // ====================== POPULAR ======================
@@ -75,12 +71,12 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val elements = document.select("li.ficha_efecto a")
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
+        val elements = document.select("article a.card-wrap")
+        val nextPage = document.selectFirst("a[rel='next']") != null
         val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
-                thumbnail_url = element.selectFirst("img")?.getImageUrl()
+                title = element.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
+                thumbnail_url = element.selectFirst("img.lazy")?.getImageUrl()
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
@@ -96,28 +92,25 @@ class MonosChinos :
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-        val animeList = episodeItems.mapNotNull { item ->
-            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-            val episodeUrl = episodeLink.attr("abs:href")
+        val episodeItems = document.select("section:has(h2:contains(Últimos capítulos)) article a.card-wrap")
+        val animeList = episodeItems.mapNotNull { a ->
+            val episodeUrl = a.attr("abs:href")
+            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("-episodio-")
+            if (episodeSlug.isBlank()) return@mapNotNull null
+            val animeUrl = "/anime/${episodeSlug}-sub-espanol"
 
-            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-            val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
-            val animeUrl = "/anime/$animeSlugBase-sub-espanol"
-
-            val animeTitle = item.selectFirst("h2.fs-5")?.text() ?: return@mapNotNull null
-            val genre = item.selectFirst("span.text-muted")?.text() ?: ""
+            val title = a.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
+            val episodeNumber = a.selectFirst("div.absolute.top-2.5")?.text()
+                ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
-                title = animeTitle
+                this.title = "$title - Episodio $episodeNumber"
                 setUrlWithoutDomain(animeUrl)
-                description = genre
-                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
+                description = a.selectFirst("div.mt-1 span")?.text()?.trim()
+                thumbnail_url = a.selectFirst("img.lazy")?.getImageUrl()
             }
         }
-
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-        return AnimesPage(animeList, nextPage)
+        return AnimesPage(animeList, false)
     }
 
     // ====================== BÚSQUEDA ======================
@@ -137,20 +130,26 @@ class MonosChinos :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
-        return SAnime.create().apply {
-            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text() ?: ""
-            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()
-            genre = document.select("#profile-tab-pane .badge.bg-secondary").joinToString { it.text() }
-            thumbnail_url = document.selectFirst(".d-none.d-sm-flex img.lazy")?.getImageUrl()
-            status = run {
-                val estadoElement = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child")
-                when (estadoElement?.text()) {
-                    "Estreno", "En emisión" -> SAnime.ONGOING
-                    "Finalizado" -> SAnime.COMPLETED
-                    else -> SAnime.UNKNOWN
-                }
+        val anime = SAnime.create()
+
+        anime.title = document.selectFirst("h1.font-extrabold")?.text()?.trim() ?: ""
+        anime.thumbnail_url = document.selectFirst("div.relative[aspect-ratio='2/3'] img.lazy")?.getImageUrl()
+        anime.description = document.selectFirst(".max-w-\\[640px\\] p.text-white\\/75")?.text()?.trim()
+        anime.genre = document.select("div.flex.gap-2.flex-wrap a").joinToString { it.text() }
+
+        val statusBadge = document.selectFirst("div.absolute.top-3.left-3")
+        anime.status = if (statusBadge != null) {
+            val statusText = statusBadge.text().trim()
+            when {
+                statusText.contains("Estreno") || statusText.contains("En emisión") -> SAnime.ONGOING
+                statusText.contains("Finalizado") -> SAnime.COMPLETED
+                else -> SAnime.UNKNOWN
             }
+        } else {
+            SAnime.UNKNOWN
         }
+
+        return anime
     }
 
     // ====================== EPISODIOS ======================
@@ -170,7 +169,7 @@ class MonosChinos :
             ?.substringBefore("-episodio-")
             ?: run {
                 val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(SUB_ES_REGEX, "")
+                animeSlug.replace(Regex("-sub-espanol$"), "")
             }
         if (episodeSlug.isBlank()) return emptyList()
 
@@ -199,17 +198,34 @@ class MonosChinos :
                 .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            val json = try {
-                client.newCall(request).execute().parseAs<EpisodesDto>()
+            val responseBody = try {
+                client.newCall(request).execute().use { it.body?.string() ?: "" }
             } catch (_: Exception) {
                 break
             }
 
-            for (obj in json.eps) {
-                val numStr = obj.num.toString()
+            if (responseBody.isBlank()) break
+
+            val json = try {
+                JSONObject(responseBody)
+            } catch (_: Exception) {
+                break
+            }
+
+            val epsArray = try {
+                json.getJSONArray("eps")
+            } catch (_: Exception) {
+                break
+            }
+
+            val perpage = json.optInt("perpage", 0)
+
+            for (i in 0 until epsArray.length()) {
+                val obj = epsArray.getJSONObject(i)
+                val numStr = obj.optString("num", "")
                 if (numStr.isBlank()) continue
 
-                val episodeNumber = numStr.toFloatOrNull() ?: continue
+                val episodeNumber = runCatching { numStr.toFloat() }.getOrNull() ?: continue
 
                 val urlNumber = if (episodeNumber % 1 == 0f) {
                     episodeNumber.toInt().toString()
@@ -217,24 +233,21 @@ class MonosChinos :
                     numStr
                 }
 
-                episodes.add(
-                    SEpisode.create().apply {
-                        name = if (episodeNumber % 1 == 0f) {
-                            "Episodio ${episodeNumber.toInt()}"
-                        } else {
-                            "Episodio $numStr"
-                        }
-                        episode_number = episodeNumber
-                        setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
-                    },
-                )
+                episodes.add(SEpisode.create().apply {
+                    name = if (episodeNumber % 1 == 0f) {
+                        "Episodio ${episodeNumber.toInt()}"
+                    } else {
+                        "Episodio $numStr"
+                    }
+                    episode_number = episodeNumber
+                    setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                })
             }
 
-            val perpage = json.perpage?.toInt() ?: 0
-
-            if (perpage == 0 || json.eps.size < perpage) {
+            if (perpage == 0 || epsArray.length() < perpage) {
                 hasMore = false
             } else {
+                Thread.sleep(100)
                 currentPage++
             }
         }
@@ -257,7 +270,7 @@ class MonosChinos :
             } ?: return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
-                ?: button.text().takeIf { it.isNotBlank() }
+                ?: button.text().trim().takeIf { it.isNotBlank() }
                 ?: ""
 
             serverName to decodedUrl
@@ -333,12 +346,12 @@ class MonosChinos :
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return this.sortedWith(
-            compareBy<Video>(
+            compareBy(
                 { it.quality.contains(server, true) },
                 { it.quality.contains(quality) },
-                { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-            ).reversed(),
-        )
+                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+            ),
+        ).reversed()
     }
 
     // ====================== AUXILIARES ======================
