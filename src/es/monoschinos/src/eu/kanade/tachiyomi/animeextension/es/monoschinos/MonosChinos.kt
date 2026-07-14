@@ -108,13 +108,20 @@ class MonosChinos :
                 ?.replace("EP ", "")?.trim() ?: ""
 
             SAnime.create().apply {
-                this.title = "$title - Episodio $episodeNumber"
+                this.title = if (episodeNumber.isNotBlank()) {
+                    "$title - Episodio $episodeNumber"
+                } else {
+                    title
+                }
                 setUrlWithoutDomain(animeUrl)
                 description = a.selectFirst("div.mt-1 span")?.text()?.trim()
                 thumbnail_url = a.selectFirst("img.lazy")?.getImageUrl()
             }
         }
-        return AnimesPage(animeList, false)
+
+        // Restaurar paginación usando el mismo selector que en popularAnimeParse
+        val nextPage = document.selectFirst("a[rel='next']") != null
+        return AnimesPage(animeList, nextPage)
     }
 
     // ====================== BÚSQUEDA ======================
@@ -346,20 +353,14 @@ class MonosChinos :
 
     private fun Element.getImageUrl(): String? {
         val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
-        return candidates.mapNotNull { attr ->
-            when (attr) {
-                "srcset" -> attr("abs:srcset").substringBefore(" ")
-                else -> attr("abs:$attr")
+        return candidates.mapNotNull { name ->
+            when (name) {
+                "srcset" -> this.attr("abs:srcset").substringBefore(" ")
+                else -> this.attr("abs:$name")
             }
         }.firstOrNull { url ->
             url.isNotBlank() && !url.contains("anime.png")
         }
-    }
-
-    private fun Element.isValidUrl(attrName: String): Boolean {
-        if (!hasAttr(attrName)) return false
-        val url = attr(attrName)
-        return url.isNotBlank() && !url.contains("anime.png")
     }
 
     // ====================== FILTROS ======================
