@@ -344,7 +344,6 @@ class MonosChinos :
 
     // ====================== AUXILIARES ======================
 
-    
     private fun Element.getImageUrl(): String? {
         val candidates = listOf("data-src", "data-lazy-src", "srcset", "src")
         return candidates.mapNotNull { attr ->
