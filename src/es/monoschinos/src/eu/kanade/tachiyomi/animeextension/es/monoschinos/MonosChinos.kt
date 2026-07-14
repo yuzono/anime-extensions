@@ -119,7 +119,6 @@ class MonosChinos :
             }
         }
 
-        // Restaurar paginación usando el mismo selector que en popularAnimeParse
         val nextPage = document.selectFirst("a[rel='next']") != null
         return AnimesPage(animeList, nextPage)
     }
@@ -143,8 +142,12 @@ class MonosChinos :
         val document = response.asJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("h1.font-extrabold")?.text()?.trim() ?: ""
-            thumbnail_url = document.selectFirst("div.relative[aspect-ratio='2/3'] img.lazy")?.getImageUrl()
-            description = document.selectFirst(".max-w-\\[640px\\] p.text-white\\/75")?.text()?.trim()
+
+            thumbnail_url = document.selectFirst("div.shrink-0 img.lazy")?.getImageUrl()
+
+            description = document.selectFirst("p[class*=\"max-w-\"]")?.text()?.trim()
+                ?: document.selectFirst("#tab-info p")?.text()?.trim()
+
             genre = document.select("div.flex.gap-2.flex-wrap a").joinToString { it.text() }
 
             val statusBadge = document.selectFirst("div.absolute.top-3.left-3")
