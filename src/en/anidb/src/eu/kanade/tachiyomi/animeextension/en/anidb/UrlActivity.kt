@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import kotlin.system.exitProcess
 
 class UrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,6 +23,5 @@ class UrlActivity : Activity() {
         }
 
         finish()
-        exitProcess(0)
     }
 }

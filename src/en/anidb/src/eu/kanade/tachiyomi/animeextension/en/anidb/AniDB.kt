@@ -254,7 +254,8 @@ class AniDB :
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request {
-        val animeId = anime.url.trimEnd('/').substringAfterLast("-")
+        val lastSegment = (baseUrl + anime.url).toHttpUrl().pathSegments.last()
+        val animeId = ANIME_ID_REGEX.find(lastSegment)?.groupValues?.get(1) ?: lastSegment
         return GET("$baseUrl/api/frontend/anime/$animeId/episodes", headers)
     }
 
@@ -420,6 +421,8 @@ class AniDB :
         private const val PREF_FILLER_HIDE_KEY = "hide_filler"
         private const val PREF_FILLER_HIDE_TITLE = "Hide Filler Episodes"
         private const val PREF_FILLER_HIDE_DEFAULT = false
+
+        private val ANIME_ID_REGEX = Regex("-(\\d+)$")
 
         private val M3U8_REGEX = Regex("""file:\s*['"](https?://[^'"]+master\.m3u8)['"]""")
     }
