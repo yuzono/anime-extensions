@@ -372,33 +372,62 @@ class AniDB :
     private fun parseAnimesPage(response: Response): AnimesPage {
         val document = response.asJsoup()
         val animeMap = linkedMapOf<String, SAnime>()
+        val isBrowse = response.request.url.pathSegments.contains("browse")
 
-        // Priority: Seasons
-        document.select("div.overflow-x-auto.snap-x a[href*=/anime/]").forEach { a ->
-            val url = a.absUrl("href")
-            if (url.isNotEmpty()) {
-                animeMap[url] = SAnime.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = a.attr("title").takeIf { it.isNotEmpty() } ?: a.text()
-                    thumbnail_url = a.selectFirst("img")?.absUrl("src")
+        // Priority 1: Slider (Seasons)
+        if (!isBrowse) {
+            document.select("div.overflow-x-auto.snap-x a[href*=/anime/]").forEach { a ->
+                val url = a.absUrl("href").substringBefore("?")
+                if (url.isNotEmpty() && url !in animeMap) {
+                    val titleText = a.attr("title").takeIf { it.isNotEmpty() } ?: a.text()
+                    if (titleText.isNotEmpty()) {
+                        animeMap[url] = SAnime.create().apply {
+                            setUrlWithoutDomain(url)
+                            title = titleText
+                            thumbnail_url = a.selectFirst("img")?.absUrl("src")
+                        }
+                    }
                 }
             }
         }
 
-        // Standard grid / Relations (skips duplicates already added from seasons)
-        document.select(".anime-grid a.anime-card").forEach { card ->
-            val url = card.absUrl("href")
-            if (url.isNotEmpty() && url !in animeMap) {
-                animeMap[url] = SAnime.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = card.selectFirst("p.text-xs, .card-overlay p")?.text()
-                        ?: card.attr("title")
-                    thumbnail_url = card.selectFirst("img")?.absUrl("src")
+        // Priority 2: Grid Cards (Browse results or "You Might Also Like")
+        document.select("a.anime-card").forEach { card ->
+            val url = card.absUrl("href").substringBefore("?")
+            if (url.contains("/anime/") && !url.contains("/episodes") && url !in animeMap) {
+                val titleText = card.selectFirst("p.text-xs, .card-overlay p")?.text()
+                    ?: card.attr("title")
+
+                if (titleText.isNotEmpty()) {
+                    animeMap[url] = SAnime.create().apply {
+                        setUrlWithoutDomain(url)
+                        title = titleText
+                        thumbnail_url = card.selectFirst("img")?.absUrl("src")
+                    }
                 }
             }
         }
 
-        val hasNextPage = document.select("a").any { it.text().contains("Next") }
+        // Slider fallback for Browse pages
+        if (isBrowse && animeMap.isEmpty()) {
+            document.select("div.overflow-x-auto.snap-x a[href*=/anime/]").forEach { a ->
+                val url = a.absUrl("href").substringBefore("?")
+                if (url.isNotEmpty() && url !in animeMap) {
+                    val titleText = a.attr("title").takeIf { it.isNotEmpty() } ?: a.text()
+                    if (titleText.isNotEmpty()) {
+                        animeMap[url] = SAnime.create().apply {
+                            setUrlWithoutDomain(url)
+                            title = titleText
+                            thumbnail_url = a.selectFirst("img")?.absUrl("src")
+                        }
+                    }
+                }
+            }
+        }
+
+        val hasNextPage = document.select("a").any {
+            it.text().contains("Next") && it.attr("href").contains("page=")
+        }
         return AnimesPage(animeMap.values.toList(), hasNextPage)
     }
 
