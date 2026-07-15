@@ -1,7 +1,7 @@
 ext {
     extName = 'MundoDonghua'
     extClass = '.MundoDonghua'
-    extVersionCode = 43
+    extVersionCode = 44
 }
 
 apply plugin: "kei.plugins.extension.legacy"
