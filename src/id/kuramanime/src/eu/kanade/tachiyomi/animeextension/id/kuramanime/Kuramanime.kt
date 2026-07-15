@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.id.kuramanime
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
@@ -13,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -20,6 +22,8 @@ import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -30,7 +34,7 @@ class Kuramanime :
     ConfigurableAnimeSource {
     override val name = "Kuramanime"
 
-    override val baseUrl = "https://v8.kuramanime.tel"
+    override val baseUrl = "https://v19.kuramanime.ing"
 
     override val lang = "id"
 
@@ -39,20 +43,20 @@ class Kuramanime :
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/anime?page=$page")
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/anime?order_by=popular&page=$page")
 
-    override fun popularAnimeSelector() = "div.filter__gallery > a"
+    override fun popularAnimeSelector() = "div.product__item"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
+        setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
         thumbnail_url = element.selectFirst("div.set-bg")?.attr("data-setbg")
-        title = element.selectFirst("div > h5")!!.text()
+        title = element.selectFirst("h5 > a, h5")!!.text()
     }
 
     override fun popularAnimeNextPageSelector() = "div.product__pagination > a:last-child:not([aria-disabled='true'])"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/anime?order_by=updated&page=$page")
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/anime?order_by=latest&page=$page")
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
@@ -61,7 +65,51 @@ class Kuramanime :
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/anime?search=$query&page=$page")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        if (query.isNotEmpty()) {
+            val url = "$baseUrl/anime".toHttpUrl().newBuilder()
+            url.addQueryParameter("search", query)
+            url.addQueryParameter("page", page.toString())
+            return GET(url.build().toString(), headers)
+        } else {
+            var url = "$baseUrl/anime".toHttpUrl().newBuilder()
+
+            var orderBy = ""
+            var statusPath = ""
+            var typePath = ""
+            var typeName = ""
+            var genrePath = ""
+
+            for (filter in filters) {
+                when (filter) {
+                    is KuramanimeFilters.OrderByFilter -> orderBy = filter.toUriPart()
+                    is KuramanimeFilters.StatusFilter -> statusPath = filter.toUriPart()
+                    is KuramanimeFilters.TypeFilter -> {
+                        typePath = filter.toUriPart()
+                        typeName = filter.toNamePart()
+                    }
+                    is KuramanimeFilters.GenreFilter -> genrePath = filter.toUriPart()
+                    else -> {}
+                }
+            }
+
+            when {
+                statusPath.isNotEmpty() -> url = "$baseUrl/quick/$statusPath".toHttpUrl().newBuilder()
+                typePath.isNotEmpty() -> {
+                    url = "$baseUrl/properties/type/$typePath".toHttpUrl().newBuilder()
+                    url.addQueryParameter("name", typeName)
+                }
+                genrePath.isNotEmpty() -> url = "$baseUrl/properties/genre/$genrePath".toHttpUrl().newBuilder()
+            }
+
+            if (orderBy.isNotEmpty()) {
+                url.addQueryParameter("order_by", orderBy)
+            }
+            url.addQueryParameter("page", page.toString())
+
+            return GET(url.build().toString(), headers)
+        }
+    }
 
     override fun searchAnimeSelector() = popularAnimeSelector()
 
@@ -75,13 +123,13 @@ class Kuramanime :
 
         val details = document.selectFirst("div.anime__details__text")!!
 
-        title = details.selectFirst("div > h3")!!.text().replace("Judul: ", "")
+        title = details.selectFirst("div.anime__details__title > h3, div > h3")!!.text().replace("Judul: ", "")
 
         val infos = details.selectFirst("div.anime__details__widget")!!
-        artist = infos.select("li:contains(Studio:) > a").eachText().joinToString().takeUnless(String::isEmpty)
-        status = parseStatus(infos.selectFirst("li:contains(Status:) > a")?.text())
+        artist = infos.select("li:contains(Studio:) a").eachText().joinToString().takeUnless(String::isEmpty)
+        status = parseStatus(infos.selectFirst("li:contains(Status:) a")?.text())
 
-        genre = infos.select("li:contains(Genre:) > a, li:contains(Tema:) > a, li:contains(Demografis:) > a")
+        genre = infos.select("li:contains(Genre:) a, li:contains(Tema:) a, li:contains(Demografis:) a")
             .eachText()
             .joinToString { it.trimEnd(',', ' ') }
             .takeUnless(String::isEmpty)
@@ -150,23 +198,22 @@ class Kuramanime :
     // ============================ Video Links =============================
     override fun videoListSelector() = "video#player > source"
 
-    // Shall we add "archive", "archive-v2"? archive.org usually returns a beautiful 403 xD
-    private val supportedHosters = listOf("kuramadrive", "kuramadrive-v2", "filelions", "filemoon", "mega", "streamwish", "streamtape", "vidguard")
+    private val supportedHosters = listOf("kuramadrive", "kuramadrive-v2", "filelions", "filemoon", "mega", "streamwish", "streamtape", "vidguard", "doodstream")
 
     private val streamtapeExtractor by lazy { StreamTapeExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.useAsJsoup()
+        val bodyStr = response.body.string()
+        val doc = Jsoup.parse(bodyStr)
 
-        val scriptData = doc.selectFirst("[data-kps]")?.attr("data-kps")
-            ?.let(::getScriptData)
-            ?: return emptyList()
+        val scriptData = getScriptData(bodyStr, doc) ?: return emptyList()
 
         val csrfToken = doc.selectFirst("meta[name=csrf-token]")
-            ?.attr("csrf-token")
+            ?.attr("content")
             ?: return emptyList()
 
         val servers = doc.select("select#changeServer > option")
@@ -180,7 +227,24 @@ class Kuramanime :
             .set("X-Requested-With", "XMLHttpRequest")
             .build()
 
+        val originalKuramadriveSources = doc.select("video#player > source").map {
+            val src = it.attr("src")
+            Video(src, "${it.attr("size")}p - kuramadrive", src)
+        }.ifEmpty {
+            val video = doc.selectFirst("video#player")
+            val src = video?.attr("src") ?: video?.attr("data-hls-src")
+            if (!src.isNullOrEmpty()) {
+                listOf(Video(src, "kuramadrive", src))
+            } else {
+                emptyList()
+            }
+        }
+
         return servers.parallelCatchingFlatMapBlocking { (server, serverName) ->
+            if (server == "kuramadrive" && originalKuramadriveSources.isNotEmpty()) {
+                return@parallelCatchingFlatMapBlocking originalKuramadriveSources
+            }
+
             val newHeaders = headers.newBuilder()
                 .set("X-CSRF-TOKEN", csrfToken)
                 .set("X-Fuck-ID", scriptData.tokenId)
@@ -194,68 +258,107 @@ class Kuramanime :
                 .trim('"')
 
             val newUrl = episodeUrl.newBuilder()
+                .addQueryParameter("page", "1")
                 .addQueryParameter(scriptData.tokenParam, hash)
                 .addQueryParameter(scriptData.serverParam, server)
                 .build()
 
-            val playerDoc = client.newCall(GET(newUrl.toString(), headers))
+            val requestBody = okhttp3.FormBody.Builder()
+                .add("authorization", "kJuHHkaqcBFXiGMHQf6bJw8YAyDcwGD8Ur")
+                .build()
+
+            val playerHeaders = headers.newBuilder()
+                .set("X-CSRF-TOKEN", csrfToken)
+                .build()
+
+            val playerDoc = client.newCall(POST(newUrl.toString(), playerHeaders, requestBody))
                 .awaitSuccess()
                 .useAsJsoup()
 
-            val url = playerDoc.selectFirst("div.video-content iframe")?.attr("src")
+            var url = playerDoc.selectFirst("iframe")?.attr("src")
+            if (url != null && url.startsWith("/")) {
+                url = "$baseUrl$url"
+            }
+
+            if (url != null && url.contains("/stream")) {
+                runCatching {
+                    val streamDoc = client.newCall(GET(url!!, headers)).execute().useAsJsoup()
+                    url = streamDoc.selectFirst("iframe")?.attr("src") ?: url
+                }
+            }
+
             when (server) {
-                "filelions" if url != null -> streamWishExtractor.videosFromUrl(url)
-                "filemoon" if url != null -> filemoonExtractor.videosFromUrl(url)
+                "filelions" if url != null -> streamWishExtractor.videosFromUrl(url!!)
+                "filemoon" if url != null -> filemoonExtractor.videosFromUrl(url!!)
+                "doodstream" if url != null -> doodExtractor.videosFromUrl(url!!)
 
                 // mega.nz source
-                // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url)
-                "streamwish" if url != null -> streamWishExtractor.videosFromUrl(url)
-                "streamtape" if url != null -> streamtapeExtractor.videosFromUrl(url)
-                "vidguard" if url != null -> vidguardExtractor.videosFromUrl(url)
+                // server == "mega" && url != null -> streamtapeExtractor.videosFromUrl(url!!)
+                "streamwish" if url != null -> streamWishExtractor.videosFromUrl(url!!)
+                "streamtape" if url != null -> streamtapeExtractor.videosFromUrl(url!!)
+                "vidguard" if url != null -> vidguardExtractor.videosFromUrl(url!!)
                 else -> {
-                    playerDoc.select("video#player > source").map {
-                        val src = it.attr("src")
-                        Video(src, "${it.attr("size")}p - $serverName", src)
+                    val sources = playerDoc.select("video#player > source")
+                    if (sources.isNotEmpty()) {
+                        sources.map {
+                            val src = it.attr("src")
+                            Video(src, "${it.attr("size")}p - $serverName", src)
+                        }
+                    } else {
+                        val video = playerDoc.selectFirst("video#player")
+                        val src = video?.attr("src") ?: video?.attr("data-hls-src")
+                        if (!src.isNullOrEmpty()) {
+                            listOf(Video(src, serverName, src))
+                        } else {
+                            emptyList()
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun getScriptData(scriptName: String): ScriptDataDto? {
-        val assetsUrl = "$baseUrl/assets/js/$scriptName.js"
+    private fun getScriptData(html: String, doc: Document): ScriptDataDto? {
+        val processEnvRegex = Regex("""window\.process\s*=\s*\{[\s\S]*?env:\s*\{([\s\S]*?)\}[\s\S]*?\}""")
+        val envMatch = processEnvRegex.find(html)
 
-        return runCatching {
-            val response = client.newCall(GET(assetsUrl, headers)).execute()
-                .bodyString()
+        val envContent = if (envMatch != null) {
+            envMatch.groupValues[1]
+        } else {
+            val sizzlybUrl = "$baseUrl/assets/js/sizzlyb.js"
+            val sizzlybRes = client.newCall(GET(sizzlybUrl, headers)).execute()
+            if (!sizzlybRes.isSuccessful) return null
 
-            // Extract the data from the window.process assignment
-            val processEnvRegex = Regex("""window\.process\s*=\s*\{[\s\S]*?env:\s*\{([\s\S]*?)\}[\s\S]*?\}""")
-            val envMatch = processEnvRegex.find(response) ?: return@runCatching null
+            val sizzlybStr = sizzlybRes.body.string()
+            val attrMatch = Regex("""MIX_JS_ROUTE_PARAM_ATTR:\s*["']([^"']+)["']""").find(sizzlybStr)
+            val attrName = attrMatch?.groupValues?.get(1) ?: return null
 
-            val envContent = envMatch.groupValues[1]
+            val scriptId = doc.selectFirst("[$attrName]")?.attr(attrName) ?: return null
 
-            // Parse each environment variable
-            val envVars = mutableMapOf<String, String>()
-            val varRegex = Regex("""(\w+):\s*['"]([^'"]+)['"]""")
+            val varJsUrl = "$baseUrl/assets/js/$scriptId.js"
+            val varJsRes = client.newCall(GET(varJsUrl, headers)).execute()
+            if (!varJsRes.isSuccessful) return null
 
-            varRegex.findAll(envContent).forEach { match ->
-                val key = match.groupValues[1]
-                val value = match.groupValues[2]
-                envVars[key] = value
-            }
+            varJsRes.body.string()
+        }
 
-            ScriptDataDto(
-                authPathPrefix = envVars["MIX_PREFIX_AUTH_ROUTE_PARAM"] ?: "",
-                authPathSuffix = envVars["MIX_AUTH_ROUTE_PARAM"] ?: "",
-                authKey = envVars["MIX_AUTH_KEY"] ?: "",
-                authToken = envVars["MIX_AUTH_TOKEN"] ?: "",
-                tokenParam = envVars["MIX_PAGE_TOKEN_KEY"] ?: "",
-                serverParam = envVars["MIX_STREAM_SERVER_KEY"] ?: "",
-            )
-        }.onFailure {
-            it.printStackTrace()
-        }.getOrNull()
+        val envVars = mutableMapOf<String, String>()
+        val varRegex = Regex("""(\w+):\s*['"]([^'"]+)['"]""")
+
+        varRegex.findAll(envContent).forEach { match ->
+            val key = match.groupValues[1]
+            val value = match.groupValues[2]
+            envVars[key] = value
+        }
+
+        return ScriptDataDto(
+            authPathPrefix = envVars["MIX_PREFIX_AUTH_ROUTE_PARAM"] ?: "",
+            authPathSuffix = envVars["MIX_AUTH_ROUTE_PARAM"] ?: "",
+            authKey = envVars["MIX_AUTH_KEY"] ?: "",
+            authToken = envVars["MIX_AUTH_TOKEN"] ?: "",
+            tokenParam = envVars["MIX_PAGE_TOKEN_KEY"] ?: "",
+            serverParam = envVars["MIX_STREAM_SERVER_KEY"] ?: "",
+        )
     }
 
     @Serializable
@@ -272,7 +375,7 @@ class Kuramanime :
         @SerialName("MIX_PAGE_TOKEN_KEY") val tokenParam: String,
         @SerialName("MIX_STREAM_SERVER_KEY") val serverParam: String,
     ) {
-        val authPath = authPathPrefix + authPathSuffix
+        val authPath = "$authPathPrefix$authPathSuffix"
         val tokenId = "$authKey:$authToken"
     }
 
@@ -294,6 +397,9 @@ class Kuramanime :
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
+
+    // ============================== Filters ===============================
+    override fun getFilterList() = KuramanimeFilters.FILTER_LIST
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

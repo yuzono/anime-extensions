@@ -1,7 +1,7 @@
 ext {
     extName = 'Kuramanime'
     extClass = '.Kuramanime'
-    extVersionCode = 21
+    extVersionCode = 22
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -11,4 +11,5 @@ dependencies {
     implementation(project(":lib:streamwishextractor"))
     implementation(project(":lib:filemoonextractor"))
     implementation(project(":lib:vidguardextractor"))
+    implementation(project(":lib:doodextractor"))
 }
