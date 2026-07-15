@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.all.anizone
 
 import android.content.SharedPreferences
+import android.text.InputType
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
@@ -364,31 +366,76 @@ class AniZone :
         val res = response.retryOn419 { client.newCall(it).execute() }
 
         val document = res.asJsoup()
-        val serverSelects = document.select("button[wire:click]")
-            .filter { video ->
-                video.attr("wire:click").contains("setVideo")
-            }
+        val loadAll = preferences.loadAll
 
-        val subtitles = document.select("track[kind=subtitles]").map {
-            Track(it.attr("src"), it.attr("label"))
+        val audioValue = preferences.audio
+        val audioEntry = PREF_AUDIO_ENTRIES[PREF_AUDIO_ENTRY_VALUES.indexOf(audioValue)]
+        val audioRegex = getLangRegex(audioValue)
+
+        val fallbackAudioValue = "jpn"
+        val fallbackAudioEntry = "Japanese"
+        val fallbackAudioRegex = getLangRegex(fallbackAudioValue)
+
+        val subValue = preferences.subtitle
+        val subEntry = PREF_SUB_ENTRIES[PREF_SUB_ENTRY_VALUES.indexOf(subValue)]
+        val subRegex = getLangRegex(subValue)
+
+        val fallbackSubValue = "eng"
+        val fallbackSubEntry = "English"
+        val fallbackSubRegex = getLangRegex(fallbackSubValue)
+
+        val subCount = preferences.subCount
+
+        fun filterSubs(subs: List<Track>): List<Track> {
+            if (loadAll) return subs
+            val preferred = subs.filter { it.lang.containsLang(subValue, subEntry, subRegex) }
+            val fallback = subs.filter { it.lang.containsLang(fallbackSubValue, fallbackSubEntry, fallbackSubRegex) }
+
+            val initial = (preferred + fallback).distinctBy { it.url }
+            if (initial.size >= subCount) return initial.take(subCount)
+
+            val others = subs.filter { track -> initial.none { it.url == track.url } }
+            return (initial + others).take(subCount)
         }
 
-        val mediaPlayer = document.selectFirst("media-player")
+        val serverSelects = document.select("button[wire:click]")
+            .filter { it.attr("wire:click").contains("setVideo") }
+
+        val filteredServers = if (loadAll) {
+            serverSelects
+        } else {
+            // Sort servers: preferred audio first, then fallback audio, then others
+            val sorted = serverSelects.sortedWith(
+                compareByDescending<Element> { it.text().containsLang(audioValue, audioEntry, audioRegex) }
+                    .thenByDescending { it.text().containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) },
+            )
+            // Take the best match
+            listOfNotNull(sorted.firstOrNull())
+        }.ifEmpty { serverSelects }
+
         val m3u8List = mutableListOf<VideoData>()
 
-        mediaPlayer?.attr("src")?.also {
-            m3u8List.add(
-                VideoData(
-                    url = it,
-                    name = serverSelects.firstOrNull()?.text() ?: "Default",
-                    subtitles = subtitles,
-                ),
+        if (serverSelects.firstOrNull() in filteredServers) {
+            val subtitles = filterSubs(
+                document.select("track[kind=subtitles]").map {
+                    Track(it.attr("src"), it.attr("label"))
+                },
             )
+
+            document.selectFirst("media-player")?.attr("src")?.also {
+                m3u8List.add(
+                    VideoData(
+                        url = it,
+                        name = serverSelects.firstOrNull()?.text() ?: "Default",
+                        subtitles = subtitles,
+                    ),
+                )
+            }
         }
 
         snapShots[VIDEO_SNAPSHOT_KEY] = document.getSnapshot() ?: ""
 
-        serverSelects.drop(1).forEach { video ->
+        filteredServers.filter { it != serverSelects.firstOrNull() }.forEach { video ->
             val matchResult = SET_VIDEO_REGEX.find(video.attr("wire:click"))
             val videoId = if (matchResult != null && matchResult.groupValues.size == 2) {
                 matchResult.groupValues[1]
@@ -411,9 +458,11 @@ class AniZone :
             val resp = newLivewireCall(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath)
             val doc = resp.parseAs<LivewireDto>().getHtml(VIDEO_SNAPSHOT_KEY)
 
-            val subs = doc.select("track[kind=subtitles]").map {
-                Track(it.attr("src"), it.attr("label"))
-            }
+            val subs = filterSubs(
+                doc.select("track[kind=subtitles]").map {
+                    Track(it.attr("src"), it.attr("label"))
+                },
+            )
 
             doc.selectFirst("media-player")?.attr("src")?.also {
                 m3u8List.add(
@@ -426,13 +475,7 @@ class AniZone :
             }
         }
 
-        val serverList = if (preferences.dub) {
-            m3u8List
-        } else {
-            m3u8List.reversed()
-        }
-
-        return serverList.flatMap {
+        val allVideos = m3u8List.flatMap {
             playlistUtils.extractFromHls(
                 playlistUrl = it.url,
                 referer = "$baseUrl/",
@@ -440,6 +483,21 @@ class AniZone :
                 subtitleList = it.subtitles,
             )
         }
+
+        if (loadAll) return allVideos
+
+        return allVideos.map { video ->
+            val filteredAudio = video.audioTracks.filter { it.lang.containsLang(audioValue, audioEntry, audioRegex) }
+            val finalAudio = filteredAudio.ifEmpty {
+                video.audioTracks.filter { it.lang.containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) }
+            }
+            val finalSubs = filterSubs(video.subtitleTracks)
+            Video(video.url, video.quality, video.videoUrl, video.headers, finalSubs, finalAudio)
+        }.filter { video ->
+            video.quality.containsLang(audioValue, audioEntry, audioRegex) ||
+                video.quality.containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) ||
+                video.audioTracks.isNotEmpty()
+        }.ifEmpty { allVideos }
     }
 
     data class VideoData(
@@ -450,8 +508,15 @@ class AniZone :
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.quality
+        val audio = preferences.audio
+        val subtitle = preferences.subtitle
+
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy(
+                { it.quality.contains(quality) },
+                { it.quality.contains(audio, true) || (audio == "jpn" && (it.quality.contains("jp", true) || it.quality.contains("ja", true))) },
+                { it.quality.contains(subtitle, true) || (subtitle == "eng" && (it.quality.contains("en", true))) },
+            ),
         ).reversed()
     }
 
@@ -581,6 +646,31 @@ class AniZone :
         }
     }
 
+    private fun getLangRegex(langValue: String): Regex? {
+        val shortCode = when (langValue) {
+            "jpn" -> "ja|jp|jap"
+            "eng" -> "en|eng"
+            "fra" -> "fr|fra"
+            "deu" -> "de|deu"
+            "ita" -> "it|ita"
+            "kor" -> "ko|kor"
+            "ara" -> "ar|ara"
+            "rus" -> "ru|rus"
+            "spa", "spa-la", "spa-eu" -> "es|spa"
+            "por-br", "por-eu" -> "pt|por"
+            else -> null
+        } ?: return null
+
+        return Regex("(^|[^a-z])($shortCode)([^a-z]|$)")
+    }
+
+    private fun String.containsLang(langValue: String, langEntry: String, regex: Regex? = null): Boolean {
+        val normalized = this.lowercase()
+        if (normalized.contains(langEntry.lowercase()) || normalized.contains(langValue.lowercase())) return true
+
+        return regex?.containsMatchIn(normalized) ?: false
+    }
+
     private fun String.clean() = Parser.unescapeEntities(this, false).replace("`", "'").trim()
 
     private fun parseDate(dateStr: String): Long = DATE_FORMAT.tryParse(dateStr)
@@ -588,8 +678,17 @@ class AniZone :
     private val SharedPreferences.quality
         get() = getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
-    private val SharedPreferences.dub
-        get() = getBoolean(PREF_DUB_KEY, PREF_DUB_DEFAULT)
+    private val SharedPreferences.audio
+        get() = getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT)!!
+
+    private val SharedPreferences.subtitle
+        get() = getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
+
+    private val SharedPreferences.loadAll
+        get() = getBoolean(PREF_LOAD_ALL_KEY, PREF_LOAD_ALL_DEFAULT)
+
+    private val SharedPreferences.subCount
+        get() = getString(PREF_SUB_COUNT_KEY, PREF_SUB_COUNT_DEFAULT)?.toIntOrNull() ?: PREF_SUB_COUNT_DEFAULT.toInt()
 
     private val SharedPreferences.preferredTitleLang
         get() = getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT)!!
@@ -613,9 +712,25 @@ class AniZone :
         private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
         private val PREF_QUALITY_ENTRY_VALUES = arrayOf("1080", "720", "480", "360")
 
-        private const val PREF_DUB_KEY = "attempt_dub"
-        private const val PREF_DUB_TITLE = "Attempt To Prefer Dub"
-        private const val PREF_DUB_DEFAULT = false
+        private const val PREF_AUDIO_KEY = "preferred_audio"
+        private const val PREF_AUDIO_TITLE = "Preferred Audio Language"
+        private const val PREF_AUDIO_DEFAULT = "jpn"
+        private val PREF_AUDIO_ENTRIES = arrayOf("English", "French", "Polish", "Korean", "Japanese", "German", "Italian", "Spanish", "Hungarian", "Portuguese (Brazilian)", "Arabic", "Thai", "Spanish (Latin American)", "Filipino (Tagalog)", "Indonesian", "Hindi")
+        private val PREF_AUDIO_ENTRY_VALUES = arrayOf("eng", "fra", "pol", "kor", "jpn", "deu", "ita", "spa", "hun", "por-br", "ara", "tha", "spa-la", "fil", "ind", "hin")
+
+        private const val PREF_SUB_KEY = "preferred_subtitle"
+        private const val PREF_SUB_TITLE = "Preferred Subtitle Language"
+        private const val PREF_SUB_DEFAULT = "eng"
+        private val PREF_SUB_ENTRIES = arrayOf("English", "Japanese", "Arabic", "Spanish", "Catalan", "Czech", "Danish", "German", "Greek", "Spanish (Latin American)", "Spanish (European)", "Spanish (Basque)", "Finnish", "Filipino (Tagalog)", "French", "Spanish (Galician)", "Hebrew", "Hindi", "Latin", "Croatian", "Hungarian", "Indonesian", "Italian", "Korean", "Malay", "Norwegian", "Dutch", "Polish", "Portuguese (Brazilian)", "Portuguese (European)", "Romanian", "Russian", "Swedish", "Thai", "Turkish", "Ukrainian", "Vietnamese", "Chinese (Simplified)", "Chinese (Traditional)")
+        private val PREF_SUB_ENTRY_VALUES = arrayOf("eng", "jpn", "ara", "spa", "cat", "ces", "dan", "deu", "ell", "spa-la", "spa-eu", "eus", "fin", "fil", "fra", "glg", "heb", "hin", "lat", "hrv", "hun", "ind", "ita", "kor", "msa", "nor", "nld", "pol", "por-br", "por-eu", "ron", "rus", "swe", "tha", "tur", "ukr", "vie", "zho-s", "zho-t")
+
+        private const val PREF_LOAD_ALL_KEY = "load_all_tracks"
+        private const val PREF_LOAD_ALL_TITLE = "Load all audio/subtitle tracks"
+        private const val PREF_LOAD_ALL_DEFAULT = false
+
+        private const val PREF_SUB_COUNT_KEY = "subtitle_count"
+        private const val PREF_SUB_COUNT_TITLE = "Subtitle Count"
+        private const val PREF_SUB_COUNT_DEFAULT = "2"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
         private const val PREF_TITLE_LANG_TITLE = "Preferred Title Language"
@@ -645,10 +760,45 @@ class AniZone :
             summary = "%s"
         }.also(screen::addPreference)
 
+        ListPreference(screen.context).apply {
+            key = PREF_AUDIO_KEY
+            title = PREF_AUDIO_TITLE
+            entries = PREF_AUDIO_ENTRIES
+            entryValues = PREF_AUDIO_ENTRY_VALUES
+            setDefaultValue(PREF_AUDIO_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
+            key = PREF_SUB_KEY
+            title = PREF_SUB_TITLE
+            entries = PREF_SUB_ENTRIES
+            entryValues = PREF_SUB_ENTRY_VALUES
+            setDefaultValue(PREF_SUB_DEFAULT)
+            summary = "%s"
+        }.also(screen::addPreference)
+
         SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_DUB_KEY
-            title = PREF_DUB_TITLE
-            setDefaultValue(PREF_DUB_DEFAULT)
+            key = PREF_LOAD_ALL_KEY
+            title = PREF_LOAD_ALL_TITLE
+            setDefaultValue(PREF_LOAD_ALL_DEFAULT)
+        }.also(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = PREF_SUB_COUNT_KEY
+            title = PREF_SUB_COUNT_TITLE
+            setDefaultValue(PREF_SUB_COUNT_DEFAULT)
+            val current = preferences.getString(PREF_SUB_COUNT_KEY, PREF_SUB_COUNT_DEFAULT)
+            summary = "Number of subtitle tracks to load when 'Load all' is disabled. Current: $current"
+
+            setOnBindEditTextListener { editText ->
+                editText.inputType = InputType.TYPE_CLASS_NUMBER
+            }
+
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Number of subtitle tracks to load when 'Load all' is disabled. Current: $newValue"
+                true
+            }
         }.also(screen::addPreference)
     }
 }
