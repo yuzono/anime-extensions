@@ -298,19 +298,28 @@ class YummyAnime :
         runCatching {
             // The token_movie in the Alloha iframe URL is short-lived and consumed by
             // the first open, so a fresh iframe URL is requested from the API right
-            // before extraction.
-            val playerUrl = runCatching { freshAllohaIframeUrl(video) }.getOrNull() ?: video.url
-            // "lazy|" separates this cache from the slow-mode one: entries created here
-            // carry the default "Alloha (Alloha)" label and must never be served into
-            // the video list (only videoUrl is read on this path).
-            allohaExtractor.videosFromUrl(
-                playerUrl,
-                "$baseUrl/",
-                cacheKey = "lazy|${video.url}|${video.quality}",
-            )
-                .firstOrNull()
-                ?.videoUrl
-                ?: playerUrl
+            // before extraction. If no fresh Alloha iframe can be resolved there is
+            // nothing Alloha-specific to extract: video.url is the generic episode
+            // identity ("$baseUrl/episode/{slug}/{num}"), not an iframe, so running the
+            // WebView on it would only iframe the episode page — no player, no stream —
+            // while still paying the full 5-25s round-trip. Short-circuit to video.url
+            // instead (the player then fails only on this one entry, not the batch).
+            val playerUrl = runCatching { freshAllohaIframeUrl(video) }.getOrNull()
+            if (playerUrl == null) {
+                video.url
+            } else {
+                // "lazy|" separates this cache from the slow-mode one: entries created
+                // here carry the default "Alloha (Alloha)" label and must never be
+                // served into the video list (only videoUrl is read on this path).
+                allohaExtractor.videosFromUrl(
+                    playerUrl,
+                    "$baseUrl/",
+                    cacheKey = "lazy|${video.url}|${video.quality}",
+                )
+                    .firstOrNull()
+                    ?.videoUrl
+                    ?: playerUrl
+            }
         }.getOrDefault(video.url)
     }
 
