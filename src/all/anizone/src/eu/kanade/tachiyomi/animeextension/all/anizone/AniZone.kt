@@ -93,10 +93,8 @@ class AniZone :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val res = if (response.code == 419) {
-            response.close()
-            token = ""
-            if (response.request.url.encodedPath.contains("/livewire/update")) {
+        val res = response.retryOn419 { req ->
+            if (req.url.encodedPath.contains("/livewire/update")) {
                 val updates = buildJsonObject { }
                 val calls = buildJsonArray {
                     addJsonObject {
@@ -105,12 +103,10 @@ class AniZone :
                         putJsonArray("params") { }
                     }
                 }
-                client.newCall(createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)).execute()
+                newLivewireCall(ANIME_SNAPSHOT_KEY, updates, calls)
             } else {
-                client.newCall(response.request).execute()
+                client.newCall(req).execute()
             }
-        } else {
-            response
         }
 
         val isLivewire = res.request.url.encodedPath.contains("/livewire/update")
@@ -288,13 +284,7 @@ class AniZone :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val res = if (response.code == 419) {
-            response.close()
-            token = ""
-            client.newCall(response.request).execute()
-        } else {
-            response
-        }
+        val res = response.retryOn419 { client.newCall(it).execute() }
 
         val html = if (res.request.url.encodedPath.contains("/livewire/update")) {
             res.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
@@ -311,35 +301,27 @@ class AniZone :
 
         var hasMore = html.selectFirst("div[x-intersect~=loadMore]") != null
 
+        val updates = buildJsonObject { }
+        val calls = buildJsonArray {
+            addJsonObject {
+                put("path", "")
+                put("method", "loadMore")
+                putJsonArray("params") { }
+            }
+        }
+
         while (hasMore) {
-            val updates = buildJsonObject { }
-            val calls = buildJsonArray {
-                addJsonObject {
-                    put("path", "")
-                    put("method", "loadMore")
-                    putJsonArray("params") { }
-                }
-            }
+            val resp = newLivewireCall(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath)
+            val livewireHtml = resp.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
 
-            var resp = client.newCall(
-                createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
-            ).execute()
-            if (resp.code == 419) {
-                resp.close()
-                token = ""
-                resp = client.newCall(
-                    createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
-                ).execute()
-            }
-
-            val newElements = resp.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY).select(episodeSelector)
+            val newElements = livewireHtml.select(episodeSelector)
             val episodes = newElements.drop(epLoadCount)
                 .mapNotNull(::episodeFromElement)
 
             episodeList.addAll(episodes)
             epLoadCount = newElements.size
 
-            hasMore = resp.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY).selectFirst("div[x-intersect~=loadMore]") != null
+            hasMore = livewireHtml.selectFirst("div[x-intersect~=loadMore]") != null
         }
 
         return episodeList
@@ -385,13 +367,7 @@ class AniZone :
     private val playlistUtils: PlaylistUtils by lazy { PlaylistUtils(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val res = if (response.code == 419) {
-            response.close()
-            token = ""
-            client.newCall(response.request).execute()
-        } else {
-            response
-        }
+        val res = response.retryOn419 { client.newCall(it).execute() }
 
         val document = res.asJsoup()
         val serverSelects = document.select("button[wire:click]")
@@ -438,18 +414,7 @@ class AniZone :
                 )
             }
 
-            var resp = client.newCall(
-                createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath),
-            ).execute()
-
-            if (resp.code == 419) {
-                resp.close()
-                token = ""
-                resp = client.newCall(
-                    createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath),
-                ).execute()
-            }
-
+            val resp = newLivewireCall(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath)
             val doc = resp.parseAs<LivewireDto>().getHtml(VIDEO_SNAPSHOT_KEY)
 
             val subs = doc.select("track[kind=subtitles]").map {
@@ -497,6 +462,25 @@ class AniZone :
     }
 
     // ============================= Utilities ==============================
+
+    private fun newLivewireCall(
+        mapKey: String,
+        updates: JsonObject,
+        calls: JsonArray,
+        initialSlug: String = "/anime",
+    ): Response {
+        fun build() = createLivewireReq(mapKey, updates, calls, initialSlug)
+        return client.newCall(build()).execute().retryOn419 { client.newCall(build()).execute() }
+    }
+
+    private fun Response.retryOn419(onRetry: (Request) -> Response): Response {
+        if (code == 419) {
+            close()
+            token = ""
+            return onRetry(request)
+        }
+        return this
+    }
 
     private fun LivewireDto.getHtml(mapKey: String): Document {
         val data = this.components.first()
