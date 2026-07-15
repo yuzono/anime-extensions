@@ -68,14 +68,11 @@ class AniZone :
         VIDEO_SNAPSHOT_KEY to "",
     )
 
-    private var animeLoadCount: Int = 0
-
     private val seenUrls = mutableSetOf<String>()
 
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = if (page == 1) {
-        animeLoadCount = 0
         snapShots[ANIME_SNAPSHOT_KEY] = ""
         token = ""
         seenUrls.clear()
@@ -105,7 +102,8 @@ class AniZone :
                         putJsonArray("params") { }
                     }
                 }
-                newLivewireCall(ANIME_SNAPSHOT_KEY, updates, calls)
+                val slug = if (req.url.toString().contains("/episode")) "/episode" else "/anime"
+                newLivewireCall(ANIME_SNAPSHOT_KEY, updates, calls, slug)
             } else {
                 client.newCall(req).execute()
             }
@@ -122,14 +120,12 @@ class AniZone :
             ?.attr("x-data")?.let { extractAnimeDict(it) } ?: emptyMap()
 
         val allElements = html.select(".grid > div, .grid > li, li.space-y-3").filter { it.selectFirst("a[href*=/anime/]") != null }
-        val animeList = allElements.drop(animeLoadCount)
+        val animeList = allElements
             .mapNotNull { element -> animeFromElement(element, animeDict) }
             .filter { it.url !in seenUrls }
             .onEach { seenUrls.add(it.url) }
 
         val hasNextPage = html.selectFirst("div[x-intersect~=loadMore]") != null
-
-        animeLoadCount = allElements.size
 
         return AnimesPage(animeList, hasNextPage)
     }
@@ -170,7 +166,6 @@ class AniZone :
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
-        animeLoadCount = 0
         snapShots[ANIME_SNAPSHOT_KEY] = ""
         token = ""
         seenUrls.clear()
@@ -197,7 +192,6 @@ class AniZone :
         val sortFilter = filters.firstInstance<SortFilter>()
 
         return if (page == 1) {
-            animeLoadCount = 0
             snapShots[ANIME_SNAPSHOT_KEY] = ""
             token = ""
             seenUrls.clear()
@@ -657,6 +651,8 @@ class AniZone :
     }
 
     private fun getLangRegex(langValue: String): Regex? {
+        if (LANG_REGEX_CACHE.containsKey(langValue)) return LANG_REGEX_CACHE[langValue]
+
         val shortCode = when (langValue) {
             "jpn" -> "ja|jp|jap"
             "eng" -> "en|eng"
@@ -671,7 +667,9 @@ class AniZone :
             else -> null
         } ?: return null
 
-        return Regex("(^|[^a-z])($shortCode)([^a-z]|$)")
+        return Regex("(^|[^a-z])($shortCode)([^a-z]|$)").also {
+            LANG_REGEX_CACHE[langValue] = it
+        }
     }
 
     private fun String.containsLang(langValue: String, langEntry: String, regex: Regex? = null): Boolean {
@@ -681,7 +679,10 @@ class AniZone :
         return regex?.containsMatchIn(normalized) ?: false
     }
 
-    private fun String.clean() = Parser.unescapeEntities(this, false).replace("`", "'").trim()
+    private fun String.clean() = Parser.unescapeEntities(this, false)
+        .replace("\\/", "/")
+        .replace("`", "'")
+        .trim()
 
     private fun parseDate(dateStr: String): Long = DATE_FORMAT.tryParse(dateStr)
 
@@ -711,6 +712,8 @@ class AniZone :
         private val DATE_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
         private val SEASON_REGEX = Regex("(?i)s\\d+")
         private val EPISODE_NUMBER_REGEX = Regex("""\d+(\.\d+)?""")
+
+        private val LANG_REGEX_CACHE = mutableMapOf<String, Regex>()
 
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT) }
 
