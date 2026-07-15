@@ -77,6 +77,7 @@ class AniDB :
 
         var themeId: String? = null
         var demographicId: String? = null
+        var studioId: String? = null
 
         val urlBuilder = "$baseUrl/browse".toHttpUrl().newBuilder()
 
@@ -107,6 +108,9 @@ class AniDB :
                 is Filters.ThemeFilter -> {
                     if (!filter.isDefault() && query.isBlank()) themeId = filter.toUriPart()
                 }
+                is Filters.StudioFilter -> {
+                    if (!filter.isDefault() && query.isBlank()) studioId = filter.toUriPart()
+                }
                 is Filters.SortFilter -> {
                     if (!filter.isDefault()) urlBuilder.addQueryParameter("sort", filter.toUriPart())
                 }
@@ -124,6 +128,10 @@ class AniDB :
             val demoBuilder = "$baseUrl/demographics/$demographicId".toHttpUrl().newBuilder()
             demoBuilder.addQueryParameter("page", page.toString())
             GET(demoBuilder.build(), headers)
+        } else if (studioId != null) {
+            val studioBuilder = "$baseUrl/studios/$studioId".toHttpUrl().newBuilder()
+            studioBuilder.addQueryParameter("page", page.toString())
+            GET(studioBuilder.build(), headers)
         } else {
             GET(urlBuilder.build(), headers)
         }
@@ -147,6 +155,7 @@ class AniDB :
         Filters.DemographicFilter(),
         Filters.GenreFilter(),
         Filters.ThemeFilter(),
+        Filters.StudioFilter(),
         Filters.SortFilter(),
     )
 
