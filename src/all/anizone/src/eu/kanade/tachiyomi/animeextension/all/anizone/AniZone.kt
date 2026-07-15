@@ -320,7 +320,15 @@ class AniZone :
             hasMore = livewireHtml.selectFirst("div[x-intersect~=loadMore]") != null
         }
 
-        return episodeList
+        val (specials, regulars) = episodeList.partition {
+            val baseName = it.name.substringBefore(" - ")
+            SEASON_REGEX.containsMatchIn(baseName) ||
+                baseName.contains("Special", true) ||
+                baseName.contains("Recap", true) ||
+                !baseName.contains("Episode", true)
+        }
+
+        return specials.sortedByDescending { it.episode_number } + regulars.sortedByDescending { it.episode_number }
     }
 
     private val episodeSelector = "ul > li"
@@ -348,6 +356,8 @@ class AniZone :
             } else {
                 baseName
             }
+
+            episode_number = EPISODE_NUMBER_REGEX.findAll(baseName).lastOrNull()?.value?.toFloatOrNull() ?: -1f
 
             date_upload = element.select("span")
                 .firstOrNull { it.text().matches(DATE_REGEX) }
@@ -699,6 +709,8 @@ class AniZone :
         private val SLUG_REGEX = Regex("""anmSlug:\s*'([^']+)'""")
         private val SET_VIDEO_REGEX = Regex("""setVideo\('(\d+)'\)""")
         private val DATE_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
+        private val SEASON_REGEX = Regex("(?i)s\\d+")
+        private val EPISODE_NUMBER_REGEX = Regex("""\d+(\.\d+)?""")
 
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT) }
 
