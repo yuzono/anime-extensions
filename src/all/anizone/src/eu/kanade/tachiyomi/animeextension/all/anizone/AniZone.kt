@@ -113,10 +113,7 @@ class AniZone :
         val html = if (isLivewire) {
             res.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
         } else {
-            val doc = res.asJsoup()
-            doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
-            doc.getSnapshot()?.let { snapShots[ANIME_SNAPSHOT_KEY] = it }
-            doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
+            res.asJsoup().updateState(ANIME_SNAPSHOT_KEY)
         }
 
         val animeDict = (if (html.hasAttr("x-data") && html.attr("x-data").contains("animeDict")) html else html.selectFirst("[x-data*=animeDict]"))
@@ -289,10 +286,7 @@ class AniZone :
         val html = if (res.request.url.encodedPath.contains("/livewire/update")) {
             res.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
         } else {
-            val doc = res.asJsoup()
-            doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
-            doc.getSnapshot()?.let { snapShots[EPISODE_SNAPSHOT_KEY] = it }
-            doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
+            res.asJsoup().updateState(EPISODE_SNAPSHOT_KEY)
         }
 
         val allElements = html.select(episodeSelector)
@@ -494,9 +488,15 @@ class AniZone :
         )
     }
 
-    private fun Document.getSnapshot(): String? = this.selectFirst("main > div[wire:snapshot]")
+    private fun Document.getSnapshot(): String? = this.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]")
         ?.attr("wire:snapshot")
         ?.replace("&quot;", "\"")
+
+    private fun Document.updateState(mapKey: String): Element {
+        this.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf(String::isNotEmpty)?.let { token = it }
+        this.getSnapshot()?.let { snapShots[mapKey] = it }
+        return this.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: this
+    }
 
     private fun createLivewireReq(
         mapKey: String,
@@ -507,15 +507,13 @@ class AniZone :
         val firstSnapshot = snapShots[mapKey] ?: ""
 
         if (firstSnapshot.isEmpty() || token.isEmpty()) {
-            val doc = client.newCall(GET(baseUrl + initialSlug, headers)).execute()
+            client.newCall(GET(baseUrl + initialSlug, headers)).execute()
                 .asJsoup()
+                .updateState(mapKey)
 
-            snapShots[mapKey] = doc.getSnapshot() ?: ""
-
-            token = doc.selectFirst("script[data-csrf]")
-                ?.attr("data-csrf")
-                ?.takeIf(String::isNotEmpty)
-                ?: throw Exception("Failed to get csrf token")
+            if (token.isEmpty()) {
+                throw Exception("Failed to get csrf token")
+            }
         }
 
         val headers = headersBuilder().apply {
@@ -551,27 +549,7 @@ class AniZone :
 
         val titlesMap = titlesFromDict ?: run {
             val targetKey = if (isAnime) "anmTitles" else "epsTitles"
-            val parseMarker = "$targetKey: JSON.parse('"
-            val jsonStart = xData.indexOf(parseMarker)
-            if (jsonStart != -1) {
-                val startIdx = jsonStart + parseMarker.length
-                val endIdx = xData.indexOf("')", startIdx)
-                if (endIdx != -1) {
-                    val jsonString = xData.substring(startIdx, endIdx)
-                        .replace("\\u0022", "\"")
-                        .replace("\\u0026", "\\&")
-                        .replace("\\'", "'")
-                    try {
-                        jsonString.parseAs<Map<String, String>>()
-                    } catch (_: Exception) {
-                        null
-                    }
-                } else {
-                    null
-                }
-            } else {
-                null
-            }
+            extractJsonFromXData<Map<String, String>>(xData, targetKey)
         }
 
         val title = titlesMap?.let {
@@ -583,24 +561,24 @@ class AniZone :
         return title?.clean()
     }
 
-    private fun extractAnimeDict(xData: String): Map<String, Map<String, String>> {
-        val marker = "animeDict: JSON.parse('"
+    private fun extractAnimeDict(xData: String): Map<String, Map<String, String>> = extractJsonFromXData<Map<String, Map<String, String>>>(xData, "animeDict") ?: emptyMap()
+
+    private inline fun <reified T> extractJsonFromXData(xData: String, key: String): T? {
+        val marker = "$key: JSON.parse('"
         val start = xData.indexOf(marker)
-        if (start == -1) return emptyMap()
+        if (start == -1) return null
         val startIdx = start + marker.length
         val endIdx = xData.indexOf("')", startIdx)
-        if (endIdx != -1) {
-            val jsonString = xData.substring(startIdx, endIdx)
-                .replace("\\u0022", "\"")
-                .replace("\\u0026", "&")
-                .replace("\\'", "'")
-            return try {
-                jsonString.parseAs<Map<String, Map<String, String>>>()
-            } catch (_: Exception) {
-                emptyMap()
-            }
+        if (endIdx == -1) return null
+        val jsonString = xData.substring(startIdx, endIdx)
+            .replace("\\u0022", "\"")
+            .replace("\\u0026", "\\&")
+            .replace("\\'", "'")
+        return try {
+            jsonString.parseAs<T>()
+        } catch (_: Exception) {
+            null
         }
-        return emptyMap()
     }
 
     private fun String.clean() = Parser.unescapeEntities(this, false).replace("`", "'").trim()
