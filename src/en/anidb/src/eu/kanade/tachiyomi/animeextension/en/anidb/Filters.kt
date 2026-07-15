@@ -5,10 +5,9 @@ import java.util.Calendar
 
 object Filters {
 
-    class TypeFilter :
-        UriPartFilter(
-            "Type",
-            arrayOf(
+    class TypeFilter : UriPartFilter("Type", TYPES) {
+        companion object {
+            val TYPES = arrayOf(
                 Pair("All", ""),
                 Pair("Movie", "Movie"),
                 Pair("Music", "Music"),
@@ -16,30 +15,31 @@ object Filters {
                 Pair("OVA", "OVA"),
                 Pair("Special", "Special"),
                 Pair("TV", "TV"),
-            ),
-        )
+            )
+        }
+    }
 
-    class StatusFilter :
-        UriPartFilter(
-            "Status",
-            arrayOf(
+    class StatusFilter : UriPartFilter("Status", STATUSES) {
+        companion object {
+            val STATUSES = arrayOf(
                 Pair("All", ""),
                 Pair("Currently Airing", "Currently Airing"),
                 Pair("Finished Airing", "Finished Airing"),
-            ),
-        )
+            )
+        }
+    }
 
-    class SeasonFilter :
-        UriPartFilter(
-            "Season",
-            arrayOf(
+    class SeasonFilter : UriPartFilter("Season", SEASONS) {
+        companion object {
+            val SEASONS = arrayOf(
                 Pair("All", ""),
                 Pair("Spring", "spring"),
                 Pair("Summer", "summer"),
                 Pair("Fall", "fall"),
                 Pair("Winter", "winter"),
-            ),
-        )
+            )
+        }
+    }
 
     class YearFilter : UriPartFilter("Year", YEARS) {
         companion object {
@@ -47,7 +47,7 @@ object Filters {
                 Calendar.getInstance().get(Calendar.YEAR)
             }
 
-            private val YEARS = buildList {
+            val YEARS = buildList {
                 add(Pair("All", ""))
                 addAll((CURRENT_YEAR downTo 1968).map { Pair(it.toString(), it.toString()) })
                 add(Pair("1925", "1925"))
@@ -55,23 +55,22 @@ object Filters {
         }
     }
 
-    class DemographicFilter :
-        UriPartFilter(
-            "Demographic",
-            arrayOf(
+    class DemographicFilter : UriPartFilter("Demographic", DEMOGRAPHICS) {
+        companion object {
+            val DEMOGRAPHICS = arrayOf(
                 Pair("All", ""),
                 Pair("Shounen", "1"),
                 Pair("Seinen", "2"),
                 Pair("Shoujo", "5"),
                 Pair("Kids", "4"),
                 Pair("Josei", "3"),
-            ),
-        )
+            )
+        }
+    }
 
-    class GenreFilter :
-        UriPartFilter(
-            "Genre",
-            arrayOf(
+    class GenreFilter : UriPartFilter("Genre", GENRES) {
+        companion object {
+            val GENRES = arrayOf(
                 Pair("All", ""),
                 Pair("Action", "1"),
                 Pair("Adventure", "3"),
@@ -94,13 +93,13 @@ object Filters {
                 Pair("Sports", "11"),
                 Pair("Supernatural", "10"),
                 Pair("Suspense", "18"),
-            ),
-        )
+            )
+        }
+    }
 
-    class ThemeFilter :
-        UriPartFilter(
-            "Theme",
-            arrayOf(
+    class ThemeFilter : UriPartFilter("Theme", THEMES) {
+        companion object {
+            val THEMES = arrayOf(
                 Pair("All", ""),
                 Pair("Adult Cast", "13"),
                 Pair("Anthropomorphic", "34"),
@@ -158,13 +157,13 @@ object Filters {
                 Pair("Villainess", "22"),
                 Pair("Visual Arts", "30"),
                 Pair("Workplace", "16"),
-            ),
-        )
+            )
+        }
+    }
 
-    class StudioFilter :
-        UriPartFilter(
-            "Studio",
-            arrayOf(
+    class StudioFilter : UriPartFilter("Studio", STUDIOS) {
+        companion object {
+            val STUDIOS = arrayOf(
                 Pair("All", ""),
                 Pair("100studio", "44"),
                 Pair("10Gauge", "514"),
@@ -723,13 +722,13 @@ object Filters {
                 Pair("Zero-G Room", "460"),
                 Pair("Zexcs", "40"),
                 Pair("ZG-R", "565"),
-            ),
-        )
+            )
+        }
+    }
 
-    class SortFilter :
-        UriPartFilter(
-            "Sort by",
-            arrayOf(
+    class SortFilter : UriPartFilter("Sort by", SORTS) {
+        companion object {
+            val SORTS = arrayOf(
                 Pair("Trending", "order_trending"),
                 Pair("Top Rated", "order_top"),
                 Pair("Latest Updated", "order_updated"),
@@ -738,8 +737,9 @@ object Filters {
                 Pair("Top Airing", "order_top_airing"),
                 Pair("Title A-Z", "title"),
                 Pair("Newest First", "aired_start"),
-            ),
-        )
+            )
+        }
+    }
 
     open class UriPartFilter(
         displayName: String,
