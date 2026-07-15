@@ -740,7 +740,7 @@ class AniZone :
         private val PREF_SUB_ENTRY_VALUES = arrayOf("eng", "jpn", "ara", "spa", "cat", "ces", "dan", "deu", "ell", "spa-la", "spa-eu", "eus", "fin", "fil", "fra", "glg", "heb", "hin", "lat", "hrv", "hun", "ind", "ita", "kor", "msa", "nor", "nld", "pol", "por-br", "por-eu", "ron", "rus", "swe", "tha", "tur", "ukr", "vie", "zho-s", "zho-t")
 
         private const val PREF_LOAD_ALL_KEY = "load_all_tracks"
-        private const val PREF_LOAD_ALL_TITLE = "Load all audio/subtitle tracks"
+        private const val PREF_LOAD_ALL_TITLE = "Load All Audio/Subtitle Tracks"
         private const val PREF_LOAD_ALL_DEFAULT = false
 
         private const val PREF_SUB_COUNT_KEY = "subtitle_count"
