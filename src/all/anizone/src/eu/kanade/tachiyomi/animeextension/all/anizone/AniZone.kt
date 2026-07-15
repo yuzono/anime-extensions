@@ -93,15 +93,31 @@ class AniZone :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        if (response.code == 419) {
+        val res = if (response.code == 419) {
+            response.close()
             token = ""
-            throw Exception("Page expired (419). Please refresh.")
-        }
-        val isLivewire = response.request.url.encodedPath.contains("/livewire/update")
-        val html = if (isLivewire) {
-            response.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
+            if (response.request.url.encodedPath.contains("/livewire/update")) {
+                val updates = buildJsonObject { }
+                val calls = buildJsonArray {
+                    addJsonObject {
+                        put("path", "")
+                        put("method", "loadMore")
+                        putJsonArray("params") { }
+                    }
+                }
+                client.newCall(createLivewireReq(ANIME_SNAPSHOT_KEY, updates, calls)).execute()
+            } else {
+                client.newCall(response.request).execute()
+            }
         } else {
-            val doc = response.asJsoup()
+            response
+        }
+
+        val isLivewire = res.request.url.encodedPath.contains("/livewire/update")
+        val html = if (isLivewire) {
+            res.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
+        } else {
+            val doc = res.asJsoup()
             doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
             doc.getSnapshot()?.let { snapShots[ANIME_SNAPSHOT_KEY] = it }
             doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
@@ -272,16 +288,18 @@ class AniZone :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val html = if (response.code == 419) {
+        val res = if (response.code == 419) {
+            response.close()
             token = ""
-            val doc = client.newCall(response.request).execute().asJsoup()
-            doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
-            doc.getSnapshot()?.let { snapShots[EPISODE_SNAPSHOT_KEY] = it }
-            doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
-        } else if (response.request.url.encodedPath.contains("/livewire/update")) {
-            response.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
+            client.newCall(response.request).execute()
         } else {
-            val doc = response.asJsoup()
+            response
+        }
+
+        val html = if (res.request.url.encodedPath.contains("/livewire/update")) {
+            res.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
+        } else {
+            val doc = res.asJsoup()
             doc.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf { it.isNotEmpty() }?.let { token = it }
             doc.getSnapshot()?.let { snapShots[EPISODE_SNAPSHOT_KEY] = it }
             doc.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: doc
@@ -307,6 +325,8 @@ class AniZone :
                 createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
             ).execute()
             if (resp.code == 419) {
+                resp.close()
+                token = ""
                 resp = client.newCall(
                     createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
                 ).execute()
@@ -365,7 +385,15 @@ class AniZone :
     private val playlistUtils: PlaylistUtils by lazy { PlaylistUtils(client, headers) }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val res = if (response.code == 419) {
+            response.close()
+            token = ""
+            client.newCall(response.request).execute()
+        } else {
+            response
+        }
+
+        val document = res.asJsoup()
         val serverSelects = document.select("button[wire:click]")
             .filter { video ->
                 video.attr("wire:click").contains("setVideo")
@@ -411,13 +439,14 @@ class AniZone :
             }
 
             var resp = client.newCall(
-                createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
+                createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath),
             ).execute()
 
             if (resp.code == 419) {
+                resp.close()
                 token = ""
                 resp = client.newCall(
-                    createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
+                    createLivewireReq(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath),
                 ).execute()
             }
 
