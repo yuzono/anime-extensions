@@ -267,11 +267,7 @@ class Kuramanime :
                 .add("authorization", "kJuHHkaqcBFXiGMHQf6bJw8YAyDcwGD8Ur")
                 .build()
 
-            val playerHeaders = headers.newBuilder()
-                .set("X-CSRF-TOKEN", csrfToken)
-                .build()
-
-            val playerDoc = client.newCall(POST(newUrl.toString(), playerHeaders, requestBody))
+            val playerDoc = client.newCall(POST(newUrl.toString(), newHeaders, requestBody))
                 .awaitSuccess()
                 .useAsJsoup()
 
@@ -319,46 +315,48 @@ class Kuramanime :
     }
 
     private fun getScriptData(html: String, doc: Document): ScriptDataDto? {
-        val processEnvRegex = Regex("""window\.process\s*=\s*\{[\s\S]*?env:\s*\{([\s\S]*?)\}[\s\S]*?\}""")
-        val envMatch = processEnvRegex.find(html)
+        return runCatching {
+            val processEnvRegex = Regex("""window\.process\s*=\s*\{[\s\S]*?env:\s*\{([\s\S]*?)\}[\s\S]*?\}""")
+            val envMatch = processEnvRegex.find(html)
 
-        val envContent = if (envMatch != null) {
-            envMatch.groupValues[1]
-        } else {
-            val sizzlybUrl = "$baseUrl/assets/js/sizzlyb.js"
-            val sizzlybRes = client.newCall(GET(sizzlybUrl, headers)).execute()
-            if (!sizzlybRes.isSuccessful) return null
+            val envContent = if (envMatch != null) {
+                envMatch.groupValues[1]
+            } else {
+                val sizzlybUrl = "$baseUrl/assets/js/sizzlyb.js"
+                val sizzlybRes = client.newCall(GET(sizzlybUrl, headers)).execute()
+                if (!sizzlybRes.isSuccessful) return@runCatching null
 
-            val sizzlybStr = sizzlybRes.body.string()
-            val attrMatch = Regex("""MIX_JS_ROUTE_PARAM_ATTR:\s*["']([^"']+)["']""").find(sizzlybStr)
-            val attrName = attrMatch?.groupValues?.get(1) ?: return null
+                val sizzlybStr = sizzlybRes.body.string()
+                val attrMatch = Regex("""MIX_JS_ROUTE_PARAM_ATTR:\s*["']([^"']+)["']""").find(sizzlybStr)
+                val attrName = attrMatch?.groupValues?.get(1) ?: return@runCatching null
 
-            val scriptId = doc.selectFirst("[$attrName]")?.attr(attrName) ?: return null
+                val scriptId = doc.selectFirst("[$attrName]")?.attr(attrName) ?: return@runCatching null
 
-            val varJsUrl = "$baseUrl/assets/js/$scriptId.js"
-            val varJsRes = client.newCall(GET(varJsUrl, headers)).execute()
-            if (!varJsRes.isSuccessful) return null
+                val varJsUrl = "$baseUrl/assets/js/$scriptId.js"
+                val varJsRes = client.newCall(GET(varJsUrl, headers)).execute()
+                if (!varJsRes.isSuccessful) return@runCatching null
 
-            varJsRes.body.string()
-        }
+                varJsRes.body.string()
+            }
 
-        val envVars = mutableMapOf<String, String>()
-        val varRegex = Regex("""(\w+):\s*['"]([^'"]+)['"]""")
+            val envVars = mutableMapOf<String, String>()
+            val varRegex = Regex("""(\w+):\s*['"]([^'"]+)['"]""")
 
-        varRegex.findAll(envContent).forEach { match ->
-            val key = match.groupValues[1]
-            val value = match.groupValues[2]
-            envVars[key] = value
-        }
+            varRegex.findAll(envContent).forEach { match ->
+                val key = match.groupValues[1]
+                val value = match.groupValues[2]
+                envVars[key] = value
+            }
 
-        return ScriptDataDto(
-            authPathPrefix = envVars["MIX_PREFIX_AUTH_ROUTE_PARAM"] ?: "",
-            authPathSuffix = envVars["MIX_AUTH_ROUTE_PARAM"] ?: "",
-            authKey = envVars["MIX_AUTH_KEY"] ?: "",
-            authToken = envVars["MIX_AUTH_TOKEN"] ?: "",
-            tokenParam = envVars["MIX_PAGE_TOKEN_KEY"] ?: "",
-            serverParam = envVars["MIX_STREAM_SERVER_KEY"] ?: "",
-        )
+            ScriptDataDto(
+                authPathPrefix = envVars["MIX_PREFIX_AUTH_ROUTE_PARAM"] ?: "",
+                authPathSuffix = envVars["MIX_AUTH_ROUTE_PARAM"] ?: "",
+                authKey = envVars["MIX_AUTH_KEY"] ?: "",
+                authToken = envVars["MIX_AUTH_TOKEN"] ?: "",
+                tokenParam = envVars["MIX_PAGE_TOKEN_KEY"] ?: "",
+                serverParam = envVars["MIX_STREAM_SERVER_KEY"] ?: "",
+            )
+        }.getOrNull()
     }
 
     @Serializable
