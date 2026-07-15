@@ -307,7 +307,6 @@ class AniZone :
                 createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
             ).execute()
             if (resp.code == 419) {
-                token = ""
                 resp = client.newCall(
                     createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
                 ).execute()
