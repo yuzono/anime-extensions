@@ -243,10 +243,9 @@ class AniZone :
                     when (it.lowercase()) {
                         "completed" -> SAnime.COMPLETED
                         "ongoing" -> SAnime.ONGOING
-                        "upcoming" -> SAnime.UPCOMING
                         "cancelled" -> SAnime.CANCELLED
                         else -> SAnime.UNKNOWN
-                    } 
+                    }
                 } ?: SAnime.UNKNOWN
 
             genre = document.select("a[href*=/tag/]").joinToString { it.text() }
@@ -309,7 +308,6 @@ class AniZone :
             ).execute()
             if (resp.code == 419) {
                 token = ""
-                resp.close()
                 resp = client.newCall(
                     createLivewireReq(EPISODE_SNAPSHOT_KEY, updates, calls, response.request.url.encodedPath),
                 ).execute()
@@ -484,7 +482,7 @@ class AniZone :
         )
     }
 
-    private fun Document.getSnapshot(): String? = this.selectFirst("[wire:snapshot]")
+    private fun Document.getSnapshot(): String? = this.selectFirst("main > div[wire:snapshot]")
         ?.attr("wire:snapshot")
         ?.replace("&quot;", "\"")
 
@@ -549,7 +547,7 @@ class AniZone :
                 if (endIdx != -1) {
                     val jsonString = xData.substring(startIdx, endIdx)
                         .replace("\\u0022", "\"")
-                        .replace("\\u0026", "&")
+                        .replace("\\u0026", "\\&")
                         .replace("\\'", "'")
                     try {
                         jsonString.parseAs<Map<String, String>>()
