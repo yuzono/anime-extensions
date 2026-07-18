@@ -66,9 +66,11 @@ class Hanime1 :
                 // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
                 .joinToString { it.replace(Regex("""^(# )?(.*?)( \(\d+\))?$"""), "$2") }
             author = doc.select("#video-artist-name").text()
-            doc.select("#shareBtn-title").text()
+            title = doc.select("#shareBtn-title").text()
                 .takeIf { it.isNotBlank() }
-                ?.let { title = it }
+                ?: doc.select("meta[property=og:title]").attr("content")
+                    .takeIf { it.isNotBlank() }
+                    ?: ""
             description = doc.select("meta[property=og:description]").attr("content")
             thumbnail_url = doc.select("meta[property=og:image]").attr("content")
             val type = doc.select("a#video-artist-name + a").text().trim()
