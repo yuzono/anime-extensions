@@ -97,10 +97,10 @@ class Hanime1 : AnimeHttpSource(), ConfigurableAnimeSource {
         val nodes = jsoup.select("#playlist-scroll").first()!!.select(">div")
         return nodes.mapIndexed { index, element ->
             SEpisode.create().apply {
-                val href = element.select("a.overlay").attr("href")
+                val href = element.select(".thumb-container a").attr("href")
                 setUrlWithoutDomain(href)
                 episode_number = (nodes.size - index).toFloat()
-                name = element.select("div.card-mobile-title").text()
+                name = element.select(".video-title").text()
                 if (href == response.request.url.toString()) {
                     // current video, parse `觀看次數：362.5萬次 2025-12-26` to upload date
                     uploadDateRegex.find(jsoup.select("#shareBtn-title + div").text())?.value?.let {
