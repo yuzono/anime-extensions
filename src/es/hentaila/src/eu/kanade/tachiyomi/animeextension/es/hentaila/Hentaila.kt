@@ -2,7 +2,14 @@ package eu.kanade.tachiyomi.animeextension.es.hentaila
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.animeextension.BuildConfig
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.es.hentaila.extractors.FireLoadExtractor
 import eu.kanade.tachiyomi.animeextension.es.hentaila.extractors.MediaFireExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -14,20 +21,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.megacloudextractor.MegaCloudExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
@@ -39,7 +38,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
+class Hentaila :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hentaila"
     override val baseUrl = "https://hentaila.com"
@@ -64,18 +65,17 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private val SERVER_LIST = arrayOf(
-            "Megacloud",
-            "Voe",
-            "Arc",
+            "VidHide",
             "YourUpload",
+            "Mp4Upload",
+            "Voe",
+            "StreamWish",
+            "Arc",
             "BurstCloud",
             "Sendvid",
             "MediaFire",
             "FireLoad",
-            "VidHide",
             "VIP",
-            "Mp4Upload",
-            "StreamWish",
         )
         private val PREF_SERVER_DEFAULT = SERVER_LIST.first()
     }
@@ -106,7 +106,9 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
             filterList.forEach { filter ->
                 when (filter) {
                     is GenreFilter -> urlBuilder.addQueryParameter("genre", filter.toUriPart())
+
                     is OrderFilter -> urlBuilder.addQueryParameter("filter", filter.toUriPart())
+
                     is StatusOngoingFilter -> if (filter.state) {
                         urlBuilder.addQueryParameter("status", "emision")
                     }
@@ -227,7 +229,6 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
     private val mediaFireExtractor by lazy { MediaFireExtractor(client) }
     private val fireLoadExtractor by lazy { FireLoadExtractor(client) }
     private val vidhideExtractor by lazy { VidHideExtractor(client, headers) }
-    private val megacloudExtractor by lazy { MegaCloudExtractor(client, headers, BuildConfig.MEGACLOUD_API) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     override fun videoListRequest(episode: SEpisode): Request {
@@ -268,28 +269,43 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
             }
         }
 
-        val allVideos = serverList.parallelCatchingFlatMapBlocking { each ->
-            when (each.name.lowercase()) {
-                "streamwish" -> streamWishExtractor.videosFromUrl(each.url, videoNameGen = { "StreamWish:$it" })
-                "mp4upload" -> mp4uploadExtractor.videosFromUrl(each.url, headers = headers, prefix = "Mp4Upload")
-                "voe" -> voeExtractor.videosFromUrl(each.url)
-                "arc" -> listOf(Video(each.url.substringAfter("#"), "Arc", each.url.substringAfter("#")))
-                "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(each.url, headers = headers)
-                "burst" -> burstCloudExtractor.videoFromUrl(each.url, headers = headers)
-                "sendvid" -> sendvidExtractor.videosFromUrl(each.url)
-                "mediafire" -> mediaFireExtractor.getVideoFromUrl(each.url)
-                "fireload" -> fireLoadExtractor.getVideoFromUrl(each.url)
-                "vidhide" -> vidhideExtractor.videosFromUrl(each.url)
-                "mega" -> megacloudExtractor.getVideosFromUrl(each.url, "Megacloud", "Megacloud")
-                "vip" -> universalExtractor.videosFromUrl(
-                    each.url.replace("/play/", "/m3u8/"),
-                    origRequestHeader = headers,
-                    prefix = "VIP",
-                )
-                else -> emptyList()
+        return serverList
+            .partition { it.name.lowercase() == "vip" }
+            .let { (vips, others) ->
+                val vipVideos = vips.catchingFlatMapBlocking { vip ->
+                    universalExtractor.videosFromUrl(
+                        vip.url.replace("/play/", "/m3u8/"),
+                        origRequestHeader = headers,
+                        prefix = "VIP",
+                    )
+                }
+                val otherVideos = others.parallelCatchingFlatMapBlocking { each ->
+                    when (each.name.lowercase()) {
+                        "streamwish" -> streamWishExtractor.videosFromUrl(each.url, videoNameGen = { "StreamWish:$it" })
+
+                        "mp4upload" -> mp4uploadExtractor.videosFromUrl(each.url, headers = headers, prefix = "Mp4Upload")
+
+                        "voe" -> voeExtractor.videosFromUrl(each.url)
+
+                        "arc" -> listOf(Video(each.url.substringAfter("#"), "Arc", each.url.substringAfter("#")))
+
+                        "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(each.url, headers = headers)
+
+                        "burst" -> burstCloudExtractor.videoFromUrl(each.url, headers = headers)
+
+                        "sendvid" -> sendvidExtractor.videosFromUrl(each.url)
+
+                        "mediafire" -> mediaFireExtractor.getVideoFromUrl(each.url)
+
+                        "fireload" -> fireLoadExtractor.getVideoFromUrl(each.url)
+
+                        "vidhide" -> vidhideExtractor.videosFromUrl(each.url)
+
+                        else -> emptyList()
+                    }
+                }
+                vipVideos + otherVideos
             }
-        }
-        return allVideos
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -319,60 +335,62 @@ class Hentaila : ConfigurableAnimeSource, AnimeHttpSource() {
     private class StatusCompletedFilter : AnimeFilter.CheckBox("Finalizado")
     private class UncensoredFilter : AnimeFilter.CheckBox("Sin Censura")
 
-    private class OrderFilter : UriPartFilter(
-        "Ordenar por",
-        arrayOf(
-            "<Seleccionar>" to "",
-            "Populares" to "popular",
-            "Recientes" to "recent",
-        ),
-    )
+    private class OrderFilter :
+        UriPartFilter(
+            "Ordenar por",
+            arrayOf(
+                "<Seleccionar>" to "",
+                "Populares" to "popular",
+                "Recientes" to "recent",
+            ),
+        )
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            "<Seleccionar>" to "",
-            "3D" to "3d",
-            "Ahegao" to "ahegao",
-            "Anal" to "anal",
-            "Casadas" to "casadas",
-            "Chikan" to "chikan",
-            "Ecchi" to "ecchi",
-            "Enfermeras" to "enfermeras",
-            "Futanari" to "futanari",
-            "Escolares" to "escolares",
-            "Gore" to "gore",
-            "Hardcore" to "hardcore",
-            "Harem" to "harem",
-            "Incesto" to "incesto",
-            "Juegos Sexuales" to "juegos-sexuales",
-            "Milfs" to "milfs",
-            "Maids" to "maids",
-            "Netorare" to "netorare",
-            "Ninfomanía" to "ninfomania",
-            "Ninjas" to "ninjas",
-            "Orgías" to "orgias",
-            "Romance" to "romance",
-            "Shota" to "shota",
-            "Softcore" to "softcore",
-            "Succubus" to "succubus",
-            "Teacher" to "teacher",
-            "Tentáculos" to "tentaculos",
-            "Tetonas" to "tetonas",
-            "Vanilla" to "vanilla",
-            "Violación" to "violacion",
-            "Vírgenes" to "virgenes",
-            "Yaoi" to "yaoi",
-            "Yuri" to "yuri",
-            "Bondage" to "bondage",
-            "Elfas" to "elfas",
-            "Petit" to "petit",
-            "Threesome" to "threesome",
-            "Paizuri" to "paizuri",
-            "Gal" to "gal",
-            "Oyakodon" to "oyakodon",
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                "<Seleccionar>" to "",
+                "3D" to "3d",
+                "Ahegao" to "ahegao",
+                "Anal" to "anal",
+                "Casadas" to "casadas",
+                "Chikan" to "chikan",
+                "Ecchi" to "ecchi",
+                "Enfermeras" to "enfermeras",
+                "Futanari" to "futanari",
+                "Escolares" to "escolares",
+                "Gore" to "gore",
+                "Hardcore" to "hardcore",
+                "Harem" to "harem",
+                "Incesto" to "incesto",
+                "Juegos Sexuales" to "juegos-sexuales",
+                "Milfs" to "milfs",
+                "Maids" to "maids",
+                "Netorare" to "netorare",
+                "Ninfomanía" to "ninfomania",
+                "Ninjas" to "ninjas",
+                "Orgías" to "orgias",
+                "Romance" to "romance",
+                "Shota" to "shota",
+                "Softcore" to "softcore",
+                "Succubus" to "succubus",
+                "Teacher" to "teacher",
+                "Tentáculos" to "tentaculos",
+                "Tetonas" to "tetonas",
+                "Vanilla" to "vanilla",
+                "Violación" to "violacion",
+                "Vírgenes" to "virgenes",
+                "Yaoi" to "yaoi",
+                "Yuri" to "yuri",
+                "Bondage" to "bondage",
+                "Elfas" to "elfas",
+                "Petit" to "petit",
+                "Threesome" to "threesome",
+                "Paizuri" to "paizuri",
+                "Gal" to "gal",
+                "Oyakodon" to "oyakodon",
+            ),
+        )
 
     private open class UriPartFilter(
         displayName: String,

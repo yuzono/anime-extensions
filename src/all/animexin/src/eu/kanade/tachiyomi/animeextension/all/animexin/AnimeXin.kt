@@ -1,22 +1,45 @@
 package eu.kanade.tachiyomi.animeextension.all.animexin
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.VidstreamingExtractor
 import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.YouTubeExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.dailymotionextractor.DailymotionExtractor
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import org.jsoup.nodes.Document
 
-class AnimeXin : AnimeStream(
-    "all",
-    "AnimeXin",
-    "https://animexin.dev",
-) {
+class AnimeXin :
+    AnimeStream(
+        "all",
+        "AnimeXin",
+        "https://animexin.dev",
+    ) {
     override val id = 4620219025406449669
+
+    // =========================== Anime Details ============================
+    override fun getAnimeDescription(document: Document): String? {
+        val description = super.getAnimeDescription(document) ?: return null
+        val englishIdx = description.indexOf("English", ignoreCase = true)
+        val indonesiaIdx = description.indexOf("Indonesia", ignoreCase = true)
+
+        return if (englishIdx != -1 && indonesiaIdx != -1 && englishIdx < indonesiaIdx) {
+            val isIndo = preferences.langPref == "Indonesia"
+            val result = if (isIndo) {
+                description.substring(indonesiaIdx + "Indonesia".length)
+            } else {
+                description.substring(englishIdx + "English".length, indonesiaIdx)
+            }
+            result.trim().removePrefix(":").trim()
+        } else {
+            description
+        }
+    }
 
     // ============================ Video Links =============================
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
@@ -26,12 +49,15 @@ class AnimeXin : AnimeStream(
     private val vidstreamingExtractor by lazy { VidstreamingExtractor(client) }
     private val youTubeExtractor by lazy { YouTubeExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
+    override suspend fun getVideoList(url: String, name: String): List<Video> {
         val prefix = "$name - "
         return when {
             url.contains("ok.ru") -> okruExtractor.videosFromUrl(url, prefix)
+
             url.contains("dailymotion") -> dailymotionExtractor.videosFromUrl(url, prefix)
+
             url.contains("https://dood") -> doodExtractor.videosFromUrl(url, name)
+
             url.contains("gdriveplayer") -> {
                 val gdriveHeaders = headersBuilder()
                     .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -39,8 +65,11 @@ class AnimeXin : AnimeStream(
                     .build()
                 gdrivePlayerExtractor.videosFromUrl(url, name, gdriveHeaders)
             }
+
             url.contains("youtube.com") -> youTubeExtractor.videosFromUrl(url, prefix)
+
             url.contains("vidstreaming") -> vidstreamingExtractor.videosFromUrl(url, prefix)
+
             else -> emptyList()
         }
     }
@@ -49,27 +78,22 @@ class AnimeXin : AnimeStream(
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         super.setupPreferenceScreen(screen) // Quality preferences
 
-        ListPreference(screen.context).apply {
-            key = PREF_LANG_KEY
-            title = PREF_LANG_TITLE
-            entries = PREF_LANG_VALUES
-            entryValues = PREF_LANG_VALUES
-            setDefaultValue(PREF_LANG_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_LANG_KEY,
+            title = PREF_LANG_TITLE,
+            entries = PREF_LANG_VALUES,
+            entryValues = PREF_LANG_VALUES,
+            default = PREF_LANG_DEFAULT,
+            summary = "%s",
+        )
     }
+
+    private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
 
     // ============================= Utilities ==============================
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
-        val language = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        val quality = preferences.videoSortPref
+        val language = preferences.langPref
 
         return sortedWith(
             compareBy(
@@ -83,7 +107,7 @@ class AnimeXin : AnimeStream(
         private const val PREF_LANG_KEY = "preferred_language"
         private const val PREF_LANG_TITLE = "Preferred Video Language"
         private const val PREF_LANG_DEFAULT = "All Sub"
-        private val PREF_LANG_VALUES = arrayOf(
+        private val PREF_LANG_VALUES = listOf(
             "All Sub", "Arabic", "English", "German", "Indonesia", "Italian",
             "Polish", "Portuguese", "Spanish", "Thai", "Turkish",
         )

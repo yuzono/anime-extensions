@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.hexawatch
 import android.content.SharedPreferences
 import android.text.InputType
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -11,22 +12,20 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parallelFlatMap
-import eu.kanade.tachiyomi.util.parallelMapNotNull
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
-import extensions.utils.parseAs
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelFlatMap
+import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.security.SecureRandom
@@ -34,7 +33,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
+class HexaWatch :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HexaWatch"
 
@@ -66,9 +67,7 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Latest ===============================
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -104,9 +103,7 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -185,18 +182,14 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url, headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // ============================== Filters ===============================
 
     override fun getFilterList(): AnimeFilterList = HexaWatchFilters.getFilterList()
 
     // ============================== Details ===============================
-    override fun getAnimeUrl(anime: SAnime): String {
-        return animeUrl + anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = animeUrl + anime.url
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         val url = (apiUrl + anime.url).toHttpUrl().newBuilder().apply {
@@ -310,17 +303,13 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return client.newCall(episodeListRequest(anime))
-            .awaitSuccess()
-            .use { response ->
-                episodeListParseAsync(response)
-            }
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = client.newCall(episodeListRequest(anime))
+        .awaitSuccess()
+        .use { response ->
+            episodeListParseAsync(response)
+        }
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        return animeDetailsRequest(anime)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
     private suspend fun episodeListParseAsync(response: Response): List<SEpisode> {
@@ -361,13 +350,11 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return client.newCall(videoListRequest(episode))
-            .awaitSuccess()
-            .use { response ->
-                videoListParseAsync(response)
-            }
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
+        .awaitSuccess()
+        .use { response ->
+            videoListParseAsync(response)
+        }
 
     override fun videoListRequest(episode: SEpisode): Request {
         val key = ByteArray(32).apply { SECURE_RANDOM.nextBytes(this) }
@@ -392,7 +379,7 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         val key = response.request.header("X-Api-Key") ?: throw Exception("API Key was not sent in the request")
 
         val decryptionPayload = json.encodeToString(mapOf("text" to encryptedText, "key" to key))
-        val requestBody = decryptionPayload.toRequestBody("application/json".toMediaType())
+        val requestBody = decryptionPayload.toJsonRequestBody()
 
         val extractorData = client.newCall(
             Request.Builder().url(decryptionApiUrl).post(requestBody).build(),
@@ -543,19 +530,15 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
             Pair("vi", "Vietnamese"),
         )
 
-        fun statusParser(status: String?): Int {
-            return when (status) {
-                "Released", "Ended" -> SAnime.COMPLETED
-                "Returning Series", "In Production" -> SAnime.ONGOING
-                else -> SAnime.UNKNOWN
-            }
+        fun statusParser(status: String?): Int = when (status) {
+            "Released", "Ended" -> SAnime.COMPLETED
+            "Returning Series", "In Production" -> SAnime.ONGOING
+            else -> SAnime.UNKNOWN
         }
 
-        fun parseDate(dateStr: String?): Long {
-            return runCatching {
-                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
-            }.getOrDefault(0L)
-        }
+        fun parseDate(dateStr: String?): Long = runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
+        }.getOrDefault(0L)
     }
 
     // ============================= Utilities ==============================
@@ -569,12 +552,10 @@ class HexaWatch : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun mediaItemToSAnime(media: MediaItemDto): SAnime {
-        return SAnime.create().apply {
-            title = media.realTitle
-            val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
-            url = "/$type/${media.id}"
-            thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-        }
+    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
+        title = media.realTitle
+        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
+        url = "/$type/${media.id}"
+        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
     }
 }

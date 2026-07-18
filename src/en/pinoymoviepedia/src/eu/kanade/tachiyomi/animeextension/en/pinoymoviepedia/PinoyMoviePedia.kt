@@ -2,25 +2,26 @@ package eu.kanade.tachiyomi.animeextension.en.pinoymoviepedia
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelFlatMapBlocking
+import keiyoushi.utils.parallelFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class PinoyMoviePedia : DooPlay(
-    "en",
-    "PinoyMoviePedia",
-    "https://pinoymoviepedia.ru",
-) {
+class PinoyMoviePedia :
+    DooPlay(
+        "en",
+        "PinoyMoviePedia",
+        "https://pinoymoviepedia.ru",
+    ) {
     override val supportsLatest = false
 
     // ============================== Popular ===============================
@@ -54,13 +55,11 @@ class PinoyMoviePedia : DooPlay(
         }
     }
 
-    private fun extractVideos(url: String, lang: String): List<Video> {
-        return when {
-            "dood" in url -> doodExtractor.videosFromUrl(url, lang)
-            "mixdrop" in url -> mixDropExtractor.videosFromUrl(url, lang)
-            else -> null
-        } ?: emptyList()
-    }
+    private fun extractVideos(url: String, lang: String): List<Video> = when {
+        "dood" in url -> doodExtractor.videosFromUrl(url, lang)
+        "mixdrop" in url -> mixDropExtractor.videosFromUrl(url, lang)
+        else -> null
+    } ?: emptyList()
 
     private fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
@@ -93,6 +92,7 @@ class PinoyMoviePedia : DooPlay(
                     "/genre/${params.genre}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {

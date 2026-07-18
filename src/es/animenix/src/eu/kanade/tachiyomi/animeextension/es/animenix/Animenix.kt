@@ -3,26 +3,30 @@ package eu.kanade.tachiyomi.animeextension.es.animenix
 import androidx.preference.CheckBoxPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Animenix : DooPlay(
-    "es",
-    "Animenix",
-    "https://animenix.com",
-) {
+class Animenix :
+    DooPlay(
+        "es",
+        "Animenix",
+        "https://animenix.com",
+    ) {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/ratings/$page")
@@ -37,16 +41,14 @@ class Animenix : DooPlay(
     override val episodeMovieText = "Película"
 
     override fun videoListParse(response: Response): List<Video> {
-        val players = response.asJsoup().select("li.dooplay_player_option")
-        return players.flatMap { player ->
-            runCatching {
-                val link = getPlayerUrl(player)
-                getPlayerVideos(link)
-            }.getOrElse { emptyList() }
+        val players = response.useAsJsoup().select("li.dooplay_player_option")
+        return players.parallelCatchingFlatMapBlocking { player ->
+            val link = getPlayerUrl(player)
+            getPlayerVideos(link)
         }
     }
 
-    private fun getPlayerUrl(player: Element): String {
+    private suspend fun getPlayerUrl(player: Element): String {
         val body = FormBody.Builder()
             .add("action", "doo_player_ajax")
             .add("post", player.attr("data-post"))
@@ -54,34 +56,28 @@ class Animenix : DooPlay(
             .add("type", player.attr("data-type"))
             .build()
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute()
-            .let { response ->
-                response.body.string()
-                    .substringAfter("\"embed_url\":\"")
-                    .substringBefore("\",")
-                    .replace("\\", "")
-            }
+            .awaitSuccess().bodyString()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
     }
 
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(headers = headers, client = client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun getPlayerVideos(link: String): List<Video> {
-        return when {
-            link.contains("filemoon") -> filemoonExtractor.videosFromUrl(link)
-            link.contains("swdyu") -> streamWishExtractor.videosFromUrl(link)
-            link.contains("wishembed") || link.contains("cdnwish") || link.contains("flaswish") || link.contains("sfastwish") || link.contains("streamwish") || link.contains("asnwish") -> streamWishExtractor.videosFromUrl(link)
-            else -> universalExtractor.videosFromUrl(link, headers)
-        }
+    private suspend fun getPlayerVideos(link: String): List<Video> = when {
+        link.contains("filemoon") -> filemoonExtractor.videosFromUrl(link)
+        link.contains("swdyu") -> streamWishExtractor.videosFromUrl(link)
+        link.contains("wishembed") || link.contains("cdnwish") || link.contains("flaswish") || link.contains("sfastwish") || link.contains("streamwish") || link.contains("asnwish") ->
+            streamWishExtractor.videosFromUrl(link)
+        else -> universalExtractor.videosFromUrl(link, headers)
     }
 
     // =========================== Anime Details ============================
-    override fun Document.getDescription(): String {
-        return select("$additionalInfoSelector div.wp-content p")
-            .eachText()
-            .joinToString("\n")
-    }
+    override fun Document.getDescription(): String = select("$additionalInfoSelector div.wp-content p")
+        .eachText()
+        .joinToString("\n")
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
@@ -102,8 +98,11 @@ class Animenix : DooPlay(
                     "/genero/${params.genre}"
                 }
             }
+
             params.language.isNotBlank() -> "/genero/${params.language}"
+
             params.year.isNotBlank() -> "/release/${params.year}"
+
             params.movie.isNotBlank() -> {
                 if (params.movie == "pelicula") {
                     "/pelicula"
@@ -111,6 +110,7 @@ class Animenix : DooPlay(
                     "/genero/${params.movie}"
                 }
             }
+
             else -> buildString {
                 append(
                     when {
@@ -163,13 +163,6 @@ class Animenix : DooPlay(
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
 
         val vrfIterceptPref = CheckBoxPreference(screen.context).apply {
@@ -184,8 +177,6 @@ class Animenix : DooPlay(
     }
 
     // ============================= Utilities ==============================
-    override fun String.toDate() = 0L
-
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
         val lang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!

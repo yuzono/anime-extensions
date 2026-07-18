@@ -1,15 +1,15 @@
 ext {
     extName = 'AnimeLatinoHD'
     extClass = '.AnimeLatinoHD'
-    extVersionCode = 45
+    extVersionCode = 53
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:filemoon-extractor'))
-    implementation(project(':lib:streamtape-extractor'))
-    implementation(project(':lib:okru-extractor'))
-    implementation(project(':lib:dood-extractor'))
-    implementation(project(':lib:streamwish-extractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamwishextractor'))
 }

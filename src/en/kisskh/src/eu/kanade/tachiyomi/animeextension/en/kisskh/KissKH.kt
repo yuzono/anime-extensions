@@ -12,15 +12,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.LazyMutable
-import extensions.utils.UrlUtils
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingMapNotNull
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,7 +33,9 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 
-class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
+class KissKH :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "KissKH"
 
@@ -58,8 +59,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Popular Animes */
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/api/DramaList/List?page=$page&type=0&sub=0&country=0&status=0&order=1&pageSize=40")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/DramaList/List?page=$page&type=0&sub=0&country=0&status=0&order=1&pageSize=40")
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -100,8 +100,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Search */
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseUrl/api/DramaList/Search?q=$query&type=0")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/api/DramaList/Search?q=$query&type=0")
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
@@ -123,9 +122,7 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
 
     /* Details */
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return baseUrl + anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         val id = anime.url.substringAfter("id=").substringBefore("&")
@@ -137,14 +134,12 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
         return parseAnimeDetailsParseJson(responseString)
     }
 
-    private fun parseAnimeDetailsParseJson(jsonData: String): SAnime {
-        return SAnime.create().apply {
-            val jObject = json.decodeFromString<JsonObject>(jsonData)
-            jObject.jsonObject["title"]?.jsonPrimitive?.content?.let { title = it }
-            jObject.jsonObject["status"]?.jsonPrimitive?.content?.let { status = parseStatus(it) }
-            jObject.jsonObject["description"]?.jsonPrimitive?.content?.let { description = it }
-            jObject.jsonObject["thumbnail"]?.jsonPrimitive?.content?.let { thumbnail_url = it }
-        }
+    private fun parseAnimeDetailsParseJson(jsonData: String): SAnime = SAnime.create().apply {
+        val jObject = json.decodeFromString<JsonObject>(jsonData)
+        jObject.jsonObject["title"]?.jsonPrimitive?.content?.let { title = it }
+        jObject.jsonObject["status"]?.jsonPrimitive?.content?.let { status = parseStatus(it) }
+        jObject.jsonObject["description"]?.jsonPrimitive?.content?.let { description = it }
+        jObject.jsonObject["thumbnail"]?.jsonPrimitive?.content?.let { thumbnail_url = it }
     }
 
     private fun parseStatus(status: String?) = when {
@@ -177,12 +172,12 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
                         name = "Video $number"
                     }
 
-                    type.contains("Hollywood") && episodesCount == 1 || type.contains("Movie") -> {
+                    (type.contains("Hollywood") && episodesCount == 1) || type.contains("Movie") -> {
                         name = "Movie"
                     }
 
                     type.contains("Anime") || type.contains("TVSeries") ||
-                        type.contains("Hollywood") && episodesCount > 1 -> {
+                        (type.contains("Hollywood") && episodesCount > 1) -> {
                         name = "Episode $number"
                     }
                 }
@@ -214,44 +209,37 @@ class KissKH : AnimeHttpSource(), ConfigurableAnimeSource {
         val videoUrl = jObject["Video"]?.jsonPrimitive?.content ?: return emptyList()
 
         val kkey = requestSubKey(id)
-        val subData = client.newCall(GET("$baseUrl/api/Sub/$id?kkey=$kkey")).awaitSuccess().use { it.body.string() }
+        val subData = client.newCall(GET("$baseUrl/api/Sub/$id?kkey=$kkey")).awaitSuccess().bodyString()
 
-        val subList = coroutineScope {
-            (runCatching { json.decodeFromString<JsonArray>(subData) }.getOrNull() ?: emptyList()).map { item ->
-                async {
-                    val suburl = item.jsonObject["src"]?.jsonPrimitive?.content ?: return@async null
-                    val lang = item.jsonObject["label"]?.jsonPrimitive?.content ?: "Unknown"
-
-                    runCatching {
-                        if (suburl.contains(".txt")) {
-                            subDecryptor.getSubtitles(suburl, lang)
-                        } else {
-                            Track(suburl, lang)
-                        }
-                    }.getOrNull()
-                }
-            }.awaitAll().filterNotNull()
+        val subList = json.decodeFromString<JsonArray>(subData).parallelCatchingMapNotNull { item ->
+            val suburl = item.jsonObject["src"]?.jsonPrimitive?.content ?: return@parallelCatchingMapNotNull null
+            val lang = item.jsonObject["label"]?.jsonPrimitive?.content ?: "Unknown"
+            if (suburl.contains(".txt")) {
+                subDecryptor.getSubtitles(suburl, lang)
+            } else {
+                Track(suburl, lang)
+            }
         }
 
-        return listOf(
+        return UrlUtils.fixUrl(videoUrl)?.let { videoUrl ->
             Video(
-                UrlUtils.fixUrl(videoUrl),
+                videoUrl,
                 "FirstParty",
-                UrlUtils.fixUrl(videoUrl),
+                videoUrl,
                 subtitleTracks = subList,
                 headers = Headers.headersOf("referer", "$baseUrl/", "origin", baseUrl),
-            ),
-        )
+            ).let(::listOf)
+        } ?: emptyList()
     }
 
     private suspend fun requestVideoKey(id: String): String {
         val url = "${BuildConfig.KISSKH_API}$id&version=2.8.10"
-        return client.newCall(GET(url, headers)).awaitSuccess().use { it.parseAs<Key>().key }
+        return client.newCall(GET(url, headers)).awaitSuccess().parseAs<Key>().key
     }
 
     private suspend fun requestSubKey(id: String): String {
         val url = "${BuildConfig.KISSKH_SUB_API}$id&version=2.8.10"
-        return client.newCall(GET(url, headers)).awaitSuccess().use { it.parseAs<Key>().key }
+        return client.newCall(GET(url, headers)).awaitSuccess().parseAs<Key>().key
     }
 
     @Serializable

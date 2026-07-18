@@ -1,9 +1,17 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.gogostreamextractor.GogoStreamExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.en.allanime.extractors.AllAnimeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -12,36 +20,34 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.gogostreamextractor.GogoStreamExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
-import extensions.utils.toJsonString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonBody
+import keiyoushi.utils.toJsonString
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
-import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
-class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
+class AllAnime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AllAnime"
 
@@ -53,9 +59,10 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
+
+    override fun headersBuilder() = super.headersBuilder()
+        .set("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
 
@@ -75,13 +82,14 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun popularAnimeParse(response: Response): AnimesPage {
         val parsed = response.parseAs<PopularResult>()
 
-        val animeList = parsed.data.queryPopular.recommendations.filter { it.anyCard != null }.map {
+        val animeList = parsed.data.queryPopular.recommendations.mapNotNull {
+            if (it.anyCard == null) return@mapNotNull null
             SAnime.create().apply {
                 title = when (preferences.titleStyle) {
-                    "romaji" -> it.anyCard!!.name
-                    "eng" -> it.anyCard!!.englishName ?: it.anyCard.name
-                    else -> it.anyCard!!.nativeName ?: it.anyCard.name
-                }
+                    "romaji" -> it.anyCard.name
+                    "eng" -> it.anyCard.englishName
+                    else -> it.anyCard.nativeName
+                } ?: it.anyCard.name
                 thumbnail_url = it.anyCard.thumbnail?.let(::thumbnailUrl)
                 url = "${it.anyCard.id}<&sep>${it.anyCard.slugTime ?: ""}<&sep>${it.anyCard.name.slugify()}"
             }
@@ -116,52 +124,36 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filters = AllAnimeFilters.getSearchParameters(filters)
 
-        return if (query.isNotEmpty()) {
-            val data = buildJsonObject {
-                putJsonObject("variables") {
-                    putJsonObject("search") {
-                        put("query", query)
-                        put("allowAdult", true)
-                        put("allowUnknown", true)
+        val data = buildJsonObject {
+            putJsonObject("variables") {
+                putJsonObject("search") {
+                    if (query.isNotBlank()) put("query", query)
+                    put("allowAdult", true)
+                    put("allowUnknown", true)
+                    filters.sortBy.takeIf { it != "Recent" && it.isNotBlank() }?.let { put("sortBy", it) }
+                    filters.season.takeIf { it != "all" && it.isNotBlank() }?.let { put("season", it) }
+                    filters.releaseYear.toIntOrNull()?.let { put("year", it) }
+                    if (filters.genres != "all" && filters.genres.isNotBlank()) {
+                        put("genres", filters.genres.parseAs<JsonElement>())
+                        put("excludeGenres", buildJsonArray { })
                     }
-                    put("limit", PAGE_SIZE)
-                    put("page", page)
-                    put("translationType", preferences.subPref)
-                    put("countryOrigin", "ALL")
+                    if (filters.types != "all" && filters.types.isNotBlank()) put("types", filters.types.parseAs<JsonElement>())
                 }
-                put("query", SEARCH_QUERY)
+                put("limit", PAGE_SIZE)
+                put("page", page)
+                put("translationType", preferences.subPref)
+                put("countryOrigin", filters.origin)
             }
-            buildPost(data)
-        } else {
-            val data = buildJsonObject {
-                putJsonObject("variables") {
-                    putJsonObject("search") {
-                        put("allowAdult", true)
-                        put("allowUnknown", true)
-                        if (filters.season != "all") put("season", filters.season)
-                        if (filters.releaseYear != "all") put("year", filters.releaseYear.toInt())
-                        if (filters.genres != "all") {
-                            put("genres", json.decodeFromString(filters.genres))
-                            put("excludeGenres", buildJsonArray { })
-                        }
-                        if (filters.types != "all") put("types", json.decodeFromString(filters.types))
-                        if (filters.sortBy != "update") put("sortBy", filters.sortBy)
-                    }
-                    put("limit", PAGE_SIZE)
-                    put("page", page)
-                    put("translationType", preferences.subPref)
-                    put("countryOrigin", filters.origin)
-                }
-                put("query", SEARCH_QUERY)
-            }
-            buildPost(data)
+            put("query", SEARCH_QUERY)
         }
+        return buildPost(data)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseAnime(response)
 
     override fun relatedAnimeListRequest(anime: SAnime): Request {
-        val genres = anime.genre?.split(",").orEmpty()
+        val genres = anime.genre!!
+            .split(",")
             .map { it.trim() }
             .toJsonString()
         val data = buildJsonObject {
@@ -169,7 +161,7 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                 putJsonObject("search") {
                     put("allowAdult", true)
                     put("allowUnknown", true)
-                    put("genres", json.decodeFromString(genres))
+                    put("genres", genres.parseAs<JsonElement>())
                 }
                 put("limit", PAGE_SIZE)
                 put("page", 1)
@@ -180,9 +172,7 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         return buildPost(data)
     }
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        return parseAnime(response).animes
-    }
+    override fun relatedAnimeListParse(response: Response): List<SAnime> = parseAnime(response).animes
 
     // ============================== Filters ===============================
 
@@ -212,7 +202,7 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         val show = response.parseAs<DetailsResult>().data.show
 
         return SAnime.create().apply {
-            genre = show.genres?.joinToString(separator = ", ") ?: ""
+            genre = show.genres?.joinToString()
             status = parseStatus(show.status)
             author = show.studios?.firstOrNull()
             description = buildString {
@@ -257,16 +247,13 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             SEpisode.create().apply {
                 episode_number = ep.toFloatOrNull() ?: 0F
                 name = "Episode $numName ($subPref)"
-                url = json.encodeToString(
-                    buildJsonObject {
-                        putJsonObject("variables") {
-                            put("showId", medias.data.show.id)
-                            put("translationType", subPref)
-                            put("episodeString", ep)
-                        }
-                        put("query", STREAMS_QUERY)
-                    },
-                )
+                url = buildJsonObject {
+                    putJsonObject("variables") {
+                        put("showId", medias.data.show.id)
+                        put("translationType", subPref)
+                        put("episodeString", ep)
+                    }
+                }.toJsonString()
             }
         }
     }
@@ -274,23 +261,25 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
     // ============================ Video Links =============================
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val payload = episode.url
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
-        val siteUrl = preferences.siteUrl
-        val postHeaders = headers.newBuilder().apply {
-            add("Accept", "*/*")
-            add("Content-Length", payload.contentLength().toString())
-            add("Content-Type", payload.contentType().toString())
-            add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", siteUrl)
-            add("Referer", "$apiUrl/")
-        }.build()
+        val extensions = buildJsonObject {
+            putJsonObject("persistedQuery") {
+                put("version", 1)
+                put("sha256Hash", STREAM_HASH)
+            }
+        }
 
-        return POST("$apiUrl/api", headers = postHeaders, body = payload)
+        val url = apiUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("variables", variables.toJsonString())
+            addQueryParameter("extensions", extensions.toJsonString())
+        }.build().toString()
+
+        return GET(url, headers)
     }
 
-    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers, preferences.siteUrl) }
+    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
     private val gogoStreamExtractor by lazy { GogoStreamExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -300,11 +289,20 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(videoListRequest(episode)).await()
+        val responseBody = client.newCall(videoListRequest(episode))
+            .awaitSuccess().bodyString()
 
-        val videoJson = response.parseAs<EpisodeResult>()
-        val videoList = mutableListOf<Pair<Video, Float>>()
-        val serverList = mutableListOf<Server>()
+        // 1. Check for encrypted response (tobeparsed present)
+        val tobeparsed = runCatching {
+            responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
+        }.getOrNull()
+
+        // 2. If encrypted, decrypt directly (errors surface to user); otherwise parse as plain text
+        val sourceUrls = if (!tobeparsed.isNullOrBlank()) {
+            decryptTobeparsed(tobeparsed).parseAs<DecryptedEpisodeResult>().episode?.sourceUrls
+        } else {
+            responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls
+        } ?: emptyList()
 
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
@@ -320,7 +318,8 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             "streamwish" to listOf("wish"),
         )
 
-        videoJson.data.episode.sourceUrls.forEach { video ->
+        val serverList = mutableListOf<Server>()
+        sourceUrls.forEach { video ->
             val videoUrl = video.sourceUrl.decryptSource()
 
             val matchingMapping = mappings.firstOrNull { (altHoster, urlMatches) ->
@@ -331,84 +330,111 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                 videoUrl.startsWith("/apivtwo/") && INTERAL_HOSTER_NAMES.any {
                     Regex("""\b${it.lowercase()}\b""").find(video.sourceName.lowercase()) != null &&
                         hosterSelection.contains(it.lowercase())
-                } -> {
-                    serverList.add(Server(videoUrl, "internal ${video.sourceName}", video.priority))
-                }
-                altHosterSelection.contains("player") && video.type == "player" -> {
-                    serverList.add(Server(videoUrl, "player@${video.sourceName}", video.priority))
-                }
-                matchingMapping != null -> {
-                    serverList.add(Server(videoUrl, matchingMapping.first, video.priority))
-                }
+                } ->
+                    Server(videoUrl, "internal ${video.sourceName}", video.priority)
+                        .let(serverList::add)
+
+                altHosterSelection.contains("player") && video.type == "player" ->
+                    Server(videoUrl, "player@${video.sourceName}", video.priority)
+                        .let(serverList::add)
+
+                matchingMapping != null ->
+                    Server(videoUrl, matchingMapping.first, video.priority)
+                        .let(serverList::add)
             }
         }
 
-        videoList.addAll(
-            serverList.parallelCatchingFlatMap { server ->
-                val sName = server.sourceName
-                when {
-                    sName.startsWith("internal ") -> {
-                        allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName)
-                    }
-                    sName.startsWith("player@") -> {
-                        val endPoint = client.newCall(GET("${preferences.siteUrl}/getVersion")).await()
-                            .parseAs<AllAnimeExtractor.VersionResponse>()
-                            .episodeIframeHead
+        // Fetch and cache the endpoint BEFORE the parallel processing
+        val iframeEndpoint = runCatching {
+            client.newCall(GET("${preferences.siteUrl}/getVersion")).awaitSuccess()
+                .parseAs<AllAnimeExtractor.VersionResponse>()
+                .episodeIframeHead
+        }.getOrDefault(FALLBACK_PLAYER_DOMAIN)
 
-                        val videoHeaders = headers.newBuilder().apply {
-                            add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                            add("Host", server.sourceUrl.toHttpUrl().host)
-                            add("Referer", "$endPoint/")
-                        }.build()
+        return serverList.parallelCatchingFlatMap { server ->
+            val sName = server.sourceName
+            when {
+                sName.startsWith("internal ") -> {
+                    allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
+                }
 
-                        listOf(
-                            Video(
-                                server.sourceUrl,
-                                "Original (player ${server.sourceName.substringAfter("player@")})",
-                                server.sourceUrl,
-                                headers = videoHeaders,
-                            ),
-                        )
-                    }
-                    sName == "vidstreaming" -> {
-                        gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
-                    }
-                    sName == "dood" -> {
-                        doodExtractor.videosFromUrl(server.sourceUrl)
-                    }
-                    sName == "okru" -> {
-                        okruExtractor.videosFromUrl(server.sourceUrl)
-                    }
-                    sName == "mp4upload" -> {
-                        mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
-                    }
-                    sName == "streamlare" -> {
-                        streamlareExtractor.videosFromUrl(server.sourceUrl)
-                    }
-                    sName == "filemoon" -> {
-                        filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
-                    }
-                    sName == "streamwish" -> {
-                        streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
-                    }
-                    else -> emptyList()
-                }.let { it.map { v -> Pair(v, server.priority) } }
-            },
-        )
+                sName.startsWith("player@") -> {
+                    val videoHeaders = headers.newBuilder().apply {
+                        add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+                        add("Host", server.sourceUrl.toHttpUrl().host)
+                        add("Referer", "$iframeEndpoint/")
+                    }.build()
 
-        return prioritySort(videoList)
+                    Video(
+                        server.sourceUrl,
+                        "Original (player ${server.sourceName.substringAfter("player@")})",
+                        server.sourceUrl,
+                        headers = videoHeaders,
+                    ).let(::listOf)
+                }
+
+                sName == "vidstreaming" -> {
+                    gogoStreamExtractor.videosFromUrl(server.sourceUrl.replace(Regex("^//"), "https://"))
+                }
+
+                sName == "dood" -> {
+                    doodExtractor.videosFromUrl(server.sourceUrl)
+                }
+
+                sName == "okru" -> {
+                    okruExtractor.videosFromUrl(server.sourceUrl)
+                }
+
+                sName == "mp4upload" -> {
+                    mp4uploadExtractor.videosFromUrl(server.sourceUrl, headers)
+                }
+
+                sName == "streamlare" -> {
+                    streamlareExtractor.videosFromUrl(server.sourceUrl)
+                }
+
+                sName == "filemoon" -> {
+                    filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
+                }
+
+                sName == "streamwish" -> {
+                    streamwishExtractor.videosFromUrl(server.sourceUrl, videoNameGen = { "StreamWish:$it" })
+                }
+
+                else -> emptyList()
+            }.map { v -> Pair(v, server.priority) }
+        }
+            .let(::prioritySort)
     }
 
     // ============================= Utilities ==============================
 
     private fun String.decryptSource(): String {
-        if (!this.startsWith("-")) return this
+        val (hexPayload, keyType) = when {
+            startsWith("--") -> substring(2) to 3
+            startsWith("#-") -> substring(2) to 2
+            startsWith("##") -> substring(2) to 1
+            startsWith("-#") -> substring(2) to 4
+            startsWith("#") -> substring(1) to 0
+            else -> this to null
+        }
 
-        return this.substringAfterLast('-').chunked(2)
-            .map { it.toInt(16).toByte() }
-            .toByteArray().map {
-                (it.toInt() xor 56).toChar()
-            }.joinToString("")
+        val parsedChunks = try {
+            hexPayload.chunked(2).map { it.toInt(16) }
+        } catch (_: NumberFormatException) {
+            return this // Fail fast and return the original string instead of a corrupted decryption
+        }
+
+        if (keyType == null) {
+            XOR_MASKS.forEach { mask ->
+                val decrypted = String(CharArray(parsedChunks.size) { i -> ((parsedChunks[i] xor mask) and 0xFF).toChar() })
+                if (decrypted.contains("/clock") || decrypted.contains("http")) return decrypted
+            }
+            return this
+        }
+
+        val mask = XOR_MASKS[keyType]
+        return String(CharArray(parsedChunks.size) { i -> ((parsedChunks[i] xor mask) and 0xFF).toChar() })
     }
 
     private fun prioritySort(pList: List<Pair<Video, Float>>): List<Video> {
@@ -422,21 +448,20 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
                 { it.first.quality.contains(quality, true) },
                 { it.first.quality.contains(subPref, true) },
             ),
-        ).reversed().map { t -> t.first }
+        ).reversed()
+            .map { t -> t.first }
     }
 
     private fun buildPost(dataObject: JsonObject): Request {
-        val payload = json.encodeToString(dataObject)
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val payload = dataObject.toJsonString().toJsonBody()
 
-        val siteUrl = preferences.siteUrl
         val postHeaders = headers.newBuilder().apply {
             add("Accept", "*/*")
             add("Content-Length", payload.contentLength().toString())
             add("Content-Type", payload.contentType().toString())
             add("Host", apiUrl.toHttpUrl().host)
-            add("Origin", siteUrl)
-            add("Referer", "$apiUrl/")
+            add("Origin", GRAPHQL_ORIGIN)
+            add("Referer", "$GRAPHQL_ORIGIN/")
         }.build()
 
         return POST("$apiUrl/api", headers = postHeaders, body = payload)
@@ -448,20 +473,16 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         val priority: Float,
     )
 
-    private fun parseStatus(string: String?): Int {
-        return when (string) {
-            "Releasing" -> SAnime.ONGOING
-            "Finished" -> SAnime.COMPLETED
-            "Not Yet Released" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(string: String?): Int = when (string) {
+        "Releasing" -> SAnime.ONGOING
+        "Finished" -> SAnime.COMPLETED
+        "Not Yet Released" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun String.slugify(): String {
-        return this.replace("""[^a-zA-Z0-9]""".toRegex(), "-")
-            .replace("""-{2,}""".toRegex(), "-")
-            .lowercase()
-    }
+    private fun String.slugify(): String = this.replace("""[^a-zA-Z0-9]""".toRegex(), "-")
+        .replace("""-{2,}""".toRegex(), "-")
+        .lowercase()
 
     private fun parseAnime(response: Response): AnimesPage {
         val parsed = response.parseAs<SearchResult>()
@@ -470,9 +491,9 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             SAnime.create().apply {
                 title = when (preferences.titleStyle) {
                     "romaji" -> ani.name
-                    "eng" -> ani.englishName ?: ani.name
-                    else -> ani.nativeName ?: ani.name
-                }
+                    "eng" -> ani.englishName
+                    else -> ani.nativeName
+                } ?: ani.name
                 thumbnail_url = ani.thumbnail?.let(::thumbnailUrl)
                 url = "${ani.id}<&sep>${ani.slugTime ?: ""}<&sep>${ani.name.slugify()}"
             }
@@ -481,20 +502,40 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, animeList.size == PAGE_SIZE)
     }
 
-    private fun thumbnailUrl(url: String): String {
-        return if (url.startsWith("https://")) {
-            THUMBNAIL_PROXY.format(url.removePrefix("https://"))
-        } else {
-            THUMBNAIL_PROXY_SUB.format(url)
-        }
+    private fun thumbnailUrl(url: String): String = if (url.startsWith("https://")) {
+        THUMBNAIL_PROXY.format(url.removePrefix("https://"))
+    } else {
+        THUMBNAIL_PROXY_SUB.format(url)
     }
 
-    private fun String.containsAny(keywords: List<String>): Boolean {
-        return keywords.any { this.contains(it) }
+    private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
+
+    private fun decryptTobeparsed(base64Payload: String): String {
+        // 1. Decode the Base64 payload
+        val blob = Base64.decode(base64Payload, Base64.DEFAULT)
+
+        // 2. Extract version byte (blob[0]), IV (blob[1..12]), and ciphertext (blob[13+])
+        if (blob.size < 13) return ""
+        val versionByte = blob[0].toInt() and 0xFF
+        val iv = blob.sliceArray(1 until 13)
+        val encryptedData = blob.sliceArray(13 until blob.size)
+
+        // 3. Derive the AES-GCM key: SHA-256("${DECRYPT_SECRET}:v${versionByte}")
+        val keyBytes = MessageDigest.getInstance(DECRYPT_KEY_ALGO)
+            .digest("${DECRYPT_SECRET}:v$versionByte".toByteArray(Charsets.UTF_8))
+
+        // 4. Initialize the AES-GCM Cipher
+        val cipher = Cipher.getInstance(DECRYPT_CIPHER_ALGO)
+        val gcmSpec = GCMParameterSpec(DECRYPT_TAG_LENGTH, iv)
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, DECRYPT_KEY_TYPE), gcmSpec)
+
+        // 5. Decrypt and return JSON string
+        return String(cipher.doFinal(encryptedData), Charsets.UTF_8)
     }
 
     companion object {
         private const val PAGE_SIZE = 26 // number of items to retrieve when calling API
+        private const val GRAPHQL_ORIGIN = "https://youtu-chan.com"
         private val INTERAL_HOSTER_NAMES = arrayOf(
             "Default", "Ac", "Ak", "Kir", "Rab", "Luf-mp4",
             "Si-Hls", "S-mp4", "Ac-Hls", "Uv-mp4", "Pn-Hls",
@@ -519,6 +560,8 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val PREF_DOMAIN_DEFAULT = "https://api.allanime.day"
+
+        private const val FALLBACK_PLAYER_DOMAIN = "https://blog.allanime.day"
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private val PREF_SERVER_ENTRIES = arrayOf("Site Default") +
@@ -560,6 +603,26 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
+
+        private const val DECRYPT_SECRET = "Xot36i3lK3"
+        private const val DECRYPT_TAG_LENGTH = 128
+        private const val DECRYPT_KEY_ALGO = "SHA-256"
+        private const val DECRYPT_KEY_TYPE = "AES"
+        private const val DECRYPT_CIPHER_ALGO = "AES/GCM/NoPadding"
+
+        // XOR keys indexed by source-URL prefix type: '--'=3  '#-'=2  '##'=1  '-#'=4  '#'=0
+        private val XOR_KEYS = arrayOf(
+            "allanimenews",
+            "1234567890123456789",
+            "1234567890123456789012345",
+            "s5feqxw21",
+            "feqx1",
+        )
+
+        // Pre-compute cumulative XOR mask for each key (XOR of all char codes)
+        private val XOR_MASKS = XOR_KEYS.map { key ->
+            key.fold(0) { mask, ch -> mask xor ch.code }
+        }.toIntArray()
     }
 
     // ============================== Settings ==============================
@@ -573,13 +636,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = arrayOf("https://allmanga.to")
             setDefaultValue(PREF_SITE_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -589,13 +645,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = arrayOf("https://api.allanime.day")
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -605,13 +654,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = PREF_SERVER_ENTRY_VALUES
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -620,10 +662,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entries = INTERAL_HOSTER_NAMES
             entryValues = PREF_HOSTER_ENTRY_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -632,10 +670,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entries = ALT_HOSTER_NAMES
             entryValues = ALT_HOSTER_NAMES
             setDefaultValue(ALT_HOSTER_NAMES.toSet())
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -645,13 +679,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = PREF_QUALITY_ENTRY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -661,13 +688,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = arrayOf("romaji", "eng", "native")
             setDefaultValue(PREF_TITLE_STYLE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -677,13 +697,6 @@ class AllAnime : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = arrayOf("sub", "dub")
             setDefaultValue(PREF_SUB_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

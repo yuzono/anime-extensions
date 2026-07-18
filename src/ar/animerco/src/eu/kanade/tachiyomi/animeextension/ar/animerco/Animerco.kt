@@ -2,6 +2,15 @@ package eu.kanade.tachiyomi.animeextension.ar.animerco
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidbomextractor.VidBomExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.ar.animerco.extractors.SharedExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -10,20 +19,14 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.uqloadextractor.UqloadExtractor
-import eu.kanade.tachiyomi.lib.vidbomextractor.VidBomExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -32,11 +35,13 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import kotlin.math.roundToInt
 
-class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Animerco :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Animerco"
 
-    override val baseUrl = "https://web.animerco.org"
+    override val baseUrl = "https://zeta.animerco.org"
 
     override val lang = "ar"
 
@@ -77,11 +82,13 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             addQueryParameter("genres", filter.toUriPart())
                         }
                     }
+
                     is YearFilter -> {
                         if (filter.state.isNotBlank()) {
                             addQueryParameter("dtyear", filter.state)
                         }
                     }
+
                     else -> {}
                 }
             }
@@ -138,16 +145,15 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             }
     }
 
-    private fun fancyScore(score: String): String =
-        score.toFloatOrNull()?.div(2f)
-            ?.roundToInt()
-            ?.let {
-                buildString {
-                    append("★".repeat(it))
-                    if (it < 5) append("☆".repeat(5 - it))
-                    append(" $score\n")
-                }
-            } ?: ""
+    private fun fancyScore(score: String): String = score.toFloatOrNull()?.div(2f)
+        ?.roundToInt()
+        ?.let {
+            buildString {
+                append("★".repeat(it))
+                if (it < 5) append("☆".repeat(5 - it))
+                append(" $score\n")
+            }
+        } ?: ""
 
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "ul.episodes-lists li a:has(h3)"
@@ -164,9 +170,9 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             )
         }
 
-        return document.select(episodeListSelector()).flatMap { el ->
-            val doc = client.newCall(GET(el.attr("abs:href"), headers)).execute()
-                .asJsoup()
+        return document.select(episodeListSelector()).parallelCatchingFlatMapBlocking { el ->
+            val doc = client.newCall(GET(el.attr("abs:href"), headers))
+                .awaitSuccess().useAsJsoup()
             val seasonName = doc.selectFirst("div.media-title h1")?.text() ?: "Season"
             val seasonNum = seasonName.substringAfterLast(" ").toIntOrNull() ?: 1
             doc.select(episodeListSelector()).map {
@@ -206,28 +212,38 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
-    private fun getPlayerVideos(player: Element): List<Video> {
+    private suspend fun getPlayerVideos(player: Element): List<Video> {
         val url = getPlayerUrl(player) ?: return emptyList()
         val name = player.selectFirst("span.server")?.text()?.lowercase() ?: "Unknown"
         return when {
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
+
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
+
             "wish" in name -> streamWishExtractor.videosFromUrl(url)
+
             "yourupload" in url -> yourUploadExtractor.videoFromUrl(url, headers)
+
             "dood" in url -> doodExtractor.videoFromUrl(url)?.let(::listOf)
+
             "drive.google" in url -> {
                 val newUrl = "https://gdriveplayer.to/embed2.php?link=$url"
                 gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
             }
+
             "streamtape" in url -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf)
+
             "4shared" in url -> sharedExtractor.videoFromUrl(url)?.let(::listOf)
+
             "uqload" in url -> uqloadExtractor.videosFromUrl(url)
+
             VIDBOM_DOMAINS.any(url::contains) -> vidBomExtractor.videosFromUrl(url)
+
             else -> null
         } ?: emptyList()
     }
 
-    private fun getPlayerUrl(player: Element): String? {
+    private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "player_ajax")
             .add("post", player.attr("data-post"))
@@ -236,14 +252,12 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             .build()
 
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", headers, body))
-            .execute()
-            .use { response ->
-                response.body.string()
-                    .substringAfter("\"embed_url\":\"")
-                    .substringBefore("\",")
-                    .replace("\\", "")
-                    .takeIf(String::isNotBlank)
-            }
+            .awaitSuccess()
+            .bodyString()
+            .substringAfter("\"embed_url\":\"")
+            .substringBefore("\",")
+            .replace("\\", "")
+            .takeIf(String::isNotBlank)
     }
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
@@ -260,18 +274,17 @@ class Animerco : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================== Filters ===============================
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        GenreFilter(GenresList),
+        GenreFilter(genresList),
         YearFilter(),
     )
 
-    private class GenreFilter(val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>("التصنيفات", vals.map { it.first }.toTypedArray()) {
+    private class GenreFilter(val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>("التصنيفات", vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
     class YearFilter : AnimeFilter.Text("السنوات") // Years
 
-    private val GenresList = arrayOf(
+    private val genresList = arrayOf(
         "التصنيفات" to "",
         "أكشن" to "action",
         "أوفا" to "ova",

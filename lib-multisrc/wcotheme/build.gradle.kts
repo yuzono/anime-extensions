@@ -1,9 +1,11 @@
+import keiyoushi.gradle.extensions.baseVersionCode
+
 plugins {
-    id("lib-multisrc")
+    alias(kei.plugins.multisrc)
 }
 
 dependencies {
-    api(project(":lib:playlist-utils"))
+    api(project(":lib:playlistutils"))
 }
 
-baseVersionCode = 2
+baseVersionCode = 5

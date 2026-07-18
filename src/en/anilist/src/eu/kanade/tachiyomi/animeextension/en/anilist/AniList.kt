@@ -15,8 +15,9 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -28,8 +29,13 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
-class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
+class AniList :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AniList"
 
@@ -42,7 +48,7 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1)
+        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1L, TimeUnit.SECONDS)
         .build()
 
     private val json: Json by injectLazy()
@@ -80,9 +86,7 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
         return POST(apiUrl, body = body)
     }
 
-    override fun popularAnimeRequest(page: Int): Request {
-        return createSortRequest("TRENDING_DESC", page)
-    }
+    override fun popularAnimeRequest(page: Int): Request = createSortRequest("TRENDING_DESC", page)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val titleLang = preferences.titleLang
@@ -95,13 +99,9 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return createSortRequest("START_DATE_DESC", page, Pair("status", "RELEASING"))
-    }
+    override fun latestUpdatesRequest(page: Int): Request = createSortRequest("START_DATE_DESC", page, Pair("status", "RELEASING"))
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
@@ -160,21 +160,15 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
         return POST(apiUrl, body = body)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return popularAnimeParse(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList {
-        return Filters.FILTER_LIST
-    }
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // =========================== Anime Details ============================
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        return "$baseUrl/anime/${anime.url}"
-    }
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/anime/${anime.url}"
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val currentTime = System.currentTimeMillis() / 1000L
@@ -337,7 +331,7 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
             SEpisode.create().apply {
                 name = "Episode 1"
                 episode_number = 1F
-                date_upload = parseDate(animeData.aired.from)
+                date_upload = DATE_FORMAT.tryParse(animeData.aired.from)
                 url = "1"
             },
         )
@@ -360,7 +354,7 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
             episodeList.addAll(
                 data.data.map { ep ->
-                    val airedOn = ep.aired?.let { parseDate(it) } ?: -1L
+                    val airedOn = DATE_FORMAT.tryParse(ep.aired)
                     val fullName = ep.title?.let { "Ep. ${ep.number} - $it" } ?: "Episode ${ep.number}"
                     val scanlatorText = if (markFillers && ep.filler) "Filler episode" else null
 
@@ -393,16 +387,14 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request =
-        throw UnsupportedOperationException()
+    override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
 
-    override fun videoListParse(response: Response): List<Video> =
-        throw UnsupportedOperationException()
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
     companion object {
-        private val SANITY_REGEX by lazy { Regex("""^Ep. \d+ - (Episode \d+)${'$'}""") }
+        private val SANITY_REGEX by lazy { Regex("""^Ep. \d+ - (Episode \d+)$""") }
 
         private const val PER_PAGE = 20
 
@@ -414,6 +406,8 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title"
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
+
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH)
     }
 
     private val SharedPreferences.markFiller
@@ -441,13 +435,6 @@ class AniList : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = arrayOf("romaji", "english", "native")
             setDefaultValue(PREF_TITLE_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {

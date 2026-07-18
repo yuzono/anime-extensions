@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -21,7 +21,9 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HahoMoe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class HahoMoe :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "haho.moe"
 
@@ -99,12 +101,10 @@ class HahoMoe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         status = parseStatus(document.selectFirst("li.status span.value")?.text())
     }
 
-    private fun parseStatus(statusString: String?): Int {
-        return when (statusString) {
-            "Ongoing" -> SAnime.ONGOING
-            "Completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
+        "Ongoing" -> SAnime.ONGOING
+        "Completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
@@ -156,9 +156,7 @@ class HahoMoe : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListSelector() = "source"
 
-    override fun videoFromElement(element: Element): Video {
-        return Video(element.attr("src"), element.attr("title"), element.attr("src"))
-    }
+    override fun videoFromElement(element: Element): Video = Video(element.attr("src"), element.attr("title"), element.attr("src"))
 
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 

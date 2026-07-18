@@ -15,15 +15,18 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DebridIndex : ConfigurableAnimeSource, AnimeHttpSource() {
+class DebridIndex :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Debrid Index"
 
@@ -43,6 +46,7 @@ class DebridIndex : ConfigurableAnimeSource, AnimeHttpSource() {
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "RealDebrid")
         when {
             tokenKey.isNullOrBlank() -> throw Exception("Please enter the token in extension settings.")
+
             else -> {
                 return GET("$baseUrl/${debridProvider!!.lowercase()}=$tokenKey/catalog/other/torrentio-${debridProvider.lowercase()}.json")
             }
@@ -68,11 +72,29 @@ class DebridIndex : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesRequest(page: Int): Request = throw Exception("Not used")
     override fun latestUpdatesParse(response: Response): AnimesPage = throw Exception("Not used")
 
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH)
+            return super.getSearchAnime(page, id, filters)
+        }
+        return super.getSearchAnime(page, query, filters)
+    }
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val tokenKey = preferences.getString(PREF_TOKEN_KEY, null)
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "RealDebrid")
         when {
             tokenKey.isNullOrBlank() -> throw Exception("Please enter the token in extension settings.")
+
             else -> {
                 // Used Debrid Search v0.1.8 https://68d69db7dc40-debrid-search.baby-beamup.club/configure
                 return GET("https://68d69db7dc40-debrid-search.baby-beamup.club/%7B%22DebridProvider%22%3A%22$debridProvider%22%2C%22DebridApiKey%22%3A%22$tokenKey%22%7D/catalog/other/debridsearch/search=$query.json")
@@ -85,9 +107,7 @@ class DebridIndex : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        return anime
-    }
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = anime
 
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime): Request {
@@ -115,14 +135,10 @@ class DebridIndex : ConfigurableAnimeSource, AnimeHttpSource() {
         }?.reversed() ?: emptyList()
     }
 
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
+        .getOrNull() ?: 0L
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        return listOf(Video(episode.url, episode.name.split("/").last(), episode.url))
-    }
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name.split("/").last(), episode.url))
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         // Debrid provider

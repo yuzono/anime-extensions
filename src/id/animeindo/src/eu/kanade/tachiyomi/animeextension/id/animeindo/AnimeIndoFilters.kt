@@ -40,13 +40,14 @@ object AnimeIndoFilters {
         )
     }
 
-    private fun getPairListByIndex(index: Int) = filterElements.get(index)
-        .select("ul > li, td > label")
-        .map { element ->
+    private fun getPairListByIndex(index: Int) = filterElements.getOrNull(index)
+        ?.select("ul > li, td > label")
+        ?.mapNotNull { element ->
             val key = element.text()
-            val value = element.selectFirst("input")!!.attr("value")
+            val value = element.selectFirst("input")?.attr("value") ?: return@mapNotNull null
             Pair(key, value)
-        }.toTypedArray()
+        }?.toTypedArray()
+        ?: arrayOf("" to "")
 
     private val ORDER_LIST by lazy {
         getPairListByIndex(0)

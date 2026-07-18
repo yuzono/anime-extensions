@@ -14,24 +14,19 @@ object HDFilmCehennemiFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String {
-        return (first { it is R } as CheckBoxFilterList).state
-            .asSequence()
-            .filter { it.state }
-            .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
-            .joinToString(",")
-    }
+    ): String = (first { it is R } as CheckBoxFilterList).state
+        .asSequence()
+        .filter { it.state }
+        .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
+        .joinToString(",")
 
     class TypeFilter : QueryPartFilter("Türü", HDFilmCehennemiFiltersData.TYPES)
 
@@ -39,11 +34,12 @@ object HDFilmCehennemiFilters {
     class YearsFilter : CheckBoxFilterList("Yıllar", HDFilmCehennemiFiltersData.YEARS)
     class IMDBScoreFilter : CheckBoxFilterList("IMDb Puanı", HDFilmCehennemiFiltersData.SCORES)
 
-    class SortFilter : AnimeFilter.Sort(
-        "Sıralama Türü",
-        HDFilmCehennemiFiltersData.ORDERS.map { it.first }.toTypedArray(),
-        Selection(0, false),
-    )
+    class SortFilter :
+        AnimeFilter.Sort(
+            "Sıralama Türü",
+            HDFilmCehennemiFiltersData.ORDERS.map { it.first }.toTypedArray(),
+            Selection(0, false),
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         AnimeFilter.Header("NOTE: Ignored if using text search!"),

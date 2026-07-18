@@ -12,14 +12,16 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class NoobSubs : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class NoobSubs :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "NoobSubs"
 
@@ -78,13 +80,11 @@ class NoobSubs : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         page: Int,
         query: String,
         filters: AnimeFilterList,
-    ): AnimesPage {
-        return client.newCall(searchAnimeRequest(page, query, filters))
-            .awaitSuccess()
-            .let { response ->
-                searchAnimeParse(response, query)
-            }
-    }
+    ): AnimesPage = client.newCall(searchAnimeRequest(page, query, filters))
+        .awaitSuccess()
+        .let { response ->
+            searchAnimeParse(response, query)
+        }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = popularAnimeRequest(page)
 
@@ -189,8 +189,7 @@ class NoobSubs : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> =
-        listOf(Video(episode.url, "Video", episode.url))
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, "Video", episode.url))
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
 

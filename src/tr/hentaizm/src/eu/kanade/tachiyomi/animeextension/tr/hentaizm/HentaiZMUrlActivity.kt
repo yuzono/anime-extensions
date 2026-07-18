@@ -8,7 +8,7 @@ import android.util.Log
 import kotlin.system.exitProcess
 
 /**
- * Springboard that accepts https://www.hentaizm.cam/hentai-detay/<item> intents
+ * Springboard that accepts https://www.hentaizm6.online/hentai-detay/<item> intents
  * and redirects them to the main Aniyomi process.
  */
 class HentaiZMUrlActivity : Activity() {
@@ -17,22 +17,17 @@ class HentaiZMUrlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pathSegments = intent?.data?.pathSegments
-        if (pathSegments != null && pathSegments.size > 1) {
-            val item = pathSegments[1]
-            val mainIntent = Intent().apply {
-                action = "eu.kanade.tachiyomi.ANIMESEARCH"
-                putExtra("query", "${HentaiZM.PREFIX_SEARCH}$item")
-                putExtra("filter", packageName)
-            }
 
-            try {
-                startActivity(mainIntent)
-            } catch (e: ActivityNotFoundException) {
-                Log.e(tag, e.toString())
-            }
-        } else {
-            Log.e(tag, "could not parse uri from intent $intent")
+        val mainIntent = Intent().apply {
+            action = "eu.kanade.tachiyomi.ANIMESEARCH"
+            putExtra("query", intent.data.toString())
+            putExtra("filter", packageName)
+        }
+
+        try {
+            startActivity(mainIntent)
+        } catch (e: ActivityNotFoundException) {
+            Log.e(tag, "Unable to launch activity", e)
         }
 
         finish()

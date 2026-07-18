@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   update-kohi-den:
-    if: github.repository == 'yuzono/aniyomi-extensions'
+    if: github.repository == 'yuzono/anime-extensions'
     name: Update Kohi-den
     runs-on: ubuntu-latest
 
@@ -26,7 +26,7 @@ jobs:
           echo "MERGE_BRANCH=main" >> $GITHUB_ENV
 
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{env.LOCAL_BRANCH}}
           token: ${{ secrets.GITHUB_TOKEN }}

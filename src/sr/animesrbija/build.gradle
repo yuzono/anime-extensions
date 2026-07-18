@@ -1,11 +1,11 @@
 ext {
     extName = 'Anime Srbija'
     extClass = '.AnimeSrbija'
-    extVersionCode = 15
+    extVersionCode = 22
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:filemoon-extractor'))
+    implementation(project(':lib:filemoonextractor'))
 }

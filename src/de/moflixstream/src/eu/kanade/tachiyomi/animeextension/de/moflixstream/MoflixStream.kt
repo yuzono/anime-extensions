@@ -3,6 +3,10 @@ package eu.kanade.tachiyomi.animeextension.de.moflixstream
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.AnimeDetailsDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodeListDto
 import eu.kanade.tachiyomi.animeextension.de.moflixstream.dto.EpisodePageDto
@@ -19,19 +23,16 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamvidextractor.StreamVidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
-class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
+class MoflixStream :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Moflix-Stream"
 
@@ -45,8 +46,6 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val preferences by getPreferencesLazy()
 
-    private val json: Json by injectLazy()
-
     private val apiUrl = "$baseUrl/api/v1"
 
     // ============================== Popular ===============================
@@ -59,7 +58,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
         val pagination = response.parseAs<PopularPaginationDto>().pagination
 
         val animeList = pagination.data.parseItems()
-        val hasNextPage = pagination.current_page < pagination.next_page ?: 1
+        val hasNextPage = pagination.current_page < (pagination.next_page ?: 1)
         return AnimesPage(animeList, hasNextPage)
     }
 
@@ -97,9 +96,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
         val id = data.title.id
         val seasonsUrl = "$apiUrl/titles/$id/seasons"
 
-        val seasons = data.seasons
-
-        return when (seasons) {
+        return when (val seasons = data.seasons) {
             null -> {
                 SEpisode.create().apply {
                     name = "Film"
@@ -107,6 +104,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
                     setUrlWithoutDomain(response.request.url.toString())
                 }.let(::listOf)
             }
+
             else -> {
                 val seasonsList = buildList {
                     addAll(seasons.data)
@@ -144,7 +142,7 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // ============================ Video Links =============================
     private val streamtapeExtractor by lazy { StreamTapeExtractor(client) }
-    private val streamvidExtractor by lazy { StreamVidExtractor(client) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val luluExtractor by lazy { UnpackerExtractor(client, headers) }
@@ -153,35 +151,39 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
         val selection = preferences.getStringSet(PREF_HOSTER_SELECTION_KEY, PREF_HOSTER_SELECTION_DEFAULT)!!
         val data = response.parseAs<VideoResponseDto>().run { episode ?: title }
 
-        return data!!.videos.flatMap { video ->
+        return data!!.videos.parallelCatchingFlatMapBlocking { video ->
             val name = video.name
             val url = video.src
-            runCatching { getVideosFromUrl(url, name, selection) }.getOrElse { emptyList() }
-        }.ifEmpty { throw Exception("No videos!") }
+            getVideosFromUrl(url, name, selection)
+        }
     }
 
-    private fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> {
-        return when {
-            name.contains("Streamtape") && selection.contains("stape") -> {
-                streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
-            }
-            name.contains("Streamvid") && selection.contains("svid") -> {
-                streamvidExtractor.videosFromUrl(url)
-            }
-            name.contains("Highstream") && selection.contains("hstream") -> {
-                streamvidExtractor.videosFromUrl(url, prefix = "Highstream - ")
-            }
-            name.contains("VidGuard") && selection.contains("vidg") -> {
-                vidguardExtractor.videosFromUrl(url)
-            }
-            name.contains("Filelions") && selection.contains("flions") -> {
-                streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
-            }
-            name.contains("LuluStream") && selection.contains("lstream") -> {
-                luluExtractor.videosFromUrl(url, "LuluStream")
-            }
-            else -> emptyList()
+    private suspend fun getVideosFromUrl(url: String, name: String, selection: Set<String>): List<Video> = when {
+        name.contains("Streamtape") && selection.contains("stape") -> {
+            streamtapeExtractor.videoFromUrl(url)?.let(::listOf) ?: emptyList()
         }
+
+        name.contains("Streamvid") && selection.contains("svid") -> {
+            vidHideExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Highstream") && selection.contains("hstream") -> {
+            vidHideExtractor.videosFromUrl(url) { "Highstream - $it" }
+        }
+
+        name.contains("VidGuard") && selection.contains("vidg") -> {
+            vidguardExtractor.videosFromUrl(url)
+        }
+
+        name.contains("Filelions") && selection.contains("flions") -> {
+            streamwishExtractor.videosFromUrl(url, videoNameGen = { "FileLions - $it" })
+        }
+
+        name.contains("LuluStream") && selection.contains("lstream") -> {
+            luluExtractor.videosFromUrl(url, "LuluStream")
+        }
+
+        else -> emptyList()
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -201,13 +203,6 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = PREF_HOSTER_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         MultiSelectListPreference(screen.context).apply {
@@ -216,11 +211,6 @@ class MoflixStream : ConfigurableAnimeSource, AnimeHttpSource() {
             entries = PREF_HOSTER_SELECTION_ENTRIES
             entryValues = PREF_HOSTER_SELECTION_ENTRIES
             setDefaultValue(PREF_HOSTER_SELECTION_DEFAULT)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST")
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }.also(screen::addPreference)
     }
 

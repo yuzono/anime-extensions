@@ -2,6 +2,11 @@ package eu.kanade.tachiyomi.animeextension.es.animelatinohd
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.es.animelatinohd.extractors.SolidFilesExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -11,14 +16,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -31,7 +32,9 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeLatinoHD : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeLatinoHD :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeLatinoHD"
 
@@ -189,38 +192,50 @@ class AnimeLatinoHD : ConfigurableAnimeSource, AnimeHttpSource() {
                             ),
                         ).execute()
                         val locationsDdh = request.networkResponse.toString()
-                        fetchUrls(locationsDdh).map { url ->
+                        fetchUrls(locationsDdh).parallelCatchingFlatMapBlocking { url ->
                             val language = if (item["languaje"]!!.jsonPrimitive.content == "1") "[LAT]" else "[SUB]"
                             val embedUrl = url.lowercase()
-                            if (embedUrl.contains("filemoon")) {
-                                val vidHeaders = headers.newBuilder()
-                                    .add("Origin", "https://${url.toHttpUrl().host}")
-                                    .add("Referer", "https://${url.toHttpUrl().host}/")
-                                    .build()
-                                FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = vidHeaders).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("filelions") || embedUrl.contains("lion")) {
-                                StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$language FileLions:$it" }).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("streamtape")) {
-                                StreamTapeExtractor(client).videoFromUrl(url, "$language Streamtape")?.let { videoList.add(it) }
-                            }
-                            if (embedUrl.contains("dood")) {
-                                DoodExtractor(client).videoFromUrl(url, language)?.let { videoList.add(it) }
-                            }
-                            if (embedUrl.contains("okru") || embedUrl.contains("ok.ru")) {
-                                OkruExtractor(client).videosFromUrl(url, language).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("solidfiles")) {
-                                SolidFilesExtractor(client).videosFromUrl(url, language).also(videoList::addAll)
-                            }
-                            if (embedUrl.contains("od.lk")) {
-                                videoList.add(Video(url, language + "Od.lk", url))
-                            }
-                            if (embedUrl.contains("cldup.com")) {
-                                videoList.add(Video(url, language + "CldUp", url))
+                            when {
+                                embedUrl.contains("filemoon") -> {
+                                    val vidHeaders = headers.newBuilder()
+                                        .add("Origin", "https://${url.toHttpUrl().host}")
+                                        .add("Referer", "https://${url.toHttpUrl().host}/")
+                                        .build()
+                                    FilemoonExtractor(client).videosFromUrl(url, prefix = "$language Filemoon:", headers = vidHeaders)
+                                }
+
+                                embedUrl.contains("filelions") || embedUrl.contains("lion") -> {
+                                    StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$language FileLions:$it" })
+                                }
+
+                                embedUrl.contains("streamtape") -> {
+                                    StreamTapeExtractor(client).videoFromUrl(url, "$language Streamtape")?.let(::listOf).orEmpty()
+                                }
+
+                                embedUrl.contains("dood") -> {
+                                    DoodExtractor(client).videoFromUrl(url, language)?.let(::listOf).orEmpty()
+                                }
+
+                                embedUrl.contains("okru") || embedUrl.contains("ok.ru") -> {
+                                    OkruExtractor(client).videosFromUrl(url, language)
+                                }
+
+                                embedUrl.contains("solidfiles") -> {
+                                    SolidFilesExtractor(client).videosFromUrl(url, language)
+                                }
+
+                                embedUrl.contains("od.lk") -> {
+                                    Video(url, language + "Od.lk", url).let(::listOf)
+                                }
+
+                                embedUrl.contains("cldup.com") -> {
+                                    Video(url, language + "CldUp", url).let(::listOf)
+                                }
+
+                                else -> emptyList()
                             }
                         }
+                            .let(videoList::addAll)
                     }
                 }
             }
@@ -288,94 +303,94 @@ class AnimeLatinoHD : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private class GenreFilter : UriPartFilter(
-        "Géneros",
-        arrayOf(
-            Pair("<Selecionar>", ""),
-            Pair("Acción", "accion"),
-            Pair("Aliens", "aliens"),
-            Pair("Artes Marciales", "artes-marciales"),
-            Pair("Aventura", "aventura"),
-            Pair("Ciencia Ficción", "ciencia-ficcion"),
-            Pair("Comedia", "comedia"),
-            Pair("Cyberpunk", "cyberpunk"),
-            Pair("Demonios", "demonios"),
-            Pair("Deportes", "deportes"),
-            Pair("Detectives", "detectives"),
-            Pair("Drama", "drama"),
-            Pair("Ecchi", "ecchi"),
-            Pair("Escolar", "escolar"),
-            Pair("Espacio", "espacio"),
-            Pair("Fantasía", "fantasia"),
-            Pair("Gore", "gore"),
-            Pair("Harem", "harem"),
-            Pair("Histórico", "historico"),
-            Pair("Horror", "horror"),
-            Pair("Josei", "josei"),
-            Pair("Juegos", "juegos"),
-            Pair("Kodomo", "kodomo"),
-            Pair("Magia", "magia"),
-            Pair("Maho Shoujo", "maho-shoujo"),
-            Pair("Mecha", "mecha"),
-            Pair("Militar", "militar"),
-            Pair("Misterio", "misterio"),
-            Pair("Musica", "musica"),
-            Pair("Parodia", "parodia"),
-            Pair("Policial", "policial"),
-            Pair("Psicológico", "psicologico"),
-            Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
-            Pair("Romance", "romance"),
-            Pair("Samurais", "samurais"),
-            Pair("Seinen", "seinen"),
-            Pair("Shoujo", "shoujo"),
-            Pair("Shoujo Ai", "shoujo-ai"),
-            Pair("Shounen", "shounen"),
-            Pair("Shounen Ai", "shounen-ai"),
-            Pair("Sobrenatural", "sobrenatural"),
-            Pair("Soft Hentai", "soft-hentai"),
-            Pair("Super Poderes", "super-poderes"),
-            Pair("Suspenso", "suspenso"),
-            Pair("Terror", "terror"),
-            Pair("Vampiros", "vampiros"),
-            Pair("Yaoi", "yaoi"),
-            Pair("Yuri", "yuri"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("<Selecionar>", ""),
+                Pair("Acción", "accion"),
+                Pair("Aliens", "aliens"),
+                Pair("Artes Marciales", "artes-marciales"),
+                Pair("Aventura", "aventura"),
+                Pair("Ciencia Ficción", "ciencia-ficcion"),
+                Pair("Comedia", "comedia"),
+                Pair("Cyberpunk", "cyberpunk"),
+                Pair("Demonios", "demonios"),
+                Pair("Deportes", "deportes"),
+                Pair("Detectives", "detectives"),
+                Pair("Drama", "drama"),
+                Pair("Ecchi", "ecchi"),
+                Pair("Escolar", "escolar"),
+                Pair("Espacio", "espacio"),
+                Pair("Fantasía", "fantasia"),
+                Pair("Gore", "gore"),
+                Pair("Harem", "harem"),
+                Pair("Histórico", "historico"),
+                Pair("Horror", "horror"),
+                Pair("Josei", "josei"),
+                Pair("Juegos", "juegos"),
+                Pair("Kodomo", "kodomo"),
+                Pair("Magia", "magia"),
+                Pair("Maho Shoujo", "maho-shoujo"),
+                Pair("Mecha", "mecha"),
+                Pair("Militar", "militar"),
+                Pair("Misterio", "misterio"),
+                Pair("Musica", "musica"),
+                Pair("Parodia", "parodia"),
+                Pair("Policial", "policial"),
+                Pair("Psicológico", "psicologico"),
+                Pair("Recuentos De La Vida", "recuentos-de-la-vida"),
+                Pair("Romance", "romance"),
+                Pair("Samurais", "samurais"),
+                Pair("Seinen", "seinen"),
+                Pair("Shoujo", "shoujo"),
+                Pair("Shoujo Ai", "shoujo-ai"),
+                Pair("Shounen", "shounen"),
+                Pair("Shounen Ai", "shounen-ai"),
+                Pair("Sobrenatural", "sobrenatural"),
+                Pair("Soft Hentai", "soft-hentai"),
+                Pair("Super Poderes", "super-poderes"),
+                Pair("Suspenso", "suspenso"),
+                Pair("Terror", "terror"),
+                Pair("Vampiros", "vampiros"),
+                Pair("Yaoi", "yaoi"),
+                Pair("Yuri", "yuri"),
+            ),
+        )
 
-    private class StateFilter : UriPartFilter(
-        "Estado",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Finalizado", "0"),
-            Pair("En emisión", "1"),
-        ),
-    )
+    private class StateFilter :
+        UriPartFilter(
+            "Estado",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("Finalizado", "0"),
+                Pair("En emisión", "1"),
+            ),
+        )
 
-    private class TypeFilter : UriPartFilter(
-        "Tipo",
-        arrayOf(
-            Pair("Todos", ""),
-            Pair("Animes", "tv"),
-            Pair("Películas", "movie"),
-            Pair("Especiales", "special"),
-            Pair("OVAS", "ova"),
-            Pair("ONAS", "ona"),
-        ),
-    )
+    private class TypeFilter :
+        UriPartFilter(
+            "Tipo",
+            arrayOf(
+                Pair("Todos", ""),
+                Pair("Animes", "tv"),
+                Pair("Películas", "movie"),
+                Pair("Especiales", "special"),
+                Pair("OVAS", "ova"),
+                Pair("ONAS", "ona"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
     private fun externalOrInternalImg(url: String) = if (url.contains("https")) url else "$baseUrl/$url"
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("1") -> SAnime.ONGOING
-            statusString.contains("0") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("1") -> SAnime.ONGOING
+        statusString.contains("0") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.animeextension.all.missav
 
 import android.util.Log
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.javcoverfetcher.JavCoverFetcher
+import aniyomi.lib.javcoverfetcher.JavCoverFetcher.fetchHDCovers
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,30 +12,28 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.javcoverfetcher.JavCoverFetcher
-import eu.kanade.tachiyomi.lib.javcoverfetcher.JavCoverFetcher.fetchHDCovers
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.lib.unpacker.Unpacker
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.LazyMutable
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
-import extensions.utils.parseAs
+import keiyoushi.lib.unpacker.Unpacker
+import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
-class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
+class MissAV :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "MissAV"
 
@@ -49,19 +50,16 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         newHeaders()
     }
 
-    private fun newHeaders(): Headers {
-        return headers.newBuilder().apply {
-            set("Origin", baseUrl)
-            set("Referer", "$baseUrl/")
-        }.build()
-    }
+    private fun newHeaders(): Headers = headers.newBuilder().apply {
+        set("Origin", baseUrl)
+        set("Referer", "$baseUrl/")
+    }.build()
 
     private var playlistExtractor by LazyMutable {
         PlaylistUtils(client, docHeaders)
     }
 
-    override fun popularAnimeRequest(page: Int) =
-        GET("$baseUrl/en/today-hot?page=$page", docHeaders)
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/en/today-hot?page=$page", docHeaders)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -81,8 +79,7 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         return AnimesPage(entries, hasNextPage)
     }
 
-    override fun latestUpdatesRequest(page: Int) =
-        GET("$baseUrl/en/new?page=$page", docHeaders)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/en/new?page=$page", docHeaders)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
@@ -145,24 +142,23 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     private val recommMap: MutableMap<String, String> = ConcurrentHashMap()
-    private val jsonMime by lazy { "application/json; charset=utf-8".toMediaTypeOrNull() }
 
     private fun fallbackApiSearch(query: String, page: Int): Request {
         val recommId = recommMap[query]
         return if (page == 1 || recommId == null) {
             val body = MissAvApi.searchData(query)
-                .toRequestBody(jsonMime)
+                .toJsonRequestBody()
             POST(MissAvApi.searchURL(getUuid()), docHeaders, body)
         } else {
             val body = MissAvApi.recommData
-                .toRequestBody(jsonMime)
+                .toJsonRequestBody()
             POST(MissAvApi.recommURL(recommId), docHeaders, body)
         }
     }
 
     override fun relatedAnimeListRequest(anime: SAnime): Request {
         val body = MissAvApi.relatedData(getUuid(), anime.url.substringAfterLast("/"))
-            .toRequestBody(jsonMime)
+            .toJsonRequestBody()
 
         return POST(MissAvApi.relatedURL(), docHeaders, body)
     }
@@ -172,17 +168,15 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         return data.flatMap { it.toAnimeList() }
     }
 
-    override fun String.stripKeywordForRelatedAnimes(): List<String> {
-        return replace(regexSpecialCharacters, " ")
-            .split(regexWhitespace)
-            .map {
-                // remove number only
-                it.replace(regexNumberOnly, "")
-                    .lowercase()
-            }
-            // exclude single character
-            .filter { it.length > 1 }
-    }
+    override fun String.stripKeywordForRelatedAnimes(): List<String> = replace(regexSpecialCharacters, " ")
+        .split(regexWhitespace)
+        .map {
+            // remove number only
+            it.replace(regexNumberOnly, "")
+                .lowercase()
+        }
+        // exclude single character
+        .filter { it.length > 1 }
 
     override fun getFilterList() = getFilters()
 
@@ -219,20 +213,17 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    private fun Element.getInfo(urlPart: String) =
-        select("div.text-secondary > a[href*=$urlPart]")
-            .eachText()
-            .joinToString()
-            .takeIf(String::isNotBlank)
+    private fun Element.getInfo(urlPart: String) = select("div.text-secondary > a[href*=$urlPart]")
+        .eachText()
+        .joinToString()
+        .takeIf(String::isNotBlank)
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        return listOf(
-            SEpisode.create().apply {
-                url = anime.url
-                name = "Episode"
-            },
-        )
-    }
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
+        SEpisode.create().apply {
+            url = anime.url
+            name = "Episode"
+        },
+    )
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -281,21 +272,16 @@ class MissAV : AnimeHttpSource(), ConfigurableAnimeSource {
         JavCoverFetcher.addPreferenceToScreen(screen)
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
-    private inline fun <reified T> List<*>.firstInstanceOrNull(): T? =
-        filterIsInstance<T>().firstOrNull()
+    private inline fun <reified T> List<*>.firstInstanceOrNull(): T? = filterIsInstance<T>().firstOrNull()
 
-    private fun getUuid(): String {
-        return preferences.getString(PREF_UUID_KEY, null) ?: synchronized(this) {
-            // Double-check pattern to avoid generating UUID if another thread already did
-            preferences.getString(PREF_UUID_KEY, null) ?: run {
-                val uuid = MissAvApi.generateUUID()
-                preferences.edit().putString(PREF_UUID_KEY, uuid).apply()
-                uuid
-            }
+    private fun getUuid(): String = preferences.getString(PREF_UUID_KEY, null) ?: synchronized(this) {
+        // Double-check pattern to avoid generating UUID if another thread already did
+        preferences.getString(PREF_UUID_KEY, null) ?: run {
+            val uuid = MissAvApi.generateUUID()
+            preferences.edit().putString(PREF_UUID_KEY, uuid).apply()
+            uuid
         }
     }
 

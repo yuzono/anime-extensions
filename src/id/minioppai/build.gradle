@@ -3,13 +3,13 @@ ext {
     extClass = '.MiniOppai'
     themePkg = 'animestream'
     baseUrl = 'https://minioppai.org'
-    overrideVersionCode = 8
+    overrideVersionCode = 11
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:gdriveplayer-extractor"))
+    implementation(project(":lib:gdriveplayerextractor"))
     implementation(project(":lib:unpacker"))
 }

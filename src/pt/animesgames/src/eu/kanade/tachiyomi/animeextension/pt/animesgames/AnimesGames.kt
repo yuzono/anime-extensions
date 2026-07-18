@@ -1,19 +1,20 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesgames
 
+import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -21,7 +22,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -38,8 +38,6 @@ class AnimesGames : ParsedAnimeHttpSource() {
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", baseUrl)
         .add("Origin", baseUrl)
-
-    private val json: Json by injectLazy()
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET(baseUrl)
@@ -68,18 +66,28 @@ class AnimesGames : ParsedAnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/animes/$id"))
+            return client.newCall(GET("$baseUrl/animes/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response.useAsJsoup()).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -96,7 +104,7 @@ class AnimesGames : ParsedAnimeHttpSource() {
 
     private val searchToken by lazy {
         client.newCall(GET("$baseUrl/lista-de-animes", headers)).execute()
-            .asJsoup()
+            .useAsJsoup()
             .selectFirst("div.menu_filter_box")!!
             .attr("data-secury")
     }
@@ -129,14 +137,12 @@ class AnimesGames : ParsedAnimeHttpSource() {
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        return runCatching {
-            val data = response.parseAs<SearchResponseDto>()
-            val animes = data.results.map(Jsoup::parse)
-                .mapNotNull { it.selectFirst(searchAnimeSelector()) }
-                .map(::searchAnimeFromElement)
-            val hasNext = data.total_page > data.page
-            AnimesPage(animes, hasNext)
-        }.getOrElse { AnimesPage(emptyList(), false) }
+        val data = response.parseAs<SearchResponseDto>()
+        val animes = data.results.map(Jsoup::parse)
+            .mapNotNull { it.selectFirst(searchAnimeSelector()) }
+            .map(::searchAnimeFromElement)
+        val hasNext = data.total_page > data.page
+        return AnimesPage(animes, hasNext)
     }
 
     override fun searchAnimeSelector() = "section.animeItem > a"
@@ -147,9 +153,7 @@ class AnimesGames : ParsedAnimeHttpSource() {
         thumbnail_url = element.selectFirst("img")!!.getImageUrl()
     }
 
-    override fun searchAnimeNextPageSelector(): String? {
-        throw UnsupportedOperationException()
-    }
+    override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
@@ -173,18 +177,15 @@ class AnimesGames : ParsedAnimeHttpSource() {
         }
     }
 
-    private fun Element.getInfo(info: String) =
-        selectFirst("li:has(span:contains($info))")?.run {
-            selectFirst("span[data]")?.text() ?: ownText()
-        }
+    private fun Element.getInfo(info: String) = selectFirst("li:has(span:contains($info))")?.run {
+        selectFirst("span[data]")?.text() ?: ownText()
+    }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        return getRealDoc(response.asJsoup())
-            .select(episodeListSelector())
-            .map(::episodeFromElement)
-            .reversed()
-    }
+    override fun episodeListParse(response: Response): List<SEpisode> = getRealDoc(response.useAsJsoup())
+        .select(episodeListSelector())
+        .map(::episodeFromElement)
+        .reversed()
 
     override fun episodeListSelector() = "div.listaEp > section.episodioItem > a"
 
@@ -199,19 +200,21 @@ class AnimesGames : ParsedAnimeHttpSource() {
 
     // ============================ Video Links =============================
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val url = doc.selectFirst("div.Link > a")
             ?.attr("href")
             ?: return emptyList()
 
         val playerDoc = client.newCall(GET(url, headers)).execute()
-            .asJsoup()
+            .useAsJsoup()
 
         val iframe = playerDoc.selectFirst("iframe")
         return when {
             iframe != null -> {
-                bloggerExtractor.videosFromUrl(iframe.attr("src"), headers)
+                runBlocking { bloggerExtractor.videosFromUrl(iframe.attr("src"), headers) }
             }
 
             else -> parseDefaultVideo(playerDoc)
@@ -228,63 +231,46 @@ class AnimesGames : ParsedAnimeHttpSource() {
             .replace("\\", "")
 
         return when {
-            playlistUrl.endsWith("m3u8") -> {
-                val separator = "#EXT-X-STREAM-INF:"
-                client.newCall(GET(playlistUrl, headers)).execute()
-                    .body.string()
-                    .substringAfter(separator)
-                    .split(separator)
-                    .map {
-                        val quality = it.substringAfter("RESOLUTION=").substringAfter("x").substringBefore(",") + "p"
-                        val videoUrl = it.substringAfter("\n").substringBefore("\n")
-                        Video(videoUrl, quality, videoUrl)
-                    }
-            }
+            playlistUrl.endsWith("m3u8") -> playlistUtils.extractFromHls(
+                playlistUrl = playlistUrl,
+                masterHeaders = headers,
+                videoHeaders = headers,
+            )
 
             else -> listOf(Video(playlistUrl, "Default", playlistUrl, headers))
         }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
     private fun getRealDoc(document: Document): Document {
         if (!document.location().contains("/video/")) return document
 
-        return document.selectFirst("div.linksEP > a:has(li.episodio)")?.let {
-            client.newCall(GET(it.attr("href"), headers)).execute()
-                .asJsoup()
+        return document.selectFirst("div.linksEP > a:has(li.episodio)")?.let { link: Element ->
+            client.newCall(GET(link.attr("href"), headers)).execute()
+                .useAsJsoup()
         } ?: document
     }
 
-    private fun String.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(trim())?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }
+        .getOrNull() ?: 0L
 
     /**
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
      */
-    protected open fun Element.getImageUrl(): String? {
-        return when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }.substringBefore("?resize")
-    }
+    private fun Element.getImageUrl(): String = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }.substringBefore("?resize")
 
     companion object {
         const val PREFIX_SEARCH = "id:"

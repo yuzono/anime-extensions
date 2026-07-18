@@ -14,9 +14,7 @@ object AFFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (first { it is R } as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
 
     class GenreFilter : QueryPartFilter("Gênero", AFFiltersData.GENRES)
     class SeasonFilter : QueryPartFilter("Temporada", AFFiltersData.SEASONS)
@@ -33,12 +31,10 @@ object AFFilters {
         val season: String = "",
     )
 
-    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
-        return FilterSearchParams(
-            filters.asQueryPart<GenreFilter>(),
-            filters.asQueryPart<SeasonFilter>(),
-        )
-    }
+    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams = FilterSearchParams(
+        filters.asQueryPart<GenreFilter>(),
+        filters.asQueryPart<SeasonFilter>(),
+    )
 
     private object AFFiltersData {
 

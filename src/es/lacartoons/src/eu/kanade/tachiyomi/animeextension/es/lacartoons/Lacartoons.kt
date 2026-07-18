@@ -2,6 +2,13 @@ package eu.kanade.tachiyomi.animeextension.es.lacartoons
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,20 +17,16 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 
-class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
+class Lacartoons :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "LACartoons"
 
@@ -49,6 +52,7 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
             "YourUpload",
             "FileLions",
             "StreamHideVid",
+            "Sendvid",
         )
     }
 
@@ -122,16 +126,19 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("iframe").parallelCatchingFlatMapBlocking {
+        return document.select("iframe").catchingFlatMapBlocking {
             serverVideoResolver(it.attr("src"))
         }
     }
 
-    private fun serverVideoResolver(url: String): List<Video> {
+    private suspend fun serverVideoResolver(url: String): List<Video> {
         val embedUrl = url.lowercase()
+        val extractor = SendvidExtractor(client, headers)
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
+
             embedUrl.contains("filelions") || embedUrl.contains("lion") -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+
             embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("strwish") || embedUrl.contains("wish") -> {
                 val docHeaders = headers.newBuilder()
                     .add("Origin", "https://streamwish.to")
@@ -139,10 +146,16 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
                     .build()
                 StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
             }
+
             embedUrl.contains("vidhide") || embedUrl.contains("streamhide") ||
-                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> StreamHideVidExtractor(client, headers).videosFromUrl(url)
+                embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> VidHideExtractor(client, headers).videosFromUrl(url)
+
             embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
+
             embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+
+            embedUrl.contains("sendvid") -> extractor.videosFromUrl(url)
+
             else -> UniversalExtractor(client).videosFromUrl(url, headers)
         }
     }
@@ -164,23 +177,23 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
         StudioFilter(),
     )
 
-    private class StudioFilter : UriPartFilter(
-        "Estudio",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Nickelodeon", "1"),
-            Pair("Cartoon Network", "2"),
-            Pair("Fox Kids", "3"),
-            Pair("Hanna Barbera", "4"),
-            Pair("Disney", "5"),
-            Pair("Warner Channel", "6"),
-            Pair("Marvel", "7"),
-            Pair("Otros", "8"),
-        ),
-    )
+    private class StudioFilter :
+        UriPartFilter(
+            "Estudio",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Nickelodeon", "1"),
+                Pair("Cartoon Network", "2"),
+                Pair("Fox Kids", "3"),
+                Pair("Hanna Barbera", "4"),
+                Pair("Disney", "5"),
+                Pair("Warner Channel", "6"),
+                Pair("Marvel", "7"),
+                Pair("Otros", "8"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -192,13 +205,6 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -208,13 +214,6 @@ class Lacartoons : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }

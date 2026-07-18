@@ -1,0 +1,23 @@
+ext {
+    extName = 'LaMovie'
+    extClass = '.LaMovie'
+    themePkg = 'dopeflix'
+    baseUrl = 'https://la.movie'
+    overrideVersionCode = 2
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:vidhideextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:pixeldrainextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:goodstreamextractor'))
+    implementation(project(':lib:unpacker'))
+}

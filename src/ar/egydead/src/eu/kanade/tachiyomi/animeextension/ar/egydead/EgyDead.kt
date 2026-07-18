@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.animeextension.ar.egydead
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -9,22 +12,22 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import extensions.utils.getPreferencesLazy
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class EgyDead : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class EgyDead :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Egy Dead"
 
@@ -65,27 +68,27 @@ class EgyDead : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             return episode
         }
         fun addEpisodes(res: Response, final: Boolean = false) {
-            val document = res.asJsoup()
+            val document = res.useAsJsoup()
             val url = res.request.url.toString()
             if (final) {
-                document.select(episodeListSelector()).map {
+                document.select(episodeListSelector()).forEach {
                     val episode = episodeFromElement(it)
                     val season = document.select("div.infoBox div.singleTitle").text()
                     val seasonTxt = season.substringAfter("الموسم ").substringBefore(" ")
-                    episode.name = if (season.contains("موسم"))"الموسم $seasonTxt ${episode.name}" else episode.name
+                    episode.name = if (season.contains("موسم")) "الموسم $seasonTxt ${episode.name}" else episode.name
                     episodes.add(episode)
                 }
             } else if (url.contains("assembly")) {
-                document.select("div.salery-list li.movieItem a").map {
+                document.select("div.salery-list li.movieItem a").forEach {
                     episodes.add(episodeExtract(it))
                 }
             } else if (url.contains("serie") || url.contains("season")) {
-                if (document.select("div.seasons-list li.movieItem a").isNullOrEmpty()) {
-                    document.select(episodeListSelector()).map {
+                if (document.select("div.seasons-list li.movieItem a").isEmpty()) {
+                    document.select(episodeListSelector()).forEach {
                         episodes.add(episodeFromElement(it))
                     }
                 } else {
-                    document.select("div.seasons-list li.movieItem a").map {
+                    document.select("div.seasons-list li.movieItem a").forEach {
                         addEpisodes(client.newCall(GET(it.attr("href"))).execute(), true)
                     }
                 }
@@ -123,48 +126,51 @@ class EgyDead : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
         val document = client.newCall(POST(baseUrl + episode.url, body = requestBody))
             .await()
-            .asJsoup()
+            .useAsJsoup()
         return document.select(videoListSelector()).parallelCatchingFlatMap {
             val url = it.attr("data-link")
             extractVideos(url)
         }
     }
 
-    private fun extractVideos(url: String): List<Video> {
-        return when {
-            DOOD_REGEX.containsMatchIn(url) -> {
-                DoodExtractor(client).videoFromUrl(url, "Dood mirror")?.let(::listOf)
-            }
-            url.contains("mdbekjwqa") -> {
-                MixDropExtractor(client).videoFromUrl(url)
-            }
-            url.contains("ahvsh") -> {
-                val request = client.newCall(GET(url, headers)).execute().asJsoup()
-                val script = request.selectFirst("script:containsData(sources)")!!.data()
-                val streamLink = Regex("sources:\\s*\\[\\{\\s*\\t*file:\\s*[\"']([^\"']+)").find(script)!!.groupValues[1]
-                val quality = Regex("'qualityLabels'\\s*:\\s*\\{\\s*\".*?\"\\s*:\\s*\"(.*?)\"").find(script)!!.groupValues[1]
-                Video(streamLink, "StreamHide: $quality", streamLink).let(::listOf)
-            }
-            STREAMWISH_REGEX.containsMatchIn(url) -> {
-                streamWishExtractor.videosFromUrl(url)
-            }
-            url.contains("fanakishtuna") -> {
-                val request = client.newCall(GET(url, headers)).execute().asJsoup()
-                val data = request.selectFirst("script:containsData(sources)")!!.data()
-                val streamLink = Regex("sources:\\s*\\[\\{\\s*\\t*file:\\s*[\"']([^\"']+)").find(data)!!.groupValues[1]
-                listOf(Video(streamLink, "Mirror: High Quality", streamLink))
-            }
-            url.contains("uqload") -> {
-                val newURL = url.replace("https://uqload.co/", "https://www.uqload.co/")
-                val request = client.newCall(GET(newURL, headers)).execute().asJsoup()
-                val data = request.selectFirst("script:containsData(sources)")!!.data()
-                val streamLink = data.substringAfter("sources: [\"").substringBefore("\"]")
-                listOf(Video(streamLink, "Uqload: Mirror", streamLink))
-            }
+    private suspend fun extractVideos(url: String): List<Video> = when {
+        DOOD_REGEX.containsMatchIn(url) -> {
+            DoodExtractor(client).videoFromUrl(url, "Dood mirror")?.let(::listOf)
+        }
 
-            else -> null
-        } ?: emptyList()
-    }
+        url.contains("mdbekjwqa") -> {
+            MixDropExtractor(client).videoFromUrl(url)
+        }
+
+        url.contains("ahvsh") -> {
+            val request = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+            val script = request.selectFirst("script:containsData(sources)")!!.data()
+            val streamLink = Regex("sources:\\s*\\[\\{\\s*\\t*file:\\s*[\"']([^\"']+)").find(script)!!.groupValues[1]
+            val quality = Regex("'qualityLabels'\\s*:\\s*\\{\\s*\".*?\"\\s*:\\s*\"(.*?)\"").find(script)!!.groupValues[1]
+            Video(streamLink, "StreamHide: $quality", streamLink).let(::listOf)
+        }
+
+        STREAMWISH_REGEX.containsMatchIn(url) -> {
+            streamWishExtractor.videosFromUrl(url)
+        }
+
+        url.contains("fanakishtuna") -> {
+            val request = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+            val data = request.selectFirst("script:containsData(sources)")!!.data()
+            val streamLink = Regex("sources:\\s*\\[\\{\\s*\\t*file:\\s*[\"']([^\"']+)").find(data)!!.groupValues[1]
+            listOf(Video(streamLink, "Mirror: High Quality", streamLink))
+        }
+
+        url.contains("uqload") -> {
+            val newURL = url.replace("https://uqload.co/", "https://www.uqload.co/")
+            val request = client.newCall(GET(newURL, headers)).awaitSuccess().useAsJsoup()
+            val data = request.selectFirst("script:containsData(sources)")!!.data()
+            val streamLink = data.substringAfter("sources: [\"").substringBefore("\"]")
+            listOf(Video(streamLink, "Uqload: Mirror", streamLink))
+        }
+
+        else -> null
+    } ?: emptyList()
 
     override fun videoListSelector() = "ul.serversList li"
 
@@ -210,6 +216,7 @@ class EgyDead : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                             return GET(catUrl, headers)
                         }
                     }
+
                     else -> {}
                 }
             }
@@ -296,13 +303,6 @@ class EgyDead : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = arrayOf("1080", "720", "480", "360", "240", "Dood", "Uqload")
             setDefaultValue("1080")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(videoQualityPref)
     }

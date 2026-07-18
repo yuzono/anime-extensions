@@ -1,11 +1,11 @@
 ext {
     extName = 'Tokuzilla'
     extClass = '.Tokuzilla'
-    extVersionCode = 27
+    extVersionCode = 29
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:chillx-extractor'))
+    implementation(project(':lib:chillxextractor'))
 }

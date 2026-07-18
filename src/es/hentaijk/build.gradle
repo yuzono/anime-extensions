@@ -1,12 +1,12 @@
 ext {
     extName = 'Hentaijk'
     extClass = '.Hentaijk'
-    extVersionCode = 15
+    extVersionCode = 18
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:okru-extractor'))
+    implementation(project(':lib:okruextractor'))
 }

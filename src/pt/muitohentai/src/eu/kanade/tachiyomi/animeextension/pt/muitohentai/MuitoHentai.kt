@@ -112,10 +112,8 @@ class MuitoHentai : ParsedAnimeHttpSource() {
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
-    private fun String.parseDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(this)?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String.parseDate(): Long = runCatching { DATE_FORMATTER.parse(this)?.time }
+        .getOrNull() ?: 0L
     companion object {
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd")

@@ -3,6 +3,11 @@ package eu.kanade.tachiyomi.animeextension.es.animebum
 import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -11,20 +16,18 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamhidevidextractor.StreamHideVidExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBum :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeBum"
 
@@ -37,9 +40,7 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
-        return GET("$baseUrl/series?page=$page", headers)
-    }
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/series?page=$page", headers)
 
     override fun popularAnimeSelector(): String = "article.serie"
 
@@ -57,14 +58,10 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    override fun popularAnimeNextPageSelector(): String {
-        return "ul.pagination li a[rel=next]"
-    }
+    override fun popularAnimeNextPageSelector(): String = "ul.pagination li a[rel=next]"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
-        throw UnsupportedOperationException()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
 
@@ -93,9 +90,7 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return AnimesPage(animes, hasNextPage)
     }
 
-    override fun searchAnimeSelector(): String {
-        return "div.search-results__item"
-    }
+    override fun searchAnimeSelector(): String = "div.search-results__item"
 
     override fun searchAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -115,9 +110,7 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    override fun searchAnimeNextPageSelector(): String {
-        return "a.next.page-numbers"
-    }
+    override fun searchAnimeNextPageSelector(): String = "a.next.page-numbers"
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document): SAnime {
@@ -142,18 +135,14 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(status: String): Int {
-        return when (status) {
-            "En emisión" -> SAnime.ONGOING
-            "Finalizado" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(status: String): Int = when (status) {
+        "En emisión" -> SAnime.ONGOING
+        "Finalizado" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector(): String {
-        return "ul.list-episodies li"
-    }
+    override fun episodeListSelector(): String = "ul.list-episodies li"
 
     override fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
@@ -176,7 +165,7 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     // ============================ Video Extractor ==========================
 
-    private val vidHideExtractor by lazy { StreamHideVidExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidGuardExtractor by lazy { VidGuardExtractor(client) }
@@ -189,10 +178,10 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val scriptContent = document.select("script:containsData(var video = [])").firstOrNull()?.data()
             ?: return videoList
 
-        val iframeRegex = """video\[\d+\]\s*=\s*['"]<iframe[^>]+src=["']([^"']+)["']""".toRegex()
+        val iframeRegex = """video\[\d+]\s*=\s*['"]<iframe[^>]+src=["']([^"']+)["']""".toRegex()
         val matches = iframeRegex.findAll(scriptContent)
 
-        for (match in matches) {
+        matches.asIterable().parallelCatchingFlatMapBlocking { match ->
             var videoUrl = match.groupValues[1]
 
             if (videoUrl.startsWith("//")) {
@@ -201,34 +190,33 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
             val vidHideDomains = listOf("vidhide", "VidHidePro", "luluvdo", "vidhideplus")
 
-            val video = when {
+            when {
                 vidHideDomains.any { videoUrl.contains(it, ignoreCase = true) } -> vidHideExtractor.videosFromUrl(videoUrl)
+
                 "drive.google" in videoUrl -> {
                     val newUrl = "https://gdriveplayer.to/embed2.php?link=$videoUrl"
                     Log.d("AnimeBum", "New URL: $newUrl")
                     gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
                 }
+
                 videoUrl.contains("streamwish") -> streamWishExtractor.videosFromUrl(videoUrl)
+
                 videoUrl.contains("ok.ru") -> okruExtractor.videosFromUrl(videoUrl)
+
                 videoUrl.contains("listeamed") -> vidGuardExtractor.videosFromUrl(videoUrl)
+
                 else -> emptyList()
             }
-            videoList.addAll(video)
         }
+            .let(videoList::addAll)
         return videoList.sortedByDescending { it.quality }
     }
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================ Filters =============================
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -236,55 +224,55 @@ class AnimeBum : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Género",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Acción", "genero/accion"),
-            Pair("Aventura", "genero/aventura"),
-            Pair("Ciencia Ficción", "genero/ciencia-ficcion"),
-            Pair("Comedia", "genero/comedia"),
-            Pair("Drama", "genero/drama"),
-            Pair("Terror", "genero/terror"),
-            Pair("Suspenso", "genero/suspenso"),
-            Pair("Romance", "genero/romance"),
-            Pair("Magia", "genero/magia"),
-            Pair("Misterio", "genero/misterio"),
-            Pair("Superpoderes", "genero/super-poderes"),
-            Pair("Shounen", "genero/shounen"),
-            Pair("Deportes", "genero/deportes"),
-            Pair("Fantasía", "genero/fantasia"),
-            Pair("Sobrenatural", "genero/sobrenatural"),
-            Pair("Música", "genero/musica"),
-            Pair("Escolares", "genero/escolares"),
-            Pair("Seinen", "genero/seinen"),
-            Pair("Histórico", "genero/historico"),
-            Pair("Psicológico", "genero/psicologico"),
-            Pair("Mecha", "genero/mecha"),
-            Pair("Juegos", "genero/juegos"),
-            Pair("Militar", "genero/militar"),
-            Pair("Recuentos de la Vida", "genero/recuentos-de-la-vida"),
-            Pair("Demonios", "genero/demonios"),
-            Pair("Artes Marciales", "genero/artes-marciales"),
-            Pair("Espacial", "genero/espacial"),
-            Pair("Shoujo", "genero/shoujo"),
-            Pair("Samurái", "genero/samurai"),
-            Pair("Harem", "genero/harem"),
-            Pair("Parodia", "genero/parodia"),
-            Pair("Ecchi", "genero/ecchi"),
-            Pair("Demencia", "genero/demencia"),
-            Pair("Vampiros", "genero/vampiros"),
-            Pair("Josei", "genero/josei"),
-            Pair("Shounen Ai", "genero/shounen-ai"),
-            Pair("Shoujo Ai", "genero/shoujo-ai"),
-            Pair("Latino", "genero/latino"),
-            Pair("Policía", "genero/policia"),
-            Pair("Yaoi", "genero/yaoi"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Género",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Acción", "genero/accion"),
+                Pair("Aventura", "genero/aventura"),
+                Pair("Ciencia Ficción", "genero/ciencia-ficcion"),
+                Pair("Comedia", "genero/comedia"),
+                Pair("Drama", "genero/drama"),
+                Pair("Terror", "genero/terror"),
+                Pair("Suspenso", "genero/suspenso"),
+                Pair("Romance", "genero/romance"),
+                Pair("Magia", "genero/magia"),
+                Pair("Misterio", "genero/misterio"),
+                Pair("Superpoderes", "genero/super-poderes"),
+                Pair("Shounen", "genero/shounen"),
+                Pair("Deportes", "genero/deportes"),
+                Pair("Fantasía", "genero/fantasia"),
+                Pair("Sobrenatural", "genero/sobrenatural"),
+                Pair("Música", "genero/musica"),
+                Pair("Escolares", "genero/escolares"),
+                Pair("Seinen", "genero/seinen"),
+                Pair("Histórico", "genero/historico"),
+                Pair("Psicológico", "genero/psicologico"),
+                Pair("Mecha", "genero/mecha"),
+                Pair("Juegos", "genero/juegos"),
+                Pair("Militar", "genero/militar"),
+                Pair("Recuentos de la Vida", "genero/recuentos-de-la-vida"),
+                Pair("Demonios", "genero/demonios"),
+                Pair("Artes Marciales", "genero/artes-marciales"),
+                Pair("Espacial", "genero/espacial"),
+                Pair("Shoujo", "genero/shoujo"),
+                Pair("Samurái", "genero/samurai"),
+                Pair("Harem", "genero/harem"),
+                Pair("Parodia", "genero/parodia"),
+                Pair("Ecchi", "genero/ecchi"),
+                Pair("Demencia", "genero/demencia"),
+                Pair("Vampiros", "genero/vampiros"),
+                Pair("Josei", "genero/josei"),
+                Pair("Shounen Ai", "genero/shounen-ai"),
+                Pair("Shoujo Ai", "genero/shoujo-ai"),
+                Pair("Latino", "genero/latino"),
+                Pair("Policía", "genero/policia"),
+                Pair("Yaoi", "genero/yaoi"),
+            ),
+        )
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 

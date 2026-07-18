@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animegg
 
 import android.annotation.SuppressLint
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -12,19 +11,22 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
+class AnimeGG :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "AnimeGG"
 
@@ -34,37 +36,35 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
     companion object {
         private const val PREF_LANGUAGE_KEY = "preferred_language"
         private const val PREF_LANGUAGE_DEFAULT = "[SUBBED]"
-        private val LANGUAGE_LIST = arrayOf("[SUBBED]", "[DUBBED]", "[RAW]")
+        private val LANGUAGE_LIST = listOf("[SUBBED]", "[DUBBED]", "[RAW]")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+        private val QUALITY_LIST = listOf("1080", "720", "480", "360")
 
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "AnimeGG"
-        private val SERVER_LIST = arrayOf("AnimeGG")
+        private val SERVER_LIST = listOf("AnimeGG")
+
+        private val jsonRegexFix by lazy { Regex("""(?<=[{,])\s*['"]?(\w+)['"]?\s*:""") }
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val animeDetails = SAnime.create().apply {
-            title = document.selectFirst(".media-body h1")?.text()?.trim() ?: ""
+            document.selectFirst(".media-body h1")?.text()?.let { title = it }
             status = if (document.location().contains("/series/")) SAnime.UNKNOWN else SAnime.COMPLETED
             description = document.selectFirst(".ptext")?.text()
             genre = document.select(".tagscat a").joinToString { it.text() }
             thumbnail_url = document.selectFirst(".media .media-object")?.attr("abs:src")
-            document.select(".infoami span").map { it.text() }.map { textContent ->
-                when {
-                    "Status" in textContent -> status = parseStatus(textContent)
-                }
-            }
+            document.select(".infoami span").map { it.text() }
+                .firstOrNull { "Status" in it }
+                ?.let { status = parseStatus(it) }
         }
         return animeDetails
     }
@@ -81,11 +81,11 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/popular-series?sortBy=hits&sortDirection=DESC&ongoing&limit=50&start=0", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select(".fea")
-        val animeList = elements.map { element ->
+        val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst(".rightpop a")?.text()?.trim() ?: ""
+                title = element.selectFirst(".rightpop a")?.text() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.attr("abs:src")
                 setUrlWithoutDomain(element.select(".rightpop a").attr("abs:href"))
             }
@@ -109,11 +109,11 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select(".mse")
-        val animeList = elements.map { element ->
+        val animeList = elements.mapNotNull { element ->
             SAnime.create().apply {
-                title = element.selectFirst(".first h2")?.text()?.trim() ?: ""
+                title = element.selectFirst(".first h2")?.text() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.attr("abs:src")
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
@@ -122,7 +122,7 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select(".newmanga li div").mapIndexed { idx, episode ->
             val episodeNumber = episode.selectFirst(".anm_det_pop strong")?.getEpNumber() ?: (idx + 1F)
             val title = episode.select(".anititle").text()
@@ -139,7 +139,7 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return document.select("iframe").parallelCatchingFlatMapBlocking {
             val mode = when (it.closest(".tab-pane")?.attr("id")) {
                 "subbed-Animegg" -> "[SUBBED]"
@@ -149,23 +149,20 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
             }
 
             val link = it.attr("abs:src")
-            val embedPlayer = client.newCall(GET(link)).execute().asJsoup()
+            val embedPlayer = client.newCall(GET(link)).awaitSuccess().useAsJsoup()
             val scriptData = embedPlayer.selectFirst("script:containsData(var videoSources =)")?.data() ?: return@parallelCatchingFlatMapBlocking emptyList()
-            val host = link.toHttpUrl().host
+            val host = link.toHttpUrlOrNull()?.host ?: ""
             val videoHeaders = headers.newBuilder().add("referer", "https://$host").build()
             val jsonString = fixJsonString(scriptData.substringAfter("var videoSources = ").substringBefore(";"))
-            json.decodeFromString<Array<GgVideo>>(jsonString).map { video ->
-                val videoUrl = "https://$host${video.file}"
+            jsonString.parseAs<Array<GgVideo>>().map { video ->
+                val videoUrl = if (video.file.startsWith("http")) video.file else "https://$host${video.file}"
                 Video(videoUrl, "$mode AnimeGG:${video.label}", videoUrl, headers = videoHeaders)
             }
         }
     }
 
-    private fun fixJsonString(jsonString: String): String {
-        return jsonString.replace(Regex("""(\w+):"""), """"$1":""")
-            .replace(Regex("""(:\s)([^{\[}\]":\s,]+)"""), """$1"$2"""")
-            .replace(Regex("""(:\s)("[^"]*")"""), """$1$2""")
-    }
+    private fun fixJsonString(jsonString: String): String = jsonString
+        .replace(jsonRegexFix) { mr -> " \"${mr.groupValues[1]}\":" }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -186,14 +183,15 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
         GenreFilter(),
     )
 
-    private class GenreFilter : UriPartFilter(
-        "Genre",
-        arrayOf(
-            Pair("<Seleccionar>", ""),
-            Pair("Películas", "peliculas"),
-            Pair("Series", "series"),
-        ),
-    )
+    private class GenreFilter :
+        UriPartFilter(
+            "Genre",
+            arrayOf(
+                Pair("<Seleccionar>", ""),
+                Pair("Películas", "peliculas"),
+                Pair("Series", "series"),
+            ),
+        )
 
     private fun Element?.getEpNumber(): Float? {
         val input = this?.text() ?: return null
@@ -203,16 +201,13 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     @SuppressLint("DefaultLocale")
-    private fun Float.formatEp(): String {
-        return if (this % 1 == 0.0f) {
-            String.format(Locale.US, "%.0f", this)
-        } else {
-            String.format(Locale.US, "%.1f", this)
-        }
+    private fun Float.formatEp(): String = if (this % 1 == 0.0f) {
+        String.format(Locale.US, "%.0f", this)
+    } else {
+        String.format(Locale.US, "%.1f", this)
     }
 
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
-        AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
     }
 
@@ -223,52 +218,31 @@ class AnimeGG : ConfigurableAnimeSource, AnimeHttpSource() {
     )
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_LANGUAGE_KEY
-            title = "Preferred language"
-            entries = LANGUAGE_LIST
-            entryValues = LANGUAGE_LIST
-            setDefaultValue(PREF_LANGUAGE_DEFAULT)
-            summary = "%s"
+        screen.addListPreference(
+            key = PREF_LANGUAGE_KEY,
+            title = "Preferred language",
+            entries = LANGUAGE_LIST,
+            entryValues = LANGUAGE_LIST,
+            default = PREF_LANGUAGE_DEFAULT,
+            summary = "%s",
+        )
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            entries = SERVER_LIST,
+            entryValues = SERVER_LIST,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
 
-        ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = QUALITY_LIST,
+            entryValues = QUALITY_LIST,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
     }
 }

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.mapple
 import android.content.SharedPreferences
 import android.text.InputType
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -12,32 +13,32 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMap
-import eu.kanade.tachiyomi.util.parallelMapNotNull
-import extensions.utils.addEditTextPreference
-import extensions.utils.addListPreference
-import extensions.utils.addSetPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
-import extensions.utils.parseAs
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelMapNotNull
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
+class Mapple :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Mapple"
 
@@ -74,9 +75,7 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Latest ===============================
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -112,9 +111,7 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -194,25 +191,19 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        return parseMediaPage(response)
-    }
+    override fun searchAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // ============================== Filters ===============================
     override fun getFilterList(): AnimeFilterList = MappleFilters.getFilterList()
 
     // ============================== Details ===============================
-    override fun getAnimeUrl(anime: SAnime): String {
-        return baseUrl + anime.url
-    }
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
-    private fun animeUrlToId(anime: SAnime): Pair<String, String> {
-        return animeUrlRegex.find(anime.url)?.let { matchResult ->
-            val type = matchResult.groupValues[1]
-            val rawId = matchResult.groupValues[2]
-            type to rawId
-        } ?: throw IllegalArgumentException("Invalid anime URL: ${anime.url}")
-    }
+    private fun animeUrlToId(anime: SAnime): Pair<String, String> = animeUrlRegex.find(anime.url)?.let { matchResult ->
+        val type = matchResult.groupValues[1]
+        val rawId = matchResult.groupValues[2]
+        type to rawId
+    } ?: throw IllegalArgumentException("Invalid anime URL: ${anime.url}")
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         val (type, id) = animeUrlToId(anime)
@@ -226,16 +217,14 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(url)
     }
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        return try {
-            if ("/movie/" in response.request.url.toString()) {
-                movieDetailsParse(response)
-            } else {
-                tvDetailsParse(response)
-            }
-        } catch (e: Exception) {
-            throw Exception("Failed to parse details. The API might have returned an error page.", e)
+    override fun animeDetailsParse(response: Response): SAnime = try {
+        if ("/movie/" in response.request.url.toString()) {
+            movieDetailsParse(response)
+        } else {
+            tvDetailsParse(response)
         }
+    } catch (e: Exception) {
+        throw Exception("Failed to parse details. The API might have returned an error page.", e)
     }
 
     private fun movieDetailsParse(response: Response): SAnime {
@@ -428,7 +417,7 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
                 ),
             )
 
-            val requestBody = json.encodeToString(payload).toRequestBody("application/json".toMediaType())
+            val requestBody = json.encodeToString(payload).toJsonRequestBody()
             val requestUrl = "$mappleApi/watch/${episodeData.type}/${episodeData.tmdbId}"
 
             val headers = headers.newBuilder()
@@ -618,28 +607,22 @@ class Mapple : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun mediaItemToSAnime(media: MediaItemDto): SAnime {
-        return SAnime.create().apply {
-            title = media.realTitle
-            val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
-            url = "/$type/${media.id}"
-            thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-        }
+    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
+        title = media.realTitle
+        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
+        url = "/$type/${media.id}"
+        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
     }
 
-    private fun parseStatus(status: String?): Int {
-        return when (status) {
-            "Released", "Ended" -> SAnime.COMPLETED
-            "Returning Series", "In Production" -> SAnime.ONGOING
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(status: String?): Int = when (status) {
+        "Released", "Ended" -> SAnime.COMPLETED
+        "Returning Series", "In Production" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
     }
 
-    private fun parseDate(dateStr: String?): Long {
-        return runCatching {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
-        }.getOrDefault(0L)
-    }
+    private fun parseDate(dateStr: String?): Long = runCatching {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
+    }.getOrDefault(0L)
 
     companion object {
         private val animeUrlRegex = Regex("""/(tv|movie)/(\d+)""")

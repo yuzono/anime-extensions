@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.animeextension.de.animebase
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.vidguardextractor.VidGuardExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.de.animebase.extractors.UnpackerExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -10,21 +13,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.vidguardextractor.VidGuardExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class AnimeBase :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Anime-Base"
 
@@ -63,7 +65,7 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     private val searchToken by lazy {
         client.newCall(GET("$baseUrl/searching", headers)).execute()
-            .asJsoup()
+            .useAsJsoup()
             .selectFirst("form > input[name=_token]")!!
             .attr("value")
     }
@@ -92,13 +94,14 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
 
         return when {
             doc.location().contains("/searching") -> {
                 val animes = doc.select(searchAnimeSelector()).map(::searchAnimeFromElement)
                 AnimesPage(animes, false)
             }
+
             else -> { // pages like filmlist or animelist
                 val animes = doc.select(popularAnimeSelector()).map(::popularAnimeFromElement)
                 val hasNext = doc.selectFirst(searchAnimeNextPageSelector()) != null
@@ -135,24 +138,22 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun parseStatus(status: String?) = when (status?.orEmpty()) {
+    private fun parseStatus(status: String?) = when (status.orEmpty()) {
         "Laufend" -> SAnime.ONGOING
         "Abgeschlossen" -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
     }
 
-    private fun Element.getInfo(selector: String) =
-        selectFirst("strong:contains($selector) + p")?.text()?.trim()
+    private fun Element.getInfo(selector: String) = selectFirst("strong:contains($selector) + p")?.text()?.trim()
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) =
-        super.episodeListParse(response).sortedWith(
-            compareBy(
-                { it.name.startsWith("Film ") },
-                { it.name.startsWith("Special ") },
-                { it.episode_number },
-            ),
-        ).reversed()
+    override fun episodeListParse(response: Response) = super.episodeListParse(response).sortedWith(
+        compareBy(
+            { it.name.startsWith("Film ") },
+            { it.name.startsWith("Special ") },
+            { it.episode_number },
+        ),
+    ).reversed()
 
     override fun episodeListSelector() = "div.tab-content > div > div.panel"
 
@@ -182,7 +183,7 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+        val doc = response.useAsJsoup()
         val selector = response.request.url.queryParameter("selector")
             ?: return emptyList()
 
@@ -213,8 +214,8 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val unpackerExtractor by lazy { UnpackerExtractor(client, headers) }
     private val vidguardExtractor by lazy { VidGuardExtractor(client) }
 
-    private fun getVideosFromHoster(hoster: String, urlpart: String): List<Video> {
-        val url = hosterSettings.get(hoster)!! + urlpart
+    private suspend fun getVideosFromHoster(hoster: String, urlpart: String): List<Video> {
+        val url = hosterSettings[hoster]!! + urlpart
         return when (hoster) {
             "Streamwish" -> streamWishExtractor.videosFromUrl(url)
             "Voe.SX" -> voeExtractor.videosFromUrl(url)
@@ -252,13 +253,6 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = PREF_LANG_VALUES
             setDefaultValue(PREF_LANG_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -268,13 +262,6 @@ class AnimeBase : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = PREF_QUALITY_VALUES
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 

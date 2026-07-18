@@ -1,12 +1,12 @@
 ext {
     extName = 'StreamingCommunity'
     extClass = '.StreamingCommunityFactory'
-    extVersionCode = 14
+    extVersionCode = 18
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:playlist-utils"))
+    implementation(project(":lib:playlistutils"))
     implementation(project(":lib:i18n"))
 }

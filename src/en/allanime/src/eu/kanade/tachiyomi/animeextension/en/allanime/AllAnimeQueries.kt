@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
-fun buildQuery(queryAction: () -> String): String {
-    return queryAction()
-        .trimIndent()
-        .replace("%", "$")
-}
+fun buildQuery(queryAction: () -> String): String = queryAction()
+    .trimIndent()
+    .replace("%", "$")
+
+const val STREAM_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
 val POPULAR_QUERY: String = buildQuery {
     """
@@ -95,24 +95,6 @@ val EPISODES_QUERY = buildQuery {
             ) {
                 _id
                 availableEpisodesDetail
-            }
-        }
-    """
-}
-
-val STREAMS_QUERY = buildQuery {
-    """
-        query(
-            %showId: String!,
-            %translationType: VaildTranslationTypeEnumType!,
-            %episodeString: String!
-        ) {
-            episode(
-                showId: %showId
-                translationType: %translationType
-                episodeString: %episodeString
-            ) {
-                sourceUrls
             }
         }
     """

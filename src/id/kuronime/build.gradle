@@ -1,14 +1,14 @@
 ext {
     extName = 'Kuronime'
     extClass = '.Kuronime'
-    extVersionCode = 10
+    extVersionCode = 13
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:streamlare-extractor'))
-    implementation(project(':lib:mp4upload-extractor'))
-    implementation(project(':lib:yourupload-extractor'))
-    implementation(libs.jsunpacker)
+    implementation(project(':lib:streamlareextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(":lib:unpacker"))
 }

@@ -3,6 +3,10 @@ package eu.kanade.tachiyomi.animeextension.id.neonime
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.id.neonime.extractors.LinkBoxExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -11,14 +15,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.bloggerextractor.BloggerExtractor
-import eu.kanade.tachiyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -28,7 +30,9 @@ import org.jsoup.select.Elements
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class NeoNime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String = "https://neonime.ink"
     override val lang: String = "id"
     override val name: String = "NeoNime"
@@ -37,17 +41,15 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     private val preferences by getPreferencesLazy()
 
     // Private Fun
-    private fun reconstructDate(Str: String): Long {
+    private fun reconstructDate(str: String): Long {
         val pattern = SimpleDateFormat("dd-MM-yyyy", Locale.US)
-        return runCatching { pattern.parse(Str)?.time }
+        return runCatching { pattern.parse(str)?.time }
             .getOrNull() ?: 0L
     }
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.toLowerCase(Locale.US).contains("ongoing") -> SAnime.ONGOING
-            statusString.toLowerCase(Locale.US).contains("completed") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.lowercase(Locale.US).contains("ongoing") -> SAnime.ONGOING
+        statusString.lowercase(Locale.US).contains("completed") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     private fun getAnimeFromAnimeElement(element: Element): SAnime {
@@ -84,9 +86,7 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     // Popular
     override fun popularAnimeFromElement(element: Element): SAnime = getAnimeFromAnimeElement(element)
@@ -197,15 +197,14 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
 
         val hosterSelection = preferences.getStringSet(
             "hoster_selection",
             setOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer"),
         )!!
 
-        document.select("div.player2 > div.embed2 > div").forEach {
-            val iframe = it.selectFirst("iframe") ?: return@forEach
+        return document.select("div.player2 > div.embed2 > div").parallelCatchingFlatMapBlocking {
+            val iframe = it.selectFirst("iframe") ?: return@parallelCatchingFlatMapBlocking emptyList()
 
             var link = iframe.attr("data-src")
             if (!link.startsWith("http")) {
@@ -214,17 +213,21 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
 
             when {
                 hosterSelection.contains("linkbox") && link.contains("linkbox.to") -> {
-                    videoList.addAll(LinkBoxExtractor(client).videosFromUrl(link, it.text()))
+                    LinkBoxExtractor(client).videosFromUrl(link, it.text())
                 }
+
                 hosterSelection.contains("okru") && link.contains("ok.ru") -> {
-                    videoList.addAll(OkruExtractor(client).videosFromUrl(link))
+                    OkruExtractor(client).videosFromUrl(link)
                 }
+
                 hosterSelection.contains("yourupload") && link.contains("blogger.com") -> {
-                    videoList.addAll(BloggerExtractor(client).videosFromUrl(link, headers, it.text()))
+                    BloggerExtractor(client).videosFromUrl(link, headers, it.text())
                 }
+
                 hosterSelection.contains("linkbox") && link.contains("yourupload.com") -> {
-                    videoList.addAll(YourUploadExtractor(client).videoFromUrl(link, headers, it.text(), "Original - "))
+                    YourUploadExtractor(client).videoFromUrl(link, headers, it.text(), "Original - ")
                 }
+
                 hosterSelection.contains("gdriveplayer") && link.contains("neonime.fun") -> {
                     val headers = Headers.headersOf(
                         "Accept",
@@ -234,9 +237,9 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                     )
-                    var iframe = client.newCall(
+                    val iframe = client.newCall(
                         GET(link, headers = headers),
-                    ).execute().asJsoup()
+                    ).awaitSuccess().useAsJsoup()
 
                     var iframeUrl = iframe.selectFirst("iframe")!!.attr("src")
 
@@ -244,17 +247,16 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                         iframeUrl = "https:$iframeUrl"
                     }
 
-                    when {
-                        iframeUrl.contains("gdriveplayer.to") -> {
-                            val newHeaders = headersBuilder().add("Referer", baseUrl).build()
-                            videoList.addAll(GdrivePlayerExtractor(client).videosFromUrl(iframeUrl, it.text(), headers = newHeaders))
-                        }
+                    if (iframeUrl.contains("gdriveplayer.to")) {
+                        val newHeaders = headersBuilder().add("Referer", baseUrl).build()
+                        GdrivePlayerExtractor(client).videosFromUrl(iframeUrl, it.text(), headers = newHeaders)
+                    } else {
+                        emptyList()
                     }
                 }
+                else -> emptyList()
             }
         }
-
-        return videoList
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -305,10 +307,6 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entries = arrayOf("Blogger", "Linkbox", "Ok.ru", "YourUpload", "GdrivePlayer")
             entryValues = arrayOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer")
             setDefaultValue(setOf("blogger", "linkbox", "okru", "yourupload", "gdriveplayer"))
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
         }
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
@@ -317,13 +315,6 @@ class NeoNime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue("1080")
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }
         screen.addPreference(hostSelection)
         screen.addPreference(videoQualityPref)

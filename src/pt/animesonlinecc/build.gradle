@@ -1,14 +1,14 @@
 ext {
-    extName = 'AnimesOnlineCC'
+    extName = 'Animes Online CC'
     extClass = '.AnimesOnlineCC'
     themePkg = 'dooplay'
     baseUrl = 'https://animesonlinecc.to'
-    overrideVersionCode = 1
+    overrideVersionCode = 3
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:blogger-extractor"))
+    implementation(project(":lib:bloggerextractor"))
 }

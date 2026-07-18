@@ -1,8 +1,25 @@
 plugins {
-    id("lib-kotlin")
+    alias(kei.plugins.library)
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+android {
+    sourceSets {
+        named("test") {
+            java.directories.clear()
+            java.directories.add("test/java")
+            kotlin.directories.clear()
+            kotlin.directories.add("test/kotlin")
+        }
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = false
+        }
+    }
+}
+
+dependencies {
+    testImplementation(kotlin("stdlib"))
+    testImplementation(kotlin("test-junit"))
 }

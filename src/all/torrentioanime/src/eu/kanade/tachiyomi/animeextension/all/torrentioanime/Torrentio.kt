@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.all.torrentioanime
 
-import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -24,7 +23,10 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.applicationContext
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -32,16 +34,17 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
+class Torrentio :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Torrentio Anime (Torrent / Debrid)"
 
@@ -55,7 +58,6 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val preferences by getPreferencesLazy()
 
-    private val context = Injekt.get<Application>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== Anilist API Request ===================
@@ -170,14 +172,24 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/anime/$id"))
+            return client.newCall(GET("$baseUrl/anime/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -227,9 +239,6 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
 
         val variables = json.encodeToString(variablesObject)
 
-        println(anilistQuery())
-        println(variables)
-
         return makeGraphQLRequest(anilistQuery(), variables)
     }
 
@@ -247,7 +256,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
         val variables = """{"id": ${anime.url}}"""
 
         val metaData = runCatching {
-            json.decodeFromString<DetailsById>(client.newCall(makeGraphQLRequest(getDetailsQuery(), variables)).execute().body.string())
+            json.decodeFromString<DetailsById>(client.newCall(makeGraphQLRequest(getDetailsQuery(), variables)).awaitSuccess().bodyString())
         }.getOrNull()?.data?.media
 
         anime.title = metaData?.title?.let { title ->
@@ -299,9 +308,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime): Request {
-        return GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val responseString = response.body.string()
@@ -314,7 +321,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
                         if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
                             episodes
                         } else {
-                            episodes.filter { (_, episode) -> (episode?.airDate?.let { parseDate(it) } ?: 0L) <= System.currentTimeMillis() }
+                            episodes.filter { (_, episode) -> episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis() }
                         }
                     }
                     ?.mapNotNull { (_, episode) ->
@@ -329,16 +336,16 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
                         SEpisode.create().apply {
                             episode_number = episodeNumber
                             url = "/stream/series/kitsu:${aniZipResponse.mappings.kitsuId}:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                            date_upload = episode?.airDate?.let { parseDate(it) } ?: 0L
+                            date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
                             name = if (title == null) "Episode ${episode?.episode}" else "Episode ${episode.episode}: $title"
-                            scanlator = (episode?.airDate?.let { parseDate(it) } ?: 0L).takeIf { it > System.currentTimeMillis() }?.let { "Upcoming" } ?: ""
+                            scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }?.let { "Upcoming" } ?: ""
                         }
                     }.orEmpty().reversed()
             }
 
             "MOVIE" -> {
                 val dateUpload = if (!aniZipResponse.episodes.isNullOrEmpty()) {
-                    aniZipResponse.episodes["1"]?.airDate?.let { parseDate(it) } ?: 0L
+                    aniZipResponse.episodes["1"]?.airDate.let(DATE_FORMATTER::tryParse)
                 } else {
                     0L
                 }
@@ -355,16 +362,6 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
 
             else -> emptyList()
         }
-    }
-
-    private fun parseDateTime(dateStr: String): Long {
-        return runCatching { DATE_TIME_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
-    }
-
-    private fun parseDate(dateStr: String): Long {
-        return runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-            .getOrNull() ?: 0L
     }
 
     // ============================ Video Links =============================
@@ -392,7 +389,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             when {
                 token.isNullOrBlank() && debridProvider != "none" -> {
                     handler.post {
-                        context.let {
+                        applicationContext.let {
                             Toast.makeText(
                                 it,
                                 "Kindly input the debrid token in the extension settings.",
@@ -402,6 +399,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
                     }
                     throw UnsupportedOperationException()
                 }
+
                 !token.isNullOrBlank() && debridProvider != "none" -> append("$debridProvider=$token|")
             }
             append(episode.url)
@@ -483,14 +481,13 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun Video.detectCodec(): String =
-        when {
-            quality.contains("264", true) -> "x264"
-            quality.contains("265", true) || quality.contains("hevc", true) -> "x265"
-            quality.contains("av1", true) -> "av1"
-            quality.contains("vp9", true) -> "vp9"
-            else -> "other"
-        }
+    private fun Video.detectCodec(): String = when {
+        quality.contains("264", true) -> "x264"
+        quality.contains("265", true) || quality.contains("hevc", true) -> "x265"
+        quality.contains("av1", true) -> "av1"
+        quality.contains("vp9", true) -> "vp9"
+        else -> "other"
+    }
 
     private fun fetchTrackers(): String {
         val request = Request.Builder()
@@ -631,6 +628,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "Premiumize",
             "AllDebrid",
             "DebridLink",
+            "EasyDebrid",
             "Offcloud",
             "TorBox",
         )
@@ -640,6 +638,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "premiumize",
             "alldebrid",
             "debridlink",
+            "easydebrid",
             "offcloud",
             "torbox",
         )
@@ -674,15 +673,17 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "NyaaSi",
             "TokyoTosho",
             "AniDex",
+            "nekoBT",
             "🇷🇺 Rutor",
             "🇷🇺 Rutracker",
             "🇵🇹 Comando",
             "🇵🇹 BluDV",
             "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
             "🇪🇸 MejorTorrent",
-            "🇲🇽 Cinecalidad",
-            "🇮🇹 ilCorsaroNero",
             "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
 
         private val PREF_PROVIDERS_VALUE = arrayOf(
@@ -698,15 +699,17 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
             "rutor",
             "rutracker",
             "comando",
             "bludv",
             "torrent9",
-            "mejortorrent",
-            "cinecalidad",
             "ilcorsaronero",
+            "mejortorrent",
             "wolfmax4k",
+            "cinecalidad",
+            "besttorrents",
         )
 
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -722,6 +725,7 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
@@ -910,10 +914,6 @@ class Torrentio : ConfigurableAnimeSource, AnimeHttpSource() {
             "other",
         )
         private val PREF_CODEC_DEFAULT = setOf<String>() // Empty by default to show all
-
-        private val DATE_TIME_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
-        }
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)

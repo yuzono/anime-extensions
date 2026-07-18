@@ -2,8 +2,7 @@ package eu.kanade.tachiyomi.animeextension.zh.xfani
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 
-abstract class SelectFilter(name: String, private val options: Array<Pair<String, String>>) :
-    AnimeFilter.Select<String>(name, options.map { it.first }.toTypedArray()) {
+abstract class SelectFilter(name: String, private val options: Array<Pair<String, String>>) : AnimeFilter.Select<String>(name, options.map { it.first }.toTypedArray()) {
     val selected
         get() = options[state].second
 }

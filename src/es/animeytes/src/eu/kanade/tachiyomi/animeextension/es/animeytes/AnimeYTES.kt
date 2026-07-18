@@ -1,33 +1,35 @@
 package eu.kanade.tachiyomi.animeextension.es.animeytes
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.sendvidextractor.SendvidExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.sendvidextractor.SendvidExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 
-class AnimeYTES : AnimeStream(
-    "es",
-    "AnimeYT.es",
-    "https://animeyt.es",
-) {
+class AnimeYTES :
+    AnimeStream(
+        "es",
+        "AnimeYT.es",
+        "https://animeyt.es",
+    ) {
     override val preferences by getPreferencesLazy()
 
-    companion object {
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_DEFAULT = "1080"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+    override val prefQualityDefault = "1080"
+    override val prefQualityValues = listOf("1080", "720", "480", "360")
 
+    companion object {
         private const val PREF_SERVER_KEY = "preferred_server"
         private const val PREF_SERVER_DEFAULT = "Amazon"
-        private val SERVER_LIST = arrayOf(
+        private val SERVER_LIST = listOf(
             "YourUpload",
             "SendVid",
             "BurstCloud",
@@ -48,21 +50,21 @@ class AnimeYTES : AnimeStream(
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    override fun getVideoList(url: String, name: String): List<Video> {
-        return when (name) {
-            "OK" -> okruExtractor.videosFromUrl(url)
-            "Stream" -> streamtapeExtractor.videosFromUrl(url)
-            "Send" -> sendvidExtractor.videosFromUrl(url)
-            "Your" -> youruploadExtractor.videoFromUrl(url, headers)
-            "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
-            "Moon" -> filemoonExtractor.videosFromUrl(url)
-            else -> universalExtractor.videosFromUrl(url, headers)
-        }
+    override suspend fun getVideoList(url: String, name: String): List<Video> = when (name) {
+        "OK" -> okruExtractor.videosFromUrl(url)
+        "Stream" -> streamtapeExtractor.videosFromUrl(url)
+        "Send" -> sendvidExtractor.videosFromUrl(url)
+        "Your" -> youruploadExtractor.videoFromUrl(url, headers)
+        "Alpha" -> burstcloudExtractor.videoFromUrl(url, headers)
+        "Moon" -> filemoonExtractor.videosFromUrl(url)
+        else -> universalExtractor.videosFromUrl(url, headers)
     }
 
+    private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
+
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val quality = preferences.videoSortPref
+        val server = preferences.serverPref
         return this.sortedWith(
             compareBy(
                 { it.quality.contains(server, true) },
@@ -73,36 +75,15 @@ class AnimeYTES : AnimeStream(
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = "Preferred quality"
-            entries = QUALITY_LIST
-            entryValues = QUALITY_LIST
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
+        super.setupPreferenceScreen(screen) // Quality preferences
 
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = PREF_SERVER_KEY
-            title = "Preferred server"
-            entries = SERVER_LIST
-            entryValues = SERVER_LIST
-            setDefaultValue(PREF_SERVER_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            entries = SERVER_LIST,
+            entryValues = SERVER_LIST,
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+        )
     }
 }

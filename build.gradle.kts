@@ -1,16 +1,22 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget as KotlinJvmTarget
-
-allprojects {
-    repositories {
-        mavenCentral()
-        google()
-        maven(url = "https://jitpack.io")
+buildscript {
+    dependencies {
+        classpath(libs.kotlin.gradle)
     }
+}
 
-    tasks.withType<KotlinCompile>().configureEach {
-        compilerOptions {
-            jvmTarget.set(KotlinJvmTarget.JVM_1_8)
+plugins {
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
+
+    alias(kei.plugins.spotless)
+}
+
+val buildLogic: IncludedBuild = gradle.includedBuild("build-logic")
+tasks {
+    listOf("clean", "spotlessApply", "spotlessCheck").forEach { task ->
+        named(task) {
+            dependsOn(buildLogic.task(":$task"))
         }
     }
 }

@@ -1,13 +1,13 @@
 ext {
     extName = 'Myanime'
     extClass = '.Myanime'
-    extVersionCode = 10
+    extVersionCode = 15
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:dailymotion-extractor'))
-    implementation(project(':lib:gdriveplayer-extractor'))
-    implementation(project(':lib:okru-extractor'))
+    implementation(project(':lib:dailymotionextractor'))
+    implementation(project(':lib:gdriveplayerextractor'))
+    implementation(project(':lib:okruextractor'))
 }

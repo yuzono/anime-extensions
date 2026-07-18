@@ -14,23 +14,22 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Hstream :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Hstream"
 
@@ -39,8 +38,6 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override val lang = "en"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
@@ -75,14 +72,24 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     override fun getFilterList() = HstreamFilters.FILTER_LIST
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host != baseUrl.toHttpUrl().host) {
+                throw Exception("Unsupported url")
+            }
+            val id = url.pathSegments.getOrNull(1)
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$baseUrl/hentai/$id"))
+            return client.newCall(GET("$baseUrl/hentai/$id"))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
-        } else {
-            super.getSearchAnime(page, query, filters)
         }
+
+        return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
@@ -142,13 +149,9 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return listOf(episode)
     }
 
-    override fun episodeListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeListSelector(): String = throw UnsupportedOperationException()
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        throw UnsupportedOperationException()
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -167,7 +170,7 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
             set("X-XSRF-TOKEN", URLDecoder.decode(token, "utf-8"))
         }.build()
 
-        val body = """{"episode_id": "$episodeId"}""".toRequestBody("application/json".toMediaType())
+        val body = """{"episode_id": "$episodeId"}""".toJsonRequestBody()
         val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
             .parseAs<PlayerApiResponse>()
 
@@ -181,16 +184,14 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         }
     }
 
-    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String {
-        return if (isLegacy) {
-            if (resolution.equals("720")) {
-                "/x264.720p.mp4"
-            } else {
-                "/av1.$resolution.webm"
-            }
+    private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
+        if (resolution.equals("720")) {
+            "/x264.720p.mp4"
         } else {
-            "/$resolution/manifest.mpd"
+            "/av1.$resolution.webm"
         }
+    } else {
+        "/$resolution/manifest.mpd"
     }
 
     @Serializable
@@ -201,17 +202,11 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         val stream_domains: List<String>,
     )
 
-    override fun videoListSelector(): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element): Video {
-        throw UnsupportedOperationException()
-    }
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String {
-        throw UnsupportedOperationException()
-    }
+    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -233,10 +228,8 @@ class Hstream : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
     }
 
     // ============================= Utilities ==============================
-    private fun String?.toDate(): Long {
-        return runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
-            .getOrNull() ?: 0L
-    }
+    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
+        .getOrNull() ?: 0L
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!

@@ -2,13 +2,14 @@ ext {
     extName = 'AnimesDrive'
     extClass = '.AnimesDrive'
     themePkg = 'dooplay'
-    baseUrl = 'https://animesdrive.blog'
-    overrideVersionCode = 1
+    baseUrl = 'https://animesdrive.online'
+    overrideVersionCode = 4
     isNsfw = true
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:blogger-extractor"))
+    implementation(project(":lib:bloggerextractor"))
+    implementation(project(":lib:playlistutils"))
 }

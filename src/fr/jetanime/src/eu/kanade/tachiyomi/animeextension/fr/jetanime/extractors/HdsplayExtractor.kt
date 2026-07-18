@@ -1,11 +1,11 @@
 package eu.kanade.tachiyomi.animeextension.fr.jetanime.extractors
 
-import dev.datlag.jsunpacker.JsUnpacker
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
@@ -34,6 +34,7 @@ class HdsplayExtractor(private val client: OkHttpClient) {
 
         return when {
             videoUrl.contains(".m3u8") -> playListUtils.extractFromHls(videoUrl, url, videoNameGen = { quality -> "Hdsplay: $quality ($name)" }, subtitleList = subtitleList)
+
             else -> {
                 listOf(
                     Video(videoUrl, "Sentinel: Video ($name)", videoUrl, subtitleTracks = subtitleList),

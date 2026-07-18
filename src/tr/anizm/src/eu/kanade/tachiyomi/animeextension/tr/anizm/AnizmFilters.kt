@@ -16,38 +16,32 @@ object AnizmFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class TriStateFilterList(name: String, val vals: Array<String>) :
-        AnimeFilter.Group<TriState>(name, vals.map(::TriStateVal))
+    open class TriStateFilterList(name: String, val vals: Array<String>) : AnimeFilter.Group<TriState>(name, vals.map(::TriStateVal))
 
     private class TriStateVal(name: String) : TriState(name)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R {
-        return first { it is R } as R
-    }
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String {
-        return (getFirst<R>() as QueryPartFilter).toQueryPart()
-    }
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (getFirst<R>() as QueryPartFilter).toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> {
-        return (getFirst<R>() as TriStateFilterList).state
-            .filterNot { it.isIgnored() }
-            .map { filter -> filter.state to filter.name }
-            .groupBy { it.first } // group by state
-            .let {
-                val included = it.get(TriState.STATE_INCLUDE)?.map { it.second } ?: emptyList<String>()
-                val excluded = it.get(TriState.STATE_EXCLUDE)?.map { it.second } ?: emptyList<String>()
-                listOf(included, excluded)
-            }
-    }
+    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> = (getFirst<R>() as TriStateFilterList).state
+        .filterNot { it.isIgnored() }
+        .map { filter -> filter.state to filter.name }
+        .groupBy { it.first } // group by state
+        .let {
+            val included = it.get(TriState.STATE_INCLUDE)?.map { it.second } ?: emptyList<String>()
+            val excluded = it.get(TriState.STATE_EXCLUDE)?.map { it.second } ?: emptyList<String>()
+            listOf(included, excluded)
+        }
 
     class InitialLetterFilter : QueryPartFilter("İlk harf", AnizmFiltersData.INITIAL_LETTER)
 
-    class SortFilter : AnimeFilter.Sort(
-        "Sıra",
-        AnizmFiltersData.ORDERS.map { it.first }.toTypedArray(),
-        Selection(0, true),
-    )
+    class SortFilter :
+        AnimeFilter.Sort(
+            "Sıra",
+            AnizmFiltersData.ORDERS.map { it.first }.toTypedArray(),
+            Selection(0, true),
+        )
 
     class StudiosFilter : TriStateFilterList("Stüdyos", AnizmFiltersData.STUDIOS)
 
@@ -85,38 +79,36 @@ object AnizmFilters {
         )
     }
 
-    private fun mustRemove(anime: SearchItemDto, params: FilterSearchParams): Boolean {
-        return when {
-            params.animeName != "" && !anime.names.any { it.contains(params.animeName, true) } -> true
-            params.initialLetter != "" && !anime.title.lowercase().startsWith(params.initialLetter) -> true
-            params.blackListedStudios.size > 0 && params.blackListedStudios.any {
-                anime.studios?.contains(it, true) == true
-            } -> true
-            params.includedStudios.size > 0 && params.includedStudios.any {
-                anime.studios?.contains(it, true)?.not() == true
-            } -> true
-            else -> false
-        }
+    private fun mustRemove(anime: SearchItemDto, params: FilterSearchParams): Boolean = when {
+        params.animeName != "" && !anime.names.any { it.contains(params.animeName, true) } -> true
+
+        params.initialLetter != "" && !anime.title.lowercase().startsWith(params.initialLetter) -> true
+
+        params.blackListedStudios.size > 0 && params.blackListedStudios.any {
+            anime.studios?.contains(it, true) == true
+        } -> true
+
+        params.includedStudios.size > 0 && params.includedStudios.any {
+            anime.studios?.contains(it, true)?.not() == true
+        } -> true
+
+        else -> false
     }
 
     private inline fun <T, R : Comparable<R>> Sequence<T>.sortedByIf(
         isAscending: Boolean,
         crossinline selector: (T) -> R,
-    ): Sequence<T> {
-        return when {
-            isAscending -> sortedBy(selector)
-            else -> sortedByDescending(selector)
-        }
+    ): Sequence<T> = when {
+        isAscending -> sortedBy(selector)
+        else -> sortedByDescending(selector)
     }
 
-    fun Sequence<SearchItemDto>.applyFilterParams(params: FilterSearchParams): Sequence<SearchItemDto> {
-        return filterNot { mustRemove(it, params) }.let { results ->
-            when (params.sortBy) {
-                "A-Z" -> results.sortedByIf(params.orderAscending) { it.title.lowercase() }
-                "year" -> results.sortedByIf(params.orderAscending) { it.year?.toIntOrNull() ?: 0 }
-                "mal" -> results.sortedByIf(params.orderAscending) { it.malpoint ?: 0.0 }
-                else -> results
-            }
+    fun Sequence<SearchItemDto>.applyFilterParams(params: FilterSearchParams): Sequence<SearchItemDto> = filterNot { mustRemove(it, params) }.let { results ->
+        when (params.sortBy) {
+            "A-Z" -> results.sortedByIf(params.orderAscending) { it.title.lowercase() }
+            "year" -> results.sortedByIf(params.orderAscending) { it.year?.toIntOrNull() ?: 0 }
+            "mal" -> results.sortedByIf(params.orderAscending) { it.malpoint ?: 0.0 }
+            else -> results
         }
     }
 

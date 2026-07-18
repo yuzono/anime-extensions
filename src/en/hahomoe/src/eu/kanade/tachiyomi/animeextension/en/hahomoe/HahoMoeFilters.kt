@@ -11,25 +11,24 @@ object HahoMoeFilters {
 
     private inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
 
-    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> {
-        return (getFirst<R>() as TriStateFilterList).state
-            .filterNot { it.isIgnored() }
-            .map { filter -> filter.state to "\"${filter.name.lowercase(Locale.US)}\"" }
-            .groupBy { it.first } // group by state
-            .let { dict ->
-                val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
-                val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
-                listOf(included, excluded)
-            }
-    }
+    private inline fun <reified R> AnimeFilterList.parseTriFilter(): List<List<String>> = (getFirst<R>() as TriStateFilterList).state
+        .filterNot { it.isIgnored() }
+        .map { filter -> filter.state to "\"${filter.name.lowercase(Locale.US)}\"" }
+        .groupBy { it.first } // group by state
+        .let { dict ->
+            val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
+            val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
+            listOf(included, excluded)
+        }
 
     class TagFilter : TriStateFilterList("Tags", HahoMoeFiltersData.TAGS.map(::TriFilterVal))
 
-    class SortFilter : AnimeFilter.Sort(
-        "Sort",
-        HahoMoeFiltersData.ORDERS.map { it.first }.toTypedArray(),
-        Selection(0, true),
-    )
+    class SortFilter :
+        AnimeFilter.Sort(
+            "Sort",
+            HahoMoeFiltersData.ORDERS.map { it.first }.toTypedArray(),
+            Selection(0, true),
+        )
 
     val FILTER_LIST get() = AnimeFilterList(
         TagFilter(),

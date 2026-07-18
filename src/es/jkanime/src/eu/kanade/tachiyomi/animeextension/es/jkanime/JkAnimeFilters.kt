@@ -20,7 +20,8 @@ open class UriPartSelectFilter(
     val keyName: String,
     vals: Array<Pair<String, String>>,
     val includeZero: Boolean = false,
-) : UriPartFilterInterface, SelectFilter(displayName, vals) {
+) : SelectFilter(displayName, vals),
+    UriPartFilterInterface {
 
     override fun toQueryParam(): Pair<String, String>? {
         val value = toValue()
@@ -39,10 +40,11 @@ class SeasonFilter : UriPartSelectFilter("Temporada", "temporada", VerAnimesFilt
 class OrderByFilter : UriPartSelectFilter("Ordenar Por", "filtro", VerAnimesFiltersData.SORT_BY)
 class SortModifiers : UriPartSelectFilter("Orden", "orden", VerAnimesFiltersData.SORT, includeZero = true)
 
-class DayFilter : SelectFilter(
-    "Dia de emisión",
-    VerAnimesFiltersData.DAYS,
-)
+class DayFilter :
+    SelectFilter(
+        "Dia de emisión",
+        VerAnimesFiltersData.DAYS,
+    )
 
 private object VerAnimesFiltersData {
     val GENRES = arrayOf(

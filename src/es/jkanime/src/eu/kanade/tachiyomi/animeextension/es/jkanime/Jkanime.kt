@@ -3,6 +3,15 @@ package eu.kanade.tachiyomi.animeextension.es.jkanime
 import android.content.SharedPreferences
 import android.util.Base64
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.animeextension.es.jkanime.extractors.JkanimeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
@@ -12,23 +21,15 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.doodextractor.DoodExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mixdropextractor.MixDropExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.okruextractor.OkruExtractor
-import eu.kanade.tachiyomi.lib.streamtapeextractor.StreamTapeExtractor
-import eu.kanade.tachiyomi.lib.universalextractor.UniversalExtractor
-import eu.kanade.tachiyomi.lib.vidhideextractor.VidHideExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import eu.kanade.tachiyomi.util.parseAs
-import extensions.utils.addListPreference
-import extensions.utils.delegate
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -40,7 +41,9 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
+class Jkanime :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Jkanime"
 
@@ -141,28 +144,25 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun popularAnimeParse(response: Response) = searchAnimeParse(response)
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return if (page == 1) {
-            GET(baseUrl, headers)
-        } else {
-            GET("$baseUrl/directorio?p=${page - 1}", headers)
-        }
+    override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
+        GET(baseUrl, headers)
+    } else {
+        GET("$baseUrl/directorio?p=${page - 1}", headers)
     }
 
     private fun homepageAnimesSelector(): String = "div.trending_div div.custom_thumb_home a"
 
-    private fun homepageAnimesFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.select("a").attr("abs:href").trim('/'))
-            title = element.select("img").attr("alt")
-            thumbnail_url = element.select("img").attr("abs:src")
-        }
+    private fun homepageAnimesFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.select("a").attr("abs:href").trim('/'))
+        title = element.select("img").attr("alt")
+        thumbnail_url = element.select("img").attr("abs:src")
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val location = response.request.url.encodedPath
         return when {
             location.startsWith("/directorio") -> searchAnimeParse(response)
+
             else -> {
                 val document = response.asJsoup()
                 val animes = document.select(homepageAnimesSelector()).map(::homepageAnimesFromElement)
@@ -181,10 +181,12 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
                     addPathSegment("")
                     fragment(dayFilter.toValue())
                 }
+
                 query.isNotBlank() -> {
                     addPathSegment("buscar")
                     addPathSegment(query.replace(" ", "_"))
                 }
+
                 else -> {
                     addPathSegment("directorio")
                     addQueryParameter("p", page.toString())
@@ -352,8 +354,7 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         cookieHeaders: Headers,
         formData: FormBody,
     ) = client.newCall(POST("$baseUrl/ajax/episodes/$animeId/$currentPage", headers = cookieHeaders, body = formData))
-        .execute().body.string()
-        .let { jsonStr -> json.decodeFromString<EpisodesPageDto>(jsonStr) }
+        .execute().parseAs<EpisodesPageDto>(json)
 
     private val languages = arrayOf(
         Pair(1, "[JAP]"),
@@ -370,7 +371,7 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         val jsPath = scriptServers.substringAfter("= remote+'").substringBefore("'")
 
         val jsLinks = if (isRemote && jsServer.isNotEmpty()) {
-            client.newCall(GET(jsServer + jsPath)).execute().body.string()
+            client.newCall(GET(jsServer + jsPath)).execute().bodyString()
         } else {
             val regex = Regex("""var servers\s*=\s*(\[.*]);""", RegexOption.UNIX_LINES)
             regex.find(scriptServers)?.groupValues?.get(1)
@@ -410,25 +411,38 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return getVideoLinks(document).parallelCatchingFlatMapBlocking { (url, lang, name) ->
+        return getVideoLinks(document).catchingFlatMapBlocking { (url, lang, name) ->
             val matched = serverMatching.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() } }?.first ?: name.lowercase()
             when (matched) {
                 // "mega" -> emptyList() // Skip mega server
                 "okru" -> okruExtractor.videosFromUrl(url, lang)
+
                 "voe" -> voeExtractor.videosFromUrl(url, "$lang ")
+
                 "filemoon" -> filemoonExtractor.videosFromUrl(url, prefix = "$lang Filemoon:")
+
                 "streamtape" -> streamTapeExtractor.videosFromUrl(url, quality = "$lang StreamTape")
+
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "$lang ", headers = headers)
+
                 "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
+
                 // Removed StreamWish extractor because it is causing timeout errors and significantly increasing load times.
                 // "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" }) // Use UniversalExtractor
                 "doostream" -> doodExtractor.videosFromUrl(url.replace("d-s.io", "dsvplay.com"), "$lang ${name.ifBlank { "Doodstream" }}")
-                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang VidHide:$it" })
+
+                "vidhide" -> vidHideExtractor.videosFromUrl(url, videoNameGen = { "$lang - VidHide:$it" })
+
                 "mediafire" -> jkanimeExtractor.getMediafireFromUrl(url, "$lang ")
+
                 "desuka" -> jkanimeExtractor.getDesukaFromUrl(url, "$lang ")
+
                 "nozomi" -> jkanimeExtractor.getNozomiFromUrl(url, "$lang ")
+
                 "desu" -> jkanimeExtractor.getDesuFromUrl(url, "$lang ")
+
                 "magi" -> jkanimeExtractor.getMagiFromUrl(url, "$lang ")
+
                 else -> universalExtractor.videosFromUrl(url, headers, prefix = "$lang $name")
             }
         }
@@ -463,13 +477,11 @@ class Jkanime : ConfigurableAnimeSource, AnimeHttpSource() {
         ).reversed()
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when {
-            statusString.contains("Por estrenar") -> SAnime.ONGOING
-            statusString.contains("En emision") -> SAnime.ONGOING
-            statusString.contains("Concluido") -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when {
+        statusString.contains("Por estrenar") -> SAnime.ONGOING
+        statusString.contains("En emision") -> SAnime.ONGOING
+        statusString.contains("Concluido") -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun getFilterList() = AnimeFilterList(

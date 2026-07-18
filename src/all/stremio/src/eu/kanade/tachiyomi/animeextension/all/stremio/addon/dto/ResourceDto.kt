@@ -24,9 +24,7 @@ enum class AddonResource {
     ;
 
     companion object {
-        fun fromString(value: String): AddonResource {
-            return AddonResource.entries.find { it.name.equals(value, ignoreCase = true) } ?: UNSUPPORTED
-        }
+        fun fromString(value: String): AddonResource = AddonResource.entries.find { it.name.equals(value, ignoreCase = true) } ?: UNSUPPORTED
     }
 }
 
@@ -37,9 +35,7 @@ object AddonResourceSerializer : KSerializer<AddonResource> {
         encoder.encodeString(value.name)
     }
 
-    override fun deserialize(decoder: Decoder): AddonResource {
-        return AddonResource.fromString(decoder.decodeString())
-    }
+    override fun deserialize(decoder: Decoder): AddonResource = AddonResource.fromString(decoder.decodeString())
 }
 
 @Serializable
@@ -52,19 +48,17 @@ data class ResourceDto(
 object ResourceListSerializer : JsonTransformingSerializer<List<ResourceDto>>(
     ListSerializer(ResourceDto.serializer()),
 ) {
-    override fun transformDeserialize(element: JsonElement): JsonElement {
-        return JsonArray(
-            element.jsonArray.map { jsonElement ->
-                when (jsonElement) {
-                    is JsonPrimitive -> JsonObject(
-                        mapOf(
-                            "name" to jsonElement,
-                        ),
-                    )
+    override fun transformDeserialize(element: JsonElement): JsonElement = JsonArray(
+        element.jsonArray.map { jsonElement ->
+            when (jsonElement) {
+                is JsonPrimitive -> JsonObject(
+                    mapOf(
+                        "name" to jsonElement,
+                    ),
+                )
 
-                    else -> jsonElement
-                }
-            },
-        )
-    }
+                else -> jsonElement
+            }
+        },
+    )
 }

@@ -3,6 +3,14 @@ package eu.kanade.tachiyomi.animeextension.es.homecine
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
+import aniyomi.lib.fastreamextractor.FastreamExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.streamwishextractor.StreamWishExtractor
+import aniyomi.lib.upstreamextractor.UpstreamExtractor
+import aniyomi.lib.voeextractor.VoeExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -10,24 +18,19 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.lib.burstcloudextractor.BurstCloudExtractor
-import eu.kanade.tachiyomi.lib.fastreamextractor.FastreamExtractor
-import eu.kanade.tachiyomi.lib.filemoonextractor.FilemoonExtractor
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.lib.upstreamextractor.UpstreamExtractor
-import eu.kanade.tachiyomi.lib.voeextractor.VoeExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
-import eu.kanade.tachiyomi.util.parallelCatchingFlatMapBlocking
-import extensions.utils.getPreferencesLazy
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
+class HomeCine :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "HomeCine"
 
@@ -65,14 +68,14 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/cartelera-series/page/$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val elements = document.select(".post")
         val nextPage = document.select(".nav-links .current ~ a").any()
         val animeList = elements.map { element ->
             SAnime.create().apply {
                 setUrlWithoutDomain(element.selectFirst(".lnk-blk")?.attr("abs:href") ?: "")
                 title = element.selectFirst(".entry-header .entry-title")?.text() ?: ""
-                description = element.select(".entry-content p").text() ?: ""
+                description = element.select(".entry-content p").text()
                 thumbnail_url = element.selectFirst(".post-thumbnail figure img")?.let { getImageUrl(it) }
             }
         }
@@ -88,7 +91,7 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst("aside .entry-header .entry-title")?.text() ?: ""
             description = document.select("aside .description p:not([class])").joinToString { it.text() }
@@ -98,16 +101,14 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getImageUrl(element: Element): String? {
-        return when {
-            element.hasAttr("data-src") -> element.attr("abs:data-src")
-            element.hasAttr("src") -> element.attr("abs:src")
-            else -> null
-        }
+    private fun getImageUrl(element: Element): String? = when {
+        element.hasAttr("data-src") -> element.attr("abs:data-src")
+        element.hasAttr("src") -> element.attr("abs:src")
+        else -> null
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val referer = response.request.url.toString()
         return if (referer.contains("pelicula")) {
             listOf(
@@ -131,93 +132,96 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
         }
     }
 
-    private fun getDetailSeason(element: Element, referer: String): List<SEpisode> {
-        return try {
-            val post = element.attr("data-post")
-            val season = element.attr("data-season")
-            val formBody = FormBody.Builder()
-                .add("action", "action_select_season")
-                .add("season", season)
-                .add("post", post)
-                .build()
+    private suspend fun getDetailSeason(element: Element, referer: String): List<SEpisode> {
+        val post = element.attr("data-post")
+        val season = element.attr("data-season")
+        val formBody = FormBody.Builder()
+            .add("action", "action_select_season")
+            .add("season", season)
+            .add("post", post)
+            .build()
 
-            val request = Request.Builder()
-                .url("$baseUrl/wp-admin/admin-ajax.php")
-                .post(formBody)
-                .header("Origin", baseUrl)
-                .header("Referer", referer)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .build()
-            val detail = client.newCall(request).execute().asJsoup()
+        val request = Request.Builder()
+            .url("$baseUrl/wp-admin/admin-ajax.php")
+            .post(formBody)
+            .header("Origin", baseUrl)
+            .header("Referer", referer)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
+        val detail = client.newCall(request).awaitSuccess().useAsJsoup()
 
-            detail.select(".post").reversed().mapIndexed { idx, it ->
-                val epNumber = try {
-                    it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
-                } catch (_: Exception) { "${idx + 1}" }
-
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(it.select("a").attr("abs:href"))
-                    name = "T$season - Episodio $epNumber"
-                    episode_number = epNumber.toFloat()
-                }
+        return detail.select(".post").reversed().mapIndexed { idx, it ->
+            val epNumber = try {
+                it.select(".entry-header .num-epi").text().substringAfter("x").substringBefore("–").trim()
+            } catch (_: Exception) {
+                "${idx + 1}"
             }
-        } catch (_: Exception) {
-            emptyList()
+
+            SEpisode.create().apply {
+                setUrlWithoutDomain(it.select("a").attr("abs:href"))
+                name = "T$season - Episodio $epNumber"
+                episode_number = epNumber.toFloat()
+            }
         }
     }
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
-        document.select(".aa-tbs-video a").forEach {
-            val prefix = runCatching {
-                val lang = it.select(".server").text().lowercase()
-                when {
-                    lang.contains("latino") -> "[LAT]"
-                    lang.contains("castellano") -> "[CAST]"
-                    lang.contains("sub") || lang.contains("vose") -> "[SUB]"
-                    else -> ""
-                }
-            }.getOrDefault("")
+        val document = response.useAsJsoup()
+        return document.select(".aa-tbs-video a").parallelCatchingFlatMapBlocking {
+            val lang = it.select(".server").text().lowercase()
+            val prefix = when {
+                lang.contains("latino") -> "[LAT]"
+                lang.contains("castellano") -> "[CAST]"
+                lang.contains("sub") || lang.contains("vose") -> "[SUB]"
+                else -> ""
+            }
 
             val ide = it.attr("href")
             var src = document.select("$ide iframe").attr("data-src").replace("#038;", "&").replace("&amp;", "")
-            try {
-                if (src.contains("home")) {
-                    src = client.newCall(GET(src)).execute().asJsoup().selectFirst("iframe")?.attr("src") ?: ""
-                }
+            if (src.contains("home")) {
+                src = client.newCall(GET(src)).awaitSuccess().useAsJsoup().selectFirst("iframe")?.attr("src") ?: ""
+            }
 
-                if (src.contains("fastream")) {
+            when {
+                src.contains("fastream") -> {
                     if (src.contains("emb.html")) {
                         val key = src.split("/").last()
                         src = "https://fastream.to/embed-$key.html"
                     }
-                    FastreamExtractor(client, headers).videosFromUrl(src, needsSleep = false, prefix = "$prefix Fastream:").also(videoList::addAll)
+                    FastreamExtractor(client, headers).videosFromUrl(src, needsSleep = false, prefix = "$prefix Fastream:")
                 }
-                if (src.contains("upstream")) {
-                    UpstreamExtractor(client).videosFromUrl(src, prefix = "$prefix ").let { videoList.addAll(it) }
+
+                src.contains("upstream") -> {
+                    UpstreamExtractor(client).videosFromUrl(src, prefix = "$prefix ")
                 }
-                if (src.contains("yourupload")) {
-                    YourUploadExtractor(client).videoFromUrl(src, headers, prefix = "$prefix ").let { videoList.addAll(it) }
+
+                src.contains("yourupload") -> {
+                    YourUploadExtractor(client).videoFromUrl(src, headers, prefix = "$prefix ")
                 }
-                if (src.contains("voe")) {
-                    VoeExtractor(client, headers).videosFromUrl(src, prefix = "$prefix ").also(videoList::addAll)
+
+                src.contains("voe") -> {
+                    VoeExtractor(client, headers).videosFromUrl(src, prefix = "$prefix ")
                 }
-                if (src.contains("wishembed") || src.contains("streamwish") || src.contains("wish")) {
-                    StreamWishExtractor(client, headers).videosFromUrl(src) { "$prefix StreamWish:$it" }.also(videoList::addAll)
+
+                src.contains("wishembed") || src.contains("streamwish") || src.contains("wish") -> {
+                    StreamWishExtractor(client, headers).videosFromUrl(src) { "$prefix StreamWish:$it" }
                 }
-                if (src.contains("mp4upload")) {
-                    Mp4uploadExtractor(client).videosFromUrl(src, headers, prefix = "$prefix ").let { videoList.addAll(it) }
+
+                src.contains("mp4upload") -> {
+                    Mp4uploadExtractor(client).videosFromUrl(src, headers, prefix = "$prefix ")
                 }
-                if (src.contains("burst")) {
-                    BurstCloudExtractor(client).videoFromUrl(src, headers = headers, prefix = "$prefix ").let { videoList.addAll(it) }
+
+                src.contains("burst") -> {
+                    BurstCloudExtractor(client).videoFromUrl(src, headers = headers, prefix = "$prefix ")
                 }
-                if (src.contains("filemoon") || src.contains("moonplayer")) {
-                    FilemoonExtractor(client).videosFromUrl(src, headers = headers, prefix = "$prefix Filemoon:").let { videoList.addAll(it) }
+
+                src.contains("filemoon") || src.contains("moonplayer") -> {
+                    FilemoonExtractor(client).videosFromUrl(src, headers = headers, prefix = "$prefix Filemoon:")
                 }
-            } catch (_: Exception) {}
+
+                else -> emptyList()
+            }
         }
-        return videoList
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -242,13 +246,6 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = LANGUAGE_LIST
             setDefaultValue(PREF_LANGUAGE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -258,13 +255,6 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -274,13 +264,6 @@ class HomeCine : ConfigurableAnimeSource, AnimeHttpSource() {
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }

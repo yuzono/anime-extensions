@@ -1,13 +1,14 @@
 ext {
     extName = 'Anime-Sama'
     extClass = '.AnimeSama'
-    extVersionCode = 21
+    extVersionCode = 29
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:sibnet-extractor'))
-    implementation(project(':lib:vk-extractor'))
-    implementation(project(':lib:sendvid-extractor'))
+    implementation(project(':lib:sibnetextractor'))
+    implementation(project(':lib:vkextractor'))
+    implementation(project(':lib:sendvidextractor'))
+    implementation(project(':lib:vidmolyextractor'))
 }

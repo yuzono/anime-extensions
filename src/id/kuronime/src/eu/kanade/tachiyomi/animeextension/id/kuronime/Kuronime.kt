@@ -4,6 +4,9 @@ import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.streamlareextractor.StreamlareExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.AnimekuExtractor
 import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.HxFileExtractor
 import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.LinkBoxExtractor
@@ -13,12 +16,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
-import eu.kanade.tachiyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import eu.kanade.tachiyomi.lib.streamlareextractor.StreamlareExtractor
-import eu.kanade.tachiyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import extensions.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -26,7 +26,9 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Locale
 
-class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
+class Kuronime :
+    ParsedAnimeHttpSource(),
+    ConfigurableAnimeSource {
     override val baseUrl: String = "https://tv1.kuronime.vip"
     override val lang: String = "id"
     override val name: String = "Kuronime"
@@ -47,12 +49,10 @@ class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return anime
     }
 
-    private fun parseStatus(statusString: String): Int {
-        return when (statusString.toLowerCase(Locale.US)) {
-            "ongoing" -> SAnime.ONGOING
-            "completed" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
+    private fun parseStatus(statusString: String): Int = when (statusString.lowercase(Locale.US)) {
+        "ongoing" -> SAnime.ONGOING
+        "completed" -> SAnime.COMPLETED
+        else -> SAnime.UNKNOWN
     }
 
     override fun episodeFromElement(element: Element): SEpisode {
@@ -68,9 +68,7 @@ class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
         return episode
     }
 
-    private fun getNumberFromEpsString(epsStr: String): String {
-        return epsStr.filter { it.isDigit() }
-    }
+    private fun getNumberFromEpsString(epsStr: String): String = epsStr.filter { it.isDigit() }
 
     override fun episodeListSelector(): String = "div.bixbox.bxcl > ul > li"
 
@@ -137,19 +135,24 @@ class Kuronime : ConfigurableAnimeSource, ParsedAnimeHttpSource() {
                 hosterSelection.contains("animeku") && decoded.contains("animeku.org") -> {
                     videoList.addAll(AnimekuExtractor(client).getVideosFromUrl(decoded, opt.text()))
                 }
+
                 hosterSelection.contains("mp4upload") && decoded.contains("mp4upload.com") -> {
                     val videos = Mp4uploadExtractor(client).videosFromUrl(decoded, headers, suffix = " - ${opt.text()}")
                     videoList.addAll(videos)
                 }
+
                 hosterSelection.contains("yourupload") && decoded.contains("yourupload.com") -> {
                     videoList.addAll(YourUploadExtractor(client).videoFromUrl(decoded, headers, opt.text(), "Original - "))
                 }
+
                 hosterSelection.contains("streamlare") && decoded.contains("streamlare.com") -> {
                     videoList.addAll(StreamlareExtractor(client).videosFromUrl(decoded, suffix = "- " + opt.text()))
                 }
+
                 hosterSelection.contains("hxfile") && decoded.contains("hxfile.co") -> {
                     videoList.addAll(HxFileExtractor(client).getVideoFromUrl(decoded, opt.text()))
                 }
+
                 hosterSelection.contains("linkbox") && decoded.contains("linkbox.to") -> {
                     videoList.addAll(LinkBoxExtractor(client).videosFromUrl(decoded, opt.text()))
                 }

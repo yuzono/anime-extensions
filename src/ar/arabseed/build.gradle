@@ -1,13 +1,13 @@
 ext {
     extName = 'Arab Seed'
     extClass = '.ArabSeed'
-    extVersionCode = 25
+    extVersionCode = 30
 }
 
-apply from: "$rootDir/common.gradle"
+apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":lib:dood-extractor"))
-    implementation(project(":lib:voe-extractor"))
-    implementation(project(":lib:streamwish-extractor"))
+    implementation(project(":lib:doodextractor"))
+    implementation(project(":lib:voeextractor"))
+    implementation(project(":lib:streamwishextractor"))
 }

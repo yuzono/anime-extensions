@@ -39,8 +39,7 @@ class UFDub : ParsedAnimeHttpSource() {
         anime.description = document.select("div.full-text p").text()
 
         someInfo.select(".full-info div.fi-col-item")
-            .forEach {
-                    ele ->
+            .forEach { ele ->
                 when (ele.select("span").text()) {
                     "Студія:" -> anime.author = ele.select("a").text()
                     "Жанр:" -> anime.genre = ele.select("a").text().replace(" ", ", ")

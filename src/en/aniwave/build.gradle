@@ -1,0 +1,9 @@
+ext {
+    extName = 'AniWave (Unoriginal)'
+    extClass = '.AniWave'
+    themePkg = 'anikototheme'
+    baseUrl = 'https://animewave.to'
+    overrideVersionCode = 2
+}
+
+apply plugin: "kei.plugins.extension.legacy"
