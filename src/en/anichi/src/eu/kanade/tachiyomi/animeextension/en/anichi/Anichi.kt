@@ -1,12 +1,7 @@
-// Contributed by @SahooShuvranshu (aka its_crystal.alive)
 package eu.kanade.tachiyomi.animeextension.en.anichi
 
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 
-/**
- * Anichi Extension Source
- * Contributed by @SahooShuvranshu (aka its_crystal.alive)
- */
 class Anichi :
     AnikotoTheme(
         "en",
