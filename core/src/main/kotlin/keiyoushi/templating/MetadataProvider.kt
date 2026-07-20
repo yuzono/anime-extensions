@@ -1,5 +1,8 @@
 package keiyoushi.templating
 
+import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * Per-extension orchestrator that merges metadata from a delegate function
  * and an ordered list of [MetadataSubProvider] instances.
@@ -23,11 +26,9 @@ class MetadataProvider(
     private val mergeStrategy: MergeStrategy = MergeStrategy.FILL_NULLS,
 ) {
     private var databaseCache: AnimeDatabaseCache? = null
+    private val metadataCache = ConcurrentHashMap<Int, CachedMetadata>()
+    private val cacheTtlMs = CACHE_TTL_MS
 
-    /**
-     * Sets the anime database cache for ID resolution.
-     * Call this once during extension initialization if ID conversion is needed.
-     */
     fun setDatabaseCache(cache: AnimeDatabaseCache) {
         databaseCache = cache
     }
@@ -36,50 +37,74 @@ class MetadataProvider(
         context: MetaproviderContext,
         metadataDelegate: (suspend MetaproviderContext.() -> ExtensionMetadata)? = null,
     ): ExtensionMetadata {
-        // 0. Resolve native IDs if we have an AniList ID and a cache
+        val cacheKey = context.anilistId ?: context.nativeIds.hashCode()
+        metadataCache[cacheKey]?.let { cached ->
+            if (System.currentTimeMillis() - cached.timestamp < cacheTtlMs) {
+                return cached.data
+            }
+        }
+
+        val result = resolveInternal(context, metadataDelegate)
+        metadataCache[cacheKey] = CachedMetadata(result, System.currentTimeMillis())
+        return result
+    }
+
+    private suspend fun resolveInternal(
+        context: MetaproviderContext,
+        metadataDelegate: (suspend MetaproviderContext.() -> ExtensionMetadata)?,
+    ): ExtensionMetadata {
         val enrichedContext = resolveNativeIds(context)
+        val seed = runCatching {
+            metadataDelegate?.invoke(enrichedContext) ?: ExtensionMetadata()
+        }.getOrElse { e ->
+            Log.e(TAG, "Metadata delegate failed", e)
+            ExtensionMetadata()
+        }
 
-        // 1. Run delegate first → seed
-        val seed = metadataDelegate?.invoke(enrichedContext) ?: ExtensionMetadata()
-
-        // 2. Propagate delegate's nativeIds into context for providers
         val finalContext = if (seed.nativeIds.isNotEmpty()) {
             enrichedContext.copy(nativeIds = enrichedContext.nativeIds + seed.nativeIds)
         } else {
             enrichedContext
         }
 
-        // 3. Run sub-providers in priority order
         val sorted = subProviders.sortedBy { it.priority }
-
         return when (mergeStrategy) {
             MergeStrategy.FILL_NULLS -> {
-                // First writer wins: only fill null gaps
                 sorted.fold(seed) { acc, provider ->
-                    val provided = provider.provide(finalContext)
+                    val provided = runCatching {
+                        provider.provide(finalContext)
+                    }.getOrElse { e ->
+                        Log.w(TAG, "Provider '${provider.name}' failed", e)
+                        ExtensionMetadata()
+                    }
                     acc.merge(provided)
                 }
             }
             MergeStrategy.OVERRIDE_ALL -> {
-                // Last writer wins: each provider can override
                 sorted.fold(seed) { acc, provider ->
-                    val provided = provider.provide(finalContext)
+                    val provided = runCatching {
+                        provider.provide(finalContext)
+                    }.getOrElse { e ->
+                        Log.w(TAG, "Provider '${provider.name}' failed", e)
+                        ExtensionMetadata()
+                    }
                     acc.overrideWith(provided)
                 }
             }
             MergeStrategy.OVERRIDE_NON_DELEGATE -> {
                 sorted.fold(seed) { acc, provider ->
-                    val provided = provider.provide(finalContext)
+                    val provided = runCatching {
+                        provider.provide(finalContext)
+                    }.getOrElse { e ->
+                        Log.w(TAG, "Provider '${provider.name}' failed", e)
+                        ExtensionMetadata()
+                    }
                     mergeNonDelegateFields(acc, provided, metadataDelegate?.let { seed })
                 }
             }
         }
     }
 
-    /**
-     * Merges [other] into [current], but only overrides fields that
-     * were NOT set by the delegate ([delegateMeta]).
-     */
     private fun mergeNonDelegateFields(
         current: ExtensionMetadata,
         other: ExtensionMetadata,
@@ -136,5 +161,19 @@ class MetadataProvider(
             cache.resolveAnilistIdFromKitsu(kitsuId)?.let { return it }
         }
         return null
+    }
+
+    fun clearCache() {
+        metadataCache.clear()
+    }
+
+    private data class CachedMetadata(
+        val data: ExtensionMetadata,
+        val timestamp: Long,
+    )
+
+    companion object {
+        private const val TAG = "MetadataProvider"
+        private const val CACHE_TTL_MS = 5 * 60 * 1000L
     }
 }

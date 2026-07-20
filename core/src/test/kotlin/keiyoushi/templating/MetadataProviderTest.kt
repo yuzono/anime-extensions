@@ -44,8 +44,6 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context) }
 
-        // Provider 10 runs first, fills title
-        // Provider 20 runs second, can't override (title already set)
         assertEquals("Provider 10", result.title)
     }
 
@@ -66,8 +64,8 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context, delegate) }
 
-        assertEquals("Delegate Title", result.title) // Delegate wins
-        assertEquals("Provider Description", result.description) // Provider fills gap
+        assertEquals("Delegate Title", result.title)
+        assertEquals("Provider Description", result.description)
     }
 
     @Test
@@ -115,16 +113,23 @@ class MetadataProviderTest {
         )
         val provider = MetadataProvider(emptyList())
         provider.setDatabaseCache(mockCache)
+
+        var capturedContext: MetaproviderContext? = null
+        val capturingProvider = ContextCapturingProvider(capturedContext = { capturedContext = it })
+
+        val orchestrator = MetadataProvider(listOf(capturingProvider))
+        orchestrator.setDatabaseCache(mockCache)
         val context = MetaproviderContext(
             baseUrl = "https://example.com",
             nativeIds = mapOf("mal" to 100),
         )
 
-        val result = runBlocking { provider.resolve(context) }
+        runBlocking { orchestrator.resolve(context) }
 
-        assertEquals(12345, result.anilistId)
-        assertEquals(100, result.nativeIds["mal"])
-        assertEquals(200, result.nativeIds["kitsu"])
+        val ctx = capturedContext!!
+        assertEquals(12345, ctx.anilistId)
+        assertEquals(100, ctx.nativeIds["mal"])
+        assertEquals(200, ctx.nativeIds["kitsu"])
     }
 
     @Test
@@ -133,18 +138,23 @@ class MetadataProviderTest {
             anilistIdForKitsu = mapOf(200 to 12345),
             nativeIdsForAnilist = mapOf(12345 to mapOf("mal" to 100, "kitsu" to 200)),
         )
-        val provider = MetadataProvider(emptyList())
-        provider.setDatabaseCache(mockCache)
+
+        var capturedContext: MetaproviderContext? = null
+        val capturingProvider = ContextCapturingProvider(capturedContext = { capturedContext = it })
+
+        val orchestrator = MetadataProvider(listOf(capturingProvider))
+        orchestrator.setDatabaseCache(mockCache)
         val context = MetaproviderContext(
             baseUrl = "https://example.com",
             nativeIds = mapOf("kitsu" to 200),
         )
 
-        val result = runBlocking { provider.resolve(context) }
+        runBlocking { orchestrator.resolve(context) }
 
-        assertEquals(12345, result.anilistId)
-        assertEquals(100, result.nativeIds["mal"])
-        assertEquals(200, result.nativeIds["kitsu"])
+        val ctx = capturedContext!!
+        assertEquals(12345, ctx.anilistId)
+        assertEquals(100, ctx.nativeIds["mal"])
+        assertEquals(200, ctx.nativeIds["kitsu"])
     }
 
     @Test
@@ -153,19 +163,24 @@ class MetadataProviderTest {
             anilistIdForMal = mapOf(100 to 12345),
             nativeIdsForAnilist = mapOf(12345 to mapOf("mal" to 100, "kitsu" to 200, "anidb" to 300)),
         )
-        val provider = MetadataProvider(emptyList())
-        provider.setDatabaseCache(mockCache)
+
+        var capturedContext: MetaproviderContext? = null
+        val capturingProvider = ContextCapturingProvider(capturedContext = { capturedContext = it })
+
+        val orchestrator = MetadataProvider(listOf(capturingProvider))
+        orchestrator.setDatabaseCache(mockCache)
         val context = MetaproviderContext(
             baseUrl = "https://example.com",
             nativeIds = mapOf("mal" to 100),
         )
 
-        val result = runBlocking { provider.resolve(context) }
+        runBlocking { orchestrator.resolve(context) }
 
-        assertEquals(12345, result.anilistId)
-        assertEquals(100, result.nativeIds["mal"])
-        assertEquals(200, result.nativeIds["kitsu"])
-        assertEquals(300, result.nativeIds["anidb"])
+        val ctx = capturedContext!!
+        assertEquals(12345, ctx.anilistId)
+        assertEquals(100, ctx.nativeIds["mal"])
+        assertEquals(200, ctx.nativeIds["kitsu"])
+        assertEquals(300, ctx.nativeIds["anidb"])
     }
 
     @Test
@@ -203,8 +218,8 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context) }
 
-        assertEquals("Second", result.title) // provider2 overrides
-        assertEquals("First Desc", result.description) // provider2 doesn't touch it
+        assertEquals("Second", result.title)
+        assertEquals("First Desc", result.description)
     }
 
     @Test
@@ -224,8 +239,8 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context, delegate) }
 
-        assertEquals("Provider Title", result.title) // provider overrides delegate
-        assertEquals("Delegate Desc", result.description) // provider doesn't touch it
+        assertEquals("Provider Title", result.title)
+        assertEquals("Delegate Desc", result.description)
     }
 
     @Test
@@ -245,9 +260,9 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context, delegate) }
 
-        assertEquals("Locked Title", result.title) // delegate locked
-        assertEquals("Locked Desc", result.description) // delegate locked
-        assertEquals("Action", result.genre) // provider fills gap
+        assertEquals("Locked Title", result.title)
+        assertEquals("Locked Desc", result.description)
+        assertEquals("Action", result.genre)
     }
 
     @Test
@@ -271,9 +286,9 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context, delegate) }
 
-        assertEquals("Locked Title", result.title) // delegate locked
-        assertEquals("Second Desc", result.description) // provider2 overrides provider1
-        assertEquals("Action", result.genre) // provider1 fills gap, provider2 doesn't touch
+        assertEquals("Locked Title", result.title)
+        assertEquals("Second Desc", result.description)
+        assertEquals("Action", result.genre)
     }
 
     @Test
@@ -294,17 +309,62 @@ class MetadataProviderTest {
 
         val result = runBlocking { orchestrator.resolve(context) }
 
-        assertEquals("Second", result.title) // no delegate, providers override each other
+        assertEquals("Second", result.title)
     }
 
-    // Test helper
+    @Test
+    fun `provider failure is caught and logged`() {
+        val failingProvider = object : MetadataSubProvider {
+            override val priority: Int = 10
+            override val name: String = "FailingProvider"
+            override suspend fun provide(context: MetaproviderContext): ExtensionMetadata = throw RuntimeException("Provider exploded")
+        }
+        val goodProvider = TestProvider(
+            priority = 20,
+            metadata = ExtensionMetadata(title = "Survivor"),
+        )
+        val orchestrator = MetadataProvider(listOf(failingProvider, goodProvider))
+        val context = MetaproviderContext(baseUrl = "https://example.com")
+
+        val result = runBlocking { orchestrator.resolve(context) }
+
+        assertEquals("Survivor", result.title)
+    }
+
+    @Test
+    fun `delegate failure is caught and returns empty metadata`() {
+        val delegate: suspend MetaproviderContext.() -> ExtensionMetadata = {
+            throw RuntimeException("Delegate exploded")
+        }
+        val provider = TestProvider(
+            priority = 10,
+            metadata = ExtensionMetadata(title = "From Provider"),
+        )
+        val orchestrator = MetadataProvider(listOf(provider))
+        val context = MetaproviderContext(baseUrl = "https://example.com")
+
+        val result = runBlocking { orchestrator.resolve(context, delegate) }
+
+        assertEquals("From Provider", result.title)
+    }
+
     private class TestProvider(
         override val priority: Int,
         private val metadata: ExtensionMetadata,
     ) : MetadataSubProvider {
         override val name: String = "TestProvider_$priority"
-
         override suspend fun provide(context: MetaproviderContext): ExtensionMetadata = metadata
+    }
+
+    private class ContextCapturingProvider(
+        private val capturedContext: (MetaproviderContext) -> Unit,
+    ) : MetadataSubProvider {
+        override val priority: Int = 999
+        override val name: String = "ContextCapturingProvider"
+        override suspend fun provide(context: MetaproviderContext): ExtensionMetadata {
+            capturedContext(context)
+            return ExtensionMetadata()
+        }
     }
 
     private class MockAnimeDatabaseCache(

@@ -31,9 +31,9 @@ open class AnimeDatabaseCache(
         private val DB_URL = "https://raw.githubusercontent.com/manami-project/anime-offline-database/master/anime-offline-database-minified.json"
     }
 
-    private val dbFile: File get() = File(context.filesDir, DB_FILENAME)
-    private val indexFile: File get() = File(context.filesDir, INDEX_FILENAME)
-    private val prefs: SharedPreferences get() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val dbFile: File? get() = context?.filesDir?.let { File(it, DB_FILENAME) }
+    private val indexFile: File? get() = context?.filesDir?.let { File(it, INDEX_FILENAME) }
+    private val prefs: SharedPreferences? get() = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     @Volatile
     private var inMemoryIndex: JSONObject? = null
@@ -56,7 +56,7 @@ open class AnimeDatabaseCache(
                 downloadDatabase()
                 buildIndex()
                 updateTimestamp()
-            } else if (!indexFile.exists()) {
+            } else if (indexFile?.exists() != true) {
                 buildIndex()
             }
 
@@ -74,12 +74,10 @@ open class AnimeDatabaseCache(
         return nativeIds
     }
 
-    open suspend fun resolveAnilistIdFromNative(nativeType: String, nativeId: Int): Int? {
-        return when (nativeType) {
-            "mal" -> resolveAnilistIdFromMal(nativeId)
-            "kitsu" -> resolveAnilistIdFromKitsu(nativeId)
-            else -> null
-        }
+    open suspend fun resolveAnilistIdFromNative(nativeType: String, nativeId: Int): Int? = when (nativeType) {
+        "mal" -> resolveAnilistIdFromMal(nativeId)
+        "kitsu" -> resolveAnilistIdFromKitsu(nativeId)
+        else -> null
     }
 
     open suspend fun resolveAnilistIdFromMal(malId: Int): Int? {
@@ -146,22 +144,25 @@ open class AnimeDatabaseCache(
     }
 
     private fun needsDownload(): Boolean {
-        if (!dbFile.exists()) return true
-        if (!indexFile.exists()) return true
+        val db = dbFile ?: return true
+        val idx = indexFile ?: return true
+        if (!db.exists()) return true
+        if (!idx.exists()) return true
 
-        val fileAge = System.currentTimeMillis() - dbFile.lastModified()
+        val fileAge = System.currentTimeMillis() - db.lastModified()
         if (fileAge > TimeUnit.DAYS.toMillis(REFRESH_DAYS)) return true
 
-        val lastUpdated = prefs.getLong(KEY_LAST_UPDATED, 0)
+        val lastUpdated = prefs?.getLong(KEY_LAST_UPDATED, 0) ?: 0L
         return lastUpdated == 0L || (System.currentTimeMillis() - lastUpdated > TimeUnit.DAYS.toMillis(REFRESH_DAYS))
     }
 
     private fun updateTimestamp() {
-        prefs.edit().putLong(KEY_LAST_UPDATED, System.currentTimeMillis()).apply()
+        prefs?.edit()?.putLong(KEY_LAST_UPDATED, System.currentTimeMillis())?.apply()
     }
 
     private fun downloadDatabase() {
         val httpClient = client ?: return
+        val db = dbFile ?: return
         val request = Request.Builder()
             .url(DB_URL)
             .header("Accept", "application/json")
@@ -171,20 +172,22 @@ open class AnimeDatabaseCache(
         if (!response.isSuccessful) return
 
         val body = response.body?.string() ?: return
-        dbFile.writeText(body)
+        db.writeText(body)
     }
 
     private fun buildIndex() {
-        if (!dbFile.exists()) return
+        val db = dbFile ?: return
+        val idx = indexFile ?: return
+        if (!db.exists()) return
 
-        val raw = dbFile.readText()
-        val db = try {
+        val raw = db.readText()
+        val dbJson = try {
             JSONObject(raw)
         } catch (_: Exception) {
             return
         }
 
-        val data = db.optJSONArray("data") ?: return
+        val data = dbJson.optJSONArray("data") ?: return
         val index = JSONObject()
 
         for (i in 0 until data.length()) {
@@ -222,7 +225,7 @@ open class AnimeDatabaseCache(
             index.put(anilistId.toString(), entry)
         }
 
-        indexFile.writeText(index.toString())
+        indexFile?.writeText(index.toString())
     }
 
     private fun extractAnilistId(sources: org.json.JSONArray): Int? {
@@ -237,9 +240,10 @@ open class AnimeDatabaseCache(
     }
 
     private fun readIndex(): JSONObject {
-        if (!indexFile.exists()) return JSONObject()
+        val idx = indexFile ?: return JSONObject()
+        if (!idx.exists()) return JSONObject()
         return try {
-            JSONObject(indexFile.readText())
+            JSONObject(idx.readText())
         } catch (_: Exception) {
             JSONObject()
         }

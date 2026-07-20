@@ -1,6 +1,7 @@
 package keiyoushi.templating
 
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.preference.PreferenceScreen
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -28,21 +29,31 @@ class PreferenceRegistry private constructor(
      * Typed read accessor.
      *
      * ```
-     * val quality = registry["preferred_quality"] as String
-     * val enabled = registry["mark_fillers"] as Boolean
+     * val quality = registry.getString("preferred_quality")
+     * val enabled = registry.getBoolean("mark_fillers")
      * ```
      */
+    fun getString(key: String, default: String = ""): String = getValue<String>(key) ?: default
+
+    fun getStringOrNull(key: String): String? = getValue<String>(key)
+
+    fun getInt(key: String, default: Int = 0): Int = getValue<Int>(key) ?: default
+
+    fun getLong(key: String, default: Long = 0L): Long = getValue<Long>(key) ?: default
+
+    fun getFloat(key: String, default: Float = 0f): Float = getValue<Float>(key) ?: default
+
+    fun getBoolean(key: String, default: Boolean = false): Boolean = getValue<Boolean>(key) ?: default
+
+    fun getStringSet(key: String, default: Set<String> = emptySet()): Set<String> = getValue<Set<String>>(key) ?: default
+
     @Suppress("UNCHECKED_CAST")
-    operator fun <T> get(key: String): T {
+    private fun <T> getValue(key: String): T? {
         val entry = entriesByKey[key]
             ?: throw IllegalArgumentException("No preference registered with key '$key'")
-        return readValue(entry) as T
+        return readValue(entry) as? T
     }
 
-    /**
-     * Renders the full schema to the given [PreferenceScreen] using the
-     * existing `keiyoushi.utils` preference helpers.
-     */
     fun renderTo(screen: PreferenceScreen) {
         for (entry in schema) {
             when (entry) {
@@ -101,7 +112,6 @@ class PreferenceRegistry private constructor(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun readValue(entry: PreferenceEntry<*>): Any? {
         val key = entry.key
         val default = entry.default
@@ -116,12 +126,21 @@ class PreferenceRegistry private constructor(
                 null -> preferences.all[key]
                 else -> throw IllegalArgumentException("Unsupported type: ${default.javaClass}")
             }
-        } catch (_: ClassCastException) {
+        } catch (e: ClassCastException) {
+            Log.w(TAG, "Type mismatch for key '$key', returning default", e)
             default
         }
     }
 
+    fun contains(key: String): Boolean = entriesByKey.containsKey(key)
+
+    fun keys(): Set<String> = entriesByKey.keys
+
+    fun size(): Int = entriesByKey.size
+
     companion object {
+        private const val TAG = "PreferenceRegistry"
+
         fun fromSchema(
             schema: List<PreferenceEntry<*>>,
             preferences: SharedPreferences,

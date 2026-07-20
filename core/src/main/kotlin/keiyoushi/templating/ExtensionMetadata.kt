@@ -1,37 +1,15 @@
 package keiyoushi.templating
 
 import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
+import eu.kanade.tachiyomi.animesource.model.SAnime
 
 /**
  * Controls how [MetadataProvider] merges metadata from the delegate and
  * sub-providers.
  */
 enum class MergeStrategy {
-    /**
-     * First writer wins. The delegate seeds metadata, then each provider
-     * can only fill fields that are still `null`. Once a field is set,
-     * no subsequent provider can override it.
-     *
-     * This is the safest strategy — delegate values are always preserved.
-     */
     FILL_NULLS,
-
-    /**
-     * Last writer wins. Each provider (including the delegate) can
-     * override any field from a previous provider. The final value for
-     * each field comes from the last provider that set it.
-     *
-     * Use this when you want lower-priority providers to act as
-     * fallbacks that can be overridden by higher-priority ones.
-     */
     OVERRIDE_ALL,
-
-    /**
-     * Delegate fields are locked; providers can override each other.
-     * The delegate seeds metadata with highest precedence. Providers
-     * then run in priority order, and each can override fields set
-     * by earlier providers — but never the delegate.
-     */
     OVERRIDE_NON_DELEGATE,
 }
 
@@ -44,45 +22,31 @@ enum class MergeStrategy {
  * receiver with non-null values from [other], which gives delegates
  * (which run first) the highest precedence over sub-providers.
  *
- * Field naming mirrors [eu.kanade.tachiyomi.animesource.model.SAnime] so the
- * metadata object can be directly applied to an `SAnime` instance.
+ * Field naming mirrors [SAnime] so the metadata object can be directly
+ * applied to an `SAnime` instance.
  */
 data class ExtensionMetadata(
-    // === Identity ===
     val name: String? = null,
     val lang: String? = null,
     val baseUrl: String? = null,
     val isNsfw: Boolean = false,
     val supportsLatest: Boolean = true,
-
-    // === Content metadata (maps 1:1 to SAnime fields) ===
     val title: String? = null,
     val description: String? = null,
     val thumbnailUrl: String? = null,
     val author: String? = null,
     val artist: String? = null,
     val genre: String? = null,
-    val status: Int? = null, // SAnime.ONGOING / COMPLETED / UNKNOWN
+    val status: Int? = null,
     val updateStrategy: AnimeUpdateStrategy? = null,
-
-    // === Provider-specific IDs ===
-    // Carries native IDs (MAL, Kitsu, AniDB) that providers read.
-    // Delegates populate this when they know IDs the orchestrator can't resolve.
-    // Key convention: "mal", "kitsu", "anidb", "anilist".
     val nativeIds: Map<String, Int> = emptyMap(),
 ) {
-    /**
-     * Returns a copy of this metadata where every `null` field is filled
-     * from the corresponding non-null field of [other].
-     *
-     * Non-null fields in this metadata are preserved (delegate always wins).
-     */
     fun merge(other: ExtensionMetadata): ExtensionMetadata = ExtensionMetadata(
         name = name ?: other.name,
         lang = lang ?: other.lang,
         baseUrl = baseUrl ?: other.baseUrl,
-        isNsfw = if (other.isNsfw) true else isNsfw,
-        supportsLatest = if (other.supportsLatest == false) false else supportsLatest,
+        isNsfw = isNsfw || other.isNsfw,
+        supportsLatest = supportsLatest && other.supportsLatest,
         title = title ?: other.title,
         description = description ?: other.description,
         thumbnailUrl = thumbnailUrl ?: other.thumbnailUrl,
@@ -94,16 +58,12 @@ data class ExtensionMetadata(
         nativeIds = nativeIds + other.nativeIds,
     )
 
-    /**
-     * Returns a copy where [other]'s non-null fields overwrite this
-     * metadata's fields — used by [MergeStrategy.OVERRIDE_ALL].
-     */
     fun overrideWith(other: ExtensionMetadata): ExtensionMetadata = ExtensionMetadata(
         name = other.name ?: name,
         lang = other.lang ?: lang,
         baseUrl = other.baseUrl ?: baseUrl,
-        isNsfw = if (other.isNsfw) true else isNsfw,
-        supportsLatest = if (other.supportsLatest == false) false else supportsLatest,
+        isNsfw = isNsfw || other.isNsfw,
+        supportsLatest = supportsLatest && other.supportsLatest,
         title = other.title ?: title,
         description = other.description ?: description,
         thumbnailUrl = other.thumbnailUrl ?: thumbnailUrl,
@@ -114,4 +74,64 @@ data class ExtensionMetadata(
         updateStrategy = other.updateStrategy ?: updateStrategy,
         nativeIds = other.nativeIds.ifEmpty { nativeIds },
     )
+
+    fun toSAnime(): SAnime = SAnime.create().apply {
+        title = this@ExtensionMetadata.title ?: ""
+        author = this@ExtensionMetadata.author ?: ""
+        artist = this@ExtensionMetadata.artist ?: ""
+        genre = this@ExtensionMetadata.genre ?: ""
+        description = this@ExtensionMetadata.description ?: ""
+        thumbnail_url = this@ExtensionMetadata.thumbnailUrl ?: ""
+        status = this@ExtensionMetadata.status ?: SAnime.UNKNOWN
+    }
+
+    fun toSAnimeFallback(fallback: SAnime): SAnime = SAnime.create().apply {
+        title = this@ExtensionMetadata.title ?: fallback.title
+        author = this@ExtensionMetadata.author ?: fallback.author
+        artist = this@ExtensionMetadata.artist ?: fallback.artist
+        genre = this@ExtensionMetadata.genre ?: fallback.genre
+        description = this@ExtensionMetadata.description ?: fallback.description
+        thumbnail_url = this@ExtensionMetadata.thumbnailUrl ?: fallback.thumbnail_url
+        status = this@ExtensionMetadata.status ?: fallback.status
+    }
+
+    fun applyToAnime(anime: SAnime): SAnime = anime.apply {
+        title = this@ExtensionMetadata.title ?: anime.title
+        author = this@ExtensionMetadata.author ?: anime.author
+        artist = this@ExtensionMetadata.artist ?: anime.artist
+        genre = this@ExtensionMetadata.genre ?: anime.genre
+        description = this@ExtensionMetadata.description ?: anime.description
+        thumbnail_url = this@ExtensionMetadata.thumbnailUrl ?: anime.thumbnail_url
+        status = this@ExtensionMetadata.status ?: anime.status
+    }
+
+    fun isNotEmpty(): Boolean = title != null || description != null || thumbnailUrl != null ||
+        author != null || artist != null || genre != null || status != null ||
+        nativeIds.isNotEmpty()
+
+    fun hasIdentity(): Boolean = name != null && lang != null && baseUrl != null
+
+    fun hasContentMetadata(): Boolean = title != null || description != null || thumbnailUrl != null
+
+    fun getMalId(): Int? = nativeIds["mal"]
+
+    fun getKitsuId(): Int? = nativeIds["kitsu"]
+
+    fun getAnidbId(): Int? = nativeIds["anidb"]
+
+    companion object {
+        val EMPTY = ExtensionMetadata()
+
+        fun identity(
+            name: String,
+            lang: String,
+            baseUrl: String,
+            supportsLatest: Boolean = true,
+        ) = ExtensionMetadata(
+            name = name,
+            lang = lang,
+            baseUrl = baseUrl,
+            supportsLatest = supportsLatest,
+        )
+    }
 }

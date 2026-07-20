@@ -17,6 +17,19 @@ core/src/main/kotlin/keiyoushi/templating/
   LocalAnimeDatabaseProvider.kt  # Reads from cached database (priority 0)
   PreferenceEntry.kt         # Sealed interface: Text / List / Switch / MultiSelect
   PreferenceRegistry.kt       # Auto-managed schema → typed reads + UI + persistence
+  CommonPreferences.kt       # Factory methods for common preference patterns
+
+  # Utility Mixins (implement on extensions for common patterns)
+  MirrorSupport.kt           # Multi-domain/mirror site support
+  ServerToggle.kt            # Video server/hoster selection
+  BilingualTitle.kt          # English/Romaji title language toggle
+  TypeToggle.kt              # Sub/Dub/Raw video type selection
+
+  # Utility Functions (standalone helpers)
+  VideoUtils.kt              # Video sorting and filtering
+  ScoreDisplay.kt            # Star rating display (★★★★☆)
+  StatusUtils.kt             # Anime status parsing (Ongoing/Completed)
+  ElementExtensions.kt       # Jsoup Element helpers (getImageUrl, getInfo)
 
 lib/anilib/src/aniyomi/lib/anilib/
   AniLibMetadataProvider.kt  # Concrete provider wrapping AniLib (priority 20)
@@ -38,6 +51,18 @@ lib/anilib/src/aniyomi/lib/anilib/
                     ▼             ▼
               Sub-Providers   Delegate (pre-populate)
               (ordered)       (always wins)
+
+    Utility Mixins (opt-in via interface implementation):
+    ┌──────────────┬──────────────┬──────────────┬──────────────┐
+    │ MirrorSupport│ ServerToggle │ BilingualTitle│  TypeToggle  │
+    │ (domains)    │ (hosters)    │ (lang)       │ (sub/dub)    │
+    └──────────────┴──────────────┴──────────────┴──────────────┘
+
+    Standalone Utilities:
+    ┌──────────────┬──────────────┬──────────────┬──────────────┐
+    │  VideoUtils  │ ScoreDisplay │ StatusUtils  │ElementExt.   │
+    │ (sort/filter)│ (★★★★☆)     │ (ongoing)    │ (getImageUrl)│
+    └──────────────┴──────────────┴──────────────┴──────────────┘
 ```
 
 ## Quick Start
@@ -423,6 +448,147 @@ Boolean fields (`isNsfw`, `supportsLatest`) use OR / false-wins semantics:
 | `PreferenceEntry.List` | ListPreference | `String` | `addListPreference()` |
 | `PreferenceEntry.Switch` | SwitchPreferenceCompat | `Boolean` | `addSwitchPreference()` |
 | `PreferenceEntry.MultiSelect` | MultiSelectListPreference | `Set<String>` | `addSetPreference()` |
+
+## Common Preferences
+
+Use `CommonPreferences` factory methods to create frequently-used preferences with sensible defaults:
+
+```kotlin
+override val preferenceSchema = listOf(
+    CommonPreferences.quality(),           // preferred_quality
+    CommonPreferences.server(              // preferred_server
+        default = "Server1",
+        entries = listOf("Server1", "Server2"),
+    ),
+    CommonPreferences.domain(              // preferred_domain
+        default = "site1.com",
+        entries = listOf("site1.com", "site2.com"),
+        entryValues = listOf("https://site1.com", "https://site2.com"),
+    ),
+    CommonPreferences.hosterSelection(),   // hoster_selection
+    CommonPreferences.titleLanguage(),     // preferred_title_lang
+    CommonPreferences.typeToggle(),        // preferred_type
+    CommonPreferences.markFillers(),       // mark_fillers
+)
+```
+
+## Utility Mixins
+
+Mixins provide reusable behavior via interface implementation. Add them to your extension class to get standard patterns for free.
+
+### MirrorSupport
+
+For extensions supporting multiple mirror sites/domains:
+
+```kotlin
+class MyExtension : AnimeExtension(), MirrorSupport {
+    override val identity = ExtensionMetadata(
+        name = "MySite",
+        lang = "en",
+        baseUrl = "https://site1.com",  // default
+    )
+
+    override val mirrorSupportEntries = listOf("site1.com", "site2.com", "site3.com")
+    override val mirrorSupportDefault = "site1.com"
+
+    override fun onMirrorChanged(newDomain: String) {
+        // Rebuild client with new rate-limit host
+        client = network.client.newBuilder()
+            .rateLimitHost(newDomain.toHttpUrl(), permits = 1, period = 1L, TimeUnit.SECONDS)
+            .build()
+    }
+}
+```
+
+### ServerToggle
+
+For extensions with video server/hoster selection:
+
+```kotlin
+class MyExtension : AnimeExtension(), ServerToggle {
+    override val serverToggleEntries = listOf("Server1", "Server2", "Server3")
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val allVideos = fetchVideosFromSource(episode)
+        return filterVideos(allVideos)  // Auto-filters by enabled servers
+    }
+}
+```
+
+### BilingualTitle
+
+For extensions with English/Romaji title toggle:
+
+```kotlin
+class MyExtension : AnimeExtension(), BilingualTitle {
+    override fun popularAnimeFromElement(element: Element): SAnime {
+        val enTitle = element.selectFirst(".en-title")?.text()
+        val jpTitle = element.selectFirst(".jp-title")?.text()
+        return SAnime.create().apply {
+            title = selectTitle(enTitle, jpTitle)  // Auto-selects based on preference
+        }
+    }
+}
+```
+
+### TypeToggle
+
+For extensions with Sub/Dub/Raw type selection:
+
+```kotlin
+class MyExtension : AnimeExtension(), TypeToggle {
+    override fun videoListParse(response: Response): List<Video> {
+        val allVideos = parseAllVideos(response)
+        val type = getPreferredType()  // Returns "Sub", "Dub", etc.
+        return allVideos.filter { it.quality.contains(type, ignoreCase = true) }
+    }
+}
+```
+
+## Standalone Utilities
+
+### VideoUtils
+
+```kotlin
+import keiyoushi.templating.sortByQuality
+import keiyoushi.templating.filterByExcludedServers
+
+override fun List<Video>.sort(): List<Video> {
+    val quality = preferenceRegistry["preferred_quality"] as String
+    return this.sortByQuality(quality)
+}
+
+// Or filter by excluded servers
+val filtered = videos.filterByExcludedServers(setOf("BadServer1", "BadServer2"))
+```
+
+### ScoreDisplay
+
+```kotlin
+import keiyoushi.templating.toStarRating
+
+val score = "8.5"
+val display = score.toStarRating()  // "★★★★☆ 8.5"
+val starsOnly = score.toStarsOnly()  // "★★★★☆"
+```
+
+### StatusUtils
+
+```kotlin
+import keiyoushi.templating.parseAnimeStatus
+
+val status = "Currently Airing".parseAnimeStatus()  // SAnime.ONGOING
+```
+
+### ElementExtensions
+
+```kotlin
+import keiyoushi.templating.getImageUrl
+import keiyoushi.templating.getInfo
+
+val thumbnail = element.selectFirst("img")?.getImageUrl()
+val status = infoElement.getInfo("Status:")  // "Ongoing"
+```
 
 ## Migration from Existing Extensions
 
