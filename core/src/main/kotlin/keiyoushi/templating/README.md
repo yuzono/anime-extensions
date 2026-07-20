@@ -105,14 +105,15 @@ override val preferenceSchema = listOf(
 
 That's it. The template auto-generates:
 - **UI** — `setupPreferenceScreen()` is already implemented. It calls the existing `keiyoushi.utils.add*Preference` helpers.
-- **Typed reads** — `preferenceRegistry["preferred_quality"]` returns the value.
+- **Typed reads** — `getString("preferred_quality")` returns the value without casting.
 - **Persistence** — reads/writes go through `SharedPreferences` via the existing `PreferenceDelegate` mechanism.
 
 Reading a preference:
 
 ```kotlin
-val quality = preferenceRegistry["preferred_quality"] as String
-val markFillers = preferenceRegistry["mark_fillers"] as Boolean
+val quality = getString("preferred_quality", "720")
+val markFillers = getBoolean("mark_fillers")
+val port = getInt("port", 8080)
 ```
 
 ### 3. Add Metadata Providers (Optional)
@@ -175,11 +176,44 @@ val context = MetaproviderContext(
 Providers that use a different ID space read their native ID from `context.nativeIds`:
 
 ```kotlin
-// In TenraiMetadataProvider:
-val malId = context.nativeIds["mal"] ?: return ExtensionMetadata()
+// Convenience accessors available
+val malId = context.getMalId()          // reads nativeIds["mal"]
+val kitsuId = context.getKitsuId()      // reads nativeIds["kitsu"]
+val anidbId = context.getAnidbId()      // reads nativeIds["anidb"]
 ```
 
 Key convention: `"mal"` for MyAnimeList, `"kitsu"` for Kitsu, `"anidb"` for AniDB, etc.
+
+### MetaproviderContext Builder
+
+For complex context construction, use the Builder pattern:
+
+```kotlin
+val context = MetaproviderContext.builder("https://example.com")
+    .anilistId(12345)
+    .nativeId("mal", 100)
+    .animeUrl("/anime/123")
+    .httpClient(client)
+    .headers(headers)
+    .document(doc)
+    .preferences(preferences)
+    .context(appContext)
+    .extra("customKey", customValue)
+    .build()
+```
+
+Or use the factory method:
+
+```kotlin
+val context = MetaproviderContext.fromAnime(
+    baseUrl = "https://example.com",
+    animeUrl = "/anime/123",
+    httpClient = client,
+    headers = headers,
+    preferences = preferences,
+    context = appContext,
+)
+```
 
 #### Built-in Providers
 
@@ -205,30 +239,37 @@ override val metadataDelegate = { ctx: MetaproviderContext ->
 
 ### 5. Resolve Metadata at Runtime
 
+The simplest approach uses the convenience method that builds the context for you:
+
 ```kotlin
 override suspend fun getAnimeDetails(anime: SAnime): SAnime {
     val response = client.newCall(animeDetailsRequest(anime)).await()
     val document = response.asJsoup()
 
-    val context = MetaproviderContext(
-        baseUrl = baseUrl,
-        anilistId = anilistIdFromUrl(anime.url),  // resolve once from source URL
-        animeUrl = anime.url,
-        httpClient = client,
-        headers = headers,
-        document = document,
-        preferences = preferences,
-        context = applicationContext,
-    )
+    val meta = resolveMetadataFor(anime, document = document)
+    return meta.toSAnimeFallback(anime)
+}
+```
+
+For full control, build the context manually:
+
+```kotlin
+override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+    val response = client.newCall(animeDetailsRequest(anime)).await()
+    val document = response.asJsoup()
+
+    val context = MetaproviderContext.builder(baseUrl)
+        .anilistId(anilistIdFromUrl(anime.url))
+        .animeUrl(anime.url)
+        .httpClient(client)
+        .headers(headers)
+        .document(document)
+        .preferences(preferences)
+        .context(context)
+        .build()
     val meta = resolveMetadata(context)
 
-    return SAnime.create().apply {
-        title = meta.title ?: anime.title
-        description = meta.description
-        thumbnail_url = meta.thumbnailUrl
-        genre = meta.genre
-        status = meta.status ?: SAnime.UNKNOWN
-    }
+    return meta.applyToAnime(anime)
 }
 ```
 
@@ -552,14 +593,25 @@ class MyExtension : AnimeExtension(), TypeToggle {
 ```kotlin
 import keiyoushi.templating.sortByQuality
 import keiyoushi.templating.filterByExcludedServers
+import keiyoushi.templating.deduplicate
+import keiyoushi.templating.filterAndSort
 
-override fun List<Video>.sort(): List<Video> {
-    val quality = preferenceRegistry["preferred_quality"] as String
-    return this.sortByQuality(quality)
-}
+// Sort by quality preference
+val sorted = videos.sortByQuality("1080")
 
-// Or filter by excluded servers
+// Filter by excluded servers
 val filtered = videos.filterByExcludedServers(setOf("BadServer1", "BadServer2"))
+
+// Remove duplicate videos (same quality + URL)
+val unique = videos.deduplicate()
+
+// All-in-one: exclude servers, filter by type, deduplicate, sort
+val result = videos.filterAndSort(
+    preferredQuality = "1080",
+    excludedServers = setOf("SlowServer"),
+    allowedTypes = setOf("Sub", "Dub"),
+    deduplicate = true,
+)
 ```
 
 ### ScoreDisplay
@@ -576,8 +628,23 @@ val starsOnly = score.toStarsOnly()  // "★★★★☆"
 
 ```kotlin
 import keiyoushi.templating.parseAnimeStatus
+import keiyoushi.templating.toStatusString
+import keiyoushi.templating.isOngoing
+import keiyoushi.templating.isCompleted
 
+// Parse from string (supports 8+ languages)
 val status = "Currently Airing".parseAnimeStatus()  // SAnime.ONGOING
+val status2 = "完了".parseAnimeStatus()             // SAnime.COMPLETED
+val status3 = "em andamento".parseAnimeStatus()     // SAnime.ONGOING
+
+// Convert back to display string
+val label = SAnime.ONGOING.toStatusString()  // "Ongoing"
+
+// Quick status checks (extension functions on Int)
+if (status.isOngoing()) { /* ... */ }
+if (status.isCompleted()) { /* ... */ }
+if (status.isAired()) { /* COMPLETED or ONGOING */ }
+if (status.isActive()) { /* ONGOING or ON_HIATUS */ }
 ```
 
 ### ElementExtensions
@@ -585,9 +652,23 @@ val status = "Currently Airing".parseAnimeStatus()  // SAnime.ONGOING
 ```kotlin
 import keiyoushi.templating.getImageUrl
 import keiyoushi.templating.getInfo
+import keiyoushi.templating.extractMetadata
+import keiyoushi.templating.getOpenGraphData
 
+// Image extraction (handles lazy-loading, srcset, data-src)
 val thumbnail = element.selectFirst("img")?.getImageUrl()
+val allImages = element.getImageUrls()
+
+// Info extraction from details pages
 val status = infoElement.getInfo("Status:")  // "Ongoing"
+val genres = infoElement.getInfoList("Genre:")
+
+// Bulk metadata extraction
+val metadata = element.extractMetadata()  // map of Status, Genre, Type, etc.
+
+// Open Graph / meta tags
+val ogTitle = element.getOpenGraphData("title")
+val metaDesc = element.getMetaContent("description")
 ```
 
 ## Migration from Existing Extensions
@@ -608,3 +689,70 @@ The `extClass` manifest contract is preserved — `AnimeExtension` subclasses mu
 - `GenerateKeepRulesTask` — unchanged
 - All existing extensions and multisrc themes — unchanged
 - `keiyoushi.utils.Source` — stays (deprecated, not removed)
+
+## Robustness & Error Handling
+
+The framework is designed to be resilient to failures in providers, delegates, and external data sources.
+
+### Provider Error Isolation
+
+If a `MetadataSubProvider` throws an exception, it is caught, logged, and returns empty metadata. The remaining providers continue normally:
+
+```kotlin
+// Provider 1 crashes → logged, skipped
+// Provider 2 runs normally → its metadata is still merged
+override val metadataSubProviders = listOf(
+    FlakyProvider(priority = 10),  // if this throws, chain continues
+    ReliableProvider(priority = 20),
+)
+```
+
+### Delegate Error Isolation
+
+If the `metadataDelegate` throws, it returns empty metadata and providers proceed as if no delegate was set.
+
+### Metadata Caching
+
+`MetadataProvider` caches resolved metadata for 5 minutes per AniList ID (or nativeIds hash). Repeated calls to `resolveMetadata()` for the same anime skip the full provider chain. Call `metadataProvider.clearCache()` to invalidate.
+
+### Lifecycle Hooks
+
+`AnimeExtension` provides overridable hooks for initialization and cleanup:
+
+```kotlin
+class MyExtension : AnimeExtension() {
+    override fun onInit() {
+        // Called once when extension is created
+        // Setup database connections, load configs, etc.
+    }
+
+    override fun onDestroy() {
+        // Called when extension is torn down
+        // Close connections, cancel jobs, etc.
+    }
+
+    override fun onPreferenceChanged(key: String, newValue: Any?): Boolean {
+        // Called when user changes a preference
+        // Return false to reject the change
+        // Return true (default) to accept
+        return true
+    }
+}
+```
+
+### ExtensionMetadata Convenience Methods
+
+`ExtensionMetadata` provides direct conversion to `SAnime`:
+
+```kotlin
+val meta = resolveMetadataFor(anime)
+
+// Create new SAnime from metadata (null fields become empty strings)
+val newAnime = meta.toSAnime()
+
+// Create new SAnime with fallback to another anime for null fields
+val mergedAnime = meta.toSAnimeFallback(anime)
+
+// Apply metadata to an existing SAnime (null fields preserve original)
+meta.applyToAnime(anime)
+```
