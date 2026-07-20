@@ -1,0 +1,135 @@
+package eu.kanade.tachiyomi.animeextension.en.animetoki.extractors
+
+import android.util.Base64
+import android.util.Log
+import eu.kanade.tachiyomi.animeextension.en.animetoki.CloudFileResponse
+import eu.kanade.tachiyomi.animeextension.en.animetoki.naturalCompare
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.network.POST
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Headers
+import okhttp3.OkHttpClient
+import java.net.URLDecoder
+
+class CloudExtractor(private val client: OkHttpClient, private val headers: Headers) {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun getEpisodesFromCloudUrl(cloudUrl: String, prefix: String = ""): List<SEpisode> {
+        val (baseUrl, segments) = splitUrl(cloudUrl)
+        val initialUrl = urlToBase64(baseUrl, segments)
+        val episodes = mutableListOf<SEpisode>()
+        traverseFolder(baseUrl, initialUrl, episodes, floatArrayOf(1f), prefix)
+        return episodes
+    }
+
+    private fun encode2Base64(s: String): String = Base64.encodeToString(URLDecoder.decode(s, "UTF-8").toByteArray(), Base64.DEFAULT or Base64.NO_WRAP)
+
+    private fun splitUrl(url: String): Pair<String, List<String>> {
+        val parts = url.split("://")
+        if (parts.size < 2) return Pair(url, emptyList())
+        val protocol = parts[0]
+        val rest = parts[1]
+
+        val segments = rest.split("/").filter { it.isNotEmpty() }
+        val baseUrl = "$protocol://${segments.firstOrNull() ?: ""}"
+        val pathSegments = if (segments.size > 1) segments.drop(1) else emptyList()
+
+        return Pair(baseUrl, pathSegments)
+    }
+
+    private fun encodeSegment(s: String): String {
+        val decoded = URLDecoder.decode(s, "UTF-8")
+        return try {
+            val bytes = Base64.decode(decoded, Base64.DEFAULT)
+            val reencoded = Base64.encodeToString(bytes, Base64.DEFAULT or Base64.NO_WRAP)
+            if (reencoded.trimEnd('=') == decoded.trimEnd('=')) {
+                decoded
+            } else {
+                Base64.encodeToString(decoded.toByteArray(), Base64.DEFAULT or Base64.NO_WRAP)
+            }
+        } catch (e: Exception) {
+            Base64.encodeToString(decoded.toByteArray(), Base64.DEFAULT or Base64.NO_WRAP)
+        }
+    }
+
+    private fun urlToBase64(baseUrl: String, segments: List<String>): String {
+        val encodedSegments = segments.joinToString("/") { encodeSegment(it) }
+        return if (encodedSegments.isEmpty()) {
+            "$baseUrl/"
+        } else {
+            "$baseUrl/$encodedSegments/"
+        }
+    }
+
+    private fun traverseFolder(baseUrl: String, folderUrl: String, episodes: MutableList<SEpisode>, epCounter: FloatArray, prefix: String = "") {
+        var responseBody: String? = null
+        try {
+            // drive.animetoki.com requires a session cookie which is set on GET request
+            if (folderUrl.contains("drive.animetoki.com")) {
+                try {
+                    client.newCall(eu.kanade.tachiyomi.network.GET(folderUrl, headers)).execute().close()
+                } catch (e: Exception) {
+                    Log.e("AnimeToki", "Failed preliminary GET for session cookie: $folderUrl", e)
+                }
+            }
+
+            for (i in 1..3) {
+                try {
+                    client.newCall(POST(folderUrl, headers)).execute().use { response ->
+                        if (response.isSuccessful) {
+                            responseBody = response.body.string()
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (i == 3) throw e
+                    Thread.sleep(1000)
+                }
+            }
+            if (responseBody.isNullOrEmpty()) {
+                Log.e("AnimeToki", "Failed to fetch cloud folder after 3 retries: $folderUrl")
+                return
+            }
+
+            val responseObj = json.decodeFromString<CloudFileResponse>(responseBody)
+            val nodeIndex = responseObj.nodeIndex?.jsonPrimitive?.content ?: ""
+
+            val sortedFiles = responseObj.files.sortedWith(
+                Comparator { a, b ->
+                    naturalCompare(a.name, b.name)
+                },
+            )
+
+            for (file in sortedFiles) {
+                if (file.actualMimeType.contains("video", ignoreCase = true)) {
+                    val downloadUrl = "$baseUrl/?a=download&id=${file.id}&name=${encode2Base64(file.name)}&n=$nodeIndex"
+                    val episode = SEpisode.create().apply {
+                        val cleanName = file.name.replace("[AnimeToki] ", "", ignoreCase = true)
+                            .replace("[AnimeSakura] ", "", ignoreCase = true).trim()
+                        this.name = cleanName
+                        if (prefix.isNotBlank()) {
+                            this.scanlator = prefix
+                        }
+                        this.url = downloadUrl
+                        this.episode_number = epCounter[0]++
+                    }
+                    episodes.add(episode)
+                } else if (file.actualMimeType.contains("folder", ignoreCase = true)) {
+                    val nextUrl = if (folderUrl.endsWith("/")) {
+                        folderUrl + encode2Base64(file.name) + "/"
+                    } else {
+                        folderUrl + "/" + encode2Base64(file.name) + "/"
+                    }
+                    val newPrefix = if (prefix.isNotBlank()) "$prefix / ${file.name}" else file.name
+                    traverseFolder(baseUrl, nextUrl, episodes, epCounter, newPrefix)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AnimeToki", "Error parsing cloud folder: $folderUrl", e)
+            Log.e("AnimeToki", "Response Body: $responseBody")
+        }
+    }
+}
