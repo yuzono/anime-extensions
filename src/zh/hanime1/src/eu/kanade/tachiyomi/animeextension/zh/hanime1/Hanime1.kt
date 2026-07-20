@@ -16,7 +16,6 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
-import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -55,7 +54,7 @@ class Hanime1 :
     private val preferences by getPreferencesLazy()
 
     private var filterUpdateState = FilterUpdateState.NONE
-
+    private val uploadDateRegex = Regex("""\d{4}-\d{2}-\d{2}""")
     private val uploadDateFormat: SimpleDateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
     }
@@ -63,21 +62,26 @@ class Hanime1 :
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.useAsJsoup()
         return SAnime.create().apply {
-            genre = doc.select(".single-video-tag").not("[data-toggle]").eachText().joinToString()
+            genre = doc.select(".single-video-tag").not("[data-toggle]").eachText()
+                // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
+                .joinToString { it.replace(Regex("""^(# )?(.*?)( \(\d+\))?$"""), "$2") }
             author = doc.select("#video-artist-name").text()
-            val realTitle = doc.select("div.video-description-panel > div:nth-child(2)").text()
-            title = realTitle.appendInvisibleChar()
-            description = doc.select("div.video-description-panel > div:nth-child(3)").text()
-            thumbnail_url = doc.select("video[poster]").attr("poster")
+            title = doc.select("#shareBtn-title").text()
+                .takeIf { it.isNotBlank() }
+                ?: doc.select("meta[property=og:title]").attr("content")
+                    .takeIf { it.isNotBlank() }
+                    ?: ""
+            description = doc.select("meta[property=og:description]").attr("content")
+            thumbnail_url = doc.select("meta[property=og:image]").attr("content")
             val type = doc.select("a#video-artist-name + a").text().trim()
-            if (type == "裏番" || type == "泡麵番") {
+            if ((type == "裏番" || type == "泡麵番") && title.isNotEmpty()) {
                 // Use the series cover image for bangumi entries instead of the episode image.
                 runBlocking {
                     try {
                         val animesPage =
                             getSearchAnime(
                                 1,
-                                realTitle,
+                                title,
                                 AnimeFilterList(GenreFilter(arrayOf("", type)).apply { state = 1 }),
                             )
                         thumbnail_url = animesPage.animes.firstOrNull()?.thumbnail_url
@@ -94,16 +98,15 @@ class Hanime1 :
         val nodes = jsoup.select("#playlist-scroll").first()!!.select(">div")
         return nodes.mapIndexed { index, element ->
             SEpisode.create().apply {
-                val href = element.select("a.overlay").attr("href")
+                val href = element.select(".thumb-container a").attr("href")
                 setUrlWithoutDomain(href)
                 episode_number = (nodes.size - index).toFloat()
-                name = element.select("div.card-mobile-title").text()
+                name = element.select(".video-title").text()
                 if (href == response.request.url.toString()) {
-                    // current video
-                    val timeStr =
-                        jsoup.select("div.video-description-panel > div:first-child").text()
-                            .split(" ").last()
-                    date_upload = uploadDateFormat.tryParse(timeStr)
+                    // current video, parse `觀看次數：362.5萬次 2025-12-26` to upload date
+                    uploadDateRegex.find(jsoup.select("#shareBtn-title + div").text())?.value?.let {
+                        date_upload = runCatching { uploadDateFormat.parse(it)?.time }.getOrNull() ?: 0L
+                    }
                 }
             }
         }
@@ -184,7 +187,6 @@ class Hanime1 :
                 }
 
                 is AnimeFilter.Group<*> -> it.state
-
                 else -> listOf(it)
             }
         }.forEach {
