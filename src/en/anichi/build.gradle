@@ -1,0 +1,10 @@
+// Contributed by @SahooShuvranshu (aka its_crystal.alive)
+ext {
+    extName = 'Anichi'
+    extClass = '.Anichi'
+    themePkg = 'anikototheme'
+    baseUrl = 'https://anichi.to'
+    overrideVersionCode = 0
+}
+
+apply plugin: "kei.plugins.extension.legacy"
