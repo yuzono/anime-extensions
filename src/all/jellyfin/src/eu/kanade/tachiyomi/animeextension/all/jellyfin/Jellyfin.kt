@@ -176,7 +176,7 @@ class Jellyfin(private val suffix: String) :
         checkPreferences()
 
         val startIndex = (page - 1) * SERIES_FETCH_LIMIT
-        val url = getItemsUrl(startIndex).newBuilder().apply {
+        fun getSearchUrl(searchTerm: String) = getItemsUrl(startIndex).newBuilder().apply {
             // Search for series, rather than seasons, since season names can just be "Season 1"
             // Add "Episode" to search for episodes too, but this can lead to less relevant results
             setQueryParameter(
@@ -184,10 +184,21 @@ class Jellyfin(private val suffix: String) :
                 if (preferences.searchEpisodes) "Movie,Series,Episode" else "Movie,Series",
             )
             setQueryParameter("Limit", SERIES_FETCH_LIMIT.toString())
-            setQueryParameter("SearchTerm", query)
+            setQueryParameter("SearchTerm", searchTerm)
         }.build()
 
-        val items = client.get(url).parseAs<ItemListDto>(json)
+        val searchQuery = query.trim()
+        var items = client.get(getSearchUrl(searchQuery)).parseAs<ItemListDto>(json)
+        val seriesQuery = searchQuery.replace(SEASON_TITLE_SUFFIX_REGEX, "").ifBlank { searchQuery }
+        val requestedSeasonTitle = if (
+            seriesQuery != searchQuery &&
+            items.items.none { it.name.equals(searchQuery, ignoreCase = true) }
+        ) {
+            items = client.get(getSearchUrl(seriesQuery)).parseAs<ItemListDto>(json)
+            searchQuery
+        } else {
+            null
+        }
         val animeList = coroutineScope {
             items.items.parallelFlatMap { series ->
                 when (series.type) {
@@ -215,9 +226,12 @@ class Jellyfin(private val suffix: String) :
             }
         }
 
+        val matchingAnime = requestedSeasonTitle?.let { title ->
+            animeList.filter { it.title.equals(title, ignoreCase = true) }
+        } ?: animeList
         val hasNextPage = SERIES_FETCH_LIMIT * page < items.totalRecordCount
 
-        return AnimesPage(animeList, hasNextPage)
+        return AnimesPage(matchingAnime, hasNextPage)
     }
 
     // =========================== Anime Details ============================
@@ -581,6 +595,10 @@ class Jellyfin(private val suffix: String) :
     companion object {
         private const val SEASONS_FETCH_LIMIT = 20
         private const val SERIES_FETCH_LIMIT = 5
+        private val SEASON_TITLE_SUFFIX_REGEX = Regex(
+            """\s+(?:Season\s+\d+|Specials)\s*$""",
+            RegexOption.IGNORE_CASE,
+        )
         private val LIBRARY_BLACKLIST = listOf(
             "music",
             "musicvideos",
