@@ -12,10 +12,10 @@ import androidx.preference.Preference
  * [PreferenceRegistry.renderTo].
  *
  * Each variant corresponds to one Android preference widget type:
- * - [Text]         → EditTextPreference
- * - [List]         → ListPreference (single-select dropdown)
- * - [Switch]       → SwitchPreferenceCompat (boolean toggle)
- * - [MultiSelect]  → MultiSelectListPreference
+ * - [EditTextPreference]           → EditTextPreference
+ * - [ListPreference]               → ListPreference (single-select dropdown)
+ * - [SwitchPreferenceCompat]       → SwitchPreferenceCompat (boolean toggle)
+ * - [MultiSelectListPreference]    → MultiSelectListPreference
  */
 sealed interface PreferenceEntry<T> {
     val key: String
@@ -30,7 +30,7 @@ sealed interface PreferenceEntry<T> {
     /**
      * Single-line text input.
      */
-    data class Text(
+    data class EditTextPreference(
         override val key: String,
         override val title: String,
         override val summary: String,
@@ -48,7 +48,7 @@ sealed interface PreferenceEntry<T> {
     /**
      * Single-select dropdown.
      */
-    data class List(
+    data class ListPreference(
         override val key: String,
         override val title: String,
         override val summary: String,
@@ -64,7 +64,7 @@ sealed interface PreferenceEntry<T> {
     /**
      * Boolean toggle.
      */
-    data class Switch(
+    data class SwitchPreferenceCompat(
         override val key: String,
         override val title: String,
         override val summary: String,
@@ -78,7 +78,7 @@ sealed interface PreferenceEntry<T> {
     /**
      * Multi-select checkbox list.
      */
-    data class MultiSelect(
+    data class MultiSelectListPreference(
         override val key: String,
         override val title: String,
         override val summary: String,

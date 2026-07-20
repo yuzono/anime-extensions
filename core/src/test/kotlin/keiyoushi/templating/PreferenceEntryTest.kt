@@ -9,7 +9,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `Text entry has correct properties`() {
-        val entry = PreferenceEntry.Text(
+        val entry = PreferenceEntry.EditTextPreference(
             key = "api_key",
             title = "API Key",
             summary = "Enter your API key",
@@ -24,7 +24,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `List entry has correct properties`() {
-        val entry = PreferenceEntry.List(
+        val entry = PreferenceEntry.ListPreference(
             key = "quality",
             title = "Video Quality",
             summary = "%s",
@@ -43,7 +43,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `Switch entry has correct properties`() {
-        val entry = PreferenceEntry.Switch(
+        val entry = PreferenceEntry.SwitchPreferenceCompat(
             key = "mark_fillers",
             title = "Mark Fillers",
             summary = "Mark filler episodes",
@@ -58,7 +58,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `Switch entry with false default`() {
-        val entry = PreferenceEntry.Switch(
+        val entry = PreferenceEntry.SwitchPreferenceCompat(
             key = "enabled",
             title = "Enabled",
             summary = "Enable feature",
@@ -70,7 +70,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `MultiSelect entry has correct properties`() {
-        val entry = PreferenceEntry.MultiSelect(
+        val entry = PreferenceEntry.MultiSelectListPreference(
             key = "genres",
             title = "Genres",
             summary = "%s",
@@ -89,7 +89,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `MultiSelect entry with empty default`() {
-        val entry = PreferenceEntry.MultiSelect(
+        val entry = PreferenceEntry.MultiSelectListPreference(
             key = "selected",
             title = "Selected",
             summary = "%s",
@@ -103,7 +103,7 @@ class PreferenceEntryTest {
 
     @Test
     fun `entries and entryValues have same size`() {
-        val listEntry = PreferenceEntry.List(
+        val listEntry = PreferenceEntry.ListPreference(
             key = "test",
             title = "Test",
             summary = "%s",
@@ -114,7 +114,7 @@ class PreferenceEntryTest {
 
         assertEquals(listEntry.entries.size, listEntry.entryValues.size)
 
-        val multiEntry = PreferenceEntry.MultiSelect(
+        val multiEntry = PreferenceEntry.MultiSelectListPreference(
             key = "test",
             title = "Test",
             summary = "%s",
@@ -128,11 +128,11 @@ class PreferenceEntryTest {
 
     @Test
     fun `data class equality works for all variants`() {
-        val text1 = PreferenceEntry.Text(key = "k", title = "T", summary = "S", default = "d")
-        val text2 = PreferenceEntry.Text(key = "k", title = "T", summary = "S", default = "d")
+        val text1 = PreferenceEntry.EditTextPreference(key = "k", title = "T", summary = "S", default = "d")
+        val text2 = PreferenceEntry.EditTextPreference(key = "k", title = "T", summary = "S", default = "d")
         assertEquals(text1, text2)
 
-        val list1 = PreferenceEntry.List(
+        val list1 = PreferenceEntry.ListPreference(
             key = "k",
             title = "T",
             summary = "S",
@@ -140,7 +140,7 @@ class PreferenceEntryTest {
             entries = listOf("A"),
             entryValues = listOf("a"),
         )
-        val list2 = PreferenceEntry.List(
+        val list2 = PreferenceEntry.ListPreference(
             key = "k",
             title = "T",
             summary = "S",
@@ -150,11 +150,11 @@ class PreferenceEntryTest {
         )
         assertEquals(list1, list2)
 
-        val switch1 = PreferenceEntry.Switch(key = "k", title = "T", summary = "S", default = true)
-        val switch2 = PreferenceEntry.Switch(key = "k", title = "T", summary = "S", default = true)
+        val switch1 = PreferenceEntry.SwitchPreferenceCompat(key = "k", title = "T", summary = "S", default = true)
+        val switch2 = PreferenceEntry.SwitchPreferenceCompat(key = "k", title = "T", summary = "S", default = true)
         assertEquals(switch1, switch2)
 
-        val multi1 = PreferenceEntry.MultiSelect(
+        val multi1 = PreferenceEntry.MultiSelectListPreference(
             key = "k",
             title = "T",
             summary = "S",
@@ -162,7 +162,7 @@ class PreferenceEntryTest {
             entries = listOf("X"),
             entryValues = listOf("x"),
         )
-        val multi2 = PreferenceEntry.MultiSelect(
+        val multi2 = PreferenceEntry.MultiSelectListPreference(
             key = "k",
             title = "T",
             summary = "S",

@@ -57,7 +57,7 @@ class PreferenceRegistry private constructor(
     fun renderTo(screen: PreferenceScreen) {
         for (entry in schema) {
             when (entry) {
-                is PreferenceEntry.Text -> screen.addEditTextPreference(
+                is PreferenceEntry.EditTextPreference -> screen.addEditTextPreference(
                     key = entry.key,
                     default = entry.default,
                     title = entry.title,
@@ -72,7 +72,7 @@ class PreferenceRegistry private constructor(
                     onComplete = entry.onComplete,
                 )
 
-                is PreferenceEntry.List -> screen.addListPreference(
+                is PreferenceEntry.ListPreference -> screen.addListPreference(
                     key = entry.key,
                     default = entry.default,
                     title = entry.title,
@@ -85,7 +85,7 @@ class PreferenceRegistry private constructor(
                     onComplete = entry.onComplete,
                 )
 
-                is PreferenceEntry.Switch -> screen.addSwitchPreference(
+                is PreferenceEntry.SwitchPreferenceCompat -> screen.addSwitchPreference(
                     key = entry.key,
                     default = entry.default,
                     title = entry.title,
@@ -96,7 +96,7 @@ class PreferenceRegistry private constructor(
                     onComplete = entry.onComplete,
                 )
 
-                is PreferenceEntry.MultiSelect -> screen.addSetPreference(
+                is PreferenceEntry.MultiSelectListPreference -> screen.addSetPreference(
                     key = entry.key,
                     default = entry.default,
                     title = entry.title,

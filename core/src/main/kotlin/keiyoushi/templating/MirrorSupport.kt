@@ -110,6 +110,6 @@ abstract class MirrorAnimeExtension :
      */
     fun setupMirrorPreference() {
         // This is a helper for extensions that don't use the schema system
-        // For schema-based extensions, add a PreferenceEntry.List to preferenceSchema
+        // For schema-based extensions, add a PreferenceEntry.ListPreference to preferenceSchema
     }
 }

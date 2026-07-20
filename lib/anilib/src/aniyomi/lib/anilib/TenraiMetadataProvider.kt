@@ -75,7 +75,9 @@ class TenraiMetadataProvider(
                 val synonyms = data.optJSONArray("title_synonyms")
                 if (synonyms != null && synonyms.length() > 0) {
                     synonyms.getString(0)
-                } else null
+                } else {
+                    null
+                }
             }
 
         // Description
@@ -93,7 +95,9 @@ class TenraiMetadataProvider(
         val studios = data.optJSONArray("studios")
         val author = if (studios != null && studios.length() > 0) {
             studios.getJSONObject(0).optString("name", null)
-        } else null
+        } else {
+            null
+        }
 
         // Genres + Themes + Demographics
         val genre = buildGenreList(data)

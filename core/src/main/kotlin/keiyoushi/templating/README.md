@@ -15,7 +15,7 @@ core/src/main/kotlin/keiyoushi/templating/
   MetadataProvider.kt        # Per-extension orchestrator (merging + ID resolution)
   AnimeDatabaseCache.kt      # Downloads/caches anime-offline-database, builds ID maps
   LocalAnimeDatabaseProvider.kt  # Reads from cached database (priority 0)
-  PreferenceEntry.kt         # Sealed interface: Text / List / Switch / MultiSelect
+  PreferenceEntry.kt         # Sealed interface: EditTextPreference / ListPreference / SwitchPreferenceCompat / MultiSelectListPreference
   PreferenceRegistry.kt       # Auto-managed schema → typed reads + UI + persistence
   CommonPreferences.kt       # Factory methods for common preference patterns
 
@@ -86,7 +86,7 @@ class MyExtension : AnimeExtension() {
 
 ```kotlin
 override val preferenceSchema = listOf(
-    PreferenceEntry.List(
+    PreferenceEntry.ListPreference(
         key = "preferred_quality",
         title = "Preferred quality",
         summary = "%s",
@@ -94,7 +94,7 @@ override val preferenceSchema = listOf(
         entries = listOf("1080p", "720p", "480p"),
         entryValues = listOf("1080", "720", "480"),
     ),
-    PreferenceEntry.Switch(
+    PreferenceEntry.SwitchPreferenceCompat(
         key = "mark_fillers",
         title = "Mark filler episodes",
         summary = "Mark filler episodes in the episode list",
@@ -374,7 +374,7 @@ class MyAnimeExtension : AnimeExtension() {
     )
 
     override val preferenceSchema = listOf(
-        PreferenceEntry.List(
+        PreferenceEntry.ListPreference(
             key = "preferred_quality",
             title = "Preferred quality",
             summary = "%s",
@@ -382,13 +382,13 @@ class MyAnimeExtension : AnimeExtension() {
             entries = listOf("1080p", "720p", "480p"),
             entryValues = listOf("1080", "720", "480"),
         ),
-        PreferenceEntry.Switch(
+        PreferenceEntry.SwitchPreferenceCompat(
             key = "mark_fillers",
             title = "Mark filler episodes",
             summary = "Mark filler episodes in the episode list",
             default = true,
         ),
-        PreferenceEntry.Text(
+        PreferenceEntry.EditTextPreference(
             key = "api_key",
             title = "API Key",
             summary = "Your personal API key",
@@ -485,10 +485,10 @@ Boolean fields (`isNsfw`, `supportsLatest`) use OR / false-wins semantics:
 
 | Variant | Widget | Type | Maps to |
 |---|---|---|---|
-| `PreferenceEntry.Text` | EditTextPreference | `String` | `addEditTextPreference()` |
-| `PreferenceEntry.List` | ListPreference | `String` | `addListPreference()` |
-| `PreferenceEntry.Switch` | SwitchPreferenceCompat | `Boolean` | `addSwitchPreference()` |
-| `PreferenceEntry.MultiSelect` | MultiSelectListPreference | `Set<String>` | `addSetPreference()` |
+| `PreferenceEntry.EditTextPreference` | EditTextPreference | `String` | `addEditTextPreference()` |
+| `PreferenceEntry.ListPreference` | ListPreference | `String` | `addListPreference()` |
+| `PreferenceEntry.SwitchPreferenceCompat` | SwitchPreferenceCompat | `Boolean` | `addSwitchPreference()` |
+| `PreferenceEntry.MultiSelectListPreference` | MultiSelectListPreference | `Set<String>` | `addSetPreference()` |
 
 ## Common Preferences
 

@@ -24,7 +24,7 @@ object CommonPreferences {
         entries: List<String> = listOf("1080p", "720p", "480p", "360p"),
         entryValues: List<String> = listOf("1080", "720", "480", "360"),
         onComplete: (String) -> Unit = {},
-    ): PreferenceEntry.List = PreferenceEntry.List(
+    ): PreferenceEntry.ListPreference = PreferenceEntry.ListPreference(
         key = key,
         title = title,
         summary = "%s",
@@ -49,7 +49,7 @@ object CommonPreferences {
         default: String,
         entries: List<String>,
         onComplete: (String) -> Unit = {},
-    ): PreferenceEntry.List = PreferenceEntry.List(
+    ): PreferenceEntry.ListPreference = PreferenceEntry.ListPreference(
         key = key,
         title = title,
         summary = "%s",
@@ -76,7 +76,7 @@ object CommonPreferences {
         entries: List<String>,
         entryValues: List<String>,
         onComplete: (String) -> Unit = {},
-    ): PreferenceEntry.List = PreferenceEntry.List(
+    ): PreferenceEntry.ListPreference = PreferenceEntry.ListPreference(
         key = key,
         title = title,
         summary = "%s",
@@ -104,7 +104,7 @@ object CommonPreferences {
         entries: List<String>,
         default: Set<String> = entries.toSet(),
         onComplete: (Set<String>) -> Unit = {},
-    ): PreferenceEntry.MultiSelect = PreferenceEntry.MultiSelect(
+    ): PreferenceEntry.MultiSelectListPreference = PreferenceEntry.MultiSelectListPreference(
         key = key,
         title = title,
         summary = summary,
@@ -129,7 +129,7 @@ object CommonPreferences {
         default: String = "Romaji",
         entries: List<String> = listOf("Romaji", "English"),
         onComplete: (String) -> Unit = {},
-    ): PreferenceEntry.List = PreferenceEntry.List(
+    ): PreferenceEntry.ListPreference = PreferenceEntry.ListPreference(
         key = key,
         title = title,
         summary = "%s",
@@ -154,7 +154,7 @@ object CommonPreferences {
         default: String = "Sub",
         entries: List<String> = listOf("Sub", "Dub", "Mixed", "Raw"),
         onComplete: (String) -> Unit = {},
-    ): PreferenceEntry.List = PreferenceEntry.List(
+    ): PreferenceEntry.ListPreference = PreferenceEntry.ListPreference(
         key = key,
         title = title,
         summary = "%s",
@@ -177,7 +177,7 @@ object CommonPreferences {
         title: String = "Mark filler episodes",
         default: Boolean = true,
         onComplete: (Boolean) -> Unit = {},
-    ): PreferenceEntry.Switch = PreferenceEntry.Switch(
+    ): PreferenceEntry.SwitchPreferenceCompat = PreferenceEntry.SwitchPreferenceCompat(
         key = key,
         title = title,
         summary = "Mark filler episodes in the episode list",
