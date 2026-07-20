@@ -8,10 +8,12 @@ object UrlUtils {
 
     fun fixUrl(url: String): String? = when {
         url.isEmpty() -> null
-        url.startsWith("http") ||
-            // Do not fix JSON objects when passed as urls.
-            url.startsWith("{\"") -> url
+        // Do not fix JSON objects when passed as urls.
+        url.startsWith("{\"") -> url
         url.startsWith("//") -> "https:$url"
+        url.startsWith("http") && url.substringAfter("://").contains("://") ->
+            url.replaceFirst(firstHttpsRegex, "")
+        url.startsWith("http") -> url
         else -> url.replaceFirst(firstHttpsRegex, "")
     }
 
