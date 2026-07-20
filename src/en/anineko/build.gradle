@@ -1,0 +1,13 @@
+ext {
+    extName = 'AniNeko'
+    extClass = '.AniNeko'
+    extVersionCode = 10
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:vidhideextractor'))
+    implementation(project(':lib:playlistutils'))
+}
