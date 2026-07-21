@@ -3,12 +3,11 @@ ext {
     extClass = '.AnimeIto'
     themePkg = 'animestream'
     baseUrl = 'https://animesonline.io'
-    overrideVersionCode = 2
+    overrideVersionCode = 3
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:playlistutils"))
-    implementation(project(":lib:unpacker"))
 }
