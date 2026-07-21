@@ -62,29 +62,29 @@ class AnitubeExtractor(
         val docLink = response.useAsJsoup()
 
         // Handle meta refresh redirect
-        docLink.selectFirst("meta[http-equiv=refresh]")?.attr("content")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { refresh ->
-                val newLink = refresh.substringAfter("=")
-                val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
-                Log.d(tag, "Redirecting using meta refresh to $newLink")
-                return fetchPlayerInfo(newLink, newHeaders)
-            }
+        val refresh = docLink.selectFirst("meta[http-equiv=refresh]")?.attr("content")
+        if (!refresh.isNullOrBlank()) {
+            val newLink = refresh.substringAfter("=")
+            val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
+            Log.d(tag, "Redirecting using meta refresh to $newLink")
+            return fetchPlayerInfo(newLink, newHeaders)
+        }
 
         // Handle JavaScript redirect
-        docLink.data().takeIf { it.contains("window.location.href = redirectUrl") }
-            ?.let { data ->
-                val newLink = data
-                    .substringAfter("redirectUrl = `")
-                    .substringBefore("`")
-                    .replace($$"${token}", finalLink.toHttpUrl().queryParameter("t") ?: "")
-                val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
-                Log.d(tag, "Redirecting using JavaScript to $newLink")
-                return fetchPlayerInfo(newLink, newHeaders)
-            }
+        val jsData = docLink.data()
+        if (jsData.contains("window.location.href = redirectUrl")) {
+            val newLink = jsData
+                .substringAfter("redirectUrl = `")
+                .substringBefore("`")
+                .replace("\${token}", finalLink.toHttpUrl().queryParameter("t") ?: "")
+            val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
+            Log.d(tag, "Redirecting using JavaScript to $newLink")
+            return fetchPlayerInfo(newLink, newHeaders)
+        }
 
-        docLink.selectFirst("p:contains(Novo endereço)")?.let {
-            val newLink = it.selectFirst("strong")?.text()
+        val novoEndereco = docLink.selectFirst("p:contains(Novo endereço)")
+        if (novoEndereco != null) {
+            val newLink = novoEndereco.selectFirst("strong")?.text()
 
             if (newLink?.startsWith("http") == true) {
                 preferences.edit().putString("preferred_domain", newLink).apply()
@@ -139,19 +139,21 @@ class AnitubeExtractor(
             "https://widgets.outbrain.com/outbrain.js" to "https://ads.anitube.vip/adblock2.php"
         }
 
-        val adsContent = adsContentCache.computeIfAbsent(adsUrl) { CompletableDeferred() }
-            .also { deferred ->
-                if (!deferred.isCompleted) {
-                    runCatching {
-                        client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
-                    }.onSuccess { deferred.complete(it) }
-                        .onFailure {
-                            adsContentCache.remove(adsUrl, deferred)
-                            throw it
-                        }
+        val adsDeferred = adsContentCache[adsUrl] ?: CompletableDeferred<String>().let {
+            adsContentCache.putIfAbsent(adsUrl, it) ?: it
+        }
+
+        if (!adsDeferred.isCompleted) {
+            runCatching {
+                client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
+            }.onSuccess { adsDeferred.complete(it) }
+                .onFailure {
+                    adsContentCache.remove(adsUrl, adsDeferred)
+                    throw it
                 }
-            }
-            .await()
+        }
+
+        val adsContent = adsDeferred.await()
 
         val videoUrl = playerInfo.playerUrl.toHttpUrl().queryParameter("url")!!
 
@@ -176,12 +178,13 @@ class AnitubeExtractor(
 
             val videoToken = extractPublicidadeCode(response)
 
-            videoToken.takeIf { it.startsWith("?") }
-                ?.also { Log.d(tag, "Video token fetched successfully") }
-                ?: run {
-                    Log.e(tag, "Failed to fetch video token, response: $videoToken")
-                    ""
-                }
+            if (videoToken.startsWith("?")) {
+                Log.d(tag, "Video token fetched successfully")
+                videoToken
+            } else {
+                Log.e(tag, "Failed to fetch video token, response: $videoToken")
+                ""
+            }
         } catch (e: Exception) {
             Log.e(tag, "Error fetching video token: ${e.message}")
             ""
