@@ -72,7 +72,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
             return videosFromSourceText(script)
         }
 
-        val masterPlaylistUrl = HLS_FILE_REGEX.find(script)?.groupValues?.get(1)
+        val masterPlaylistUrl = extractHlsUrl(script)
         if (masterPlaylistUrl != null) {
             Log.d(tag, "HLS master URL: $masterPlaylistUrl")
             return playlistUtils.extractFromHls(masterPlaylistUrl, videoNameGen = { "Animei.to - $it" })
@@ -118,6 +118,17 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         return null
     }
 
+    private fun extractHlsUrl(script: String): String? = HLS_FILE_REGEX.find(script)
+        ?.groupValues
+        ?.get(1)
+        ?.let(::normalizeStreamUrl)
+
+    private fun normalizeStreamUrl(url: String): String = if (url.startsWith("//")) {
+        "https:$url"
+    } else {
+        url
+    }
+
     private fun isPlayableUrl(url: String): Boolean = url.contains("videoplayback") || url.contains(".m3u8") || url.contains(".mp4")
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -135,36 +146,41 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         val loadHeaders = headers.toMultimap().mapValues { entry -> entry.value.getOrNull(0) ?: "" }
         val jsInterface = PlayerJSInterface(latch) { jsResult = it }
 
-        handler.post {
-            val newView = WebView(applicationContext)
-            webView = newView
-            with(newView.settings) {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                userAgentString = headers["User-Agent"]
-            }
-            newView.addJavascriptInterface(jsInterface, "Android")
-            newView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                    Log.d(tag, "WebView page loaded, injecting player script")
-                    view?.evaluateJavascript(PLAYER_SCRIPT) {}
+        try {
+            handler.post {
+                val newView = WebView(applicationContext)
+                webView = newView
+                with(newView.settings) {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    userAgentString = headers["User-Agent"]
                 }
+                newView.addJavascriptInterface(jsInterface, "Android")
+                newView.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                        Log.d(tag, "WebView page loaded, injecting player script")
+                        view?.evaluateJavascript(PLAYER_SCRIPT) {}
+                    }
+                }
+                newView.loadUrl(url, loadHeaders)
             }
-            newView.loadUrl(url, loadHeaders)
-        }
 
-        if (!latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)) {
-            Log.e(tag, "WebView timed out after ${TIMEOUT_SEC}s")
-        }
+            if (!latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)) {
+                Log.e(tag, "WebView timed out after ${TIMEOUT_SEC}s")
+            }
 
-        handler.post {
-            webView?.stopLoading()
-            webView?.destroy()
-            webView = null
+            return parseWebViewResult(jsResult, url)
+        } catch (e: Exception) {
+            Log.e(tag, "WebView extraction failed", e)
+            return emptyList()
+        } finally {
+            val viewToDestroy = webView
+            handler.post {
+                viewToDestroy?.stopLoading()
+                viewToDestroy?.destroy()
+            }
         }
-
-        return parseWebViewResult(jsResult, url)
     }
 
     private fun parseWebViewResult(json: String, pageUrl: String): List<Video> {
@@ -180,11 +196,20 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
             return emptyList()
         }
 
+        if (items.isEmpty()) {
+            Log.w(tag, "WebView JSON array is empty")
+            return emptyList()
+        }
+
         val videoHeaders = buildVideoHeaders(pageUrl)
         val videos = mutableListOf<Video>()
         for (element in items) {
             val item = element.jsonObject
-            val videoUrl = item["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: continue
+            val videoUrl = item["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            if (videoUrl == null) {
+                Log.w(tag, "WebView item missing valid 'url' key: $item")
+                continue
+            }
             val label = item["label"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "Video"
             val type = item["type"]?.jsonPrimitive?.content.orEmpty()
 
@@ -201,6 +226,10 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                     videos += Video(videoUrl, "Animei.to - $label", videoUrl, videoHeaders)
                 }
             }
+        }
+
+        if (videos.isEmpty()) {
+            Log.w(tag, "WebView JSON parsed but no valid entries found (expected keys: url, label, type)")
         }
 
         return videos
@@ -327,15 +356,22 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         private val KEY_SEP_REGEX = Regex("""\],\s*"""")
         private val STRINGS_REGEX = Regex("\"([^\"]*?)\"")
         private val SOURCE_ENTRY_REGEX = Regex(""""file":"([^"]+)","label":"([^"]+)"""")
-        private val HLS_FILE_REGEX = Regex(""""file":"(https://[^"]+\.m3u8[^"]*)"""")
+        private val HLS_FILE_REGEX = Regex(""""file":"((?:https?:)?//[^"]+\.m3u8[^"]*)"""")
 
         private val PLAYER_SCRIPT by lazy {
             """
-            setInterval(function() {
+            var playerIntervalId = setInterval(function() {
+                function deliverResults(results) {
+                    if (results.length > 0 && window.Android && typeof Android.onResult === 'function') {
+                        Android.onResult(JSON.stringify(results));
+                        clearInterval(playerIntervalId);
+                    }
+                }
+
                 try {
                     var config = window.AniDrivePlayerConfig;
                     if (config && config.sources && config.sources.length > 0) {
-                        var results = config.sources.map(function(source) {
+                        deliverResults(config.sources.map(function(source) {
                             var type = source.type || '';
                             if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
                                 type = 'm3u8';
@@ -343,8 +379,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                                 type = 'mp4';
                             }
                             return { url: source.file, label: source.label || '', type: type };
-                        });
-                        Android.onResult(JSON.stringify(results));
+                        }));
                         return;
                     }
 
@@ -352,7 +387,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                     if (player && player.getPlaylistItem) {
                         var item = player.getPlaylistItem();
                         if (item && item.sources && item.sources.length > 0) {
-                            var playlistResults = item.sources.map(function(source) {
+                            deliverResults(item.sources.map(function(source) {
                                 var type = source.type || '';
                                 if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
                                     type = 'm3u8';
@@ -360,8 +395,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                                     type = 'mp4';
                                 }
                                 return { url: source.file, label: source.label || '', type: type };
-                            });
-                            Android.onResult(JSON.stringify(playlistResults));
+                            }));
                             return;
                         }
                     }
