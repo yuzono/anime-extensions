@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.tomato
 
 import android.app.Application
-import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.pt.tomato.dto.AnimeResultDto
@@ -30,6 +29,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -92,22 +92,23 @@ class Tomato :
                 val contentEncoding = response.header("Content-Encoding")
 
                 if (contentEncoding == "gzip") {
-                    val parsedBody = response.body.byteStream().let { gzipInputStream ->
-                        GZIPInputStream(gzipInputStream).use { inputStream ->
-                            val outputStream = ByteArrayOutputStream()
-                            inputStream.copyTo(outputStream)
-                            outputStream.toByteArray()
+                    response = runCatching {
+                        val body = response.body
+                        val parsedBody = body.byteStream().let { gzipInputStream ->
+                            GZIPInputStream(gzipInputStream).use { inputStream ->
+                                val outputStream = ByteArrayOutputStream()
+                                inputStream.copyTo(outputStream)
+                                outputStream.toByteArray()
+                            }
                         }
-                    }
-
-                    response = response.createNewWithCompatBody(parsedBody)
+                        response.createNewWithCompatBody(parsedBody, body.contentType())
+                    }.getOrElse { response }
                 }
 
                 response
             }
             .addInterceptor { chain ->
-                val maxRetries = 3
-                val retryDelayMillis = 1000L
+                val maxRetries = 2
                 var attempt = 0
                 var response: Response? = null
                 var lastException: IOException? = null
@@ -131,7 +132,6 @@ class Tomato :
 
                     randomIp = generateRandomIp()
                     attempt++
-                    Thread.sleep(retryDelayMillis)
                 }
 
                 // if still error after retries
@@ -246,7 +246,7 @@ class Tomato :
                     val newUrl = "&episode[${season.seasonDubbed}]=${episode.epId}"
                     if (prev != null) {
                         prev.url += newUrl
-                        // Atualizar scanlator com informações de legendado/dublado
+                        // Update scanlator with legendado/dublado info
                         prev.scanlator = updateScanlatorInfo(prev.scanlator, season.seasonDubbed)
                     } else {
                         episodeList.add(
@@ -269,8 +269,6 @@ class Tomato :
 
     // ============================ Video Links =============================
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        Log.d("fetchVideoList", episode.url)
-
         val dubs = listOf(
             Pair("Legendado", episode.url.toHttpUrl().queryParameter("episode[0]")),
             Pair("Dublado", episode.url.toHttpUrl().queryParameter("episode[1]")),
@@ -392,8 +390,8 @@ class Tomato :
         }
     }
 
-    private fun Response.createNewWithCompatBody(outputStream: ByteArray): Response = this.newBuilder()
-        .body(outputStream.toResponseBody(this.body.contentType()))
+    private fun Response.createNewWithCompatBody(outputStream: ByteArray, contentType: MediaType?) = this.newBuilder()
+        .body(outputStream.toResponseBody(contentType))
         .removeHeader("Content-Encoding")
         .build()
 
@@ -414,7 +412,7 @@ class Tomato :
         val id = animeId ?: return null
         return SAnime.create().apply {
             setUrlWithoutDomain("$baseUrl/v2/anime/$id")
-            title = ""
+            title = animeName.orEmpty()
             thumbnail_url = thumbnail
         }
     }
@@ -434,7 +432,9 @@ class Tomato :
         private const val STREAM_USER_AGENT = "Lavf/60.3.100"
 
         private val REGEX_QUALITY by lazy { Regex("""(\d+)p""") }
-        private val TOKEN =
+
+        // Public test-account token required by the API; not a production credential.
+        private const val TOKEN =
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTMxNjUzODQsInV1aWQiOiI4N2VmNmNmMC1jMjFkLTExZWYtODAxNS01NzNlMjdjNWU4ZGIiLCJpYXQiOjE3MzUwNjMwNTd9.5JMhTqBjs4A3VxrIjNQqpXtJGJ5y8MJt-ARvFrjcYUo"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
