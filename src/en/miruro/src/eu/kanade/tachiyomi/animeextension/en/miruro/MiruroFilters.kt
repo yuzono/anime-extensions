@@ -1,7 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.en.miruro
 
+import aniyomi.lib.anilib.MediaFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter.TriState
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import java.util.Calendar
 
 object MiruroFilters {
 
@@ -14,6 +17,9 @@ object MiruroFilters {
     ) {
         fun toQueryPart() = vals[state].second
     }
+
+    open class TriStateFilterList(name: String, values: List<TriFilterVal>) : AnimeFilter.Group<TriState>(name, values)
+    class TriFilterVal(name: String) : TriState(name)
 
     open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
@@ -28,18 +34,35 @@ object MiruroFilters {
     ): List<String> = (this.getFirst<R>() as CheckBoxFilterList).state
         .mapNotNull { checkbox ->
             if (checkbox.state) {
-                options.find { it.first == checkbox.name }!!.second
+                options.find { it.first == checkbox.name }?.second
             } else {
                 null
             }
         }
 
+    private inline fun <reified R> AnimeFilterList.parseTriState(
+        options: Array<Pair<String, String>>,
+    ): Pair<List<String>, List<String>> {
+        val state = (this.getFirst<R>() as TriStateFilterList).state
+        val included = mutableListOf<String>()
+        val excluded = mutableListOf<String>()
+        for (filter in state) {
+            if (filter.isIgnored()) continue
+            val value = options.find { it.first == filter.name }?.second ?: continue
+            when (filter.state) {
+                TriState.STATE_INCLUDE -> included.add(value)
+                TriState.STATE_EXCLUDE -> excluded.add(value)
+            }
+        }
+        return included to excluded
+    }
+
     class SortFilter : QueryPartFilter("Sort", MiruroFiltersData.SORT)
 
     class GenreFilter :
-        CheckBoxFilterList(
+        TriStateFilterList(
             "Genres",
-            MiruroFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+            MiruroFiltersData.GENRES.map { TriFilterVal(it.first) },
         )
 
     class YearFilter : QueryPartFilter("Year", MiruroFiltersData.YEARS)
@@ -55,10 +78,12 @@ object MiruroFilters {
         )
 
     class TagsFilter :
-        CheckBoxFilterList(
+        TriStateFilterList(
             "Tags",
-            MiruroFiltersData.TAGS.map { CheckBoxVal(it.first, false) },
+            MiruroFiltersData.TAGS.map { TriFilterVal(it.first) },
         )
+
+    class DubLanguageFilter : QueryPartFilter("Dub Language", MiruroFiltersData.DUB_LANGUAGES)
 
     val FILTER_LIST get() = AnimeFilterList(
         SortFilter(),
@@ -70,28 +95,37 @@ object MiruroFilters {
         YearFilter(),
         SeasonFilter(),
         StatusFilter(),
+        DubLanguageFilter(),
     )
 
     data class FilterSearchParams(
         val sort: String = "all",
         val genres: List<String> = emptyList(),
+        val excludedGenres: List<String> = emptyList(),
         val tags: List<String> = emptyList(),
+        val excludedTags: List<String> = emptyList(),
         val year: String = "all",
         val season: String = "all",
         val status: String = "all",
         val formats: List<String> = emptyList(),
+        val dubLanguage: String = "all",
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
+        val (includedGenres, excludedGenres) = filters.parseTriState<GenreFilter>(MiruroFiltersData.GENRES)
+        val (includedTags, excludedTags) = filters.parseTriState<TagsFilter>(MiruroFiltersData.TAGS)
         return FilterSearchParams(
             sort = filters.asQueryPart<SortFilter>(),
-            genres = filters.parseCheckbox<GenreFilter>(MiruroFiltersData.GENRES),
-            tags = filters.parseCheckbox<TagsFilter>(MiruroFiltersData.TAGS),
+            genres = includedGenres,
+            excludedGenres = excludedGenres,
+            tags = includedTags,
+            excludedTags = excludedTags,
             year = filters.asQueryPart<YearFilter>(),
             season = filters.asQueryPart<SeasonFilter>(),
             status = filters.asQueryPart<StatusFilter>(),
             formats = filters.parseCheckbox<FormatFilter>(MiruroFiltersData.FORMATS),
+            dubLanguage = filters.asQueryPart<DubLanguageFilter>(),
         )
     }
 
@@ -117,7 +151,6 @@ object MiruroFilters {
             Pair("Drama", "Drama"),
             Pair("Ecchi", "Ecchi"),
             Pair("Fantasy", "Fantasy"),
-            Pair("Hentai", "Hentai"),
             Pair("Horror", "Horror"),
             Pair("Mahou Shoujo", "Mahou Shoujo"),
             Pair("Mecha", "Mecha"),
@@ -132,7 +165,7 @@ object MiruroFilters {
             Pair("Thriller", "Thriller"),
         )
 
-        val YEARS = arrayOf(ALL) + (2026 downTo 1940).map {
+        val YEARS = arrayOf(ALL) + (Calendar.getInstance().get(Calendar.YEAR) downTo 1940).map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
 
@@ -161,6 +194,27 @@ object MiruroFilters {
             Pair("OVA", "OVA"),
             Pair("ONA", "ONA"),
             Pair("Music", "MUSIC"),
+        )
+
+        val DUB_LANGUAGES = arrayOf(
+            ALL,
+            Pair("English", "English"),
+            Pair("Japanese", "Japanese"),
+            Pair("Spanish", "Español"),
+            Pair("Portuguese", "Português"),
+            Pair("French", "Français"),
+            Pair("German", "Deutsch"),
+            Pair("Italian", "Italiano"),
+            Pair("Korean", "한국어"),
+            Pair("Chinese", "中文"),
+            Pair("Arabic", "العربية"),
+            Pair("Hindi", "हिन्दी"),
+            Pair("Russian", "Русский"),
+            Pair("Turkish", "Türkçe"),
+            Pair("Thai", "ไทย"),
+            Pair("Polish", "Polski"),
+            Pair("Tagalog", "Tagalog"),
+            Pair("Ukrainian", "Українська"),
         )
 
         val TAGS = arrayOf(
@@ -489,3 +543,17 @@ object MiruroFilters {
         )
     }
 }
+
+fun MiruroFilters.FilterSearchParams.toMediaFilter(page: Int = 1, perPage: Int = 20): MediaFilter = MediaFilter(
+    sort = sort.takeIf { it != "all" },
+    genres = genres.takeIf { it.isNotEmpty() },
+    excludedGenres = excludedGenres.takeIf { it.isNotEmpty() },
+    tags = tags.takeIf { it.isNotEmpty() },
+    excludedTags = excludedTags.takeIf { it.isNotEmpty() },
+    seasonYear = year.toIntOrNull(),
+    season = season.takeIf { it != "all" },
+    status = status.takeIf { it != "all" },
+    formatList = formats.takeIf { it.isNotEmpty() },
+    page = page,
+    perPage = perPage,
+)

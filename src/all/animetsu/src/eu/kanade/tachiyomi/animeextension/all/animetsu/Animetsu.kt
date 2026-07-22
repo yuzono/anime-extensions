@@ -24,6 +24,9 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -37,6 +40,8 @@ class Animetsu :
     ConfigurableAnimeSource {
 
     override val name = "Animetsu"
+
+    override val disableRelatedAnimesBySearch = true
 
     private val preferences: SharedPreferences by getPreferencesLazy { clearOldPrefs() }
 
@@ -221,12 +226,76 @@ class Animetsu :
 
     // ============================== Related ===============================
 
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> = coroutineScope {
+        val referer = getAnimeUrl(anime)
+        val infoResponse = client.newCall(GET("$apiUrl/anime/info/${anime.url}", apiHeaders(referer))).awaitSuccess()
+        val dto = infoResponse.parseAs<AnimetsuAnimeDto>()
+
+        val explicitRelated = parseRelatedAnime(dto)
+
+        val title = dto.title?.preferredTitle(titleLanguage) ?: anime.title
+        val genres = dto.genres.orEmpty()
+
+        val titleSearch = async {
+            val titleWords = title.split(" ")
+                .map { it.filter { c -> c.isLetterOrDigit() } }
+                .filter { it.length >= 2 }
+                .take(3)
+
+            if (titleWords.isEmpty()) return@async emptyList()
+
+            val query = titleWords.joinToString(" ")
+            try {
+                val searchUrl = "$apiUrl/anime/search/".toHttpUrl().newBuilder().apply {
+                    addQueryParameter("sort", "trending")
+                    addQueryParameter("page", "1")
+                    addQueryParameter("per_page", "35")
+                    addQueryParameter("query", query)
+                }.build()
+                val resp = client.newCall(GET(searchUrl, apiHeaders())).awaitSuccess()
+                resp.parseAs<AnimetsuSearchDto>().results
+                    .filter { it.id != dto.id && (!hideAdult || !it.isAdult) }
+                    .mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                emptyList()
+            }
+        }
+
+        val genreSearch = async {
+            if (genres.isEmpty()) return@async emptyList()
+
+            val genreQuery = genres.take(2).joinToString(",")
+            try {
+                val searchUrl = "$apiUrl/anime/search/".toHttpUrl().newBuilder().apply {
+                    addQueryParameter("sort", "trending")
+                    addQueryParameter("page", "1")
+                    addQueryParameter("per_page", "35")
+                    addQueryParameter("genres", genreQuery)
+                }.build()
+                val resp = client.newCall(GET(searchUrl, apiHeaders())).awaitSuccess()
+                resp.parseAs<AnimetsuSearchDto>().results
+                    .filter { it.id != dto.id && (!hideAdult || !it.isAdult) }
+                    .mapNotNull { it.toSAnime(titleLanguage, showTags, baseUrl = baseUrl) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                emptyList()
+            }
+        }
+
+        (explicitRelated + listOf(titleSearch, genreSearch).awaitAll().flatten())
+            .distinctBy { it.url }
+    }
+
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
         val dto = response.parseAs<AnimetsuAnimeDto>()
+        return parseRelatedAnime(dto)
+    }
 
+    private fun parseRelatedAnime(dto: AnimetsuAnimeDto): List<SAnime> {
         return buildList {
             dto.seasons?.mapNotNull { season ->
-                if (season.id.isBlank()) return@mapNotNull null
+                if (season.id.isBlank() || season.id == dto.id) return@mapNotNull null
                 val seasonTitle = season.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -237,7 +306,7 @@ class Animetsu :
             }?.let(::addAll)
 
             dto.relations?.mapNotNull { rel ->
-                if (rel.id.isBlank()) return@mapNotNull null
+                if (rel.id.isBlank() || rel.id == dto.id) return@mapNotNull null
                 val relTitle = rel.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
@@ -248,13 +317,14 @@ class Animetsu :
             }?.let(::addAll)
 
             dto.recommendations?.mapNotNull { rec ->
-                if (rec.id.isBlank()) return@mapNotNull null
+                if (rec.id.isBlank() || rec.id == dto.id) return@mapNotNull null
                 val recTitle = rec.title?.preferredTitle(titleLanguage) ?: return@mapNotNull null
 
                 SAnime.create().apply {
                     url = rec.id
                     title = recTitle
                     status = parseStatus(rec.status)
+                    thumbnail_url = (rec.coverImage?.large ?: rec.coverImage?.medium)
                 }
             }?.let(::addAll)
         }
@@ -566,6 +636,7 @@ class Animetsu :
                 m3u8ServerManager.stopServer()
                 delay(500L)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e("Animetsu", "M3U8 server start failed on attempt ${attempt + 1}: ${e.message}")
                 m3u8ServerManager.stopServer()
                 delay(500L)
@@ -656,7 +727,7 @@ class Animetsu :
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING" -> SAnime.ONGOING
             "FINISHED" -> SAnime.COMPLETED
-            "NOT_YET_RELEASED" -> SAnime.UNKNOWN
+            "CANCELLED" -> SAnime.CANCELLED
             else -> SAnime.UNKNOWN
         }
 

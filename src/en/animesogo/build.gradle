@@ -1,0 +1,9 @@
+ext {
+    extName = 'AnimeSogo'
+    extClass = '.AnimeSogo'
+    themePkg = 'anikototheme'
+    baseUrl = 'https://animesogo.to'
+    overrideVersionCode = 0
+}
+
+apply plugin: "kei.plugins.extension.legacy"

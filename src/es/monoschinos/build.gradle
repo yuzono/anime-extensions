@@ -1,7 +1,7 @@
 ext {
     extName = 'MonosChinos'
     extClass = '.MonosChinos'
-    extVersionCode = 51
+    extVersionCode = 53
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -17,4 +17,5 @@ dependencies {
     implementation(project(':lib:mixdropextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:universalextractor'))
+    implementation(project(':lib:luluextractor'))
 }

@@ -1,11 +1,12 @@
 ext {
     extName = 'AnimePahe'
     extClass = '.AnimePahe'
-    extVersionCode = 44
+    extVersionCode = 45
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation(project(":lib:unpacker"))
+    implementation("com.github.NanoHttpd.nanohttpd:nanohttpd:nanohttpd-project-2.3.1")
 }

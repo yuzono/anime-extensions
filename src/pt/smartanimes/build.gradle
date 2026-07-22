@@ -2,8 +2,8 @@ ext {
     extName = 'SmartAnimes'
     extClass = '.SmartAnimes'
     themePkg = 'animestream'
-    baseUrl = 'https://smartanimes.com'
-    overrideVersionCode = 0
+    baseUrl = 'https://smartanimes.net'
+    overrideVersionCode = 1
     isNsfw = true
 }
 
