@@ -505,6 +505,7 @@ class AllAnime :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
+        val encryptionChangedError = Exception("AllAnime changed its stream encryption; update the extension")
         var lastError: Throwable? = null
         var maskHealed = false
 
@@ -520,7 +521,6 @@ class AllAnime :
             }
 
             if (responseBody != null) {
-                lastError = null
                 val tobeparsed = runCatching {
                     responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
                 }.getOrNull()
@@ -539,6 +539,10 @@ class AllAnime :
                     }
                 }
 
+                // A response that yields no usable sources means the stream format changed,
+                // not a network fault; record it so the surfaced error reflects this attempt.
+                lastError = encryptionChangedError
+
                 // Only a server-side crypto rejection means the mask likely rotated; heal once.
                 if (attempt >= 1 && !maskHealed && keyManager.isCryptoError(responseBody)) {
                     maskHealed = keyManager.healMask()
@@ -547,7 +551,7 @@ class AllAnime :
             keyManager.invalidate()
         }
 
-        throw lastError ?: Exception("AllAnime changed its stream encryption; update the extension")
+        throw lastError ?: encryptionChangedError
     }
 
     companion object {
