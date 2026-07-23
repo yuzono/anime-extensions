@@ -148,3 +148,47 @@ data class EncryptedEpisodeResult(
 data class DecryptedEpisodeResult(
     val episode: EpisodeResult.DataEpisode.Episode? = null,
 )
+
+// GraphQL error envelope. The streams API returns `AA_CRYPTO_*` codes (e.g.
+// AA_CRYPTO_STALE when the epoch has rotated) instead of an encrypted payload.
+@Serializable
+class AaApiError(
+    val errors: List<GraphQlError>? = null,
+) {
+    @Serializable
+    class GraphQlError(
+        val extensions: Extensions? = null,
+    ) {
+        @Serializable
+        class Extensions(
+            val code: String? = null,
+        )
+    }
+}
+
+@Serializable
+class AaCryptoBootstrap(
+    val epoch: Long,
+    val partB: String,
+)
+
+@Serializable
+class AaReqPayload(
+    private val v: Int,
+    private val ts: Long,
+    private val epoch: Long,
+    private val buildId: String,
+    private val qh: String,
+)
+
+@Serializable
+class EpisodeVariables(
+    val variables: Variables,
+) {
+    @Serializable
+    class Variables(
+        val showId: String,
+        val translationType: String,
+        val episodeString: String,
+    )
+}
