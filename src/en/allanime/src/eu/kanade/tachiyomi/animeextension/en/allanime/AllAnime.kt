@@ -59,6 +59,9 @@ class AllAnime :
         if (getString(PREF_SITE_DOMAIN_KEY, null) == LEGACY_SITE_DOMAIN) {
             edit().putString(PREF_SITE_DOMAIN_KEY, PREF_SITE_DOMAIN_DEFAULT).apply()
         }
+        if (getString(PREF_DOMAIN_KEY, null) == LEGACY_API_DOMAIN) {
+            edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
+        }
     }
 
     override fun headersBuilder() = super.headersBuilder()
@@ -575,7 +578,8 @@ class AllAnime :
         private const val LEGACY_SITE_DOMAIN = "https://allmanga.to"
 
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://api.allanime.day"
+        private const val PREF_DOMAIN_DEFAULT = "https://api.mkissa.net"
+        private const val LEGACY_API_DOMAIN = "https://api.allanime.day"
 
         // The site's default iframe host, for the legacy internal/player servers.
         private const val PLAYER_DOMAIN = "https://allanime.day"
@@ -653,8 +657,8 @@ class AllAnime :
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
             title = "Preferred domain (requires app restart)"
-            entries = arrayOf("api.allanime.day")
-            entryValues = arrayOf("https://api.allanime.day")
+            entries = arrayOf("api.mkissa.net")
+            entryValues = arrayOf("https://api.mkissa.net")
             setDefaultValue(PREF_DOMAIN_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
