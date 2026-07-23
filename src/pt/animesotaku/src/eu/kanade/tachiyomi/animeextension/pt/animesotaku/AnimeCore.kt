@@ -25,7 +25,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class AnimeCore : AnimeHttpSource() {
 
@@ -41,9 +41,9 @@ class AnimeCore : AnimeHttpSource() {
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(30.seconds)
+        .writeTimeout(30.seconds)
+        .readTimeout(30.seconds)
         .build()
 
     private val animeCoreFilters by lazy { AnimeCoreFilters(baseUrl, client) }
