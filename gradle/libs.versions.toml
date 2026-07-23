@@ -1,5 +1,5 @@
 [versions]
-android-gradle = "9.2.1"
+android-gradle = "9.3.1"
 coroutines = "1.10.2"
 junit = "4.13.2"
 kotlin-gradle = "2.3.21"
