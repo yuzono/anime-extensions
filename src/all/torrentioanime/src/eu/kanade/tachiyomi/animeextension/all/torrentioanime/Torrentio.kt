@@ -43,7 +43,9 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
+class Torrentio :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
 
     override val name = "Torrentio Anime (Torrent / Debrid)"
 
@@ -87,39 +89,39 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
         }
 
         val animeList = mediaList.filterNot { (it?.countryOfOrigin == "CN" || it?.isAdult == true) && isLatestQuery }.map { media ->
-                val anime = SAnime.create().apply {
-                    url = media?.id.toString()
-                    title = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
-                        "romaji" -> media?.title?.romaji.toString()
-                        "english" -> (media?.title?.english?.takeIf { it.isNotBlank() } ?: media?.title?.romaji).toString()
-                        "native" -> media?.title?.native.toString()
-                        else -> ""
-                    }
-                    thumbnail_url = media?.coverImage?.extraLarge
-                    description = media?.description?.replace(Regex("<br><br>"), "\n")?.replace(Regex("<.*?>"), "") ?: "No Description"
-
-                    status = when (media?.status) {
-                        "RELEASING" -> SAnime.ONGOING
-                        "FINISHED" -> SAnime.COMPLETED
-                        "HIATUS" -> SAnime.ON_HIATUS
-                        "NOT_YET_RELEASED" -> SAnime.LICENSED
-                        else -> SAnime.UNKNOWN
-                    }
-
-                    // Extracting tags
-                    val tagsList = media?.tags?.mapNotNull { it.name }.orEmpty()
-                    // Extracting genres
-                    val genresList = media?.genres.orEmpty()
-                    genre = (tagsList + genresList).toSet().sorted().joinToString()
-
-                    // Extracting studios
-                    val studiosList = media?.studios?.nodes?.mapNotNull { it.name }.orEmpty()
-                    author = studiosList.sorted().joinToString()
-
-                    initialized = true
+            val anime = SAnime.create().apply {
+                url = media?.id.toString()
+                title = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
+                    "romaji" -> media?.title?.romaji.toString()
+                    "english" -> (media?.title?.english?.takeIf { it.isNotBlank() } ?: media?.title?.romaji).toString()
+                    "native" -> media?.title?.native.toString()
+                    else -> ""
                 }
-                anime
+                thumbnail_url = media?.coverImage?.extraLarge
+                description = media?.description?.replace(Regex("<br><br>"), "\n")?.replace(Regex("<.*?>"), "") ?: "No Description"
+
+                status = when (media?.status) {
+                    "RELEASING" -> SAnime.ONGOING
+                    "FINISHED" -> SAnime.COMPLETED
+                    "HIATUS" -> SAnime.ON_HIATUS
+                    "NOT_YET_RELEASED" -> SAnime.LICENSED
+                    else -> SAnime.UNKNOWN
+                }
+
+                // Extracting tags
+                val tagsList = media?.tags?.mapNotNull { it.name }.orEmpty()
+                // Extracting genres
+                val genresList = media?.genres.orEmpty()
+                genre = (tagsList + genresList).toSet().sorted().joinToString()
+
+                // Extracting studios
+                val studiosList = media?.studios?.nodes?.mapNotNull { it.name }.orEmpty()
+                author = studiosList.sorted().joinToString()
+
+                initialized = true
             }
+            anime
+        }
 
         return AnimesPage(animeList, hasNextPage)
     }
@@ -293,7 +295,6 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
         return anime
     }
 
-
     // ============================== Fetch KitsuId ==============================
     private fun resolveKitsuId(aniZipResponse: AniZipResponse, response: Response): String? {
         aniZipResponse.mappings?.kitsuId?.let {
@@ -332,32 +333,31 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
         return when (aniZipResponse.mappings?.type) {
             "TV", "ONA", "OVA" -> {
                 aniZipResponse.episodes?.let { episodes ->
-                        if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
-                            episodes
-                        } else {
-                            episodes.filter { (_, episode) ->
-                                episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
-                            }
+                    if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
+                        episodes
+                    } else {
+                        episodes.filter { (_, episode) ->
+                            episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
                         }
-                    }?.mapNotNull { (_, episode) ->
-                        val episodeNumber = runCatching {
-                            episode?.episode?.toFloat()
-                        }.getOrNull() ?: return@mapNotNull null
+                    }
+                }?.mapNotNull { (_, episode) ->
+                    val episodeNumber = runCatching {
+                        episode?.episode?.toFloat()
+                    }.getOrNull() ?: return@mapNotNull null
 
+                    val title = episode?.title?.get("en")
 
-                        val title = episode?.title?.get("en")
-
-                        SEpisode.create().apply {
-                            episode_number = episodeNumber
-                            url = "/stream/series/kitsu:$kitsuId:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                            date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
-                            name = title?.let {
-                                "Episode ${episode.episode}: $it"
-                            } ?: "Episode ${episode?.episode}"
-                            scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
-                                ?.let { "Upcoming" } ?: ""
-                        }
-                    }.orEmpty().reversed()
+                    SEpisode.create().apply {
+                        episode_number = episodeNumber
+                        url = "/stream/series/kitsu:$kitsuId:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
+                        date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
+                        name = title?.let {
+                            "Episode ${episode.episode}: $it"
+                        } ?: "Episode ${episode?.episode}"
+                        scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
+                            ?.let { "Upcoming" } ?: ""
+                    }
+                }.orEmpty().reversed()
             }
 
             "MOVIE" -> {
@@ -465,8 +465,8 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
                     append("&dn=${stream.infoHash}")
 
                     animeTrackers.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tracker ->
-                            append("&tr=$tracker")
-                        }
+                        append("&tr=$tracker")
+                    }
 
                     stream.fileIdx?.let {
                         append("&index=$it")
@@ -633,7 +633,8 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
             summary = codecPreferences.joinToString()
 
             setOnPreferenceChangeListener { _, newValue ->
-                @Suppress("UNCHECKED_CAST") val newSet = newValue as Set<String>
+                @Suppress("UNCHECKED_CAST")
+                val newSet = newValue as Set<String>
                 preferences.edit().putStringSet(key, newSet).apply()
                 summary = newSet.joinToString()
                 efficientPref.setVisible(newSet.isEmpty())
@@ -902,7 +903,7 @@ class Torrentio : AnimeHttpSource(), ConfigurableAnimeSource {
 
             "thai",
 
-            )
+        )
 
         private val PREF_LANG_DEFAULT = setOf<String>()
 
