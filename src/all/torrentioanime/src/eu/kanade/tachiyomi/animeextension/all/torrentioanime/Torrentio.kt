@@ -307,7 +307,7 @@ class Torrentio :
 
         return client.newCall(
             GET(
-                "https://kitsu.io/api/edge/mappings" + "?filter[externalSite]=anilist/anime" + "&filter[externalId]=$anilistId" + "&include=item",
+                "https://kitsu.io/api/edge/mappings?filter[externalSite]=anilist/anime&filter[externalId]=$anilistId&include=item",
             ),
         ).execute().use { kitsuResponse ->
             if (!kitsuResponse.isSuccessful) {
