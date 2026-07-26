@@ -6,10 +6,17 @@ import okhttp3.OkHttpClient
 
 /**
  * M3U8 Server integration with Q1N extension
+ *
+ * @param client the primary OkHttp client used for upstream fetches; may
+ *   carry a Cloudflare-solve interceptor.
+ * @param fallbackClient optional secondary OkHttp client consulted when
+ *   the primary client throws on a Cloudflare-solve failure. Should be
+ *   CF-interceptor-free; supplies the header-gated retry leg.
  */
 class M3u8Integration(
     client: OkHttpClient,
-    private val serverManager: M3u8ServerManager = M3u8ServerManager(client),
+    fallbackClient: OkHttpClient? = null,
+    private val serverManager: M3u8ServerManager = M3u8ServerManager(client, fallbackClient),
 ) {
 
     private val tag by lazy { javaClass.simpleName }
@@ -27,12 +34,16 @@ class M3u8Integration(
     }
 
     /**
-     * Processes an M3U8 video through the local server
-     * @param originalVideo Original video with M3U8 URL
-     * @return Processed video with local URL
+     * Processes an M3U8 video through the local server. The original
+     * [Video.headers] is consulted to derive `Referer` and `User-Agent`,
+     * which are then re-encoded into the proxied URL so the m3u8 server
+     * can re-issue them on the upstream fetch even if the media player
+     * (mpv / ExoPlayer) does not carry them through to localhost.
      */
     private fun processM3u8Video(originalVideo: Video): Video {
-        val processedUrl = serverManager.processM3u8Url(originalVideo.url)
+        val referer = originalVideo.headers?.get("Referer")
+        val userAgent = originalVideo.headers?.get("User-Agent")
+        val processedUrl = serverManager.processM3u8Url(originalVideo.url, referer, userAgent)
         return Video(
             videoUrl = processedUrl ?: originalVideo.url,
             url = originalVideo.url,
