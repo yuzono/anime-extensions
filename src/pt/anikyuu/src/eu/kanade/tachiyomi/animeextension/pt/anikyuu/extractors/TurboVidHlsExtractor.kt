@@ -17,18 +17,30 @@ class TurboVidHlsExtractor(private val client: OkHttpClient, private val headers
         return try {
             val document = client.newCall(GET(url, headers)).execute().asJsoup()
 
-            val script = document.selectFirst("script:containsData(urlplay)")
-                ?.data()
-                ?: return emptyList()
+            val dataHash = document.selectFirst("#video_player[data-hash]")
+                ?.attr("data-hash")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
 
-            val urlPlay = URLPLAY.find(script)?.groupValues?.get(1)
-                ?: return emptyList()
+            val urlPlay = when {
+                !dataHash.isNullOrEmpty() -> dataHash
+                else -> {
+                    val script = document.selectFirst("script:containsData(urlplay)")?.data()
+                    URLPLAY.find(script.orEmpty())?.groupValues?.get(1)
+                }
+            } ?: return emptyList()
 
-            if (urlPlay.toHttpUrlOrNull() == null) {
+            val resolved = when {
+                urlPlay.contains(".m3u8", ignoreCase = true) -> urlPlay
+                urlPlay.toHttpUrlOrNull() != null -> "$urlPlay/master.m3u8"
+                else -> urlPlay
+            }
+
+            if (resolved.toHttpUrlOrNull() == null) {
                 return emptyList()
             }
 
-            playlistExtractor.extractFromHls(urlPlay, url, videoNameGen = { quality -> "TurboVidHls: $quality" })
+            playlistExtractor.extractFromHls(resolved, url, videoNameGen = { quality -> "TurboVidHls: $quality" })
                 .distinctBy { it.url }
         } catch (e: Exception) {
             Log.e("TurboVidHlsExtractor", "Failed to extract videos from $url", e)

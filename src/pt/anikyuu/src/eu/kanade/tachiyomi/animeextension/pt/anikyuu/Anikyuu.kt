@@ -2,6 +2,8 @@ package eu.kanade.tachiyomi.animeextension.pt.anikyuu
 
 import android.util.Log
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.m3u8server.M3u8Integration
+import aniyomi.lib.yandexextractor.YandexExtractor
 import eu.kanade.tachiyomi.animeextension.pt.anikyuu.extractors.StrmupExtractor
 import eu.kanade.tachiyomi.animeextension.pt.anikyuu.extractors.TurboVidHlsExtractor
 import eu.kanade.tachiyomi.animeextension.pt.anikyuu.extractors.UniversalExtractor
@@ -25,6 +27,8 @@ class Anikyuu :
     private val strmupExtractor by lazy { StrmupExtractor(client, headers) }
     private val turboVidHlsExtractor by lazy { TurboVidHlsExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val yandexExtractor by lazy { YandexExtractor(client) }
+    private val m3u8Integration by lazy { M3u8Integration(client) }
 
     // The real synopsis lives in .entry-content[itemprop=description] (inside .bixbox.synp).
     // div.info-content also contains a .desc with SEO spam that appears earlier in the DOM,
@@ -46,6 +50,11 @@ class Anikyuu :
             else -> emptyList()
         }
 
+        if (videos.isEmpty() && "#" in url) {
+            Log.d(tag, "No videos from specific extractors, trying Yandex extractor: $url")
+            videos = yandexExtractor.videosFromUrl(url, headers, name)
+        }
+
         if (videos.isEmpty()) {
             Log.d(tag, "No videos from specific extractors, trying universal extractor: $url")
             videos = universalExtractor.videosFromUrl(url, headers, name)
@@ -53,6 +62,9 @@ class Anikyuu :
 
         if (videos.isEmpty()) {
             Log.w(tag, "No videos found for: $url")
+        } else if (videos.any { it.url.contains(".m3u8", ignoreCase = true) }) {
+            Log.d(tag, "Processing m3u8 videos through m3u8 server (${videos.size} videos)")
+            videos = m3u8Integration.processVideoList(videos)
         }
 
         return videos
