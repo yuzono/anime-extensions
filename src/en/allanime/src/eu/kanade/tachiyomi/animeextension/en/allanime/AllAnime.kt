@@ -261,7 +261,7 @@ class AllAnime :
     // ============================ Video Links =============================
 
     private val keyManager by lazy {
-        AllAnimeKeyManager(client, headers, preferences, preferences.siteUrl)
+        AllAnimeKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
@@ -280,6 +280,7 @@ class AllAnime :
                 put("version", 1)
                 put("sha256Hash", STREAM_HASH)
             }
+            put("k", ANIME_LANE)
             put("aaReq", keyManager.aaReq(material))
         }
 
@@ -289,7 +290,10 @@ class AllAnime :
             addQueryParameter("extensions", extensions.toJsonString())
         }.build()
 
-        return GET(url, headers)
+        // The build the token was minted for; the server rejects a mismatch with AA_CRYPTO_BUILD_MISMATCH.
+        val streamHeaders = headers.newBuilder().set("x-build-id", material.buildId).build()
+
+        return GET(url, streamHeaders)
     }
 
     private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
@@ -507,10 +511,16 @@ class AllAnime :
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
         val encryptionChangedError = Exception("AllAnime changed its stream encryption; update the extension")
         var lastError: Throwable? = null
-        var maskHealed = false
+        var buildHealed = false
 
         repeat(MAX_KEY_ATTEMPTS) { attempt ->
-            val material = keyManager.material(forceRefresh = attempt > 0)
+            // Obtaining material can itself fail transiently; letting that escape would spend the
+            // whole retry budget on the first attempt.
+            val material = runCatching { keyManager.material(forceRefresh = attempt > 0) }
+                .getOrElse {
+                    lastError = it
+                    return@repeat
+                }
 
             // Keep the real request error so it's surfaced instead of the generic crypto message.
             val responseBody = runCatching {
@@ -543,9 +553,11 @@ class AllAnime :
                 // not a network fault; record it so the surfaced error reflects this attempt.
                 lastError = encryptionChangedError
 
-                // Only a server-side crypto rejection means the mask likely rotated; heal once.
-                if (attempt >= 1 && !maskHealed && keyManager.isCryptoError(responseBody)) {
-                    maskHealed = keyManager.healMask()
+                // The bootstrap accepted this build but the streams API did not, so only a rescrape
+                // can help; force one on the next attempt.
+                if (attempt >= 1 && !buildHealed && keyManager.isCryptoError(responseBody)) {
+                    keyManager.invalidateBuild()
+                    buildHealed = true
                 }
             }
             keyManager.invalidate()
