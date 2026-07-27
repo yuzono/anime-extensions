@@ -54,6 +54,8 @@ class Tomato :
 
     override val lang = "pt-BR"
 
+    override val id: Long = 3298973071492789784L
+
     override val supportsLatest = true
 
     private val preferences by lazy {
