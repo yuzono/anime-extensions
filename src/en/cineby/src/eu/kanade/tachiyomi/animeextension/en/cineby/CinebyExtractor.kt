@@ -221,9 +221,11 @@ class CinebyExtractor(
      * (e.g. "1080p", "720p", "480p", "4K", "2160p", or bare digits like "1080").
      * These don't need HLS expansion — the server already provided the correct label.
      */
-    private fun isRealResolution(quality: String): Boolean = qualityRegex.containsMatchIn(quality) ||
-        quality.contains("4k", ignoreCase = true) ||
-        quality.all { it.isDigit() }
+    private fun isRealResolution(quality: String): Boolean = quality.isNotBlank() && (
+        qualityRegex.containsMatchIn(quality) ||
+            quality.contains("4k", ignoreCase = true) ||
+            quality.all { it.isDigit() }
+        )
 
     /**
      * Extracts a numeric quality value for sorting. Maps "4K" to 2160
@@ -278,10 +280,14 @@ class CinebyExtractor(
                     // - URL is .m3u8/.mpd (standard HLS/DASH), or
                     // - Quality is a language name (these are almost always HLS
                     //   even if the URL doesn't contain .m3u8 explicitly)
-                    // Don't expand when quality is already "1080p" etc —
-                    // those servers provide correct labels per source.
-                    val needsExpansion = !isRealResolution(rawQuality) &&
-                        (isHls || isDash || isLang)
+                    // - Quality is a generic placeholder (e.g. "Auto", "video")
+                    //   to catch playlists that lack a file extension.
+                    //
+                    // FORCE EXPANSION FOR BREACH: m4uhd often returns a master playlist
+                    // without a .m3u8 extension. We force it here to extract the variants.
+                    val isGeneric = isGenericQuality(rawQuality)
+                    val needsExpansion = (!isRealResolution(rawQuality) && (isHls || isDash || isLang || isGeneric)) ||
+                        (server.displayName == "Breach")
 
                     if (needsExpansion) {
                         val expanded = runCatching {
