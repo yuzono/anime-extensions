@@ -45,7 +45,7 @@ class Cineby :
         get() = preferences.domainPref
 
     // Cineby/Videasy proxy
-    private val apiUrl = "https://db.wingsdatabase.com/3"
+    private val apiUrl = "https://db.speedracelight.com/3"
 
     private fun apiOrigin(url: String): String = url.toHttpUrl().run { "$scheme://$host" }
 
@@ -632,6 +632,6 @@ class Cineby :
 
         private const val PREF_SERVERS_KEY = "pref_servers_v2"
         private val PREF_SERVERS_DEFAULT =
-            setOf("Jett", "Neon", "Yoru", "Tejo")
+            setOf("Yoru", "Breach", "Neon", "Vyse")
     }
 }

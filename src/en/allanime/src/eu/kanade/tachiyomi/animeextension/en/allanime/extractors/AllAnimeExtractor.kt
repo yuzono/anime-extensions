@@ -123,11 +123,6 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
     }
 
     @Serializable
-    data class VersionResponse(
-        val episodeIframeHead: String,
-    )
-
-    @Serializable
     data class VideoLink(
         val links: List<Link>,
     ) {

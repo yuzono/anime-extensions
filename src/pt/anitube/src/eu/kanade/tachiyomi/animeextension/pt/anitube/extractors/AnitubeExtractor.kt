@@ -8,10 +8,12 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CompletableDeferred
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 
 class AnitubeExtractor(
     private val headers: Headers,
@@ -20,6 +22,12 @@ class AnitubeExtractor(
 ) {
 
     private val tag by lazy { javaClass.simpleName }
+
+    // Cache for the host-wide ADS widget content, shared across concurrent calls.
+    // A CompletableDeferred is used so that only one request per adsUrl is made
+    // (computeIfAbsent atomically creates the placeholder) while callers await the
+    // same in-flight result.
+    private val adsContentCache = ConcurrentHashMap<String, CompletableDeferred<String>>()
 
     private data class PlayerInfo(
         val playerUrl: String,
@@ -54,29 +62,29 @@ class AnitubeExtractor(
         val docLink = response.useAsJsoup()
 
         // Handle meta refresh redirect
-        docLink.selectFirst("meta[http-equiv=refresh]")?.attr("content")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { refresh ->
-                val newLink = refresh.substringAfter("=")
-                val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
-                Log.d(tag, "Redirecting using meta refresh to $newLink")
-                return fetchPlayerInfo(newLink, newHeaders)
-            }
+        val refresh = docLink.selectFirst("meta[http-equiv=refresh]")?.attr("content")
+        if (!refresh.isNullOrBlank()) {
+            val newLink = refresh.substringAfter("=")
+            val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
+            Log.d(tag, "Redirecting using meta refresh to $newLink")
+            return fetchPlayerInfo(newLink, newHeaders)
+        }
 
         // Handle JavaScript redirect
-        docLink.data().takeIf { it.contains("window.location.href = redirectUrl") }
-            ?.let { data ->
-                val newLink = data
-                    .substringAfter("redirectUrl = `")
-                    .substringBefore("`")
-                    .replace($$"${token}", finalLink.toHttpUrl().queryParameter("t") ?: "")
-                val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
-                Log.d(tag, "Redirecting using JavaScript to $newLink")
-                return fetchPlayerInfo(newLink, newHeaders)
-            }
+        val jsData = docLink.data()
+        if (jsData.contains("window.location.href = redirectUrl")) {
+            val newLink = jsData
+                .substringAfter("redirectUrl = `")
+                .substringBefore("`")
+                .replace("\${token}", finalLink.toHttpUrl().queryParameter("t") ?: "")
+            val newHeaders = linkHeaders.newBuilder().set("Referer", finalLink).build()
+            Log.d(tag, "Redirecting using JavaScript to $newLink")
+            return fetchPlayerInfo(newLink, newHeaders)
+        }
 
-        docLink.selectFirst("p:contains(Novo endereço)")?.let {
-            val newLink = it.selectFirst("strong")?.text()
+        val novoEndereco = docLink.selectFirst("p:contains(Novo endereço)")
+        if (novoEndereco != null) {
+            val newLink = novoEndereco.selectFirst("strong")?.text()
 
             if (newLink?.startsWith("http") == true) {
                 preferences.edit().putString("preferred_domain", newLink).apply()
@@ -131,7 +139,21 @@ class AnitubeExtractor(
             "https://widgets.outbrain.com/outbrain.js" to "https://ads.anitube.vip/adblock2.php"
         }
 
-        val adsContent = client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
+        val adsDeferred = adsContentCache[adsUrl] ?: CompletableDeferred<String>().let {
+            adsContentCache.putIfAbsent(adsUrl, it) ?: it
+        }
+
+        if (!adsDeferred.isCompleted) {
+            runCatching {
+                client.newCall(GET(adsUrl)).awaitSuccess().bodyString()
+            }.onSuccess { adsDeferred.complete(it) }
+                .onFailure {
+                    adsContentCache.remove(adsUrl, adsDeferred)
+                    throw it
+                }
+        }
+
+        val adsContent = adsDeferred.await()
 
         val videoUrl = playerInfo.playerUrl.toHttpUrl().queryParameter("url")!!
 
@@ -156,12 +178,13 @@ class AnitubeExtractor(
 
             val videoToken = extractPublicidadeCode(response)
 
-            videoToken.takeIf { it.startsWith("?") }
-                ?.also { Log.d(tag, "Video token fetched successfully") }
-                ?: run {
-                    Log.e(tag, "Failed to fetch video token, response: $videoToken")
-                    ""
-                }
+            if (videoToken.startsWith("?")) {
+                Log.d(tag, "Video token fetched successfully")
+                videoToken
+            } else {
+                Log.e(tag, "Failed to fetch video token, response: $videoToken")
+                ""
+            }
         } catch (e: Exception) {
             Log.e(tag, "Error fetching video token: ${e.message}")
             ""
@@ -173,12 +196,11 @@ class AnitubeExtractor(
         val videoToken = fetchVideoToken(playerInfo)
         return if (!videoToken.isNullOrBlank()) {
             val finalUrl = playerInfo.videoUrl + videoToken
-            listOf(Video(finalUrl, quality, finalUrl, headers = headers))
+            listOf(Video(finalUrl, "Anitube - $quality", finalUrl, headers = headers))
         } else {
             emptyList()
         }
     }
-
     companion object {
         private val ADS_URL_REGEX = Regex("""(?:urlToFetch|ADS_URL)\s*=\s*['"]([^'"]+)['"]""")
     }
