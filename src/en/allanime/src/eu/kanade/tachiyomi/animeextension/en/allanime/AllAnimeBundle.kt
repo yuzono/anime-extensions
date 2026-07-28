@@ -136,7 +136,10 @@ object AllAnimeBundle {
         return null
     }
 
-    /** Folds the `2935+-1459*2` arithmetic the obfuscator hides every integer behind. */
+    /**
+     * Folds the `2935+-1459*2` arithmetic the obfuscator hides every integer behind. Signs stack,
+     * so `- -732` is a subtraction of a negative and must come out positive.
+     */
     private fun fold(expression: String): Int {
         var total = 0
         for (term in TERM_REGEX.findAll(expression.replace(" ", "")).map(MatchResult::value)) {
@@ -175,5 +178,6 @@ object AllAnimeBundle {
     // 8 bytes of base64. Discriminating enough that only the true rotation produces four of them.
     private val SEED_REGEX = Regex("""[A-Za-z0-9+/]{11}=""")
 
-    private val TERM_REGEX = Regex("""[-+]?[^-+]+""")
+    // Leading signs are matched greedily, not one at a time: `fold` counts them to get the sign.
+    private val TERM_REGEX = Regex("""[-+]*[^-+]+""")
 }
