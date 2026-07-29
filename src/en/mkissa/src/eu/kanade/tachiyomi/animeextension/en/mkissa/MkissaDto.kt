@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

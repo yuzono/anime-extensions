@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import android.content.SharedPreferences
 import androidx.preference.ListPreference
@@ -11,8 +11,8 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.animeextension.en.allanime.EpisodeResult.DataEpisode.Episode.SourceUrl
-import eu.kanade.tachiyomi.animeextension.en.allanime.extractors.AllAnimeExtractor
+import eu.kanade.tachiyomi.animeextension.en.mkissa.EpisodeResult.DataEpisode.Episode.SourceUrl
+import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.MkissaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -41,11 +41,13 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 
-class AllAnime :
+class Mkissa :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AllAnime"
+    override val name = "Mkissa"
+
+    override val id = 4709139914729853090L
 
     override val baseUrl by lazy { "${preferences.siteUrl}/anime" }
 
@@ -125,7 +127,7 @@ class AllAnime :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val filters = AllAnimeFilters.getSearchParameters(filters)
+        val filters = MkissaFilters.getSearchParameters(filters)
 
         val data = buildJsonObject {
             putJsonObject("variables") {
@@ -179,7 +181,7 @@ class AllAnime :
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList = AllAnimeFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = MkissaFilters.FILTER_LIST
 
     // =========================== Anime Details ============================
 
@@ -261,7 +263,7 @@ class AllAnime :
     // ============================ Video Links =============================
 
     private val keyManager by lazy {
-        AllAnimeKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
+        MkissaKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
@@ -272,7 +274,7 @@ class AllAnime :
         return "${preferences.siteUrl}/anime/${vars.showId}/p-${vars.episodeString}-${vars.translationType}"
     }
 
-    private fun videoListRequest(episode: SEpisode, material: AllAnimeKeyManager.Material): Request {
+    private fun videoListRequest(episode: SEpisode, material: MkissaKeyManager.Material): Request {
         val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
         val extensions = buildJsonObject {
@@ -296,7 +298,7 @@ class AllAnime :
         return GET(url, streamHeaders)
     }
 
-    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
+    private val mkissaExtractor by lazy { MkissaExtractor(client, headers) }
     private val gogoStreamExtractor by lazy { GogoStreamExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -353,7 +355,7 @@ class AllAnime :
             val sName = server.sourceName
             when {
                 sName.startsWith("internal ") -> {
-                    allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
+                    mkissaExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
                 }
 
                 sName.startsWith("player@") -> {
@@ -514,7 +516,7 @@ class AllAnime :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
-        val encryptionChangedError = Exception("AllAnime changed its stream encryption; update the extension")
+        val encryptionChangedError = Exception("Mkissa changed its stream encryption; update the extension")
         var lastError: Throwable? = null
         var buildHealed = false
 

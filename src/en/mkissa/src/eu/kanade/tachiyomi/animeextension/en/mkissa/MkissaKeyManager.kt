@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import android.content.SharedPreferences
 import android.util.Base64
@@ -20,7 +20,7 @@ import javax.crypto.spec.SecretKeySpec
  * fold into the client mask, which signs the bootstrap request for `partB`; the key is
  * `mask XOR partB`.
  */
-class AllAnimeKeyManager(
+class MkissaKeyManager(
     private val client: OkHttpClient,
     private val headers: Headers,
     preferences: SharedPreferences,
@@ -66,7 +66,7 @@ class AllAnimeKeyManager(
             // Not the bootstrap's switchAt: it can already be past while the epoch is live.
             val now = System.currentTimeMillis()
             Material(
-                key = AllAnimeCrypto.deriveKey(handshake.mask, partB),
+                key = MkissaCrypto.deriveKey(handshake.mask, partB),
                 epoch = handshake.bootstrap.epoch,
                 buildId = handshake.build.buildId,
                 expiresAt = now + MATERIAL_TTL_MS,
@@ -75,9 +75,9 @@ class AllAnimeKeyManager(
         }
     }
 
-    fun aaReq(material: Material): String = AllAnimeCrypto.buildAaReq(material.key, material.epoch, material.buildId, STREAM_HASH, ANIME_LANE)
+    fun aaReq(material: Material): String = MkissaCrypto.buildAaReq(material.key, material.epoch, material.buildId, STREAM_HASH, ANIME_LANE)
 
-    fun decrypt(tobeparsed: String, material: Material): String? = AllAnimeCrypto.decrypt(tobeparsed, material.key)
+    fun decrypt(tobeparsed: String, material: Material): String? = MkissaCrypto.decrypt(tobeparsed, material.key)
 
     fun invalidate() {
         cachedMaterial = null
@@ -93,7 +93,7 @@ class AllAnimeKeyManager(
         ?.any { it.extensions?.code?.startsWith("AA_CRYPTO") == true } == true
 
     private class Handshake(
-        val build: AllAnimeBundle.BuildInfo,
+        val build: MkissaBundle.BuildInfo,
         val mask: ByteArray,
         val bootstrap: AaCryptoBootstrap,
     )
@@ -107,21 +107,21 @@ class AllAnimeKeyManager(
     /** Re-scraping starts at the Cloudflare-gated HTML, so cheaper causes are ruled out first. */
     private suspend fun handshake(): Handshake? {
         val cached = cachedBuild()
-        val mask = cached?.let { AllAnimeCrypto.deriveMask(it.buildId, it.seeds) }
+        val mask = cached?.let { MkissaCrypto.deriveMask(it.buildId, it.seeds) }
 
         if (cached != null && mask != null) {
-            val first = bootstrap(cached.buildId, mask, AllAnimeCrypto.epochCandidates())
+            val first = bootstrap(cached.buildId, mask, MkissaCrypto.epochCandidates())
             first.bootstrap?.let { return Handshake(cached, mask, it) }
             if (!first.stale) return null
 
             // A clock off by more than the grace window looks exactly like a stale build.
-            bootstrap(cached.buildId, mask, AllAnimeCrypto.skewedEpochCandidates()).bootstrap
+            bootstrap(cached.buildId, mask, MkissaCrypto.skewedEpochCandidates()).bootstrap
                 ?.let { return Handshake(cached, mask, it) }
         }
 
         val fresh = resolveBuild() ?: return null
-        val freshMask = AllAnimeCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
-        return bootstrap(fresh.buildId, freshMask, AllAnimeCrypto.epochCandidates())
+        val freshMask = MkissaCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
+        return bootstrap(fresh.buildId, freshMask, MkissaCrypto.epochCandidates())
             .bootstrap?.let { Handshake(fresh, freshMask, it) }
     }
 
@@ -137,7 +137,7 @@ class AllAnimeKeyManager(
         for (epoch in epochs) {
             val requestHeaders = headers.newBuilder()
                 .set("x-build-id", buildId)
-                .set("x-aa-boot", AllAnimeCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE))
+                .set("x-aa-boot", MkissaCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE))
                 .set("Origin", siteUrl)
                 .set("Referer", "$siteUrl/")
                 .build()
@@ -162,15 +162,15 @@ class AllAnimeKeyManager(
         return BootstrapResult(null, stale = sawStale)
     }
 
-    private fun cachedBuild(): AllAnimeBundle.BuildInfo? {
+    private fun cachedBuild(): MkissaBundle.BuildInfo? {
         val buildId = storedBuild.substringBefore(FIELD_SEPARATOR, "").takeIf(String::isNotEmpty) ?: return null
         val seeds = storedBuild.substringAfter(FIELD_SEPARATOR, "").split(",").filter(String::isNotBlank)
-        if (seeds.size != AllAnimeCrypto.SEED_COUNT) return null
-        return AllAnimeBundle.BuildInfo(buildId, seeds)
+        if (seeds.size != MkissaCrypto.SEED_COUNT) return null
+        return MkissaBundle.BuildInfo(buildId, seeds)
     }
 
     /** The entry is re-read every time: chunk URLs are immutable, so a rebuild only shows in HTML. */
-    private suspend fun resolveBuild(): AllAnimeBundle.BuildInfo? {
+    private suspend fun resolveBuild(): MkissaBundle.BuildInfo? {
         val appUrl = entryUrlFromSite()?.toHttpUrl() ?: return null
 
         val appJs = runCatching {
@@ -192,7 +192,7 @@ class AllAnimeKeyManager(
 
             if (!body.contains(CRYPTO_CHUNK_MARKER)) continue
 
-            AllAnimeBundle.parse(body)?.let { return it }
+            MkissaBundle.parse(body)?.let { return it }
         }
         return null
     }
@@ -208,10 +208,10 @@ class AllAnimeKeyManager(
 
     private fun Material.isExpired(): Boolean = System.currentTimeMillis() >= expiresAt
 
-    private fun AllAnimeBundle.BuildInfo.serialize(): String = "$buildId$FIELD_SEPARATOR${seeds.joinToString(",")}"
+    private fun MkissaBundle.BuildInfo.serialize(): String = "$buildId$FIELD_SEPARATOR${seeds.joinToString(",")}"
 
     companion object {
-        private const val MATERIAL_ERROR = "Unable to obtain AllAnime crypto material"
+        private const val MATERIAL_ERROR = "Unable to obtain Mkissa crypto material"
 
         private const val BOOTSTRAP_PATH = "/client-crypto/v1/bootstrap"
 

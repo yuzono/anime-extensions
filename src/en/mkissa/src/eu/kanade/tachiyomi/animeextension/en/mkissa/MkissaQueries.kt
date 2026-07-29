@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 fun buildQuery(queryAction: () -> String): String = queryAction()
     .trimIndent()

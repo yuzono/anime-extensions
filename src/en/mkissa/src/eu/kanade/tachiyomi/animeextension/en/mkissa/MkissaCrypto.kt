@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import android.util.Base64
 import keiyoushi.utils.toHex
@@ -13,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec
  * Stateless primitives for the "aaReq" scheme, wire layout `[0x01] + iv(12) + AES-GCM(ct‖tag)`.
  * Request token and response payload are both keyed with `clientMask XOR partB`.
  */
-object AllAnimeCrypto {
+object MkissaCrypto {
 
     private const val TAG_LENGTH = 128
     private const val HASH_ALGO = "SHA-256"

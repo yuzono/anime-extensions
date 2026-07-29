@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime.extractors
+package eu.kanade.tachiyomi.animeextension.en.mkissa.extractors
 
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -13,7 +13,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import java.util.Locale
 
-class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers) {
+class MkissaExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 

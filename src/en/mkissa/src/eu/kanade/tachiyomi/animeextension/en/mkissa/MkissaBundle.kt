@@ -1,11 +1,11 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 /**
  * Recovers `buildId` and the four mask seeds from the obfuscated JS chunk. The seeds are lookups
  * into a string table rotated at load time by an amount only the bundle's checksum loop knows, so
  * [parse] tries every rotation and keeps the one whose results all have the seed shape.
  */
-object AllAnimeBundle {
+object MkissaBundle {
 
     class BuildInfo(val buildId: String, val seeds: List<String>)
 
@@ -36,7 +36,7 @@ object AllAnimeBundle {
 
         for (match in SEED_ARRAY_REGEX.findAll(js)) {
             val calls = CALL_REGEX.findAll(match.groupValues[1]).map(MatchResult::value).toList()
-            if (calls.size != AllAnimeCrypto.SEED_COUNT * 2) continue
+            if (calls.size != MkissaCrypto.SEED_COUNT * 2) continue
 
             val table = CALL_REGEX.find(calls.first())
                 ?.let { aliases[it.groupValues[1]] }
@@ -64,7 +64,7 @@ object AllAnimeBundle {
             val b = resolve(second, rotation, tables, bases, aliases) ?: return@mapNotNull null
             (a + b).takeIf(SEED_REGEX::matches)
         }
-        return seeds.takeIf { it.size == AllAnimeCrypto.SEED_COUNT }
+        return seeds.takeIf { it.size == MkissaCrypto.SEED_COUNT }
     }
 
     private fun resolve(
