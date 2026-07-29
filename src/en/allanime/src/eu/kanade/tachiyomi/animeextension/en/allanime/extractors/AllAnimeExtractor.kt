@@ -17,6 +17,12 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
+    companion object {
+        // The DASH CDN 403s any request with a Referer, and an unset header set makes the player
+        // fall back to the source's, which has one.
+        private val DASH_HEADERS = Headers.headersOf("Accept", "*/*")
+    }
+
     private fun bytesIntoHumanReadable(bytes: Long): String {
         val kilobyte: Long = 1000
         val megabyte = kilobyte * 1000
@@ -106,6 +112,7 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
                             it.url,
                             "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}",
                             it.url,
+                            headers = DASH_HEADERS,
                             audioTracks = audioList,
                             subtitleTracks = subtitles,
                         )
