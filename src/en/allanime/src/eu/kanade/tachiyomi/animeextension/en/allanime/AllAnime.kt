@@ -620,7 +620,7 @@ class AllAnime :
         private val PREF_HOSTER_ENTRY_VALUES = INTERAL_HOSTER_NAMES.map {
             it.lowercase()
         }.toTypedArray()
-        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "luf-mp4", "si-hls", "s-mp4", "ac-hls")
+        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "si-hls", "s-mp4", "ac-hls")
 
         private const val PREF_ALT_HOSTER_KEY = "alt_hoster_selection"
 
