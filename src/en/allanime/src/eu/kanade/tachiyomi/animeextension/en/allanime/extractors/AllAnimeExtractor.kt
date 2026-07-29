@@ -22,18 +22,13 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
         val megabyte = kilobyte * 1000
         val gigabyte = megabyte * 1000
         val terabyte = gigabyte * 1000
-        return if (bytes in 0 until kilobyte) {
-            "$bytes b/s"
-        } else if (bytes in kilobyte until megabyte) {
-            (bytes / kilobyte).toString() + " kb/s"
-        } else if (bytes in megabyte until gigabyte) {
-            (bytes / megabyte).toString() + " mb/s"
-        } else if (bytes in gigabyte until terabyte) {
-            (bytes / gigabyte).toString() + " gb/s"
-        } else if (bytes >= terabyte) {
-            (bytes / terabyte).toString() + " tb/s"
-        } else {
-            "$bytes bits/s"
+        return when {
+            bytes < 0 -> "$bytes bits/s"
+            bytes < kilobyte -> "$bytes b/s"
+            bytes < megabyte -> "${bytes / kilobyte} kb/s"
+            bytes < gigabyte -> String.format(Locale.US, "%.2f mb/s", bytes.toDouble() / megabyte)
+            bytes < terabyte -> String.format(Locale.US, "%.2f gb/s", bytes.toDouble() / gigabyte)
+            else -> String.format(Locale.US, "%.2f tb/s", bytes.toDouble() / terabyte)
         }
     }
 

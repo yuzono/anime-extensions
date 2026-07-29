@@ -440,15 +440,20 @@ class AllAnime :
         val quality = preferences.quality
         val subPref = preferences.subPref
 
+        // Reversed comparator, not reversed list: keeps the sort stable, so equal-key entries stay
+        // in extractor order (highest bitrate first).
         return pList.sortedWith(
-            compareBy(
+            compareBy<Pair<Video, Float>>(
                 { if (prefServer == "site_default") it.second else it.first.quality.contains(prefServer, true) },
                 { it.first.quality.contains(quality, true) },
                 { it.first.quality.contains(subPref, true) },
-            ),
-        ).reversed()
-            .map { t -> t.first }
+                { it.first.quality.resolution() },
+            ).reversed(),
+        ).map { t -> t.first }
     }
+
+    // First match, not the largest: names can end in a bitrate ("Ak - 1080 5 mb/s").
+    private fun String.resolution(): Int = RESOLUTION_REGEX.find(this)?.value?.toIntOrNull() ?: 0
 
     private fun buildPost(dataObject: JsonObject): Request {
         val payload = dataObject.toJsonString().toJsonBody()
@@ -642,6 +647,8 @@ class AllAnime :
         private const val PREF_SUB_DEFAULT = "sub"
 
         private const val MAX_KEY_ATTEMPTS = 3
+
+        private val RESOLUTION_REGEX = Regex("""\d{3,4}""")
 
         // XOR keys indexed by source-URL prefix type: '--'=3  '#-'=2  '##'=1  '-#'=4  '#'=0
         private val XOR_KEYS = arrayOf(
