@@ -66,7 +66,7 @@ class Subsplease :
 
                 SAnime.create().apply {
                     this.title = title
-                    setUrlWithoutDomain("$baseUrl/shows/$url")
+                    setUrlWithoutDomain("/shows/$url")
                     item.jsonObject["image_url"]?.jsonPrimitive?.content?.let {
                         thumbnail_url = "$baseUrl$it"
                     }
@@ -100,14 +100,14 @@ class Subsplease :
 
             SAnime.create().apply {
                 this.title = title
-                setUrlWithoutDomain("$baseUrl/shows/$pageUrl")
+                setUrlWithoutDomain("/shows/$pageUrl")
                 itJ["image_url"]?.jsonPrimitive?.content
                     ?.takeIf { it.isNotBlank() }
                     ?.let { thumbnail_url = "$baseUrl$it" }
             }
         }
 
-        // Hard limit: Page 3 turns "error: limit reached"
+        // Stop at page 2 to prevent requesting page 3, which returns "error: limit reached"
         val hasNextPage = currentPage < 2
 
         return AnimesPage(animeList, hasNextPage = hasNextPage)
@@ -231,7 +231,7 @@ class Subsplease :
 
             SAnime.create().apply {
                 this.title = title
-                setUrlWithoutDomain("$baseUrl/shows/$page")
+                setUrlWithoutDomain("/shows/$page")
                 itJ.jsonObject["image_url"]?.jsonPrimitive?.content?.let {
                     thumbnail_url = "$baseUrl$it"
                 }
