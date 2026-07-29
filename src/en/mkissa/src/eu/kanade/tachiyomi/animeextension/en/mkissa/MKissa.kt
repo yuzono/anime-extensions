@@ -12,7 +12,7 @@ import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.en.mkissa.EpisodeResult.DataEpisode.Episode.SourceUrl
-import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.MkissaExtractor
+import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.MKissaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -41,11 +41,11 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 
-class Mkissa :
+class MKissa :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "Mkissa"
+    override val name = "MKissa"
 
     override val id = 4709139914729853090L
 
@@ -127,7 +127,7 @@ class Mkissa :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val filters = MkissaFilters.getSearchParameters(filters)
+        val filters = MKissaFilters.getSearchParameters(filters)
 
         val data = buildJsonObject {
             putJsonObject("variables") {
@@ -181,7 +181,7 @@ class Mkissa :
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList = MkissaFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = MKissaFilters.FILTER_LIST
 
     // =========================== Anime Details ============================
 
@@ -263,7 +263,7 @@ class Mkissa :
     // ============================ Video Links =============================
 
     private val keyManager by lazy {
-        MkissaKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
+        MKissaKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
@@ -274,7 +274,7 @@ class Mkissa :
         return "${preferences.siteUrl}/anime/${vars.showId}/p-${vars.episodeString}-${vars.translationType}"
     }
 
-    private fun videoListRequest(episode: SEpisode, material: MkissaKeyManager.Material): Request {
+    private fun videoListRequest(episode: SEpisode, material: MKissaKeyManager.Material): Request {
         val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
         val extensions = buildJsonObject {
@@ -298,7 +298,7 @@ class Mkissa :
         return GET(url, streamHeaders)
     }
 
-    private val mkissaExtractor by lazy { MkissaExtractor(client, headers) }
+    private val mkissaExtractor by lazy { MKissaExtractor(client, headers) }
     private val gogoStreamExtractor by lazy { GogoStreamExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -516,7 +516,7 @@ class Mkissa :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
-        val encryptionChangedError = Exception("Mkissa changed its stream encryption; update the extension")
+        val encryptionChangedError = Exception("MKissa changed its stream encryption; update the extension")
         var lastError: Throwable? = null
         var buildHealed = false
 

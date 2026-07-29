@@ -20,7 +20,7 @@ import javax.crypto.spec.SecretKeySpec
  * fold into the client mask, which signs the bootstrap request for `partB`; the key is
  * `mask XOR partB`.
  */
-class MkissaKeyManager(
+class MKissaKeyManager(
     private val client: OkHttpClient,
     private val headers: Headers,
     preferences: SharedPreferences,
@@ -66,7 +66,7 @@ class MkissaKeyManager(
             // Not the bootstrap's switchAt: it can already be past while the epoch is live.
             val now = System.currentTimeMillis()
             Material(
-                key = MkissaCrypto.deriveKey(handshake.mask, partB),
+                key = MKissaCrypto.deriveKey(handshake.mask, partB),
                 epoch = handshake.bootstrap.epoch,
                 buildId = handshake.build.buildId,
                 expiresAt = now + MATERIAL_TTL_MS,
@@ -75,9 +75,9 @@ class MkissaKeyManager(
         }
     }
 
-    fun aaReq(material: Material): String = MkissaCrypto.buildAaReq(material.key, material.epoch, material.buildId, STREAM_HASH, ANIME_LANE)
+    fun aaReq(material: Material): String = MKissaCrypto.buildAaReq(material.key, material.epoch, material.buildId, STREAM_HASH, ANIME_LANE)
 
-    fun decrypt(tobeparsed: String, material: Material): String? = MkissaCrypto.decrypt(tobeparsed, material.key)
+    fun decrypt(tobeparsed: String, material: Material): String? = MKissaCrypto.decrypt(tobeparsed, material.key)
 
     fun invalidate() {
         cachedMaterial = null
@@ -93,7 +93,7 @@ class MkissaKeyManager(
         ?.any { it.extensions?.code?.startsWith("AA_CRYPTO") == true } == true
 
     private class Handshake(
-        val build: MkissaBundle.BuildInfo,
+        val build: MKissaBundle.BuildInfo,
         val mask: ByteArray,
         val bootstrap: AaCryptoBootstrap,
     )
@@ -107,21 +107,21 @@ class MkissaKeyManager(
     /** Re-scraping starts at the Cloudflare-gated HTML, so cheaper causes are ruled out first. */
     private suspend fun handshake(): Handshake? {
         val cached = cachedBuild()
-        val mask = cached?.let { MkissaCrypto.deriveMask(it.buildId, it.seeds) }
+        val mask = cached?.let { MKissaCrypto.deriveMask(it.buildId, it.seeds) }
 
         if (cached != null && mask != null) {
-            val first = bootstrap(cached.buildId, mask, MkissaCrypto.epochCandidates())
+            val first = bootstrap(cached.buildId, mask, MKissaCrypto.epochCandidates())
             first.bootstrap?.let { return Handshake(cached, mask, it) }
             if (!first.stale) return null
 
             // A clock off by more than the grace window looks exactly like a stale build.
-            bootstrap(cached.buildId, mask, MkissaCrypto.skewedEpochCandidates()).bootstrap
+            bootstrap(cached.buildId, mask, MKissaCrypto.skewedEpochCandidates()).bootstrap
                 ?.let { return Handshake(cached, mask, it) }
         }
 
         val fresh = resolveBuild() ?: return null
-        val freshMask = MkissaCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
-        return bootstrap(fresh.buildId, freshMask, MkissaCrypto.epochCandidates())
+        val freshMask = MKissaCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
+        return bootstrap(fresh.buildId, freshMask, MKissaCrypto.epochCandidates())
             .bootstrap?.let { Handshake(fresh, freshMask, it) }
     }
 
@@ -137,7 +137,7 @@ class MkissaKeyManager(
         for (epoch in epochs) {
             val requestHeaders = headers.newBuilder()
                 .set("x-build-id", buildId)
-                .set("x-aa-boot", MkissaCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE))
+                .set("x-aa-boot", MKissaCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE))
                 .set("Origin", siteUrl)
                 .set("Referer", "$siteUrl/")
                 .build()
@@ -162,15 +162,15 @@ class MkissaKeyManager(
         return BootstrapResult(null, stale = sawStale)
     }
 
-    private fun cachedBuild(): MkissaBundle.BuildInfo? {
+    private fun cachedBuild(): MKissaBundle.BuildInfo? {
         val buildId = storedBuild.substringBefore(FIELD_SEPARATOR, "").takeIf(String::isNotEmpty) ?: return null
         val seeds = storedBuild.substringAfter(FIELD_SEPARATOR, "").split(",").filter(String::isNotBlank)
-        if (seeds.size != MkissaCrypto.SEED_COUNT) return null
-        return MkissaBundle.BuildInfo(buildId, seeds)
+        if (seeds.size != MKissaCrypto.SEED_COUNT) return null
+        return MKissaBundle.BuildInfo(buildId, seeds)
     }
 
     /** The entry is re-read every time: chunk URLs are immutable, so a rebuild only shows in HTML. */
-    private suspend fun resolveBuild(): MkissaBundle.BuildInfo? {
+    private suspend fun resolveBuild(): MKissaBundle.BuildInfo? {
         val appUrl = entryUrlFromSite()?.toHttpUrl() ?: return null
 
         val appJs = runCatching {
@@ -192,7 +192,7 @@ class MkissaKeyManager(
 
             if (!body.contains(CRYPTO_CHUNK_MARKER)) continue
 
-            MkissaBundle.parse(body)?.let { return it }
+            MKissaBundle.parse(body)?.let { return it }
         }
         return null
     }
@@ -208,10 +208,10 @@ class MkissaKeyManager(
 
     private fun Material.isExpired(): Boolean = System.currentTimeMillis() >= expiresAt
 
-    private fun MkissaBundle.BuildInfo.serialize(): String = "$buildId$FIELD_SEPARATOR${seeds.joinToString(",")}"
+    private fun MKissaBundle.BuildInfo.serialize(): String = "$buildId$FIELD_SEPARATOR${seeds.joinToString(",")}"
 
     companion object {
-        private const val MATERIAL_ERROR = "Unable to obtain Mkissa crypto material"
+        private const val MATERIAL_ERROR = "Unable to obtain MKissa crypto material"
 
         private const val BOOTSTRAP_PATH = "/client-crypto/v1/bootstrap"
 

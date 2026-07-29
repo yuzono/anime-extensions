@@ -4,7 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
-object MkissaFilters {
+object MKissaFilters {
 
     open class QueryPartFilter(
         displayName: String,
@@ -33,21 +33,21 @@ object MkissaFilters {
         ?.joinToString("\",\"", "[\"", "\"]")
         ?: "all"
 
-    class OriginFilter : QueryPartFilter("Origin", MkissaFiltersData.ORIGIN)
-    class SeasonFilter : QueryPartFilter("Season", MkissaFiltersData.SEASONS)
-    class ReleaseYearFilter : QueryPartFilter("Released at", MkissaFiltersData.YEARS)
-    class SortByFilter : QueryPartFilter("Sort By", MkissaFiltersData.SORT_BY)
+    class OriginFilter : QueryPartFilter("Origin", MKissaFiltersData.ORIGIN)
+    class SeasonFilter : QueryPartFilter("Season", MKissaFiltersData.SEASONS)
+    class ReleaseYearFilter : QueryPartFilter("Released at", MKissaFiltersData.YEARS)
+    class SortByFilter : QueryPartFilter("Sort By", MKissaFiltersData.SORT_BY)
 
     class TypesFilter :
         CheckBoxFilterList(
             "Types",
-            MkissaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
+            MKissaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
         )
 
     class GenresFilter :
         CheckBoxFilterList(
             "Genres",
-            MkissaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+            MKissaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
         )
 
     val FILTER_LIST get() = AnimeFilterList(
@@ -77,12 +77,12 @@ object MkissaFilters {
             filters.asQueryPart<SeasonFilter>(),
             filters.asQueryPart<ReleaseYearFilter>(),
             filters.asQueryPart<SortByFilter>(),
-            filters.parseCheckbox<TypesFilter>(MkissaFiltersData.TYPES),
-            filters.parseCheckbox<GenresFilter>(MkissaFiltersData.GENRES),
+            filters.parseCheckbox<TypesFilter>(MKissaFiltersData.TYPES),
+            filters.parseCheckbox<GenresFilter>(MKissaFiltersData.GENRES),
         )
     }
 
-    private object MkissaFiltersData {
+    private object MKissaFiltersData {
         val ALL = Pair("All", "all")
 
         val ORIGIN = arrayOf(
