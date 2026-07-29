@@ -1,14 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.allanime
 
 /**
- * Recovers the two per-build crypto inputs — `buildId` and the four mask seeds — from mkissa's
- * obfuscated JS chunk.
- *
- * `buildId` is a plain literal. The seeds are not: each is two concatenated calls into a string
- * table, reached through alias functions that offset the index, and the table is rotated at load
- * time by an amount only the bundle's own checksum loop knows. Rather than emulate that loop,
- * [parse] resolves the lookup chain for every possible rotation and keeps the one whose results
- * all have the seed shape.
+ * Recovers `buildId` and the four mask seeds from the obfuscated JS chunk. The seeds are lookups
+ * into a string table rotated at load time by an amount only the bundle's checksum loop knows, so
+ * [parse] tries every rotation and keeps the one whose results all have the seed shape.
  */
 object AllAnimeBundle {
 
@@ -29,25 +24,20 @@ object AllAnimeBundle {
             m.groupValues[1] to Base(m.groupValues[4], fold(m.groupValues[3]))
         }
         val aliases = buildMap {
-            // A seed may call a base decoder directly rather than through an alias; treating each
-            // base as its own identity alias lets one lookup path handle both spellings.
+            // A seed may call a base decoder directly, so each base is its own identity alias.
             bases.keys.forEach { put(it, Alias(it, 0, 0)) }
             ALIAS_DECODER_REGEX.findAll(js).forEach { m ->
                 val (name, firstParam, _, callee, arg, delta) = m.destructured
                 if (callee !in bases) return@forEach
-                // The alias forwards exactly one of its two parameters; which one tells us where
-                // the real table index sits in the call. Deeper chains are not handled.
+                // Which parameter the alias forwards tells us where the table index sits.
                 put(name, Alias(callee, if (arg == firstParam) 0 else 1, if (delta.isEmpty()) 0 else fold(delta)))
             }
         }
 
-        // Normally there is exactly one such array, but scan every candidate so an unrelated
-        // lookalike earlier in the chunk cannot poison the parse.
         for (match in SEED_ARRAY_REGEX.findAll(js)) {
             val calls = CALL_REGEX.findAll(match.groupValues[1]).map(MatchResult::value).toList()
             if (calls.size != AllAnimeCrypto.SEED_COUNT * 2) continue
 
-            // Every decoder ultimately indexes the same table, so any of them bounds the search.
             val table = CALL_REGEX.find(calls.first())
                 ?.let { aliases[it.groupValues[1]] }
                 ?.let { tables[bases[it.base]?.table] }
@@ -56,8 +46,7 @@ object AllAnimeBundle {
             val matches = table.indices.mapNotNull { rotation ->
                 seedsAt(calls, rotation, tables, bases, aliases)
             }
-            // A wrong rotation matching the seed shape by chance is vanishingly unlikely, but
-            // would silently yield a bad mask — so require the answer to be unambiguous.
+            // A chance match would silently yield a bad mask, so require an unambiguous answer.
             matches.singleOrNull()?.let { return it }
         }
         return null
@@ -136,10 +125,7 @@ object AllAnimeBundle {
         return null
     }
 
-    /**
-     * Folds the `2935+-1459*2` arithmetic the obfuscator hides every integer behind. Signs stack,
-     * so `- -732` is a subtraction of a negative and must come out positive.
-     */
+    /** Folds the `2935+-1459*2` arithmetic every integer is hidden behind; signs stack. */
     private fun fold(expression: String): Int {
         var total = 0
         for (term in TERM_REGEX.findAll(expression.replace(" ", "")).map(MatchResult::value)) {
@@ -160,24 +146,18 @@ object AllAnimeBundle {
 
     private val TABLE_HEAD_REGEX = Regex("""function (\w+)\(\)\s*\{\s*(?:const|let|var)\s+\w+\s*=\s*\[""")
 
-    // Subtracts a constant from its argument and indexes the string table with the result.
     private val BASE_DECODER_REGEX = Regex("""function (\w+)\((\w+)(?:,\w+)*\)\{return \2=\2-\(?([-\d+*\s]+?)\)?,(\w+)\(\)\[\2\]\}""")
 
-    // Forwards one of its two parameters to a base decoder, optionally shifting it. Kept to
-    // exactly two parameters on purpose: the argIndex logic above only distinguishes first
-    // from second.
+    // Two parameters exactly: the argIndex logic only distinguishes first from second.
     private val ALIAS_DECODER_REGEX = Regex("""function (\w+)\((\w+),(\w+)\)\{return (\w+)\((\w+)((?:[-+][\d+*\s-]+)?)\)\}""")
 
     private const val CALL_PATTERN = """(\w+)\(\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\)"""
     private val CALL_REGEX = Regex(CALL_PATTERN)
 
-    // Four elements, each two concatenated lookups — the shape is what tells this array apart
-    // from every other array literal in the chunk.
     private val SEED_ARRAY_REGEX = Regex("""=\[((?:$CALL_PATTERN\+$CALL_PATTERN,){3}$CALL_PATTERN\+$CALL_PATTERN)]""")
 
-    // 8 bytes of base64. Discriminating enough that only the true rotation produces four of them.
     private val SEED_REGEX = Regex("""[A-Za-z0-9+/]{11}=""")
 
-    // Leading signs are matched greedily, not one at a time: `fold` counts them to get the sign.
+    // Leading signs matched greedily; `fold` counts them.
     private val TERM_REGEX = Regex("""[-+]*[^-+]+""")
 }

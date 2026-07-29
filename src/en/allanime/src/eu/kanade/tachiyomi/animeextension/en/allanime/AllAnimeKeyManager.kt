@@ -16,12 +16,9 @@ import okhttp3.OkHttpClient
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Owns the "aaReq" key material.
- *
- * The build's `buildId` and mask seeds are scraped from the live JS bundle ([resolveBuild]) and
- * cached in preferences; together they fold into the 32-byte client mask. That mask signs the
- * `x-aa-boot` token for the crypto bootstrap endpoint, which returns the per-epoch `partB`; the
- * AES-GCM key is `mask XOR partB`.
+ * Owns the "aaReq" key material: `buildId` + mask seeds are scraped from the live JS bundle and
+ * fold into the client mask, which signs the bootstrap request for `partB`; the key is
+ * `mask XOR partB`.
  */
 class AllAnimeKeyManager(
     private val client: OkHttpClient,
@@ -43,8 +40,7 @@ class AllAnimeKeyManager(
     private var cachedMaterial: Material? = null
     private val materialMutex = Mutex()
 
-    // Both halves live in one preference so a concurrent write can never pair one build's id
-    // with another's seeds.
+    // One preference, so a concurrent write cannot pair one build's id with another's seeds.
     private var storedBuild by preferences.delegate(PREF_BUILD_KEY, "")
 
     suspend fun material(forceRefresh: Boolean = false): Material {
@@ -54,7 +50,6 @@ class AllAnimeKeyManager(
         }
 
         return materialMutex.withLock {
-            // Reuse if another coroutine refreshed while we waited on the lock.
             cachedMaterial?.let {
                 if (it.fetchedAt > enteredAt || (!forceRefresh && !it.isExpired())) return@withLock it
             }
@@ -65,13 +60,10 @@ class AllAnimeKeyManager(
                 .getOrElse { throw Exception(MATERIAL_ERROR) }
             require(partB.size >= 32) { MATERIAL_ERROR }
 
-            // Persisted only now that the server has accepted this build, so a bad parse cannot
-            // overwrite a working one and wedge every later launch.
+            // Only after the server accepted it, so a bad parse cannot wedge every later launch.
             storedBuild = handshake.build.serialize()
 
-            // Fixed TTL rather than the bootstrap's switchAt: that boundary can already be in the
-            // past while the epoch is live, which would refetch on every playback. Real rotations
-            // are caught by the AA_CRYPTO_STALE retry, so this is a performance knob only.
+            // Not the bootstrap's switchAt: it can already be past while the epoch is live.
             val now = System.currentTimeMillis()
             Material(
                 key = AllAnimeCrypto.deriveKey(handshake.mask, partB),
@@ -91,12 +83,7 @@ class AllAnimeKeyManager(
         cachedMaterial = null
     }
 
-    /**
-     * Drops the cached build so the next [material] call re-scrapes the bundle. Used when the
-     * streams API rejects a token the bootstrap was happy to mint, which the bootstrap alone
-     * cannot detect. Clearing a flag rather than crawling here keeps parallel episode fetches
-     * from each kicking off their own crawl.
-     */
+    /** Used when the streams API rejects a token the bootstrap minted, which it cannot detect. */
     fun invalidateBuild() {
         storedBuild = ""
         cachedMaterial = null
@@ -111,22 +98,13 @@ class AllAnimeKeyManager(
         val bootstrap: AaCryptoBootstrap,
     )
 
-    /**
-     * A null [bootstrap] with [stale] set means the server refused this build (403 wrong mask,
-     * 404 unknown id) and re-scraping is worth it; without it the failure was a network fault or
-     * an unparseable body, which says nothing about whether the build is current.
-     */
+    /** [stale] distinguishes "server refused this build" from a network fault. */
     private class BootstrapResult(
         val bootstrap: AaCryptoBootstrap?,
         val stale: Boolean,
     )
 
-    /**
-     * Exchanges a build for `partB`, escalating only as far as each failure justifies. The epoch
-     * retry costs one or two plain API calls, whereas re-scraping starts with the Cloudflare-gated
-     * site HTML, which can mean a WebView challenge — so it is worth ruling out a skewed clock
-     * first even though the request counts are comparable.
-     */
+    /** Re-scraping starts at the Cloudflare-gated HTML, so cheaper causes are ruled out first. */
     private suspend fun handshake(): Handshake? {
         val cached = cachedBuild()
         val mask = cached?.let { AllAnimeCrypto.deriveMask(it.buildId, it.seeds) }
@@ -134,10 +112,9 @@ class AllAnimeKeyManager(
         if (cached != null && mask != null) {
             val first = bootstrap(cached.buildId, mask, AllAnimeCrypto.epochCandidates())
             first.bootstrap?.let { return Handshake(cached, mask, it) }
-            // Nothing about a timeout implies the build rotated; let the caller's retry loop run.
             if (!first.stale) return null
 
-            // A device clock off by more than the grace window looks exactly like a stale build.
+            // A clock off by more than the grace window looks exactly like a stale build.
             bootstrap(cached.buildId, mask, AllAnimeCrypto.skewedEpochCandidates()).bootstrap
                 ?.let { return Handshake(cached, mask, it) }
         }
@@ -177,7 +154,7 @@ class AllAnimeKeyManager(
             val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
                 ?: return BootstrapResult(null, stale = false)
 
-            // A partB minted for another lane would silently derive the wrong key.
+            // A partB from another lane would silently derive the wrong key.
             if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
 
             return BootstrapResult(bootstrap, stale = false)
@@ -192,11 +169,7 @@ class AllAnimeKeyManager(
         return AllAnimeBundle.BuildInfo(buildId, seeds)
     }
 
-    /**
-     * Crawls the app's chunks for the crypto chunk and parses `buildId` + mask seeds out of it.
-     * The app entry is always re-read from the site: chunk URLs are content-hashed and immutable,
-     * so a rebuild is only ever visible in the HTML.
-     */
+    /** The entry is re-read every time: chunk URLs are immutable, so a rebuild only shows in HTML. */
     private suspend fun resolveBuild(): AllAnimeBundle.BuildInfo? {
         val appUrl = entryUrlFromSite()?.toHttpUrl() ?: return null
 
@@ -204,9 +177,7 @@ class AllAnimeKeyManager(
             client.newCall(GET(appUrl, headers)).awaitSuccess().bodyString()
         }.getOrNull() ?: return null
 
-        // The ref pattern deliberately matches every relative import, not just `../chunks/`, so a
-        // change to the bundle layout cannot hide the crypto chunk. Shared chunks still go first,
-        // since that is where it has always lived and the cap has to fall somewhere.
+        // Shared chunks first: that is where it has always lived.
         val chunkRefs = CHUNK_REF_REGEX.findAll(appJs)
             .map { it.groupValues[1] }
             .distinct()
@@ -226,7 +197,7 @@ class AllAnimeKeyManager(
         return null
     }
 
-    /** The mkissa page is Cloudflare-gated; it is only needed to locate the CDN app entry. */
+    /** Cloudflare-gated; only needed to locate the CDN app entry. */
     private suspend fun entryUrlFromSite(): String? {
         val html = runCatching {
             client.newCall(GET("$siteUrl/", headers)).awaitSuccess().bodyString()
@@ -244,27 +215,21 @@ class AllAnimeKeyManager(
 
         private const val BOOTSTRAP_PATH = "/client-crypto/v1/bootstrap"
 
-        // 403 invalid_boot_token (mask no longer matches), 404 unknown_build_id (build aged out of
-        // the server's rolling window). Anything else is not evidence that our build is wrong.
+        // 403 invalid_boot_token, 404 unknown_build_id.
         private val STALE_CODES = setOf(403, 404)
 
-        // The site buckets its hosts; mkissa.to (and anything unrecognised) maps to "mkissa".
-        // Adding a mirror to the site-domain ListPreference means revisiting this.
+        // The site buckets its hosts; adding a mirror to the domain pref means revisiting this.
         private const val KEY_GROUP = "mkissa"
 
         private const val PREF_BUILD_KEY = "client_build_cache"
         private const val FIELD_SEPARATOR = "|"
 
-        // Bounds the worst-case cost of a re-scrape; the crypto chunk is normally the first ref.
         private const val MAX_BUILD_CHUNKS = 40
 
         private const val MATERIAL_TTL_MS = 6 * 60 * 60 * 1000L
 
-        // SvelteKit app entry `import("…/entry/app.<hash>.js")` inside the mkissa HTML.
         private val APP_ENTRY_REGEX = Regex("""import\("([^"]*/entry/app\.[^"]*\.js)"\)""")
 
-        // Relative chunk references inside the app entry's `__vite__mapDeps` array, resolved
-        // against the entry URL so a change to the bundle's directory layout does not matter.
         private val CHUNK_REF_REGEX = Regex("""["'](\.\.?/[\w./-]+\.js)["']""")
 
         private const val CRYPTO_CHUNK_MARKER = "aaReq"

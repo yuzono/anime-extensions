@@ -10,11 +10,8 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Stateless primitives for AllAnime's "aaReq" scheme (wire layout
- * `[0x01] + iv(12) + AES-GCM(ciphertext‖tag)`). Both the request token and the response payload
- * are keyed with `clientMask XOR partB`; the mask itself is folded out of the JS build's
- * `buildId` and four base64 seeds ([deriveMask]), and `partB` comes from the crypto bootstrap
- * endpoint, which is in turn gated by an HMAC token ([bootToken]).
+ * Stateless primitives for the "aaReq" scheme, wire layout `[0x01] + iv(12) + AES-GCM(ct‖tag)`.
+ * Request token and response payload are both keyed with `clientMask XOR partB`.
  */
 object AllAnimeCrypto {
 
@@ -30,21 +27,16 @@ object AllAnimeCrypto {
     const val SEED_COUNT = 4
     private const val SEED_SIZE = KEY_SIZE / SEED_COUNT
 
-    // Wire layout: [version(1)] + iv(12) + ciphertext‖tag.
     private const val IV_SIZE = 12
     private const val HEADER_SIZE = 1 + IV_SIZE
 
-    // aaReq time bucket: the token is valid for its rounded-down 5-minute window.
     private const val WINDOW_MS = 5 * 60 * 1000L
 
-    // The server derives partB from a 3-day epoch and keeps the previous one alive for a day.
+    // The server derives partB from a 3-day epoch and keeps the previous alive for a day.
     private const val EPOCH_WINDOW_MS = 3 * 24 * 60 * 60 * 1000L
     private const val EPOCH_GRACE_MS = 24 * 60 * 60 * 1000L
 
-    /**
-     * The 32-byte client mask, obfuscated in the bundle as `seeds XOR f(buildId) XOR f(position)`.
-     * Both inputs change on every site rebuild, so they are scraped rather than baked in.
-     */
+    /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild. */
     fun deriveMask(buildId: String, seeds: List<String>): ByteArray? {
         if (buildId.isEmpty() || seeds.size != SEED_COUNT) return null
 
@@ -76,7 +68,7 @@ object AllAnimeCrypto {
         return SecretKeySpec(keyBytes, KEY_TYPE)
     }
 
-    /** `x-aa-boot`, the token the bootstrap endpoint checks before handing out `partB`. */
+    /** `x-aa-boot`, checked by the bootstrap endpoint before it hands out `partB`. */
     fun bootToken(
         mask: ByteArray,
         buildId: String,
@@ -94,22 +86,14 @@ object AllAnimeCrypto {
         return hmac(inner, message).toHex()
     }
 
-    /**
-     * Ordered oldest first, because during the grace window the *previous* epoch is the one the
-     * server is still minting `partB` for; the new one only goes live once the grace expires.
-     * Only the server knows which side of that boundary it is on, so both are tried in turn.
-     */
+    /** Oldest first: during the grace window the server still mints `partB` for the previous. */
     fun epochCandidates(now: Long = System.currentTimeMillis()): List<Long> {
         val current = now / EPOCH_WINDOW_MS
         val inGrace = now - current * EPOCH_WINDOW_MS < EPOCH_GRACE_MS && current > 0
         return if (inGrace) listOf(current - 1, current) else listOf(current)
     }
 
-    /**
-     * Neighbouring epochs to fall back on once every normal candidate is rejected. The epoch is
-     * derived from the device clock, so a clock off by more than the grace window would otherwise
-     * fail permanently with an error pointing at the bundle parser instead.
-     */
+    /** Fallback for a device clock off by more than the grace window. */
     fun skewedEpochCandidates(now: Long = System.currentTimeMillis()): List<Long> {
         val current = now / EPOCH_WINDOW_MS
         return listOf(current + 1, current - 1).filter { it > 0 } - epochCandidates(now).toSet()
@@ -118,8 +102,7 @@ object AllAnimeCrypto {
     fun buildAaReq(key: SecretKeySpec, epoch: Long, buildId: String, queryHash: String, lane: String): String {
         val ts = System.currentTimeMillis() / WINDOW_MS * WINDOW_MS
 
-        // Deriving the IV rather than randomising it is required: the server recomputes the same
-        // one to decrypt. Reuse is inert because the plaintext is fixed within a `ts` bucket.
+        // Derived, not random: the server recomputes the same one to decrypt.
         val iv = MessageDigest.getInstance(HASH_ALGO)
             .digest("$epoch:$buildId:$queryHash:$ts:$lane".toByteArray(Charsets.UTF_8))
             .copyOfRange(0, IV_SIZE)
@@ -146,7 +129,6 @@ object AllAnimeCrypto {
         val iv = blob.sliceArray(1 until HEADER_SIZE)
         val encryptedData = blob.sliceArray(HEADER_SIZE until blob.size)
 
-        // The GCM tag guarantees only the correct key yields output, so trying both is safe.
         for (key in listOf(materialKey, legacyKey(version))) {
             runCatching {
                 val cipher = Cipher.getInstance(CIPHER_ALGO)
