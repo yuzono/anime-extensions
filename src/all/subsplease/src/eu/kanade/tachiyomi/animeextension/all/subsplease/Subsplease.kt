@@ -78,11 +78,27 @@ class Subsplease :
 
     // Latest
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/?f=latest&tz=Europe/Berlin&p=$page")
+    override fun latestUpdatesRequest(page: Int): Request {
+        val url = if (page == 1) {
+            // Page 1
+            "$baseUrl/api/?f=latest&tz=Europe/Berlin"
+        } else {
+            // Page 2+ use '&p' parameter with (page number - 1)
+            "$baseUrl/api/?f=latest&tz=Europe/Berlin&p=${page - 1}"
+        }
+
+        val headers = headersBuilder()
+            .set("X-Requested-With", "XMLHttpRequest")
+            .set("Referer", baseUrl)
+            .build()
+
+        return GET(url, headers)
+    }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val responseString = response.body.string()
-        val currentPage = response.request.url.queryParameter("p")?.toIntOrNull() ?: 1
+        val apiPage = response.request.url.queryParameter("p")?.toIntOrNull() ?: 0
+        val currentPage = apiPage + 1
         return parseLatestAnimeJson(responseString, currentPage)
     }
 
