@@ -36,7 +36,7 @@ class Subsplease :
 
     override val lang = "all"
 
-    override val supportsLatest = false
+    override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
 
@@ -58,7 +58,7 @@ class Subsplease :
         val jsonData = jsonLine ?: return AnimesPage(emptyList(), false)
         val jObject = json.decodeFromString<JsonObject>(jsonData)
         val jOe = jObject.jsonObject["schedule"]?.jsonObject?.entries
-        val animeList = jOe?.flatMap {
+        val animeList = jOe?.flatMap { it ->
             it.value.jsonArray.mapNotNull { item ->
                 val title = item.jsonObject["title"]?.jsonPrimitive?.content
                 val url = item.jsonObject["page"]?.jsonPrimitive?.content
@@ -74,6 +74,43 @@ class Subsplease :
             }
         } ?: emptyList()
         return AnimesPage(animeList, hasNextPage = false)
+    }
+
+    // Latest
+
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/?f=latest&tz=Europe/Berlin&p=$page")
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val responseString = response.body.string()
+        val currentPage = response.request.url.queryParameter("p")?.toIntOrNull() ?: 1
+        return parseLatestAnimeJson(responseString, currentPage)
+    }
+
+    private fun parseLatestAnimeJson(jsonLine: String?, currentPage: Int): AnimesPage {
+        val jsonData = jsonLine ?: return AnimesPage(emptyList(), false)
+        val jObject = json.decodeFromString<JsonObject>(jsonData)
+
+        val seenPages = mutableSetOf<String>()
+        val animeList = jObject.entries.mapNotNull { entry ->
+            val itJ = entry.value.jsonObject
+            val title = itJ["show"]?.jsonPrimitive?.content
+            val pageUrl = itJ["page"]?.jsonPrimitive?.content
+            if (title == null || pageUrl == null) return@mapNotNull null
+            if (!seenPages.add(pageUrl)) return@mapNotNull null
+
+            SAnime.create().apply {
+                this.title = title
+                setUrlWithoutDomain("$baseUrl/shows/$pageUrl")
+                itJ["image_url"]?.jsonPrimitive?.content
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { thumbnail_url = "$baseUrl$it" }
+            }
+        }
+
+        // Hard limit: Page 3 turns "error: limit reached"
+        val hasNextPage = currentPage < 2
+
+        return AnimesPage(animeList, hasNextPage = hasNextPage)
     }
 
     // episodes
@@ -92,13 +129,13 @@ class Subsplease :
         val jObject = json.decodeFromString<JsonObject>(jsonData)
         val episodeList = mutableListOf<SEpisode>()
         val epE = jObject["episode"]?.jsonObject?.entries
-        epE?.forEach {
+        epE?.forEach { it ->
             val itJ = it.value.jsonObject
             val episode = SEpisode.create()
             val num = itJ["episode"]?.jsonPrimitive?.content ?: return@forEach
             val ep = num.takeWhile { it.isDigit() || it == '.' }.toFloatOrNull()
             if (ep == null) {
-                if (episodeList.size > 0) {
+                if (episodeList.isNotEmpty()) {
                     episode.episode_number = episodeList.last().episode_number - 0.5F
                 } else {
                     episode.episode_number = 0F
@@ -186,7 +223,7 @@ class Subsplease :
         val jsonData = jsonLine ?: return AnimesPage(emptyList(), false)
         val jObject = json.decodeFromString<JsonObject>(jsonData)
         val jE = jObject.entries
-        val animeList = jE.mapNotNull {
+        val animeList = jE.mapNotNull { it ->
             val itJ = it.value.jsonObject
             val title = itJ.jsonObject["show"]?.jsonPrimitive?.content
             val page = itJ.jsonObject["page"]?.jsonPrimitive?.content
@@ -211,12 +248,6 @@ class Subsplease :
         anime.description = document.select("div.series-syn p ").text()
         return anime
     }
-
-    // Latest
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException("Not used")
-
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException("Not used")
 
     // Preferences
 
