@@ -1,8 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.content.SharedPreferences
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -12,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import fi.iki.elonen.NanoHTTPD
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -21,7 +23,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -61,7 +62,7 @@ class ReAnime :
     private val preferredServer: String
         get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
 
-    private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = Headers.Builder()
+    private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
         .add("Accept", "application/json, text/plain, */*")
         .add("Accept-Language", "en-US,en;q=0.9")
         .add("Referer", referer)
@@ -123,8 +124,10 @@ class ReAnime :
     }
 
     // =============================== Search ===============================
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun getFilterList(): AnimeFilterList = ReAnimeFilters.FILTER_LIST
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$apiUrl/search".toHttpUrl().newBuilder().apply {
             val limit = 36
@@ -139,6 +142,7 @@ class ReAnime :
                     is ReAnimeFilters.FormatFilter -> filter.getValue()?.let { addQueryParameter("format", it) }
                     is ReAnimeFilters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
                     is ReAnimeFilters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
+                    is ReAnimeFilters.OriginFilter -> filter.getValue()?.let { addQueryParameter("country", it) }
                     is ReAnimeFilters.YearFilter -> filter.getValue()?.let { addQueryParameter("year", it) }
                     is ReAnimeFilters.GenreFilter -> {
                         val genres = filter.getSelectedValues()
@@ -543,28 +547,24 @@ class ReAnime :
     private fun extractFromServer(dataLink: String, label: String, referer: String): List<Video> {
         val decApi = "https://enc-dec.app/api"
 
-        // Strict headers matching the curl commands for fetch4.flixcloud.cc and flixcloud.cc
-        val flixHeaders = Headers.Builder()
+        val flixHeaders = headers.newBuilder()
             .add("Accept", "*/*")
-            .add("Accept-Language", "en-US,en;q=0.9")
             .add("Origin", "https://flixcloud.cc")
-            .add("Sec-GPC", "1")
             .add("Referer", "https://flixcloud.cc/")
-            .add("Sec-Fetch-Dest", "empty")
-            .add("Sec-Fetch-Mode", "cors")
-            .add("Sec-Fetch-Site", "same-site")
+            .build()
+
+        val decHeaders = headers.newBuilder()
+            .add("Accept", "*/*")
             .build()
 
         return try {
-            // Step 1: Fetch embed page and extract SvelteKit data
+            // Step 1: Fetch embed page
             val html = client.newCall(GET(dataLink, flixHeaders)).execute().use { it.body.string() }
-
             val dataMatch = Regex(
                 """type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""",
                 RegexOption.DOT_MATCHES_ALL,
             ).find(html) ?: return emptyList()
 
-            // Convert JSON5 → valid JSON, then remove subtitles
             val rawJson = json5ToJson(dataMatch.groupValues[1])
             val embedData = try {
                 val obj = jsonParser.parseToJsonElement(rawJson).jsonObject.toMutableMap()
@@ -574,29 +574,30 @@ class ReAnime :
                 rawJson
             }
 
-            // Step 2: POST to dec-flixcloud?type=token
+            // Step 2: Get Token
             val tokenPayload = """{"data":$embedData}"""
             val tokenDto = client.newCall(
                 Request.Builder()
                     .url("$decApi/dec-flixcloud?type=token")
                     .post(tokenPayload.toRequestBody("application/json".toMediaType()))
+                    .headers(decHeaders)
                     .build(),
             ).execute().use { it.parseAs<DecFlixCloudTokenResponseDto>() }
 
             if (tokenDto.status != 200 || tokenDto.result == null) return emptyList()
 
-            // Step 3: GET flixcloud.cc/api/m3u8/{token} — returns encrypted JSON object
+            // Step 3: Fetch encrypted stream
             val m3u8Body = client.newCall(
                 GET("https://flixcloud.cc/api/m3u8/${tokenDto.result.token}", flixHeaders),
             ).execute().use { it.body.string() }
 
-            // Parse the encrypted response as a JSON element so it can be properly nested
             val m3u8JsonElement = try {
                 jsonParser.parseToJsonElement(m3u8Body)
             } catch (_: Exception) {
                 return emptyList()
             }
 
+            // Step 4: Decrypt Stream
             val streamPayload = buildJsonObject {
                 putJsonObject("data") {
                     put("context", tokenDto.result.context)
@@ -608,6 +609,7 @@ class ReAnime :
                 Request.Builder()
                     .url("$decApi/dec-flixcloud?type=stream")
                     .post(streamPayload.toRequestBody("application/json".toMediaType()))
+                    .headers(decHeaders)
                     .build(),
             ).execute().use { it.parseAs<DecFlixCloudStreamResponseDto>() }
 
@@ -617,26 +619,12 @@ class ReAnime :
             val wPayload = streamDto.result.context["w_payload"]?.jsonPrimitive?.content
                 ?: return emptyList()
 
-            // Step 5: Build parse-flixcloud URL (decrypted manifest proxy)
-            // Replace + with %20 to strictly match Python's urlencode behavior
-            val manifestUrl = "$decApi/parse-flixcloud?" +
-                "url=${URLEncoder.encode(streamUrl, "UTF-8").replace("+", "%20")}" +
-                "&w_payload=${URLEncoder.encode(wPayload, "UTF-8").replace("+", "%20")}"
+            // Step 5: Build local proxy URL
+            val server = getProxyServer()
+            val localManifestUrl = server.createProxyUrl(streamUrl, wPayload)
 
-            // Step 6: Extract videos from decrypted manifest
-            PlaylistUtils(client, headers).extractFromHls(
-                playlistUrl = manifestUrl,
-                referer = "https://flixcloud.cc/",
-                masterHeaders = Headers.Builder()
-                    .add("Accept", "*/*")
-                    .add("Accept-Language", "en-US,en;q=0.9")
-                    .add("Sec-Fetch-Dest", "empty")
-                    .add("Sec-Fetch-Mode", "cors")
-                    .add("Sec-Fetch-Site", "same-origin")
-                    .build(),
-                videoHeaders = flixHeaders,
-                videoNameGen = { quality -> "$label - $quality" },
-            )
+            // Step 6: Return Video object pointing to local server
+            return listOf(Video(localManifestUrl, "$label - 1080p", localManifestUrl, headers))
         } catch (_: Exception) {
             emptyList()
         }
@@ -656,23 +644,269 @@ class ReAnime :
         // Replace undefined with null
         .replace(Regex("""\bundefined\b"""), "null")
 
+    object AutoDetector {
+        private val JPEG_HEADER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
+        private val PNG_HEADER = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte())
+        private val GIF_HEADER = byteArrayOf(0x47.toByte(), 0x49.toByte(), 0x46.toByte())
+        private const val MPEG_TS_SYNC = 0x47.toByte()
+        private val MP4_FTYP = byteArrayOf(0x66.toByte(), 0x74.toByte(), 0x79.toByte(), 0x70.toByte())
+        private val AVI_RIFF = byteArrayOf(0x52.toByte(), 0x49.toByte(), 0x46.toByte(), 0x46.toByte())
+        private const val MPEG_TS_PACKET_SIZE = 188
+
+        fun detectSkipBytes(data: ByteArray): Int {
+            if (data.isEmpty()) return 0
+            return when {
+                isMpegTsValid(data) -> 0
+                isJpegHeader(data) || isPngHeader(data) || isGifHeader(data) -> detectDisguise(data)
+                isVideoFormat(data) -> 0
+                else -> 0
+            }
+        }
+
+        private fun isMpegTsValid(data: ByteArray): Boolean {
+            if (data.size < MPEG_TS_PACKET_SIZE) return false
+            if (data[0] != MPEG_TS_SYNC) return false
+            var validPackets = 0
+            for (i in 0 until minOf(data.size, 1024) step MPEG_TS_PACKET_SIZE) {
+                if (i + MPEG_TS_PACKET_SIZE <= data.size && data[i] == MPEG_TS_SYNC) validPackets++
+            }
+            return validPackets >= 3
+        }
+
+        private fun isJpegHeader(data: ByteArray): Boolean = data.size >= 3 && data[0] == JPEG_HEADER[0] && data[1] == JPEG_HEADER[1] && data[2] == JPEG_HEADER[2]
+        private fun isPngHeader(data: ByteArray): Boolean = data.size >= 4 && data[0] == PNG_HEADER[0] && data[1] == PNG_HEADER[1] && data[2] == PNG_HEADER[2] && data[3] == PNG_HEADER[3]
+        private fun isGifHeader(data: ByteArray): Boolean = data.size >= 3 && data[0] == GIF_HEADER[0] && data[1] == GIF_HEADER[1] && data[2] == GIF_HEADER[2]
+
+        private fun detectDisguise(data: ByteArray): Int {
+            val ftypOffset = findPattern(data, MP4_FTYP)
+            if (ftypOffset >= 4) return ftypOffset - 4
+            val riffOffset = findPattern(data, AVI_RIFF)
+            if (riffOffset > 0) return riffOffset
+            val mpegTsOffset = findMpegTsSync(data)
+            if (mpegTsOffset > 0) return mpegTsOffset
+            return 0
+        }
+
+        private fun isVideoFormat(data: ByteArray): Boolean = isMpegTsValid(data) || findPattern(data, MP4_FTYP) >= 0 || findPattern(data, AVI_RIFF) >= 0
+
+        private fun findPattern(data: ByteArray, pattern: ByteArray): Int {
+            for (i in 0..data.size - pattern.size) {
+                var found = true
+                for (j in pattern.indices) {
+                    if (data[i + j] != pattern[j]) {
+                        found = false
+                        break
+                    }
+                }
+                if (found) return i
+            }
+            return -1
+        }
+
+        private fun findMpegTsSync(data: ByteArray): Int {
+            for (i in data.indices) {
+                if (data[i] == MPEG_TS_SYNC) {
+                    var validCount = 0
+                    for (j in i until minOf(data.size, i + 1024) step MPEG_TS_PACKET_SIZE) {
+                        if (j + MPEG_TS_PACKET_SIZE <= data.size && data[j] == MPEG_TS_SYNC) validCount++
+                    }
+                    if (validCount >= 2) return i
+                }
+            }
+            return -1
+        }
+    }
+
+    private var proxyServer: FlixProxyServer? = null
+
+    private fun getProxyServer(): FlixProxyServer {
+        if (proxyServer == null || !proxyServer!!.isAlive) {
+            proxyServer = FlixProxyServer()
+            proxyServer!!.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+        }
+        return proxyServer!!
+    }
+
+    inner class FlixProxyServer : NanoHTTPD(0) {
+        val decApi = "https://enc-dec.app/api"
+
+        // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
+        private val proxyClient by lazy {
+            client.newBuilder()
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .connectionPool(okhttp3.ConnectionPool(20, 5, java.util.concurrent.TimeUnit.MINUTES))
+                .build()
+        }
+
+        fun createProxyUrl(originalUrl: String, wPayload: String): String {
+            val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8")}"
+            return "http://127.0.0.1:$listeningPort/proxy?$params"
+        }
+
+        fun wrapInDecApi(originalUrl: String, wPayload: String): String = if (originalUrl.contains("enc-dec.app")) {
+            originalUrl
+        } else {
+            "$decApi/parse-flixcloud?url=${URLEncoder.encode(originalUrl, "UTF-8").replace("+", "%20")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8").replace("+", "%20")}"
+        }
+
+        fun ensureToken(segmentUrl: String, parentUrl: String): String {
+            return try {
+                val segHttpUrl = segmentUrl.toHttpUrl()
+                if (segHttpUrl.queryParameter("token") != null) return segmentUrl
+                if (segmentUrl.contains("enc-dec.app")) return segmentUrl
+
+                var currentUrl = parentUrl
+                var token: String? = null
+
+                repeat(3) {
+                    val httpUrl = currentUrl.toHttpUrl()
+                    if (token == null) token = httpUrl.queryParameter("token")
+                    if (token == null) {
+                        val nestedUrl = httpUrl.queryParameter("url")
+                        if (nestedUrl != null) currentUrl = nestedUrl
+                    }
+                }
+
+                if (token != null) segHttpUrl.newBuilder().addQueryParameter("token", token).build().toString() else segmentUrl
+            } catch (e: Exception) {
+                segmentUrl
+            }
+        }
+
+        override fun serve(session: IHTTPSession): Response {
+            val params = session.parameters
+            val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing url")
+            val wPayload = params["w_payload"]?.firstOrNull() ?: ""
+
+            return try {
+                val isManifest = url.contains(".m3u8")
+                val finalUrl = if (isManifest) wrapInDecApi(url, wPayload) else url
+
+                val proxyHeaders = headers.newBuilder()
+                    .set("Accept", "*/*")
+                    .removeAll("Origin").removeAll("Referer").removeAll("Sec-Fetch-Dest").removeAll("Sec-Fetch-Mode").removeAll("Sec-Fetch-Site").removeAll("Accept-Encoding")
+                    .apply {
+                        if (url.contains("enc-dec.app")) {
+                            add("Origin", "https://enc-dec.app")
+                            add("Referer", "https://enc-dec.app/")
+                        } else {
+                            add("Origin", "https://flixcloud.cc")
+                            add("Referer", "https://flixcloud.cc/")
+                            add("Sec-Fetch-Dest", "empty")
+                            add("Sec-Fetch-Mode", "cors")
+                            add("Sec-Fetch-Site", "same-site")
+                        }
+                        if (!isManifest) session.headers["range"]?.let { set("Range", it) }
+                    }.build()
+
+                if (!isManifest) {
+                    // Segment Request - Buffer to memory and strip fake headers
+                    val segType = if (url.contains("/audio/")) "AUDIO" else "VIDEO"
+                    android.util.Log.d("ReAnime", "====== $segType SEGMENT ======")
+                    android.util.Log.d("ReAnime", "Requesting: $finalUrl")
+
+                    val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
+                    val response = proxyClient.newCall(request).execute()
+
+                    if (!response.isSuccessful) {
+                        android.util.Log.e("ReAnime", "Fetch failed: ${response.code}")
+                        return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "CDN Error")
+                    }
+
+                    val inputStream = response.body.byteStream()
+                    val outputStream = java.io.ByteArrayOutputStream()
+                    var skipBytes = 0
+
+                    val buffer = ByteArray(4096)
+                    val bytesRead = inputStream.read(buffer)
+
+                    if (bytesRead > 0) {
+                        skipBytes = AutoDetector.detectSkipBytes(buffer.copyOf(bytesRead))
+                        val validBytes = bytesRead - skipBytes
+                        outputStream.write(buffer, skipBytes, validBytes)
+                        inputStream.copyTo(outputStream)
+                    }
+                    inputStream.close()
+
+                    val finalData = outputStream.toByteArray()
+                    android.util.Log.d("ReAnime", "Streamed ${finalData.size} bytes to player (Skipped $skipBytes header bytes)")
+
+                    val resp = newFixedLengthResponse(Response.Status.OK, "video/mp2t", java.io.ByteArrayInputStream(finalData), finalData.size.toLong())
+                    android.util.Log.d("ReAnime", "=============================")
+                    return resp
+                } else {
+                    // Manifest Request
+                    android.util.Log.d("ReAnime", "====== MANIFEST REQUEST ======")
+                    android.util.Log.d("ReAnime", "Requesting: $finalUrl")
+
+                    val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
+                    val response = proxyClient.newCall(request).execute()
+                    android.util.Log.d("ReAnime", "Response Code: ${response.code}")
+
+                    val bodyText = response.body.string()
+                    val parentHttpUrl = if (url.contains("enc-dec.app")) {
+                        url.toHttpUrl().queryParameter("url")?.toHttpUrl() ?: url.toHttpUrl()
+                    } else {
+                        url.toHttpUrl()
+                    }
+
+                    val modifiedText = bodyText.split("\n").joinToString("\n") { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.isEmpty()) return@joinToString ""
+
+                        if (trimmed.startsWith("#")) {
+                            if (trimmed.contains("URI=\"")) {
+                                val uri = Regex("URI=\"(.*?)\"").find(trimmed)?.groupValues?.get(1) ?: ""
+                                if (uri.isNotEmpty()) {
+                                    var resolvedUri = parentHttpUrl.resolve(uri).toString()
+                                    resolvedUri = ensureToken(resolvedUri, url)
+                                    val isSub = resolvedUri.contains(".vtt") || resolvedUri.contains(".srt")
+                                    val finalUri = if (isSub) resolvedUri else wrapInDecApi(resolvedUri, wPayload)
+                                    val newUri = createProxyUrl(finalUri, wPayload)
+                                    trimmed.replace(Regex("URI=\"(.*?)\""), "URI=\"$newUri\"")
+                                } else {
+                                    trimmed
+                                }
+                            } else {
+                                trimmed
+                            }
+                        } else {
+                            var resolvedUrl = parentHttpUrl.resolve(trimmed).toString()
+                            resolvedUrl = ensureToken(resolvedUrl, url)
+                            val finalUrlForManifest = if (resolvedUrl.contains(".m3u8")) wrapInDecApi(resolvedUrl, wPayload) else resolvedUrl
+                            createProxyUrl(finalUrlForManifest, wPayload)
+                        }
+                    }
+
+                    android.util.Log.d("ReAnime", "Manifest parsed and rewritten successfully.")
+                    android.util.Log.d("ReAnime", "==============================")
+                    newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReAnime", "PROXY CRASHED on $url", e)
+                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.toString())
+            }
+        }
+    }
+
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addListPreference(
+            key = PREF_TITLE_LANG_KEY,
+            title = "Preferred Title Language",
+            entries = PREF_TITLE_LANG_ENTRIES,
+            entryValues = PREF_TITLE_LANG_VALUES,
+            default = PREF_TITLE_LANG_DEFAULT,
+            summary = "%s",
+        )
+
         screen.addListPreference(
             key = PREF_LANG_KEY,
             title = "Preferred Type For Latest",
             entries = PREF_LANG_ENTRIES,
             entryValues = PREF_LANG_VALUES,
             default = preferredLang,
-            summary = "%s",
-        )
-
-        screen.addListPreference(
-            key = PREF_AUDIO_KEY,
-            title = "Preferred Audio Type",
-            entries = PREF_AUDIO_ENTRIES,
-            entryValues = PREF_AUDIO_VALUES,
-            default = preferredAudio,
             summary = "%s",
         )
 
@@ -686,20 +920,20 @@ class ReAnime :
         )
 
         screen.addListPreference(
-            key = PREF_TITLE_LANG_KEY,
-            title = "Preferred Title Language",
-            entries = PREF_TITLE_LANG_ENTRIES,
-            entryValues = PREF_TITLE_LANG_VALUES,
-            default = PREF_TITLE_LANG_DEFAULT,
+            key = PREF_AUDIO_KEY,
+            title = "Preferred Audio Type",
+            entries = PREF_AUDIO_ENTRIES,
+            entryValues = PREF_AUDIO_VALUES,
+            default = preferredAudio,
             summary = "%s",
         )
     }
 
     companion object {
         private const val PREF_LANG_KEY = "preferred_lang"
-        private val PREF_LANG_ENTRIES = listOf("Sub", "Dub")
-        private val PREF_LANG_VALUES = listOf("sub", "dub")
-        private const val PREF_LANG_DEFAULT = "sub"
+        private val PREF_LANG_ENTRIES = listOf("All", "Sub", "Dub")
+        private val PREF_LANG_VALUES = listOf("", "sub", "dub")
+        private const val PREF_LANG_DEFAULT = ""
 
         private const val PREF_AUDIO_KEY = "preferred_audio"
         private val PREF_AUDIO_ENTRIES = listOf("Sub", "Dub")
@@ -719,7 +953,7 @@ class ReAnime :
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING
             "FINISHED", "Finished" -> SAnime.COMPLETED
-            "NOT_YET_RELEASED" -> SAnime.UNKNOWN
+            "CANCELLED", "Cancelled" -> SAnime.CANCELLED
             else -> SAnime.UNKNOWN
         }
     }
