@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import android.content.SharedPreferences
 import androidx.preference.ListPreference
@@ -11,8 +11,8 @@ import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
-import eu.kanade.tachiyomi.animeextension.en.allanime.EpisodeResult.DataEpisode.Episode.SourceUrl
-import eu.kanade.tachiyomi.animeextension.en.allanime.extractors.AllAnimeExtractor
+import eu.kanade.tachiyomi.animeextension.en.mkissa.EpisodeResult.DataEpisode.Episode.SourceUrl
+import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.MKissaExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -41,11 +41,13 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 
-class AllAnime :
+class MKissa :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AllAnime"
+    override val name = "MKissa"
+
+    override val id = 4709139914729853090L
 
     override val baseUrl by lazy { "${preferences.siteUrl}/anime" }
 
@@ -125,7 +127,7 @@ class AllAnime :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val filters = AllAnimeFilters.getSearchParameters(filters)
+        val filters = MKissaFilters.getSearchParameters(filters)
 
         val data = buildJsonObject {
             putJsonObject("variables") {
@@ -179,7 +181,7 @@ class AllAnime :
 
     // ============================== Filters ===============================
 
-    override fun getFilterList(): AnimeFilterList = AllAnimeFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = MKissaFilters.FILTER_LIST
 
     // =========================== Anime Details ============================
 
@@ -261,7 +263,7 @@ class AllAnime :
     // ============================ Video Links =============================
 
     private val keyManager by lazy {
-        AllAnimeKeyManager(client, headers, preferences, preferences.siteUrl)
+        MKissaKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
     }
 
     override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
@@ -272,7 +274,7 @@ class AllAnime :
         return "${preferences.siteUrl}/anime/${vars.showId}/p-${vars.episodeString}-${vars.translationType}"
     }
 
-    private fun videoListRequest(episode: SEpisode, material: AllAnimeKeyManager.Material): Request {
+    private fun videoListRequest(episode: SEpisode, material: MKissaKeyManager.Material): Request {
         val variables = episode.url.parseAs<JsonObject>()["variables"]!!.jsonObject
 
         val extensions = buildJsonObject {
@@ -280,6 +282,7 @@ class AllAnime :
                 put("version", 1)
                 put("sha256Hash", STREAM_HASH)
             }
+            put("k", ANIME_LANE)
             put("aaReq", keyManager.aaReq(material))
         }
 
@@ -289,10 +292,13 @@ class AllAnime :
             addQueryParameter("extensions", extensions.toJsonString())
         }.build()
 
-        return GET(url, headers)
+        // The build the token was minted for; the server rejects a mismatch with AA_CRYPTO_BUILD_MISMATCH.
+        val streamHeaders = headers.newBuilder().set("x-build-id", material.buildId).build()
+
+        return GET(url, streamHeaders)
     }
 
-    private val allAnimeExtractor by lazy { AllAnimeExtractor(client, headers) }
+    private val mkissaExtractor by lazy { MKissaExtractor(client, headers) }
     private val gogoStreamExtractor by lazy { GogoStreamExtractor(client) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -349,7 +355,7 @@ class AllAnime :
             val sName = server.sourceName
             when {
                 sName.startsWith("internal ") -> {
-                    allAnimeExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
+                    mkissaExtractor.videoFromUrl(server.sourceUrl, server.sourceName, iframeEndpoint)
                 }
 
                 sName.startsWith("player@") -> {
@@ -436,15 +442,20 @@ class AllAnime :
         val quality = preferences.quality
         val subPref = preferences.subPref
 
+        // Reversed comparator, not reversed list: keeps the sort stable, so equal-key entries stay
+        // in extractor order (highest bitrate first).
         return pList.sortedWith(
-            compareBy(
+            compareBy<Pair<Video, Float>>(
                 { if (prefServer == "site_default") it.second else it.first.quality.contains(prefServer, true) },
                 { it.first.quality.contains(quality, true) },
                 { it.first.quality.contains(subPref, true) },
-            ),
-        ).reversed()
-            .map { t -> t.first }
+                { it.first.quality.resolution() },
+            ).reversed(),
+        ).map { t -> t.first }
     }
+
+    // First match, not the largest: names can end in a bitrate ("Ak - 1080 5 mb/s").
+    private fun String.resolution(): Int = RESOLUTION_REGEX.find(this)?.value?.toIntOrNull() ?: 0
 
     private fun buildPost(dataObject: JsonObject): Request {
         val payload = dataObject.toJsonString().toJsonBody()
@@ -505,12 +516,18 @@ class AllAnime :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
-        val encryptionChangedError = Exception("AllAnime changed its stream encryption; update the extension")
+        val encryptionChangedError = Exception("MKissa changed its stream encryption; update the extension")
         var lastError: Throwable? = null
-        var maskHealed = false
+        var buildHealed = false
 
         repeat(MAX_KEY_ATTEMPTS) { attempt ->
-            val material = keyManager.material(forceRefresh = attempt > 0)
+            // Obtaining material can itself fail transiently; letting that escape would spend the
+            // whole retry budget on the first attempt.
+            val material = runCatching { keyManager.material(forceRefresh = attempt > 0) }
+                .getOrElse {
+                    lastError = it
+                    return@repeat
+                }
 
             // Keep the real request error so it's surfaced instead of the generic crypto message.
             val responseBody = runCatching {
@@ -543,9 +560,11 @@ class AllAnime :
                 // not a network fault; record it so the surfaced error reflects this attempt.
                 lastError = encryptionChangedError
 
-                // Only a server-side crypto rejection means the mask likely rotated; heal once.
-                if (attempt >= 1 && !maskHealed && keyManager.isCryptoError(responseBody)) {
-                    maskHealed = keyManager.healMask()
+                // The bootstrap accepted this build but the streams API did not, so only a rescrape
+                // can help; force one on the next attempt.
+                if (attempt >= 1 && !buildHealed && keyManager.isCryptoError(responseBody)) {
+                    keyManager.invalidateBuild()
+                    buildHealed = true
                 }
             }
             keyManager.invalidate()
@@ -603,7 +622,7 @@ class AllAnime :
         private val PREF_HOSTER_ENTRY_VALUES = INTERAL_HOSTER_NAMES.map {
             it.lowercase()
         }.toTypedArray()
-        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "luf-mp4", "si-hls", "s-mp4", "ac-hls")
+        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "si-hls", "s-mp4", "ac-hls")
 
         private const val PREF_ALT_HOSTER_KEY = "alt_hoster_selection"
 
@@ -630,6 +649,8 @@ class AllAnime :
         private const val PREF_SUB_DEFAULT = "sub"
 
         private const val MAX_KEY_ATTEMPTS = 3
+
+        private val RESOLUTION_REGEX = Regex("""\d{3,4}""")
 
         // XOR keys indexed by source-URL prefix type: '--'=3  '#-'=2  '##'=1  '-#'=4  '#'=0
         private val XOR_KEYS = arrayOf(

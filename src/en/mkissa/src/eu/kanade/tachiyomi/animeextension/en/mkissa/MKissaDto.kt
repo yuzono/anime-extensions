@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -166,10 +166,13 @@ class AaApiError(
     }
 }
 
+// Response of `/client-crypto/v1/bootstrap`. `k` echoes back the content lane the partB is
+// scoped to; a mismatch means the server answered for a different lane than we asked for.
 @Serializable
 class AaCryptoBootstrap(
     val epoch: Long,
     val partB: String,
+    val k: String? = null,
 )
 
 @Serializable
@@ -179,6 +182,7 @@ class AaReqPayload(
     private val epoch: Long,
     private val buildId: String,
     private val qh: String,
+    private val k: String,
 )
 
 @Serializable

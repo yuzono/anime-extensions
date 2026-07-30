@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime.extractors
+package eu.kanade.tachiyomi.animeextension.en.mkissa.extractors
 
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -13,27 +13,28 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import java.util.Locale
 
-class AllAnimeExtractor(private val client: OkHttpClient, private val headers: Headers) {
+class MKissaExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
+    companion object {
+        // The DASH CDN 403s any request with a Referer, and an unset header set makes the player
+        // fall back to the source's, which has one.
+        private val DASH_HEADERS = Headers.headersOf("Accept", "*/*")
+    }
 
     private fun bytesIntoHumanReadable(bytes: Long): String {
         val kilobyte: Long = 1000
         val megabyte = kilobyte * 1000
         val gigabyte = megabyte * 1000
         val terabyte = gigabyte * 1000
-        return if (bytes in 0 until kilobyte) {
-            "$bytes b/s"
-        } else if (bytes in kilobyte until megabyte) {
-            (bytes / kilobyte).toString() + " kb/s"
-        } else if (bytes in megabyte until gigabyte) {
-            (bytes / megabyte).toString() + " mb/s"
-        } else if (bytes in gigabyte until terabyte) {
-            (bytes / gigabyte).toString() + " gb/s"
-        } else if (bytes >= terabyte) {
-            (bytes / terabyte).toString() + " tb/s"
-        } else {
-            "$bytes bits/s"
+        return when {
+            bytes < 0 -> "$bytes bits/s"
+            bytes < kilobyte -> "$bytes b/s"
+            bytes < megabyte -> "${bytes / kilobyte} kb/s"
+            bytes < gigabyte -> String.format(Locale.US, "%.2f mb/s", bytes.toDouble() / megabyte)
+            bytes < terabyte -> String.format(Locale.US, "%.2f gb/s", bytes.toDouble() / gigabyte)
+            else -> String.format(Locale.US, "%.2f tb/s", bytes.toDouble() / terabyte)
         }
     }
 
@@ -111,6 +112,7 @@ class AllAnimeExtractor(private val client: OkHttpClient, private val headers: H
                             it.url,
                             "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}",
                             it.url,
+                            headers = DASH_HEADERS,
                             audioTracks = audioList,
                             subtitleTracks = subtitles,
                         )

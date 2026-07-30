@@ -1,10 +1,14 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 fun buildQuery(queryAction: () -> String): String = queryAction()
     .trimIndent()
     .replace("%", "$")
 
 const val STREAM_HASH = "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0"
+
+// Content lane: the site scopes crypto material per content type, picking the lane from the
+// query it is about to send. `k7` is anime episodes (`k9` manga chapter pages, `k2` music).
+const val ANIME_LANE = "k7"
 
 val POPULAR_QUERY: String = buildQuery {
     """

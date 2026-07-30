@@ -1,10 +1,10 @@
-package eu.kanade.tachiyomi.animeextension.en.allanime
+package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
-object AllAnimeFilters {
+object MKissaFilters {
 
     open class QueryPartFilter(
         displayName: String,
@@ -33,21 +33,21 @@ object AllAnimeFilters {
         ?.joinToString("\",\"", "[\"", "\"]")
         ?: "all"
 
-    class OriginFilter : QueryPartFilter("Origin", AllAnimeFiltersData.ORIGIN)
-    class SeasonFilter : QueryPartFilter("Season", AllAnimeFiltersData.SEASONS)
-    class ReleaseYearFilter : QueryPartFilter("Released at", AllAnimeFiltersData.YEARS)
-    class SortByFilter : QueryPartFilter("Sort By", AllAnimeFiltersData.SORT_BY)
+    class OriginFilter : QueryPartFilter("Origin", MKissaFiltersData.ORIGIN)
+    class SeasonFilter : QueryPartFilter("Season", MKissaFiltersData.SEASONS)
+    class ReleaseYearFilter : QueryPartFilter("Released at", MKissaFiltersData.YEARS)
+    class SortByFilter : QueryPartFilter("Sort By", MKissaFiltersData.SORT_BY)
 
     class TypesFilter :
         CheckBoxFilterList(
             "Types",
-            AllAnimeFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
+            MKissaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
         )
 
     class GenresFilter :
         CheckBoxFilterList(
             "Genres",
-            AllAnimeFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+            MKissaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
         )
 
     val FILTER_LIST get() = AnimeFilterList(
@@ -77,12 +77,12 @@ object AllAnimeFilters {
             filters.asQueryPart<SeasonFilter>(),
             filters.asQueryPart<ReleaseYearFilter>(),
             filters.asQueryPart<SortByFilter>(),
-            filters.parseCheckbox<TypesFilter>(AllAnimeFiltersData.TYPES),
-            filters.parseCheckbox<GenresFilter>(AllAnimeFiltersData.GENRES),
+            filters.parseCheckbox<TypesFilter>(MKissaFiltersData.TYPES),
+            filters.parseCheckbox<GenresFilter>(MKissaFiltersData.GENRES),
         )
     }
 
-    private object AllAnimeFiltersData {
+    private object MKissaFiltersData {
         val ALL = Pair("All", "all")
 
         val ORIGIN = arrayOf(
