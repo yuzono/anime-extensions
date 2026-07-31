@@ -411,9 +411,9 @@ class ReAnime :
         val animeIdx = segments.indexOf("anime")
         val animeSlug = if (animeIdx != -1 && animeIdx + 1 < segments.size) segments[animeIdx + 1] else ""
 
-        val meta = animeMetaCache[animeSlug] ?: fetchAnimeMeta(animeSlug)
-        val maxSub = meta.subbed
-        val maxDub = meta.dubbed
+        val meta = animeMetaCache.get(animeSlug)
+        val maxSub = meta?.subbed ?: 0
+        val maxDub = meta?.dubbed ?: 0
 
         return dto.data.map { ep ->
             SEpisode.create().apply {
@@ -452,25 +452,6 @@ class ReAnime :
         }.reversed()
     }
 
-    private fun fetchAnimeMeta(slug: String): AnimeMeta {
-        return try {
-            val res = client.newCall(
-                GET("$detailsFromApiUrl/$slug", apiHeaders("$detailsUrl/$slug")),
-            ).execute()
-            res.use {
-                if (!it.isSuccessful) return@use AnimeMeta(0, 0, 0)
-                val dto = it.parseAs<AnimeDetailDto>()
-                AnimeMeta(
-                    anilistId = dto.anilistId ?: 0,
-                    subbed = dto.subbed ?: 0,
-                    dubbed = dto.dubbed ?: 0,
-                )
-            }
-        } catch (_: Exception) {
-            AnimeMeta(0, 0, 0)
-        }
-    }
-
     // ============================== Video Links ==============================
     override fun videoListRequest(episode: SEpisode): Request {
         val bits = episode.url.split("/")
@@ -478,7 +459,7 @@ class ReAnime :
         val epId = bits.getOrNull(1) ?: ""
         val epNumber = epId.removePrefix("ep-")
 
-        val meta = animeMetaCache[slug]
+        val meta = animeMetaCache.get(slug)
 
         if (meta != null && meta.anilistId > 0) {
             return GET(
@@ -495,7 +476,7 @@ class ReAnime :
         val requestUrl = response.request.url.toString()
 
         if (!requestUrl.contains("/api/flix/")) {
-            return@runBlocking handleAnimePageResponse(response)
+            return@runBlocking response.use { handleAnimePageResponse(it) }
         }
 
         val referer = response.request.header("Referer") ?: "$baseUrl/home"
@@ -774,9 +755,9 @@ class ReAnime :
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
-        private val ANILIST_ID_REGEX = Regex("""anilist_id:(\d+)""")
-        private val SUBBED_REGEX = Regex(""",subbed:(\d+)""")
-        private val DUBBED_REGEX = Regex(""",dubbed:(\d+)""")
+        private val ANILIST_ID_REGEX = Regex("""anilist_id:\s*(\d+)""")
+        private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
+        private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
         private val SERVER_NAME_REGEX = Regex("""\[(?:Sub|Dub)]\s*(\S+)""")
         private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
