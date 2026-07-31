@@ -645,75 +645,50 @@ class ReAnime :
         .replace(Regex("""\bundefined\b"""), "null")
 
     object AutoDetector {
-        private val JPEG_HEADER = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
-        private val PNG_HEADER = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte())
-        private val GIF_HEADER = byteArrayOf(0x47.toByte(), 0x49.toByte(), 0x46.toByte())
         private const val MPEG_TS_SYNC = 0x47.toByte()
-        private val MP4_FTYP = byteArrayOf(0x66.toByte(), 0x74.toByte(), 0x79.toByte(), 0x70.toByte())
-        private val AVI_RIFF = byteArrayOf(0x52.toByte(), 0x49.toByte(), 0x46.toByte(), 0x46.toByte())
-        private const val MPEG_TS_PACKET_SIZE = 188
+        private const val MAX_HEADER_SEARCH = 1024 * 1024
+        private const val MPEG_TS_MIN_SYNCS = 5
 
         fun detectSkipBytes(data: ByteArray): Int {
-            if (data.isEmpty()) return 0
-            return when {
-                isMpegTsValid(data) -> 0
-                isJpegHeader(data) || isPngHeader(data) || isGifHeader(data) -> detectDisguise(data)
-                isVideoFormat(data) -> 0
-                else -> 0
-            }
-        }
+            if (data.size < 100) return 0
+            val limit = minOf(data.size, MAX_HEADER_SEARCH)
 
-        private fun isMpegTsValid(data: ByteArray): Boolean {
-            if (data.size < MPEG_TS_PACKET_SIZE) return false
-            if (data[0] != MPEG_TS_SYNC) return false
-            var validPackets = 0
-            for (i in 0 until minOf(data.size, 1024) step MPEG_TS_PACKET_SIZE) {
-                if (i + MPEG_TS_PACKET_SIZE <= data.size && data[i] == MPEG_TS_SYNC) validPackets++
-            }
-            return validPackets >= 3
-        }
-
-        private fun isJpegHeader(data: ByteArray): Boolean = data.size >= 3 && data[0] == JPEG_HEADER[0] && data[1] == JPEG_HEADER[1] && data[2] == JPEG_HEADER[2]
-        private fun isPngHeader(data: ByteArray): Boolean = data.size >= 4 && data[0] == PNG_HEADER[0] && data[1] == PNG_HEADER[1] && data[2] == PNG_HEADER[2] && data[3] == PNG_HEADER[3]
-        private fun isGifHeader(data: ByteArray): Boolean = data.size >= 3 && data[0] == GIF_HEADER[0] && data[1] == GIF_HEADER[1] && data[2] == GIF_HEADER[2]
-
-        private fun detectDisguise(data: ByteArray): Int {
-            val ftypOffset = findPattern(data, MP4_FTYP)
-            if (ftypOffset >= 4) return ftypOffset - 4
-            val riffOffset = findPattern(data, AVI_RIFF)
-            if (riffOffset > 0) return riffOffset
-            val mpegTsOffset = findMpegTsSync(data)
-            if (mpegTsOffset > 0) return mpegTsOffset
-            return 0
-        }
-
-        private fun isVideoFormat(data: ByteArray): Boolean = isMpegTsValid(data) || findPattern(data, MP4_FTYP) >= 0 || findPattern(data, AVI_RIFF) >= 0
-
-        private fun findPattern(data: ByteArray, pattern: ByteArray): Int {
-            for (i in 0..data.size - pattern.size) {
-                var found = true
-                for (j in pattern.indices) {
-                    if (data[i + j] != pattern[j]) {
-                        found = false
-                        break
+            // MPEG-TS — require N consecutive 188-byte-aligned sync bytes.
+            // Try both 188 (standard TS) and 192 (M2TS/BDAV) spacings.
+            for (packetSize in intArrayOf(188, 192)) {
+                val scanLimit = limit - packetSize * MPEG_TS_MIN_SYNCS
+                for (i in 0..scanLimit) {
+                    if (data[i] != MPEG_TS_SYNC) continue
+                    var ok = true
+                    for (k in 1 until MPEG_TS_MIN_SYNCS) {
+                        if (data[i + k * packetSize] != MPEG_TS_SYNC) {
+                            ok = false
+                            break
+                        }
                     }
+                    if (ok) return i
                 }
-                if (found) return i
             }
+
+            // Diagnostic: dump first 64 bytes so we can extend the detector if needed.
+            android.util.Log.e(
+                "ReAnimeHex",
+                "AutoDetector failed. First 64 bytes: ${toHex(data, 0, 64)}",
+            )
             return -1
         }
 
-        private fun findMpegTsSync(data: ByteArray): Int {
-            for (i in data.indices) {
-                if (data[i] == MPEG_TS_SYNC) {
-                    var validCount = 0
-                    for (j in i until minOf(data.size, i + 1024) step MPEG_TS_PACKET_SIZE) {
-                        if (j + MPEG_TS_PACKET_SIZE <= data.size && data[j] == MPEG_TS_SYNC) validCount++
-                    }
-                    if (validCount >= 2) return i
+        private fun toHex(data: ByteArray, offset: Int, length: Int): String {
+            val actualLen = minOf(length, data.size - offset)
+            val sb = StringBuilder(actualLen * 3)
+            for (i in offset until offset + actualLen) {
+                if (i > offset) {
+                    sb.append(' ')
+                    if ((i - offset) % 16 == 0) sb.append('\n')
                 }
+                sb.append(String.format("%02X", data[i].toInt() and 0xFF))
             }
-            return -1
+            return sb.toString()
         }
     }
 
@@ -736,29 +711,35 @@ class ReAnime :
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .connectionPool(okhttp3.ConnectionPool(20, 5, java.util.concurrent.TimeUnit.MINUTES))
+                .followRedirects(true)
+                .followSslRedirects(true)
                 .build()
         }
 
         fun createProxyUrl(originalUrl: String, wPayload: String): String {
             val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8")}"
+            // Do not append fake extensions. MPV handles the stream better when it relies
+            // on the MIME type and the HLS demuxer handles the timestamps correctly.
             return "http://127.0.0.1:$listeningPort/proxy?$params"
         }
 
-        fun wrapInDecApi(originalUrl: String, wPayload: String): String = if (originalUrl.contains("enc-dec.app")) {
-            originalUrl
-        } else {
-            "$decApi/parse-flixcloud?url=${URLEncoder.encode(originalUrl, "UTF-8").replace("+", "%20")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8").replace("+", "%20")}"
+        fun wrapInDecApi(originalUrl: String, wPayload: String): String {
+            if (originalUrl.contains("enc-dec.app")) return originalUrl
+            val encodedUrl = URLEncoder.encode(originalUrl, "UTF-8").replace("+", "%20")
+            val encodedWPayload = URLEncoder.encode(wPayload, "UTF-8").replace("+", "%20")
+            return "$decApi/parse-flixcloud?url=$encodedUrl&w_payload=$encodedWPayload"
         }
 
-        fun ensureToken(segmentUrl: String, parentUrl: String): String {
-            return try {
-                val segHttpUrl = segmentUrl.toHttpUrl()
-                if (segHttpUrl.queryParameter("token") != null) return segmentUrl
-                if (segmentUrl.contains("enc-dec.app")) return segmentUrl
+        fun ensureToken(segmentUrl: String, parentUrl: String): String = try {
+            val segHttpUrl = segmentUrl.toHttpUrl()
 
+            // Extract token from parent URL or its nested 'url' parameter if wrapped in enc-dec.app
+            // If segment URL has no token, walk up to 3 levels of nested `url=` params
+            // looking for one. The enc-dec.app wrapper carries the token in its top-level
+            // query string, so this finds it.
+            var token: String? = segHttpUrl.queryParameter("token")
+            if (token == null) {
                 var currentUrl = parentUrl
-                var token: String? = null
-
                 repeat(3) {
                     val httpUrl = currentUrl.toHttpUrl()
                     if (token == null) token = httpUrl.queryParameter("token")
@@ -767,25 +748,72 @@ class ReAnime :
                         if (nestedUrl != null) currentUrl = nestedUrl
                     }
                 }
-
-                if (token != null) segHttpUrl.newBuilder().addQueryParameter("token", token).build().toString() else segmentUrl
-            } catch (e: Exception) {
-                segmentUrl
             }
+
+            segHttpUrl.newBuilder().apply {
+                if (token != null && segHttpUrl.queryParameter("token") == null) {
+                    addQueryParameter("token", token)
+                }
+            }.build().toString()
+        } catch (e: Exception) {
+            segmentUrl
         }
 
-        override fun serve(session: IHTTPSession): Response {
+        /**
+         * Detect the CDN's canned decoy response.
+         *
+         * When vault97 (and possibly other edge nodes) decides a request is "suspicious",
+         * it returns a fast 200 OK with a fake WebP or PNG header followed by an
+         * identical high-entropy payload — same bytes for every segment, with only a
+         * single decrementing counter byte changing between responses.
+         *
+         * The fingerprint `DA 6A E0` at a fixed offset is distinctive enough that
+         * real segments will never match it.
+         *
+         * Returns true if the response is a decoy; caller should return 503 so
+         * ExoPlayer retries and may hit a different edge node.
+         */
+        private fun isDecoyResponse(data: ByteArray): Boolean {
+            // WebP decoy: 52 49 46 46 00 00 00 00 57 45 42 50 DA 6A E0 ??
+            if (data.size >= 16 &&
+                data[0] == 0x52.toByte() && data[1].toInt() == 0x49 && data[2].toInt() == 0x46 && data[3].toInt() == 0x46 &&
+                data[8].toInt() == 0x57 && data[9].toInt() == 0x45 && data[10].toInt() == 0x42 && data[11].toInt() == 0x50 &&
+                data[12] == 0xDA.toByte() && data[13].toInt() == 0x6A && data[14].toInt() == 0xE0
+            ) {
+                return true
+            }
+
+            // PNG decoy: 89 50 4E 47 0D 0A 1A 0A DA 6A E0 ??
+            if (data.size >= 12 &&
+                data[0] == 0x89.toByte() && data[1].toInt() == 0x50 && data[2].toInt() == 0x4E && data[3].toInt() == 0x47 &&
+                data[4].toInt() == 0x0D && data[5].toInt() == 0x0A && data[6].toInt() == 0x1A && data[7].toInt() == 0x0A &&
+                data[8] == 0xDA.toByte() && data[9].toInt() == 0x6A && data[10].toInt() == 0xE0
+            ) {
+                return true
+            }
+
+            return false
+        }
+
+        override fun serve(session: IHTTPSession): NanoHTTPD.Response? {
+            android.util.Log.w("ReAnime", "★ BUILD-7-31-1655 serve() entered")
             val params = session.parameters
             val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing url")
             val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
             return try {
                 val isManifest = url.contains(".m3u8")
-                val finalUrl = if (isManifest) wrapInDecApi(url, wPayload) else url
+                val isMasterManifest = isManifest && (
+                    url.contains("master.m3u8") ||
+                        (url.contains("flixcloud.cc") && !url.contains("audio.m3u8") && !url.contains("video.m3u8"))
+                    )
+                val finalUrl = if (isMasterManifest) wrapInDecApi(url, wPayload) else url
 
                 val proxyHeaders = headers.newBuilder()
                     .set("Accept", "*/*")
-                    .removeAll("Origin").removeAll("Referer").removeAll("Sec-Fetch-Dest").removeAll("Sec-Fetch-Mode").removeAll("Sec-Fetch-Site").removeAll("Accept-Encoding")
+                    .removeAll("Origin").removeAll("Referer")
+                    .removeAll("Sec-Fetch-Dest").removeAll("Sec-Fetch-Mode")
+                    .removeAll("Sec-Fetch-Site").removeAll("Accept-Encoding")
                     .apply {
                         if (url.contains("enc-dec.app")) {
                             add("Origin", "https://enc-dec.app")
@@ -797,11 +825,10 @@ class ReAnime :
                             add("Sec-Fetch-Mode", "cors")
                             add("Sec-Fetch-Site", "same-site")
                         }
-                        if (!isManifest) session.headers["range"]?.let { set("Range", it) }
                     }.build()
 
                 if (!isManifest) {
-                    // Segment Request - Buffer to memory and strip fake headers
+                    // Segment Request
                     val segType = if (url.contains("/audio/")) "AUDIO" else "VIDEO"
                     android.util.Log.d("ReAnime", "====== $segType SEGMENT ======")
                     android.util.Log.d("ReAnime", "Requesting: $finalUrl")
@@ -814,27 +841,46 @@ class ReAnime :
                         return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "CDN Error")
                     }
 
-                    val inputStream = response.body.byteStream()
-                    val outputStream = java.io.ByteArrayOutputStream()
-                    var skipBytes = 0
+                    // 1. Read full segment to safely bypass large image headers (>4KB)
+                    val rawData = response.body.bytes()
+                    response.close()
 
-                    val buffer = ByteArray(4096)
-                    val bytesRead = inputStream.read(buffer)
-
-                    if (bytesRead > 0) {
-                        skipBytes = AutoDetector.detectSkipBytes(buffer.copyOf(bytesRead))
-                        val validBytes = bytesRead - skipBytes
-                        outputStream.write(buffer, skipBytes, validBytes)
-                        inputStream.copyTo(outputStream)
+                    if (rawData.isEmpty()) {
+                        return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Empty Segment")
                     }
-                    inputStream.close()
 
-                    val finalData = outputStream.toByteArray()
-                    android.util.Log.d("ReAnime", "Streamed ${finalData.size} bytes to player (Skipped $skipBytes header bytes)")
+                    // 1b. Detect the CDN's canned decoy response. The CDN serves this to
+                    // "suspicious" clients (rate-limited, bad reputation, etc.) — it's a fast
+                    // 200 OK with fake image headers and a high-entropy payload that no player
+                    // can decode. Return 503 so ExoPlayer retries; the retry may hit a
+                    // different edge node or get a real response.
+                    if (isDecoyResponse(rawData)) {
+                        android.util.Log.w("ReAnimeHex", "CDN served decoy for $finalUrl — returning 503 for retry")
+                        return newFixedLengthResponse(
+                            Response.Status.SERVICE_UNAVAILABLE,
+                            "text/plain",
+                            "CDN decoy — retry",
+                        )
+                    }
 
-                    val resp = newFixedLengthResponse(Response.Status.OK, "video/mp2t", java.io.ByteArrayInputStream(finalData), finalData.size.toLong())
+                    // 2. Calculate garbage bytes
+                    val skipBytes = AutoDetector.detectSkipBytes(rawData)
+                    if (skipBytes < 0) {
+                        android.util.Log.e("ReAnime", "Could not identify segment format for $finalUrl")
+                        return newFixedLengthResponse(
+                            Response.Status.INTERNAL_ERROR,
+                            "text/plain",
+                            "Unrecognized segment format",
+                        )
+                    }
+                    val validStreamLength = (rawData.size - skipBytes).toLong()
+                    val slicedStream = java.io.ByteArrayInputStream(rawData, skipBytes, rawData.size - skipBytes)
+
+                    android.util.Log.d("ReAnime", "Streamed $validStreamLength bytes to player (Skipped $skipBytes header bytes)")
                     android.util.Log.d("ReAnime", "=============================")
-                    return resp
+
+                    // 3. Serve as octet-stream so ExoPlayer sniffs the formats natively
+                    return newFixedLengthResponse(Response.Status.OK, "video/mp2t", slicedStream, validStreamLength)
                 } else {
                     // Manifest Request
                     android.util.Log.d("ReAnime", "====== MANIFEST REQUEST ======")
@@ -844,13 +890,24 @@ class ReAnime :
                     val response = proxyClient.newCall(request).execute()
                     android.util.Log.d("ReAnime", "Response Code: ${response.code}")
 
+                    if (!response.isSuccessful) {
+                        android.util.Log.e("ReAnime", "Manifest fetch failed: ${response.code}")
+                        val errorBody = response.body.string()
+                        response.close()
+                        return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "Manifest Error: $errorBody")
+                    }
+
                     val bodyText = response.body.string()
+                    response.close()
+
                     val parentHttpUrl = if (url.contains("enc-dec.app")) {
                         url.toHttpUrl().queryParameter("url")?.toHttpUrl() ?: url.toHttpUrl()
                     } else {
                         url.toHttpUrl()
                     }
 
+                    // Simplified parser: just resolve URLs and pass them to the proxy.
+                    // The proxy will dynamically route them to enc-dec.app or direct.
                     val modifiedText = bodyText.split("\n").joinToString("\n") { line ->
                         val trimmed = line.trim()
                         if (trimmed.isEmpty()) return@joinToString ""
@@ -861,9 +918,7 @@ class ReAnime :
                                 if (uri.isNotEmpty()) {
                                     var resolvedUri = parentHttpUrl.resolve(uri).toString()
                                     resolvedUri = ensureToken(resolvedUri, url)
-                                    val isSub = resolvedUri.contains(".vtt") || resolvedUri.contains(".srt")
-                                    val finalUri = if (isSub) resolvedUri else wrapInDecApi(resolvedUri, wPayload)
-                                    val newUri = createProxyUrl(finalUri, wPayload)
+                                    val newUri = createProxyUrl(resolvedUri, wPayload)
                                     trimmed.replace(Regex("URI=\"(.*?)\""), "URI=\"$newUri\"")
                                 } else {
                                     trimmed
@@ -874,13 +929,14 @@ class ReAnime :
                         } else {
                             var resolvedUrl = parentHttpUrl.resolve(trimmed).toString()
                             resolvedUrl = ensureToken(resolvedUrl, url)
-                            val finalUrlForManifest = if (resolvedUrl.contains(".m3u8")) wrapInDecApi(resolvedUrl, wPayload) else resolvedUrl
-                            createProxyUrl(finalUrlForManifest, wPayload)
+                            createProxyUrl(resolvedUrl, wPayload)
                         }
                     }
 
                     android.util.Log.d("ReAnime", "Manifest parsed and rewritten successfully.")
                     android.util.Log.d("ReAnime", "==============================")
+
+                    // Use application/vnd.apple.mpegurl to match the CDN exactly
                     newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
                 }
             } catch (e: Exception) {
