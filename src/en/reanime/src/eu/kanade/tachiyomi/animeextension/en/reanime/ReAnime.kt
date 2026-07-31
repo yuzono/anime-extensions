@@ -37,7 +37,6 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone.getTimeZone
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.seconds
 
@@ -88,7 +87,8 @@ class ReAnime :
     }
 
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
-    private val animeMetaCache = ConcurrentHashMap<String, AnimeMeta>()
+
+    private val animeMetaCache = android.util.LruCache<String, AnimeMeta>(64)
     private var nextLatestCursor: String? = null
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
@@ -206,10 +206,13 @@ class ReAnime :
 
         // Cache metadata for episode/video logic
         if (dto.anilistId != null && dto.anilistId > 0) {
-            animeMetaCache[dto.animeId] = AnimeMeta(
-                anilistId = dto.anilistId,
-                subbed = dto.subbed ?: 0,
-                dubbed = dto.dubbed ?: 0,
+            animeMetaCache.put(
+                dto.animeId,
+                AnimeMeta(
+                    anilistId = dto.anilistId,
+                    subbed = dto.subbed ?: 0,
+                    dubbed = dto.dubbed ?: 0,
+                ),
             )
         }
 
@@ -510,7 +513,7 @@ class ReAnime :
 
         val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        animeMetaCache[slug] = AnimeMeta(anilistId, subbed, dubbed)
+        animeMetaCache.put(slug, AnimeMeta(anilistId, subbed, dubbed))
 
         val referer = "$baseUrl/watch/$slug?ep=$epNumber"
 
@@ -661,7 +664,7 @@ class ReAnime :
             val server = getProxyServer()
             // Cache skip times for this episode (keyed by the local proxy URL)
             val localManifestUrl = server.createProxyUrl(streamUrl, wPayload)
-            skipTimesCache[localManifestUrl] = skipTimes
+            skipTimesCache.put(localManifestUrl, skipTimes)
 
             return listOf(
                 Video(localManifestUrl, "$label - 1080p", localManifestUrl, headers, subtitleTracks),

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
+import android.util.LruCache
 import eu.kanade.tachiyomi.animeextension.en.reanime.ReAnime.Companion.parseStatus
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import kotlinx.serialization.SerialName
@@ -247,7 +248,7 @@ class FlixcloudEmbedDataDto(
     )
 }
 
-val skipTimesCache = java.util.concurrent.ConcurrentHashMap<String, SkipTimes>()
+val skipTimesCache = LruCache<String, SkipTimes>(64)
 
 class SkipTimes(
     val introStart: Long? = null,
