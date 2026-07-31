@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.es.tokianime
+package eu.kanade.tachiyomi.animeextension.es.tokianime18
 
 import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -17,11 +17,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class Tokianime : AnimeHttpSource() {
+class Tokianime18 : AnimeHttpSource() {
 
-    override val name = "Tokianime"
+    override val name = "Tokianime18"
 
-    override val baseUrl = "https://tokianime.tv"
+    override val baseUrl = "https://18.tokianime.tv"
 
     override val lang = "es"
 
@@ -31,10 +31,10 @@ class Tokianime : AnimeHttpSource() {
 
     override fun popularAnimeRequest(page: Int): Request {
         val url = "$baseUrl/api/catalog".toHttpUrl().newBuilder()
-            .addQueryParameter("adult", "0")
+            .addQueryParameter("adult", "1")
             .addQueryParameter("pageSize", PAGE_SIZE.toString())
             .addQueryParameter("page", (page - 1).toString())
-            .addQueryParameter("sort", "popular")
+            .addQueryParameter("sort", "trending")
             .build()
         return GET(url, headers)
     }
@@ -49,10 +49,10 @@ class Tokianime : AnimeHttpSource() {
 
     override fun latestUpdatesRequest(page: Int): Request {
         val url = "$baseUrl/api/catalog".toHttpUrl().newBuilder()
-            .addQueryParameter("adult", "0")
+            .addQueryParameter("adult", "1")
             .addQueryParameter("pageSize", PAGE_SIZE.toString())
             .addQueryParameter("page", (page - 1).toString())
-            .addQueryParameter("sort", "trending")
+            .addQueryParameter("sort", "rated")
             .build()
         return GET(url, headers)
     }
@@ -63,7 +63,7 @@ class Tokianime : AnimeHttpSource() {
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$baseUrl/api/catalog".toHttpUrl().newBuilder()
-            .addQueryParameter("adult", "0")
+            .addQueryParameter("adult", "1")
             .addQueryParameter("pageSize", PAGE_SIZE.toString())
             .addQueryParameter("page", (page - 1).toString())
 
@@ -71,12 +71,6 @@ class Tokianime : AnimeHttpSource() {
             url.addQueryParameter("q", query)
         }
 
-        filters.firstInstanceOrNull<StatusFilter>()?.let {
-            if (it.selected != "ALL") url.addQueryParameter("status", it.selected)
-        }
-        filters.firstInstanceOrNull<FormatFilter>()?.let {
-            if (it.selected != "ALL") url.addQueryParameter("format", it.selected)
-        }
         filters.firstInstanceOrNull<AudioFilter>()?.let {
             if (it.selected != "ALL") url.addQueryParameter("audio", it.selected)
         }
@@ -96,8 +90,6 @@ class Tokianime : AnimeHttpSource() {
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        StatusFilter(),
-        FormatFilter(),
         AudioFilter(),
         SortFilter(),
         GenreFilter(),
@@ -110,8 +102,6 @@ class Tokianime : AnimeHttpSource() {
         val currentSlug = response.request.url.pathSegments.last()
         val results = mutableListOf<SAnime>()
 
-        // 1. Season/OVA links from the <ol> list (aria-label="Ver episodios de X")
-        //    These are ALREADY merged into episodes, so skip them from related
         val seasonSlugs = mutableSetOf<String>()
         doc.select("ol a[href^=/anime/]").forEach { el ->
             val href = el.attr("href")
@@ -121,7 +111,6 @@ class Tokianime : AnimeHttpSource() {
             }
         }
 
-        // 2. Recommendation links from other sections (card-style with text/images)
         doc.select("a[href^=/anime/].anime-card-touch, a[href^=/anime/][draggable]").forEach { el ->
             val href = el.attr("href")
             val slug = href.removePrefix("/anime/").trim()
@@ -195,7 +184,7 @@ class Tokianime : AnimeHttpSource() {
         val slug = anime.url.trimStart('/').removePrefix("anime/")
 
         val apiUrl = "$baseUrl/api/catalog".toHttpUrl().newBuilder()
-            .addQueryParameter("adult", "0")
+            .addQueryParameter("adult", "1")
             .addQueryParameter("pageSize", "1")
             .addQueryParameter("q", slug)
             .build()
@@ -238,7 +227,6 @@ class Tokianime : AnimeHttpSource() {
                 .sortedByDescending { it.episode_number }
         }
 
-        // Merge all episodes with labels from aria-label
         val allEpisodes = mutableListOf<SEpisode>()
         var episodeOffset = 0f
 
@@ -325,7 +313,7 @@ class Tokianime : AnimeHttpSource() {
     }
 
     companion object {
-        private const val TAG = "Tokianime"
+        private const val TAG = "Tokianime18"
         private const val PAGE_SIZE = 36
 
         private val REGEX_AUDIO_PREFIX = Regex("^(?:LAT|CAST|SUB)+")
