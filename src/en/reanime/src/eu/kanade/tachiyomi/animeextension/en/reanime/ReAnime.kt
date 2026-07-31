@@ -9,15 +9,17 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import fi.iki.elonen.NanoHTTPD
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -30,9 +32,15 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import java.io.ByteArrayInputStream
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone.getTimeZone
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.seconds
 
 class ReAnime :
     AnimeHttpSource(),
@@ -40,13 +48,16 @@ class ReAnime :
 
     override val name = "ReAnime"
 
-    private val preferences: SharedPreferences by getPreferencesLazy()
-
-    override val baseUrl: String = "https://reanime.to"
-
-    private val apiUrl: String = "$baseUrl/api/v1"
-
     override val lang = "en"
+
+    private val preferences: SharedPreferences by getPreferencesLazy()
+    override val baseUrl: String
+        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
+
+    private val apiUrl: String
+        get() = "$baseUrl/api/v1"
+
+    private val flixUrl = "$baseUrl/api/flix"
 
     override val supportsLatest = true
 
@@ -73,13 +84,17 @@ class ReAnime :
 
     override val client by lazy {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = 5, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimit(5, 1.seconds)
             .build()
     }
 
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
-    private val animeMetaCache = java.util.concurrent.ConcurrentHashMap<String, AnimeMeta>()
+    private val animeMetaCache = ConcurrentHashMap<String, AnimeMeta>()
     private var nextLatestCursor: String? = null
+
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+        timeZone = getTimeZone("UTC")
+    }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {
@@ -94,7 +109,7 @@ class ReAnime :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val dto = response.parseAs<ReAnimeSearchResponseDto>()
+        val dto = response.parseAs<SearchResponseDto>()
         val animes = dto.results.mapNotNull { it.toSAnime(titleLanguage) }
         val hasNextPage = (dto.offset + dto.limit) < dto.total
 
@@ -106,7 +121,7 @@ class ReAnime :
         if (page == 1) nextLatestCursor = null
 
         val urlBuilder = "$apiUrl/home/latest-aired".toHttpUrl().newBuilder().apply {
-            addQueryParameter("limit", "24")
+            addQueryParameter("limit", "12")
             addQueryParameter("lang", preferredLang)
             if (page > 1 && nextLatestCursor != null) {
                 addQueryParameter("cursor", nextLatestCursor!!)
@@ -116,7 +131,7 @@ class ReAnime :
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val dto = response.parseAs<ReAnimeLatestDto>()
+        val dto = response.parseAs<LatestDto>()
         nextLatestCursor = dto.nextCursor
 
         val animes = dto.data.mapNotNull { it.toSAnime(titleLanguage) }
@@ -125,7 +140,7 @@ class ReAnime :
 
     // =============================== Search ===============================
     @RequiresApi(Build.VERSION_CODES.O)
-    override fun getFilterList(): AnimeFilterList = ReAnimeFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -138,29 +153,29 @@ class ReAnime :
 
             filters.forEach { filter ->
                 when (filter) {
-                    is ReAnimeFilters.SortFilter -> addQueryParameter("sort", filter.getValue())
-                    is ReAnimeFilters.FormatFilter -> filter.getValue()?.let { addQueryParameter("format", it) }
-                    is ReAnimeFilters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
-                    is ReAnimeFilters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
-                    is ReAnimeFilters.OriginFilter -> filter.getValue()?.let { addQueryParameter("country", it) }
-                    is ReAnimeFilters.YearFilter -> filter.getValue()?.let { addQueryParameter("year", it) }
-                    is ReAnimeFilters.GenreFilter -> {
+                    is Filters.SortFilter -> addQueryParameter("sort", filter.getValue())
+                    is Filters.FormatFilter -> filter.getValue()?.let { addQueryParameter("format", it) }
+                    is Filters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
+                    is Filters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
+                    is Filters.OriginFilter -> filter.getValue()?.let { addQueryParameter("country", it) }
+                    is Filters.YearFilter -> filter.getValue()?.let { addQueryParameter("year", it) }
+                    is Filters.GenreFilter -> {
                         val genres = filter.getSelectedValues()
                         if (genres.isNotEmpty()) addQueryParameter("genre", genres)
                     }
-                    is ReAnimeFilters.CharacterFilter -> {
+                    is Filters.CharacterFilter -> {
                         val characters = filter.getSelectedValues()
                         if (characters.isNotEmpty()) addQueryParameter("character", characters)
                     }
-                    is ReAnimeFilters.StaffFilter -> {
+                    is Filters.StaffFilter -> {
                         val staff = filter.getSelectedValues()
                         if (staff.isNotEmpty()) addQueryParameter("staff", staff)
                     }
-                    is ReAnimeFilters.StudioFilter -> {
+                    is Filters.StudioFilter -> {
                         val studios = filter.getSelectedValues()
                         if (studios.isNotEmpty()) addQueryParameter("studio", studios)
                     }
-                    is ReAnimeFilters.TagFilter -> {
+                    is Filters.TagFilter -> {
                         val tags = filter.getSelectedValues()
                         if (tags.isNotEmpty()) addQueryParameter("tag", tags)
                     }
@@ -173,7 +188,7 @@ class ReAnime :
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val dto = response.parseAs<ReAnimeSearchResponseDto>()
+        val dto = response.parseAs<SearchResponseDto>()
         val animes = dto.results.mapNotNull { it.toSAnime(titleLanguage) }
         val hasNextPage = (dto.offset + dto.limit) < dto.total
 
@@ -181,12 +196,14 @@ class ReAnime :
     }
 
     // =========================== Anime Details ============================
-    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/anime/${anime.url}"
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/anime/${anime.url}", apiHeaders(getAnimeUrl(anime)))
+    private val detailsUrl = "$baseUrl/anime"
+    override fun getAnimeUrl(anime: SAnime): String = "$detailsUrl/${anime.url}"
+
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$detailsFromApiUrl/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val dto = response.parseAs<ReAnimeAnimeDetailDto>()
+        val dto = response.parseAs<AnimeDetailDto>()
 
         // Cache metadata for episode/video logic
         if (dto.anilistId != null && dto.anilistId > 0) {
@@ -202,7 +219,7 @@ class ReAnime :
         }
     }
 
-    private fun buildDescription(dto: ReAnimeAnimeDetailDto): String = buildString {
+    private fun buildDescription(dto: AnimeDetailDto): String = buildString {
         dto.averageScore?.let { score ->
             getFancyScore(score).takeIf { it.isNotEmpty() }?.let {
                 if (isNotBlank()) append("\n\n")
@@ -211,8 +228,8 @@ class ReAnime :
         }
         dto.description?.let { raw ->
             val cleaned = raw
-                .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
-                .replace(Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE), "")
+                .replace(BR_REGEX, "\n")
+                .replace(HTML_TAG_REGEX, "")
                 .trim()
             if (cleaned.isNotBlank()) {
                 if (isNotBlank()) append("\n\n")
@@ -220,7 +237,7 @@ class ReAnime :
             }
         }
 
-        dto.title?.romaji?.takeIf { it.isNotBlank() && it != dto.title?.preferredTitle(titleLanguage) }?.let {
+        dto.title?.romaji?.takeIf { it.isNotBlank() && it != dto.title.preferredTitle(titleLanguage) }?.let {
             append("\n\n**Romaji**: $it")
         }
 
@@ -282,9 +299,13 @@ class ReAnime :
         }
 
         dto.externalLinks?.filter { it.type == "STREAMING" }?.takeIf { it.isNotEmpty() }?.let { links ->
-            append("\n\n**Streaming**:")
-            links.forEach { link ->
-                link.site?.let { site -> link.url?.let { url -> append("\n- [$site]($url)") } }
+            val streamingLinks = links.mapNotNull { link ->
+                val site = link.site ?: return@mapNotNull null
+                val url = link.url ?: return@mapNotNull null
+                "[$site]($url)"
+            }
+            if (streamingLinks.isNotEmpty()) {
+                append("\n\n**Streaming**: ${streamingLinks.joinToString(" · ")}")
             }
         }
 
@@ -300,8 +321,10 @@ class ReAnime :
     }
 
     // ============================== Related Anime ==============================
+    override val disableRelatedAnimesBySearch = true
+
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val dto = response.parseAs<ReAnimeAnimeDetailDto>()
+        val dto = response.parseAs<AnimeDetailDto>()
         val currentId = dto.animeId
 
         return buildList {
@@ -313,7 +336,7 @@ class ReAnime :
                 SAnime.create().apply {
                     url = rel.animeId
                     title = relTitle
-                    thumbnail_url = rel.coverImage?.extraLarge ?: rel.coverImage?.large
+                    thumbnail_url = rel.coverImage?.safeExtraLarge ?: rel.coverImage?.safeLarge ?: rel.coverImage?.safeMedium
                     status = parseStatus(null)
                     genre = buildString {
                         rel.format?.let { append(it) }
@@ -334,22 +357,24 @@ class ReAnime :
                 SAnime.create().apply {
                     url = rec.id
                     title = recTitle
-                    thumbnail_url = rec.coverImage?.extraLarge ?: rec.coverImage?.large
-                    status = parseStatus(rec.status)
-                    genre = rec.genres?.joinToString()?.takeIf { it.isNotBlank() }
+                    thumbnail_url = rec.coverImage?.safeExtraLarge ?: rec.coverImage?.safeLarge ?: rec.coverImage?.safeMedium
+                    status = parseStatus(null)
+                    genre = null
                 }
             }.let(::addAll)
         }
     }
 
-    private fun fetchRecommendations(slug: String): List<ReAnimeRecommendationDto> {
+    private val detailsFromApiUrl = "$apiUrl/anime"
+
+    private fun fetchRecommendations(slug: String): List<RecommendationDto> {
         return try {
             val res = client.newCall(
-                GET("$apiUrl/anime/$slug/recommendations", apiHeaders("$baseUrl/anime/$slug")),
+                GET("$detailsFromApiUrl/$slug/recommendations", apiHeaders("$detailsUrl/$slug")),
             ).execute()
             res.use {
                 if (!it.isSuccessful) return emptyList()
-                val dto = it.parseAs<ReAnimeRecommendationsDto>()
+                val dto = it.parseAs<RecommendationsDto>()
                 if (dto.success) dto.recommendations else emptyList()
             }
         } catch (_: Exception) {
@@ -359,14 +384,26 @@ class ReAnime :
 
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime): Request {
-        val url = "$apiUrl/anime/${anime.url}/episodes".toHttpUrl().newBuilder()
+        val url = "$detailsFromApiUrl/${anime.url}/episodes".toHttpUrl().newBuilder()
             .addQueryParameter("limit", "2000")
             .build()
-        return GET(url, apiHeaders("$baseUrl/anime/${anime.url}"))
+        return GET(url, apiHeaders("$detailsUrl/${anime.url}"))
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val dto = response.parseAs<ReAnimeEpisodeListDto>()
+        if (!response.isSuccessful) {
+            throw Exception("Failed to load episodes (HTTP ${response.code})")
+        }
+
+        val dto = try {
+            response.parseAs<EpisodeListDto>()
+        } catch (_: Exception) {
+            throw Exception("Could not parse episode list. The anime may not have episodes yet.")
+        }
+
+        if (dto.data.isEmpty()) {
+            throw Exception("No episodes available for this anime yet. It may not have aired.")
+        }
 
         val segments = response.request.url.pathSegments
         val animeIdx = segments.indexOf("anime")
@@ -378,7 +415,7 @@ class ReAnime :
 
         return dto.data.map { ep ->
             SEpisode.create().apply {
-                val epNum = ep.episode_number
+                val epNum = ep.episodeNumber
                 episode_number = epNum.toFloat()
 
                 val safeEpisodeId = ep.episodeId ?: "ep-${epNum.toInt()}"
@@ -387,15 +424,15 @@ class ReAnime :
                 val epNumStr = if (epNum % 1.0 == 0.0) epNum.toInt().toString() else epNum.toString()
 
                 val baseName = if (ep.title.isNotBlank() && !ep.title.contains("Episode", ignoreCase = true)) {
-                    "Episode $epNumStr: ${ep.title}"
+                    "Episode $epNumStr - ${ep.title}"
                 } else {
                     "Episode $epNumStr"
                 }
 
                 name = buildString {
                     append(baseName)
-                    if (ep.is_recap) append(" [Recap]")
-                    if (ep.is_filler) append(" [Filler]")
+                    if (ep.isRecap) append(" [Recap]")
+                    if (ep.isFiller) append(" [Filler]")
                 }
 
                 val hasSub = epNum <= maxSub
@@ -408,7 +445,7 @@ class ReAnime :
                     else -> null
                 }
 
-                date_upload = parseEpisodeDate(ep.aired)
+                date_upload = dateFormat.tryParse(ep.aired)
             }
         }.reversed()
     }
@@ -416,11 +453,11 @@ class ReAnime :
     private fun fetchAnimeMeta(slug: String): AnimeMeta {
         return try {
             val res = client.newCall(
-                GET("$apiUrl/anime/$slug", apiHeaders("$baseUrl/anime/$slug")),
+                GET("$detailsFromApiUrl/$slug", apiHeaders("$detailsUrl/$slug")),
             ).execute()
             res.use {
                 if (!it.isSuccessful) return@use AnimeMeta(0, 0, 0)
-                val dto = it.parseAs<ReAnimeAnimeDetailDto>()
+                val dto = it.parseAs<AnimeDetailDto>()
                 AnimeMeta(
                     anilistId = dto.anilistId ?: 0,
                     subbed = dto.subbed ?: 0,
@@ -429,18 +466,6 @@ class ReAnime :
             }
         } catch (_: Exception) {
             AnimeMeta(0, 0, 0)
-        }
-    }
-
-    private fun parseEpisodeDate(dateStr: String?): Long {
-        if (dateStr.isNullOrBlank()) return 0L
-        return try {
-            val cleaned = dateStr.substringBefore(".").removeSuffix("Z")
-            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
-                timeZone = java.util.TimeZone.getTimeZone("UTC")
-            }.parse(cleaned)?.time ?: 0L
-        } catch (_: Exception) {
-            0L
         }
     }
 
@@ -455,13 +480,13 @@ class ReAnime :
 
         if (meta != null && meta.anilistId > 0) {
             return GET(
-                "$baseUrl/api/flix/${meta.anilistId}/$epNumber",
+                "$flixUrl/${meta.anilistId}/$epNumber",
                 apiHeaders("$baseUrl/watch/$slug?ep=$epNumber"),
             )
         }
 
         // Cache miss: fetch anime page to extract anilist_id
-        return GET("$baseUrl/anime/$slug?_ep=$epNumber", headers)
+        return GET("$detailsUrl/$slug?_ep=$epNumber", headers)
     }
 
     override fun videoListParse(response: Response): List<Video> = runBlocking {
@@ -478,20 +503,20 @@ class ReAnime :
     private suspend fun handleAnimePageResponse(response: Response): List<Video> {
         val html = response.body.string()
 
-        val anilistId = Regex("""anilist_id:(\d+)""").find(html)?.groupValues?.get(1)?.toIntOrNull()
+        val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
             ?: return emptyList()
 
         val slug = response.request.url.pathSegments.lastOrNull() ?: ""
         val epNumber = response.request.url.queryParameter("_ep") ?: return emptyList()
 
-        val subbed = Regex(""",subbed:(\d+)""").find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        val dubbed = Regex(""",dubbed:(\d+)""").find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         animeMetaCache[slug] = AnimeMeta(anilistId, subbed, dubbed)
 
         val referer = "$baseUrl/watch/$slug?ep=$epNumber"
 
         val flixRes = client.newCall(
-            GET("$baseUrl/api/flix/$anilistId/$epNumber", apiHeaders(referer)),
+            GET("$flixUrl/$anilistId/$epNumber", apiHeaders(referer)),
         ).execute()
 
         return parseFlixServers(flixRes, referer)
@@ -500,7 +525,7 @@ class ReAnime :
     private suspend fun parseFlixServers(response: Response, referer: String): List<Video> {
         val parsed = response.use {
             if (!it.isSuccessful) return emptyList()
-            it.parseAs<ReAnimeVideoResponseDto>()
+            it.parseAs<VideoResponseDto>()
         }
 
         if (!parsed.success || parsed.servers.isNullOrEmpty()) return emptyList()
@@ -524,8 +549,8 @@ class ReAnime :
 
         // Group by (server, resolution) so we can interleave audio types
         val grouped = videos.groupBy { video ->
-            val server = Regex("""\[(?:Sub|Dub)\]\s*(\S+)""").find(video.quality)?.groupValues?.get(1) ?: ""
-            val resolution = Regex("""(\d{3,4})p""").find(video.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val server = SERVER_NAME_REGEX.find(video.quality)?.groupValues?.get(1) ?: ""
+            val resolution = RESOLUTION_REGEX.find(video.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             server to resolution
         }
 
@@ -558,17 +583,31 @@ class ReAnime :
             .build()
 
         return try {
-            // Step 1: Fetch embed page
+            // Step 1: Fetch embed page; has XOR key in HEX format
             val html = client.newCall(GET(dataLink, flixHeaders)).execute().use { it.body.string() }
-            val dataMatch = Regex(
-                """type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""",
-                RegexOption.DOT_MATCHES_ALL,
-            ).find(html) ?: return emptyList()
+            val dataMatch = EMBED_DATA_REGEX.find(html) ?: return emptyList()
 
             val rawJson = json5ToJson(dataMatch.groupValues[1])
+
+            // Parse the embed data for subtitles + chapters (before stripping them for enc-dec)
+            val embedDataDto = try {
+                jsonParser.decodeFromString<FlixcloudEmbedDataDto>(rawJson)
+            } catch (_: Exception) {
+                FlixcloudEmbedDataDto()
+            }
+
+            val subtitleTracks = embedDataDto.subtitles
+                ?.map { Track(it.url, it.language ?: "Unknown") }
+                ?: emptyList()
+
+            val skipTimes = embedDataDto.toSkipTimes()
+
+            // Strip subtitles/chapters from the payload (enc-dec.app doesn't need them)
             val embedData = try {
                 val obj = jsonParser.parseToJsonElement(rawJson).jsonObject.toMutableMap()
                 obj.remove("subtitles")
+                obj.remove("intro_chapter")
+                obj.remove("outro_chapter")
                 JsonObject(obj).toString()
             } catch (_: Exception) {
                 rawJson
@@ -621,10 +660,13 @@ class ReAnime :
 
             // Step 5: Build local proxy URL
             val server = getProxyServer()
+            // Cache skip times for this episode (keyed by the local proxy URL)
             val localManifestUrl = server.createProxyUrl(streamUrl, wPayload)
+            skipTimesCache[localManifestUrl] = skipTimes
 
-            // Step 6: Return Video object pointing to local server
-            return listOf(Video(localManifestUrl, "$label - 1080p", localManifestUrl, headers))
+            return listOf(
+                Video(localManifestUrl, "$label - 1080p", localManifestUrl, headers, subtitleTracks),
+            )
         } catch (_: Exception) {
             emptyList()
         }
@@ -636,60 +678,62 @@ class ReAnime :
      */
     private fun json5ToJson(json5: String): String = json5
         // Quote unquoted keys: identifier followed by colon, preceded by { or ,
-        .replace(Regex("""([{,]\s*)([\w_]+)(\s*:)""")) {
+        .replace(JSON5_KEY_REGEX) {
             "${it.groupValues[1]}\"${it.groupValues[2]}\"${it.groupValues[3]}"
         }
         // Remove trailing commas before } or ]
-        .replace(Regex(""",\s*([}\]])"""), "$1")
+        .replace(JSON5_TRAILING_COMMA_REGEX, "$1")
         // Replace undefined with null
-        .replace(Regex("""\bundefined\b"""), "null")
+        .replace(JSON5_UNDEFINED_REGEX, "null")
 
-    object AutoDetector {
-        private const val MPEG_TS_SYNC = 0x47.toByte()
-        private const val MAX_HEADER_SEARCH = 1024 * 1024
-        private const val MPEG_TS_MIN_SYNCS = 5
+    private val flixcloudSegmentMask: ByteArray by lazy {
+        FLIXCLOUD_SEGMENT_MASK_HEX.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
 
-        fun detectSkipBytes(data: ByteArray): Int {
-            if (data.size < 100) return 0
-            val limit = minOf(data.size, MAX_HEADER_SEARCH)
-
-            // MPEG-TS — require N consecutive 188-byte-aligned sync bytes.
-            // Try both 188 (standard TS) and 192 (M2TS/BDAV) spacings.
-            for (packetSize in intArrayOf(188, 192)) {
-                val scanLimit = limit - packetSize * MPEG_TS_MIN_SYNCS
-                for (i in 0..scanLimit) {
-                    if (data[i] != MPEG_TS_SYNC) continue
-                    var ok = true
-                    for (k in 1 until MPEG_TS_MIN_SYNCS) {
-                        if (data[i + k * packetSize] != MPEG_TS_SYNC) {
-                            ok = false
-                            break
-                        }
-                    }
-                    if (ok) return i
-                }
-            }
-
-            // Diagnostic: dump first 64 bytes so we can extend the detector if needed.
-            android.util.Log.e(
-                "ReAnimeHex",
-                "AutoDetector failed. First 64 bytes: ${toHex(data, 0, 64)}",
-            )
-            return -1
+    /**
+     * Decode a flixcloud segment.
+     *
+     * Segments are disguised as WebP/PNG images: a real image magic header
+     * (12 bytes for WebP, 8 for PNG) followed by the actual MPEG-TS bytes
+     * XOR'd with a 16-byte repeating mask. After XOR, the first byte should
+     * be 0x47 (MPEG-TS sync).
+     *
+     * If the response doesn't match this pattern, returns the original bytes
+     * unchanged (rare case — happens if the CDN ever serves raw MPEG-TS).
+     */
+    private fun decodeFlixcloudSegment(data: ByteArray): ByteArray {
+        val headerSize = when {
+            data.size >= 12 &&
+                data[0] == 0x52.toByte() && data[1] == 0x49.toByte() &&
+                data[2] == 0x46.toByte() && data[3] == 0x46.toByte() &&
+                data[8] == 0x57.toByte() && data[9] == 0x45.toByte() &&
+                data[10] == 0x42.toByte() && data[11] == 0x50.toByte() -> 12 // RIFF....WEBP
+            data.size >= 8 &&
+                data[0] == 0x89.toByte() && data[1] == 0x50.toByte() &&
+                data[2] == 0x4E.toByte() && data[3] == 0x47.toByte() &&
+                data[4] == 0x0D.toByte() && data[5] == 0x0A.toByte() &&
+                data[6] == 0x1A.toByte() && data[7] == 0x0A.toByte() -> 8 // PNG sig
+            else -> return data // Not a flixcloud-wrapped segment, serve as-is
         }
 
-        private fun toHex(data: ByteArray, offset: Int, length: Int): String {
-            val actualLen = minOf(length, data.size - offset)
-            val sb = StringBuilder(actualLen * 3)
-            for (i in offset until offset + actualLen) {
-                if (i > offset) {
-                    sb.append(' ')
-                    if ((i - offset) % 16 == 0) sb.append('\n')
-                }
-                sb.append(String.format("%02X", data[i].toInt() and 0xFF))
-            }
-            return sb.toString()
+        // Quick check: if byte after header is already 0x47, segment wasn't encrypted
+        if (data[headerSize] == 0x47.toByte()) {
+            return data.copyOfRange(headerSize, data.size)
         }
+
+        // XOR-decrypt in-place
+        val decoded = data.copyOfRange(headerSize, data.size)
+        for (i in decoded.indices) {
+            decoded[i] = (decoded[i].toInt() xor flixcloudSegmentMask[i and 15].toInt()).toByte()
+        }
+
+        // Verify: first byte should now be 0x47 (MPEG-TS sync)
+        if (decoded.isEmpty() || decoded[0] != 0x47.toByte()) {
+            // Restore: return original data minus the image header (best-effort)
+            return data.copyOfRange(headerSize, data.size)
+        }
+
+        return decoded
     }
 
     private var proxyServer: FlixProxyServer? = null
@@ -708,11 +752,12 @@ class ReAnime :
         // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
         private val proxyClient by lazy {
             client.newBuilder()
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .connectionPool(okhttp3.ConnectionPool(20, 5, java.util.concurrent.TimeUnit.MINUTES))
+                .readTimeout(10.seconds)
+                .connectTimeout(5.seconds)
+                .connectionPool(okhttp3.ConnectionPool(30, 2, TimeUnit.MINUTES)) // ← more slots, shorter keepalive
                 .followRedirects(true)
                 .followSslRedirects(true)
+                .retryOnConnectionFailure(true)
                 .build()
         }
 
@@ -755,48 +800,11 @@ class ReAnime :
                     addQueryParameter("token", token)
                 }
             }.build().toString()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             segmentUrl
         }
 
-        /**
-         * Detect the CDN's canned decoy response.
-         *
-         * When vault97 (and possibly other edge nodes) decides a request is "suspicious",
-         * it returns a fast 200 OK with a fake WebP or PNG header followed by an
-         * identical high-entropy payload — same bytes for every segment, with only a
-         * single decrementing counter byte changing between responses.
-         *
-         * The fingerprint `DA 6A E0` at a fixed offset is distinctive enough that
-         * real segments will never match it.
-         *
-         * Returns true if the response is a decoy; caller should return 503 so
-         * ExoPlayer retries and may hit a different edge node.
-         */
-        private fun isDecoyResponse(data: ByteArray): Boolean {
-            // WebP decoy: 52 49 46 46 00 00 00 00 57 45 42 50 DA 6A E0 ??
-            if (data.size >= 16 &&
-                data[0] == 0x52.toByte() && data[1].toInt() == 0x49 && data[2].toInt() == 0x46 && data[3].toInt() == 0x46 &&
-                data[8].toInt() == 0x57 && data[9].toInt() == 0x45 && data[10].toInt() == 0x42 && data[11].toInt() == 0x50 &&
-                data[12] == 0xDA.toByte() && data[13].toInt() == 0x6A && data[14].toInt() == 0xE0
-            ) {
-                return true
-            }
-
-            // PNG decoy: 89 50 4E 47 0D 0A 1A 0A DA 6A E0 ??
-            if (data.size >= 12 &&
-                data[0] == 0x89.toByte() && data[1].toInt() == 0x50 && data[2].toInt() == 0x4E && data[3].toInt() == 0x47 &&
-                data[4].toInt() == 0x0D && data[5].toInt() == 0x0A && data[6].toInt() == 0x1A && data[7].toInt() == 0x0A &&
-                data[8] == 0xDA.toByte() && data[9].toInt() == 0x6A && data[10].toInt() == 0xE0
-            ) {
-                return true
-            }
-
-            return false
-        }
-
         override fun serve(session: IHTTPSession): NanoHTTPD.Response? {
-            android.util.Log.w("ReAnime", "★ BUILD-7-31-1655 serve() entered")
             val params = session.parameters
             val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing url")
             val wPayload = params["w_payload"]?.firstOrNull() ?: ""
@@ -829,15 +837,10 @@ class ReAnime :
 
                 if (!isManifest) {
                     // Segment Request
-                    val segType = if (url.contains("/audio/")) "AUDIO" else "VIDEO"
-                    android.util.Log.d("ReAnime", "====== $segType SEGMENT ======")
-                    android.util.Log.d("ReAnime", "Requesting: $finalUrl")
-
                     val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
                     val response = proxyClient.newCall(request).execute()
 
                     if (!response.isSuccessful) {
-                        android.util.Log.e("ReAnime", "Fetch failed: ${response.code}")
                         return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "CDN Error")
                     }
 
@@ -849,49 +852,22 @@ class ReAnime :
                         return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Empty Segment")
                     }
 
-                    // 1b. Detect the CDN's canned decoy response. The CDN serves this to
-                    // "suspicious" clients (rate-limited, bad reputation, etc.) — it's a fast
-                    // 200 OK with fake image headers and a high-entropy payload that no player
-                    // can decode. Return 503 so ExoPlayer retries; the retry may hit a
-                    // different edge node or get a real response.
-                    if (isDecoyResponse(rawData)) {
-                        android.util.Log.w("ReAnimeHex", "CDN served decoy for $finalUrl — returning 503 for retry")
-                        return newFixedLengthResponse(
-                            Response.Status.SERVICE_UNAVAILABLE,
-                            "text/plain",
-                            "CDN decoy — retry",
-                        )
-                    }
+                    // Decode flixcloud segment: strip fake image header + XOR-decrypt with 16-byte mask.
+                    val decoded = decodeFlixcloudSegment(rawData)
 
-                    // 2. Calculate garbage bytes
-                    val skipBytes = AutoDetector.detectSkipBytes(rawData)
-                    if (skipBytes < 0) {
-                        android.util.Log.e("ReAnime", "Could not identify segment format for $finalUrl")
-                        return newFixedLengthResponse(
-                            Response.Status.INTERNAL_ERROR,
-                            "text/plain",
-                            "Unrecognized segment format",
-                        )
-                    }
-                    val validStreamLength = (rawData.size - skipBytes).toLong()
-                    val slicedStream = java.io.ByteArrayInputStream(rawData, skipBytes, rawData.size - skipBytes)
-
-                    android.util.Log.d("ReAnime", "Streamed $validStreamLength bytes to player (Skipped $skipBytes header bytes)")
-                    android.util.Log.d("ReAnime", "=============================")
-
-                    // 3. Serve as octet-stream so ExoPlayer sniffs the formats natively
-                    return newFixedLengthResponse(Response.Status.OK, "video/mp2t", slicedStream, validStreamLength)
+                    // MPEG-TS — explicit MIME type helps ExoPlayer skip sniffing
+                    return newFixedLengthResponse(
+                        Response.Status.OK,
+                        "video/mp2t",
+                        ByteArrayInputStream(decoded),
+                        decoded.size.toLong(),
+                    )
                 } else {
                     // Manifest Request
-                    android.util.Log.d("ReAnime", "====== MANIFEST REQUEST ======")
-                    android.util.Log.d("ReAnime", "Requesting: $finalUrl")
-
                     val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
                     val response = proxyClient.newCall(request).execute()
-                    android.util.Log.d("ReAnime", "Response Code: ${response.code}")
 
                     if (!response.isSuccessful) {
-                        android.util.Log.e("ReAnime", "Manifest fetch failed: ${response.code}")
                         val errorBody = response.body.string()
                         response.close()
                         return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "Manifest Error: $errorBody")
@@ -907,19 +883,19 @@ class ReAnime :
                     }
 
                     // Simplified parser: just resolve URLs and pass them to the proxy.
-                    // The proxy will dynamically route them to enc-dec.app or direct.
+                    // The proxy will dynamically route them to enc-dec.app.
                     val modifiedText = bodyText.split("\n").joinToString("\n") { line ->
                         val trimmed = line.trim()
                         if (trimmed.isEmpty()) return@joinToString ""
 
                         if (trimmed.startsWith("#")) {
                             if (trimmed.contains("URI=\"")) {
-                                val uri = Regex("URI=\"(.*?)\"").find(trimmed)?.groupValues?.get(1) ?: ""
+                                val uri = URI_REGEX.find(trimmed)?.groupValues?.get(1) ?: ""
                                 if (uri.isNotEmpty()) {
                                     var resolvedUri = parentHttpUrl.resolve(uri).toString()
                                     resolvedUri = ensureToken(resolvedUri, url)
                                     val newUri = createProxyUrl(resolvedUri, wPayload)
-                                    trimmed.replace(Regex("URI=\"(.*?)\""), "URI=\"$newUri\"")
+                                    trimmed.replace(URI_REGEX, "URI=\"$newUri\"")
                                 } else {
                                     trimmed
                                 }
@@ -933,14 +909,10 @@ class ReAnime :
                         }
                     }
 
-                    android.util.Log.d("ReAnime", "Manifest parsed and rewritten successfully.")
-                    android.util.Log.d("ReAnime", "==============================")
-
                     // Use application/vnd.apple.mpegurl to match the CDN exactly
                     newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
                 }
             } catch (e: Exception) {
-                android.util.Log.e("ReAnime", "PROXY CRASHED on $url", e)
                 newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.toString())
             }
         }
@@ -948,6 +920,15 @@ class ReAnime :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addListPreference(
+            key = PREF_DOMAIN_KEY,
+            title = "Preferred Domain",
+            entries = PREF_DOMAIN_ENTRIES,
+            entryValues = PREF_DOMAIN_VALUES,
+            default = PREF_DOMAIN_DEFAULT,
+            summary = "%s",
+        )
+
         screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
             title = "Preferred Title Language",
@@ -986,6 +967,10 @@ class ReAnime :
     }
 
     companion object {
+        private const val PREF_DOMAIN_KEY = "preferred_domain"
+        private val PREF_DOMAIN_ENTRIES = listOf("reanime.to", "reanime.cz")
+        private val PREF_DOMAIN_VALUES = listOf("https://reanime.to", "https://reanime.cz")
+        private const val PREF_DOMAIN_DEFAULT = "https://reanime.to"
         private const val PREF_LANG_KEY = "preferred_lang"
         private val PREF_LANG_ENTRIES = listOf("All", "Sub", "Dub")
         private val PREF_LANG_VALUES = listOf("", "sub", "dub")
@@ -1005,6 +990,33 @@ class ReAnime :
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
         private val PREF_TITLE_LANG_ENTRIES = listOf("Romaji", "English", "Japanese (Native)")
         private val PREF_TITLE_LANG_VALUES = listOf("romaji", "english", "native")
+
+        private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+        private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
+        private val ANILIST_ID_REGEX = Regex("""anilist_id:(\d+)""")
+        private val SUBBED_REGEX = Regex(""",subbed:(\d+)""")
+        private val DUBBED_REGEX = Regex(""",dubbed:(\d+)""")
+        private val SERVER_NAME_REGEX = Regex("""\[(?:Sub|Dub)]\s*(\S+)""")
+        private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
+        private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
+        private val JSON5_KEY_REGEX = Regex("""([{,]\s*)([\w_]+)(\s*:)""")
+        private val JSON5_TRAILING_COMMA_REGEX = Regex(""",\s*([}\]])""")
+        private val JSON5_UNDEFINED_REGEX = Regex("""\bundefined\b""")
+        private val URI_REGEX = Regex("URI=\"(.*?)\"")
+
+        /**
+         * Flixcloud segment XOR mask (16 bytes, repeating).
+         *
+         * If segments stop decoding (logcat shows "first byte = 0x?? (expected 0x47)"):
+         *   1. Open ReAnime video in a browser
+         *   2. Search in debugger for: {for(var f=[
+         *   3. Copy the 16 numbers from the array literal
+         *   4. Convert to hex (Python: bytes([157,42,241,...]).hex())
+         *   5. Update FLIXCLOUD_SEGMENT_MASK_HEX below
+         *
+         * Last verified: 2026-07-31
+         */
+        private const val FLIXCLOUD_SEGMENT_MASK_HEX = "9D2AF147B38E5C70A619E43BD8620FC5"
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING

@@ -5,7 +5,7 @@ import androidx.annotation.RequiresApi
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
-object ReAnimeFilters {
+object Filters {
 
     class SortFilter : AnimeFilter.Select<String>("Sort By", SORT_ENTRIES.toTypedArray(), 0) {
         fun getValue() = SORT_VALUES[state]
