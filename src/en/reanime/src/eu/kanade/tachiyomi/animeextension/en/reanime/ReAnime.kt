@@ -749,6 +749,7 @@ class ReAnime :
     companion object {
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private val PREF_DOMAIN_ENTRIES = listOf("reanime.to", "reanime.cz")
+        // Status domain: https://restatus.me/
         private val PREF_DOMAIN_VALUES = listOf("https://reanime.to", "https://reanime.cz")
         private const val PREF_DOMAIN_DEFAULT = "https://reanime.to"
         private const val PREF_LANG_KEY = "preferred_lang"
