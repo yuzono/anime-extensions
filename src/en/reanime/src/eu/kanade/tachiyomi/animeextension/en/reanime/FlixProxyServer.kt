@@ -233,7 +233,7 @@ class FlixProxyServer(
             }
 
             // Quick check: if byte after header is already 0x47, segment wasn't encrypted
-            if (data[headerSize] == 0x47.toByte()) {
+            if (data.size <= headerSize || data[headerSize] == 0x47.toByte()) {
                 return data.copyOfRange(headerSize, data.size)
             }
 
