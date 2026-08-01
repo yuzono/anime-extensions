@@ -15,8 +15,6 @@ class FlixProxyServer(
     private val client: OkHttpClient,
 ) : NanoHTTPD(0) {
 
-    val decApi = "https://enc-dec.app/api"
-
     // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
     private val proxyClient by lazy {
         client.newBuilder()
@@ -37,7 +35,7 @@ class FlixProxyServer(
     }
 
     fun wrapInDecApi(originalUrl: String, wPayload: String): String {
-        if (originalUrl.contains("enc-dec.app")) return originalUrl
+        if (originalUrl.contains(encDecUrl)) return originalUrl
         val encodedUrl = URLEncoder.encode(originalUrl, "UTF-8").replace("+", "%20")
         val encodedWPayload = URLEncoder.encode(wPayload, "UTF-8").replace("+", "%20")
         return "$decApi/parse-flixcloud?url=$encodedUrl&w_payload=$encodedWPayload"
@@ -91,12 +89,12 @@ class FlixProxyServer(
                 .removeAll("Sec-Fetch-Dest").removeAll("Sec-Fetch-Mode")
                 .removeAll("Sec-Fetch-Site").removeAll("Accept-Encoding")
                 .apply {
-                    if (url.contains("enc-dec.app")) {
-                        add("Origin", "https://enc-dec.app")
-                        add("Referer", "https://enc-dec.app/")
+                    if (url.contains(encDecUrl)) {
+                        add("Origin", encDecUrl)
+                        add("Referer", "$encDecUrl/")
                     } else {
-                        add("Origin", "https://flixcloud.cc")
-                        add("Referer", "https://flixcloud.cc/")
+                        add("Origin", flixCloudUrl)
+                        add("Referer", "$flixCloudUrl/")
                         add("Sec-Fetch-Dest", "empty")
                         add("Sec-Fetch-Mode", "cors")
                         add("Sec-Fetch-Site", "same-site")
@@ -144,7 +142,7 @@ class FlixProxyServer(
                 val bodyText = response.body.string()
                 response.close()
 
-                val parentHttpUrl = if (url.contains("enc-dec.app")) {
+                val parentHttpUrl = if (url.contains(encDecUrl)) {
                     url.toHttpUrl().queryParameter("url")?.toHttpUrl() ?: url.toHttpUrl()
                 } else {
                     url.toHttpUrl()
@@ -186,6 +184,9 @@ class FlixProxyServer(
     }
 
     companion object {
+        val encDecUrl = "https://enc-dec.app"
+        val flixCloudUrl = "https://flixcloud.cc"
+        val decApi = "$encDecUrl/api"
         private val URI_REGEX = Regex("URI=\"(.*?)\"")
 
         /**

@@ -2,8 +2,11 @@ package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.content.SharedPreferences
 import android.os.Build
+import android.util.LruCache
 import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.decApi
+import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.flixCloudUrl
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -48,6 +51,8 @@ class ReAnime :
 
     override val lang = "en"
 
+    override val supportsLatest = true
+
     private val preferences: SharedPreferences by getPreferencesLazy()
     override val baseUrl: String
         get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
@@ -56,8 +61,6 @@ class ReAnime :
         get() = "$baseUrl/api/v1"
 
     private val flixUrl = "$baseUrl/api/flix"
-
-    override val supportsLatest = true
 
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
@@ -88,7 +91,7 @@ class ReAnime :
 
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
 
-    private val animeMetaCache = android.util.LruCache<String, AnimeMeta>(64)
+    private val animeMetaCache = LruCache<String, AnimeMeta>(64)
     private var nextLatestCursor: String? = null
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
@@ -553,12 +556,10 @@ class ReAnime :
     private val jsonParser = Json { ignoreUnknownKeys = true }
 
     private fun extractFromServer(dataLink: String, label: String, referer: String): List<Video> {
-        val decApi = "https://enc-dec.app/api"
-
         val flixHeaders = headers.newBuilder()
             .add("Accept", "*/*")
-            .add("Origin", "https://flixcloud.cc")
-            .add("Referer", "https://flixcloud.cc/")
+            .add("Origin", flixCloudUrl)
+            .add("Referer", "$flixCloudUrl/")
             .build()
 
         val decHeaders = headers.newBuilder()
@@ -610,7 +611,7 @@ class ReAnime :
 
             // Step 3: Fetch encrypted stream
             val m3u8Body = client.newCall(
-                GET("https://flixcloud.cc/api/m3u8/${tokenDto.result.token}", flixHeaders),
+                GET("$flixCloudUrl/api/m3u8/${tokenDto.result.token}", flixHeaders),
             ).execute().use { it.body.string() }
 
             val m3u8JsonElement = try {
