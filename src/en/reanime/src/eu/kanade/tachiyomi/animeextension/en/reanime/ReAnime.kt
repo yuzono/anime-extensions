@@ -49,7 +49,7 @@ class ReAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "ReAnime"
+    override val name = "Re:ANIME"
 
     override val lang = "en"
 
@@ -648,6 +648,36 @@ class ReAnime :
         return try {
             // Step 1: Fetch embed page; has XOR key in HEX format
             val html = client.newCall(GET(dataLink, flixHeaders)).execute().use { it.body.string() }
+
+            // --- XOR Mask Extraction ---
+            val hardcodedFallback = listOf(
+                157, 42, 241, 71, 179, 142, 92, 112,
+                166, 25, 228, 59, 216, 98, 15, 197,
+            ).map { it.toByte() }.toByteArray()
+
+            var xorMask: ByteArray? = null
+
+            val scriptPath = HLS_SCRIPT_REGEX.find(html)?.groupValues?.get(1)
+            if (scriptPath != null) {
+                val scriptUrl = if (scriptPath.startsWith("http")) scriptPath else "$flixCloudUrl$scriptPath"
+                try {
+                    val jsContent = client.newCall(GET(scriptUrl, flixHeaders)).execute().use { it.body.string() }
+                    xorMask = XOR_MASK_REGEX.find(jsContent)?.groupValues?.get(1)
+                        ?.split(",")
+                        ?.map { it.trim().toInt().toByte() }
+                        ?.toByteArray()
+                } catch (_: Exception) {
+                    // Ignore fetch/parse errors
+                }
+            }
+
+            if (xorMask != null) {
+                // Save the newly fetched mask to preferences
+                saveXorMask(xorMask)
+            } else {
+                xorMask = loadSavedXorMask() ?: hardcodedFallback
+            }
+
             val dataMatch = EMBED_DATA_REGEX.find(html) ?: return emptyList()
 
             val rawJson = json5ToJson(dataMatch.groupValues[1])
@@ -722,7 +752,7 @@ class ReAnime :
                 ?: return emptyList()
 
             // Step 5: Build local proxy URL
-            val server = getProxyServer()
+            val server = getProxyServer(headers, xorMask)
             val localManifestUrl = server.createProxyUrl(streamUrl, wPayload)
 
             // Cache skip times for this episode (keyed by the local proxy URL)
@@ -772,14 +802,34 @@ class ReAnime :
             ?: ""
     }
 
+    @Volatile
     private var proxyServer: FlixProxyServer? = null
 
-    private fun getProxyServer(): FlixProxyServer {
+    @Synchronized
+    private fun getProxyServer(headers: Headers, segmentMask: ByteArray): FlixProxyServer {
         if (proxyServer == null || !proxyServer!!.isAlive) {
-            proxyServer = FlixProxyServer(headers)
+            proxyServer?.stop()
+            proxyServer = FlixProxyServer(headers, segmentMask)
             proxyServer!!.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+        } else {
+            proxyServer!!.updateSegmentMask(segmentMask)
         }
         return proxyServer!!
+    }
+
+    private fun loadSavedXorMask(): ByteArray? {
+        val savedStr = preferences.getString("flixcloud_xor_mask", null) ?: return null
+        return try {
+            savedStr.split(",").map { it.trim().toInt().toByte() }.toByteArray()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun saveXorMask(mask: ByteArray) {
+        // Save as a comma-separated string of unsigned integers
+        val maskStr = mask.joinToString(",") { (it.toInt() and 0xFF).toString() }
+        preferences.edit().putString("flixcloud_xor_mask", maskStr).apply()
     }
 
     // ============================== Settings ==============================
@@ -878,6 +928,24 @@ class ReAnime :
         private val JSON5_KEY_REGEX = Regex("""([{,]\s*)([\w_]+)(\s*:)""")
         private val JSON5_TRAILING_COMMA_REGEX = Regex(""",\s*([}\]])""")
         private val JSON5_UNDEFINED_REGEX = Regex(""":\s*undefined\b""")
+
+        /**
+         * FlixCloud segment XOR mask (16 bytes, repeating).
+         *
+         * This mask is fetched DYNAMICALLY from hls.js on every episode load.
+         * If the dynamic fetch fails, the extension falls back to the array below.
+         *
+         * How to manually update the fallback:
+         *   1. Open a Re:ANIME video in a browser.
+         *   2. In DevTools, search the loaded scripts for: `for(var f=[`
+         *   3. Copy the 16 decimal numbers and paste them into `hardcodedFallback`
+         *   in [extractFromServer].
+         *
+         * Last verified fallback: 2026-08-01
+         */
+
+        private val HLS_SCRIPT_REGEX = Regex("""href="([^"]*hls\.js[^"]*)""")
+        private val XOR_MASK_REGEX = Regex("""for\(var f=\[(\d{1,3}(?:,\d{1,3}){15})]""")
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING

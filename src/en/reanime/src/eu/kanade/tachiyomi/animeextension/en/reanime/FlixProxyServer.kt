@@ -16,7 +16,14 @@ import java.util.concurrent.TimeUnit
 
 class FlixProxyServer(
     private val headers: Headers,
+    private var segmentMask: ByteArray,
 ) : NanoHTTPD(0) {
+
+    fun updateSegmentMask(newMask: ByteArray) {
+        if (!newMask.contentEquals(segmentMask)) {
+            segmentMask = newMask
+        }
+    }
 
     // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
     private val proxyClient by lazy {
@@ -166,6 +173,16 @@ class FlixProxyServer(
             headerBytes.size > headerSize &&
             (headerBytes[headerSize].toInt() and 0xFF) != 0x47
 
+        // --- XOR KEY VALIDATION ---
+        if (shouldXor) {
+            val firstPayloadByte = headerBytes[headerSize].toInt() and 0xFF
+            val decryptedByte = firstPayloadByte xor (segmentMask[0].toInt() and 0xFF)
+
+            if (decryptedByte != 0x47) {
+                throw IllegalStateException("XOR key could not be found.")
+            }
+        }
+
         // Output length = original length minus the stripped image header.
         val originalLength = body.contentLength()
         val outputLength = if (originalLength > 0 && headerSize > 0) {
@@ -175,7 +192,7 @@ class FlixProxyServer(
         }
 
         // Wrap the upstream source with our XOR-decoding ForwardingSource.
-        val xorSource = FlixcloudSegmentSource(source, flixcloudSegmentMask, headerSize, shouldXor)
+        val xorSource = FlixcloudSegmentSource(source, segmentMask, headerSize, shouldXor)
         val inputStream = xorSource.buffer().inputStream()
 
         return if (outputLength > 0) {
@@ -283,24 +300,6 @@ class FlixProxyServer(
         private val URI_REGEX = Regex("URI=\"(.*?)\"")
         private val BANDWIDTH_REGEX = Regex("""BANDWIDTH=(\d+)""")
         private val AVERAGE_BANDWIDTH_REGEX = Regex("""AVERAGE-BANDWIDTH=(\d+)""")
-
-        /**
-         * Flixcloud segment XOR mask (16 bytes, repeating).
-         *
-         * If segments stop decoding (logcat shows "first byte = 0x?? (expected 0x47)"):
-         *   1. Open ReAnime video in a browser
-         *   2. Search in debugger for: {for(var f=[
-         *   3. Copy the 16 numbers from the array literal
-         *   4. Convert to hex (Python: bytes([157,42,241,...]).hex())
-         *   5. Update FLIXCLOUD_SEGMENT_MASK_HEX below
-         *
-         * Last verified: 2026-08-01
-         */
-        private const val FLIXCLOUD_SEGMENT_MASK_HEX = "9D2AF147B38E5C70A619E43BD8620FC5"
-
-        private val flixcloudSegmentMask: ByteArray by lazy {
-            FLIXCLOUD_SEGMENT_MASK_HEX.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        }
 
         /**
          * Detect the fake image header type from the first bytes of a segment.
