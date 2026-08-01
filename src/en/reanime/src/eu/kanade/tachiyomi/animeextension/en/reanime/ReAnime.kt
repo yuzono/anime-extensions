@@ -319,6 +319,10 @@ class ReAnime :
             infoLines.add("**Alternative Titles**: ${it.joinToString(", ")}")
         }
 
+        dto.format?.takeIf { it.isNotBlank() }?.let {
+            infoLines.add("**Format**: $it")
+        }
+
         val sourceStr = dto.source?.takeIf { it.isNotBlank() }?.let { it.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } }
         val countryStr = dto.countryOfOrigin?.takeIf { it.isNotBlank() }
         if (sourceStr != null || countryStr != null) {
