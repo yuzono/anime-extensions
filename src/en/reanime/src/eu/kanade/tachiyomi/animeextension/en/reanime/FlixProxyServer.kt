@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
+import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -22,6 +23,7 @@ class FlixProxyServer(
         OkHttpClient.Builder()
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
