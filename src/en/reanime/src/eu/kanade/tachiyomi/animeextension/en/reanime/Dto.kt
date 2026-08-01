@@ -86,6 +86,8 @@ class EpisodeDto(
     val episodeId: String? = null,
     @SerialName("episode_number") val episodeNumber: Double,
     val title: String = "",
+    @SerialName("title_japanese") val titleJapanese: String? = null,
+    @SerialName("title_romanji") val titleRomanji: String? = null,
     val aired: String? = null,
     @SerialName("is_filler") val isFiller: Boolean = false,
     @SerialName("is_recap") val isRecap: Boolean = false,
@@ -110,6 +112,25 @@ class VideoServerDto(
 // ======================== Anime Detail DTOs ========================
 
 @Serializable
+class FuzzyDateDto(
+    val year: Int? = null,
+    val month: Int? = null,
+    val day: Int? = null,
+)
+
+@Serializable
+class NextAiringEpisodeDto(
+    @SerialName("airing_at") val airingAt: String? = null,
+    val episode: Int? = null,
+)
+
+@Serializable
+class TagDto(
+    val name: String? = null,
+    val rank: Int? = null,
+)
+
+@Serializable
 class AnimeDetailDto(
     @SerialName("anime_id") val animeId: String,
     @SerialName("anilist_id") val anilistId: Int? = null,
@@ -125,12 +146,19 @@ class AnimeDetailDto(
     @SerialName("imdb_id") val imdbId: String? = null,
     val title: TitleDto? = null,
     @SerialName("cover_image") private val coverImage: CoverDto? = null,
+    @SerialName("banner_image") val bannerImage: String? = null,
     val description: String? = null,
     val format: String? = null,
     val status: String? = null,
     val genres: List<String>? = null,
+    val tags: List<TagDto>? = null,
+    val source: String? = null,
+    @SerialName("country_of_origin") val countryOfOrigin: String? = null,
     val season: String? = null,
     @SerialName("season_year") val seasonYear: Int? = null,
+    @SerialName("start_date") val startDate: FuzzyDateDto? = null,
+    @SerialName("end_date") val endDate: FuzzyDateDto? = null,
+    @SerialName("next_airing_episode") val nextAiringEpisode: NextAiringEpisodeDto? = null,
     val duration: Int? = null,
     val subbed: Int? = null,
     val dubbed: Int? = null,
@@ -152,7 +180,14 @@ class AnimeDetailDto(
                 c.safeExtraLarge ?: c.safeLarge ?: c.safeMedium
             }
         }
-        genre = genres?.joinToString().takeIf { !it.isNullOrBlank() }
+
+        val combinedGenres = buildList {
+            genres?.filter { it.isNotBlank() }?.let { addAll(it) }
+            tags?.mapNotNull { it.name }?.filter { it.isNotBlank() }?.sorted()?.let { addAll(it) }
+        }.distinct().joinToString(", ")
+
+        genre = combinedGenres.takeIf { it.isNotBlank() }
+
         status = parseStatus(this@AnimeDetailDto.status)
         author = studios?.filter { it.isMain == true }?.mapNotNull { it.name }?.joinToString(", ")?.takeIf { it.isNotBlank() }
     }

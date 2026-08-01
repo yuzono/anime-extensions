@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.LruCache
 import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.decApi
 import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.flixCloudUrl
@@ -63,17 +64,20 @@ class ReAnime :
 
     private val flixUrl = "$baseUrl/api/flix"
 
-    private val titleLanguage: String
-        get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
-
     private val preferredLang: String
         get() = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT) ?: PREF_LANG_DEFAULT
+
+    private val titleLanguage: String
+        get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
 
     private val preferredAudio: String
         get() = preferences.getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT) ?: PREF_AUDIO_DEFAULT
 
     private val preferredServer: String
         get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+
+    private val hideFiller: Boolean
+        get() = preferences.getBoolean(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
         .add("Accept", "application/json, text/plain, */*")
@@ -95,6 +99,29 @@ class ReAnime :
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
 
     private val animeMetaCache = LruCache<String, AnimeMeta>(64)
+
+    @Synchronized
+    private fun fetchAnimeMeta(animeSlug: String): AnimeMeta? {
+        // Double-check: Another thread might have fetched it while we waited for the lock
+        animeMetaCache.get(animeSlug)?.let { return it }
+
+        return try {
+            client.newCall(
+                GET("$detailsFromApiUrl/$animeSlug", apiHeaders("$detailsUrl/$animeSlug")),
+            ).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                val dto = res.parseAs<AnimeDetailDto>()
+                AnimeMeta(
+                    anilistId = dto.anilistId ?: 0,
+                    subbed = dto.subbed ?: 0,
+                    dubbed = dto.dubbed ?: 0,
+                ).also { animeMetaCache.put(animeSlug, it) }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private var nextLatestCursor: String? = null
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
@@ -227,83 +254,132 @@ class ReAnime :
         }
     }
 
+    private fun getOrdinal(n: Int): String = if (n in 11..13) {
+        "${n}th"
+    } else {
+        when (n % 10) {
+            1 -> "${n}st"
+            2 -> "${n}nd"
+            3 -> "${n}rd"
+            else -> "${n}th"
+        }
+    }
+
+    private fun formatFuzzyDate(date: FuzzyDateDto?): String? {
+        if (date == null || date.year == null || date.year <= 0) return null
+        if (date.month == null || date.month !in 1..12) return null
+
+        val monthStr = MONTHS[date.month - 1]
+        return if (date.day != null && date.day > 0) {
+            "$monthStr ${getOrdinal(date.day)}, ${date.year}"
+        } else {
+            "$monthStr ${date.year}"
+        }
+    }
+
+    private fun parseAiringDate(iso: String?): String? {
+        if (iso.isNullOrBlank()) return null
+        return try {
+            val parts = iso.substringBefore('T').split('-')
+            val year = parts[0].toInt()
+            val month = parts[1].toInt()
+            val day = parts[2].toInt()
+            formatFuzzyDate(FuzzyDateDto(year, month, day))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun buildDescription(dto: AnimeDetailDto): String = buildString {
+        val infoLines = mutableListOf<String>()
+
         dto.averageScore?.let { score ->
             getFancyScore(score).takeIf { it.isNotEmpty() }?.let {
-                if (isNotBlank()) append("\n\n")
                 append(it)
+                append("\n\n")
             }
         }
+
         dto.description?.let { raw ->
             val cleaned = raw
                 .replace(BR_REGEX, "\n")
                 .replace(HTML_TAG_REGEX, "")
                 .trim()
             if (cleaned.isNotBlank()) {
-                if (isNotBlank()) append("\n\n")
                 append(cleaned)
+                append("\n\n")
             }
         }
 
         dto.title?.romaji?.takeIf { it.isNotBlank() && it != dto.title.preferredTitle(titleLanguage) }?.let {
-            append("\n\n**Romaji**: $it")
+            infoLines.add("**Romaji**: $it")
         }
 
         dto.synonyms?.takeIf { it.isNotEmpty() }?.let {
-            append("\n**Alternative Titles**: ${it.joinToString(", ")}")
+            infoLines.add("**Alternative Titles**: ${it.joinToString(", ")}")
+        }
+
+        val sourceStr = dto.source?.takeIf { it.isNotBlank() }?.let { it.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } }
+        val countryStr = dto.countryOfOrigin?.takeIf { it.isNotBlank() }
+        if (sourceStr != null || countryStr != null) {
+            infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" · "))
+        }
+
+        val startDateStr = formatFuzzyDate(dto.startDate)
+        val endDateStr = formatFuzzyDate(dto.endDate)
+        if (startDateStr != null && endDateStr != null) {
+            infoLines.add("**Aired**: From $startDateStr to $endDateStr")
+        } else if (startDateStr != null) {
+            infoLines.add("**Start Date**: $startDateStr")
+        } else if (endDateStr != null) {
+            infoLines.add("**End Date**: $endDateStr")
+        }
+
+        dto.nextAiringEpisode?.let { next ->
+            val epNum = next.episode
+            val airingAt = next.airingAt?.takeIf { it.isNotBlank() }
+            if (epNum != null && airingAt != null) {
+                parseAiringDate(airingAt)?.let { formattedDate ->
+                    infoLines.add("**Next Airing**: Episode $epNum on $formattedDate")
+                }
+            }
         }
 
         dto.season?.let { season ->
             val year = dto.seasonYear?.let { " $it" } ?: ""
-            append("\n**Season**: ${season.replaceFirstChar { c -> c.titlecase() }}$year")
+            infoLines.add("**Season**: ${season.replaceFirstChar { c -> c.titlecase() }}$year")
         }
 
         dto.duration?.takeIf { it > 0 }?.let {
-            append("\n**Duration**: ${it}m")
+            infoLines.add("**Duration**: ${it}m")
         }
 
         dto.rating?.takeIf { it.isNotBlank() }?.let {
-            append("\n**Rating**: $it")
+            infoLines.add("**Rating**: $it")
         }
 
-        // All tracker links — only shown if ID is valid
+        // Append all info lines cleanly
+        if (infoLines.isNotEmpty()) {
+            append(infoLines.joinToString("\n"))
+            append("\n\n")
+        }
+
         val trackers = buildList {
-            dto.anilistId?.takeIf { it > 0 }?.let {
-                add("[AniList](https://anilist.co/anime/$it)")
-            }
-            dto.malId?.takeIf { it > 0 }?.let {
-                add("[MAL](https://myanimelist.net/anime/$it)")
-            }
-            dto.kitsuId?.takeIf { it > 0 }?.let {
-                add("[Kitsu](https://kitsu.io/anime/$it)")
-            }
-            dto.anidbId?.takeIf { it > 0 }?.let {
-                add("[AniDB](https://anidb.net/anime/$it)")
-            }
-            dto.animePlanetId?.takeIf { it.isNotBlank() }?.let {
-                add("[Anime-Planet](https://www.anime-planet.com/anime/$it)")
-            }
-            dto.animeNewsNetworkId?.takeIf { it > 0 }?.let {
-                add("[ANN](https://www.animenewsnetwork.com/encyclopedia/anime.php?id=$it)")
-            }
-            dto.anisearchId?.takeIf { it > 0 }?.let {
-                add("[Anisearch](https://www.anisearch.com/anime/$it)")
-            }
-            dto.simklId?.takeIf { it > 0 }?.let {
-                add("[Simkl](https://simkl.com/anime/$it)")
-            }
-            dto.tmdbId?.takeIf { it > 0 }?.let {
-                add("[TMDB](https://www.themoviedb.org/tv/$it)")
-            }
-            dto.tvdbId?.takeIf { it > 0 }?.let {
-                add("[TVDB](https://thetvdb.com/series/$it)")
-            }
-            dto.imdbId?.takeIf { it.isNotBlank() }?.let {
-                add("[IMDB](https://www.imdb.com/title/$it)")
-            }
+            dto.anilistId?.takeIf { it > 0 }?.let { add("[AniList](https://anilist.co/anime/$it)") }
+            dto.malId?.takeIf { it > 0 }?.let { add("[MAL](https://myanimelist.net/anime/$it)") }
+            dto.kitsuId?.takeIf { it > 0 }?.let { add("[Kitsu](https://kitsu.io/anime/$it)") }
+            dto.anidbId?.takeIf { it > 0 }?.let { add("[AniDB](https://anidb.net/anime/$it)") }
+            dto.animePlanetId?.takeIf { it.isNotBlank() }?.let { add("[Anime-Planet](https://www.anime-planet.com/anime/$it)") }
+            dto.animeNewsNetworkId?.takeIf { it > 0 }?.let { add("[ANN](https://www.animenewsnetwork.com/encyclopedia/anime.php?id=$it)") }
+            dto.anisearchId?.takeIf { it > 0 }?.let { add("[Anisearch](https://www.anisearch.com/anime/$it)") }
+            dto.simklId?.takeIf { it > 0 }?.let { add("[Simkl](https://simkl.com/anime/$it)") }
+            dto.tmdbId?.takeIf { it > 0 }?.let { add("[TMDB](https://www.themoviedb.org/tv/$it)") }
+            dto.tvdbId?.takeIf { it > 0 }?.let { add("[TVDB](https://thetvdb.com/series/$it)") }
+            dto.imdbId?.takeIf { it.isNotBlank() }?.let { add("[IMDB](https://www.imdb.com/title/$it)") }
         }
         if (trackers.isNotEmpty()) {
-            append("\n\n**Trackers**: ${trackers.joinToString(" · ")}")
+            append("**Trackers**: ${trackers.joinToString(" · ")}")
+            append("\n\n")
         }
 
         dto.externalLinks?.filter { it.type == "STREAMING" }?.takeIf { it.isNotEmpty() }?.let { links ->
@@ -313,12 +389,18 @@ class ReAnime :
                 "[$site]($url)"
             }
             if (streamingLinks.isNotEmpty()) {
-                append("\n\n**Streaming**: ${streamingLinks.joinToString(" · ")}")
+                append("**Streaming**: ${streamingLinks.joinToString(" · ")}")
+                append("\n\n")
             }
         }
 
         dto.trailer?.takeIf { it.site == "youtube" && !it.id.isNullOrBlank() }?.let {
-            append("\n\n**Trailer**: [YouTube](https://www.youtube.com/watch?v=${it.id})")
+            append("**Trailer**: [YouTube](https://www.youtube.com/watch?v=${it.id})")
+            append("\n\n")
+        }
+
+        dto.bannerImage?.takeIf { it.isNotBlank() }?.let {
+            append("![Banner]($it)")
         }
     }
 
@@ -409,7 +491,9 @@ class ReAnime :
             throw Exception("Could not parse episode list. The anime may not have episodes yet.")
         }
 
-        if (dto.data.isEmpty()) {
+        val visibleEpisodes = dto.data.filterNot { it.isFiller && hideFiller }
+
+        if (visibleEpisodes.isEmpty()) {
             throw Exception("No episodes available for this anime yet. It may not have aired.")
         }
 
@@ -417,11 +501,11 @@ class ReAnime :
         val animeIdx = segments.indexOf("anime")
         val animeSlug = if (animeIdx != -1 && animeIdx + 1 < segments.size) segments[animeIdx + 1] else ""
 
-        val meta = animeMetaCache.get(animeSlug)
+        val meta = animeMetaCache.get(animeSlug) ?: fetchAnimeMeta(animeSlug)
         val maxSub = meta?.subbed ?: 0
         val maxDub = meta?.dubbed ?: 0
 
-        return dto.data.map { ep ->
+        return visibleEpisodes.map { ep ->
             SEpisode.create().apply {
                 val epNum = ep.episodeNumber
                 episode_number = epNum.toFloat()
@@ -431,8 +515,10 @@ class ReAnime :
 
                 val epNumStr = if (epNum % 1.0 == 0.0) epNum.toInt().toString() else epNum.toString()
 
-                val baseName = if (ep.title.isNotBlank() && !ep.title.contains("Episode", ignoreCase = true)) {
-                    "Episode $epNumStr - ${ep.title}"
+                val epTitle = ep.getPreferredTitle(titleLanguage)
+
+                val baseName = if (epTitle.isNotBlank() && !epTitle.contains("Episode", ignoreCase = true)) {
+                    "Episode $epNumStr - $epTitle"
                 } else {
                     "Episode $epNumStr"
                 }
@@ -440,7 +526,7 @@ class ReAnime :
                 name = buildString {
                     append(baseName)
                     if (ep.isRecap) append(" [Recap]")
-                    if (ep.isFiller) append(" [Filler]")
+                    if (ep.isFiller && !hideFiller) append(" [Filler]")
                 }
 
                 val hasSub = epNum <= maxSub
@@ -465,7 +551,7 @@ class ReAnime :
         val epId = bits.getOrNull(1) ?: ""
         val epNumber = epId.removePrefix("ep-")
 
-        val meta = animeMetaCache.get(slug)
+        val meta = animeMetaCache.get(slug) ?: fetchAnimeMeta(slug)
 
         if (meta != null && meta.anilistId > 0) {
             return GET(
@@ -474,7 +560,7 @@ class ReAnime :
             )
         }
 
-        // Cache miss: fetch anime page to extract anilist_id
+        // Fallback to HTML page if API completely failed to get Anilist ID
         return GET("$detailsUrl/$slug?_ep=$epNumber", headers)
     }
 
@@ -668,6 +754,20 @@ class ReAnime :
         // Replace undefined with null
         .replace(JSON5_UNDEFINED_REGEX, ": null")
 
+    private fun EpisodeDto.getPreferredTitle(language: String): String {
+        val preferred = when (language) {
+            "native" -> titleJapanese
+            "romaji" -> titleRomanji
+            else -> title
+        }?.takeIf { it.isNotBlank() }
+
+        return preferred
+            ?: title.takeIf { it.isNotBlank() }
+            ?: titleRomanji?.takeIf { it.isNotBlank() }
+            ?: titleJapanese?.takeIf { it.isNotBlank() }
+            ?: ""
+    }
+
     private var proxyServer: FlixProxyServer? = null
 
     private fun getProxyServer(): FlixProxyServer {
@@ -724,6 +824,15 @@ class ReAnime :
             default = preferredAudio,
             summary = "%s",
         )
+
+        screen.addPreference(
+            SwitchPreferenceCompat(screen.context).apply {
+                key = PREF_HIDE_FILLER_KEY
+                title = "Hide Filler Episodes"
+                summary = "Hides episodes marked as filler from the episode list."
+                setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
+            },
+        )
     }
 
     // Status domain: https://restatus.me/
@@ -751,6 +860,10 @@ class ReAnime :
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
         private val PREF_TITLE_LANG_ENTRIES = listOf("Romaji", "English", "Japanese (Native)")
         private val PREF_TITLE_LANG_VALUES = listOf("romaji", "english", "native")
+
+        private const val PREF_HIDE_FILLER_KEY = "hide_filler"
+        private const val PREF_HIDE_FILLER_DEFAULT = false
+        private val MONTHS = arrayOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
