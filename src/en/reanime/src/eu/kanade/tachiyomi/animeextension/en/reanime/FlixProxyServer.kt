@@ -1,26 +1,27 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
+import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.ByteArrayInputStream
+import okio.Buffer
+import okio.ForwardingSource
+import okio.Source
+import okio.buffer
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration.Companion.seconds
 
 class FlixProxyServer(
     private val headers: Headers,
-    private val client: OkHttpClient,
 ) : NanoHTTPD(0) {
 
     // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
     private val proxyClient by lazy {
-        client.newBuilder()
-            .readTimeout(10.seconds)
-            .connectTimeout(5.seconds)
-            .connectionPool(okhttp3.ConnectionPool(30, 2, TimeUnit.MINUTES))
+        OkHttpClient.Builder()
+            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -102,85 +103,175 @@ class FlixProxyServer(
                 }.build()
 
             if (!isManifest) {
-                // Segment Request
-                val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
-                val response = proxyClient.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "CDN Error")
-                }
-
-                // Read full segment to safely bypass large image headers (>4KB)
-                val rawData = response.body.bytes()
-                response.close()
-
-                if (rawData.isEmpty()) {
-                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Empty Segment")
-                }
-
-                // Decode flixcloud segment: strip fake image header + XOR-decrypt with 16-byte mask.
-                val decoded = decodeFlixcloudSegment(rawData)
-
-                // MPEG-TS — explicit MIME type helps ExoPlayer skip sniffing
-                return newFixedLengthResponse(
-                    Response.Status.OK,
-                    "video/mp2t",
-                    ByteArrayInputStream(decoded),
-                    decoded.size.toLong(),
-                )
+                serveSegment(finalUrl, proxyHeaders)
             } else {
-                // Manifest Request
-                val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
-                val response = proxyClient.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    val errorBody = response.body.string()
-                    response.close()
-                    return newFixedLengthResponse(Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR, "text/plain", "Manifest Error: $errorBody")
-                }
-
-                val bodyText = response.body.string()
-                response.close()
-
-                val parentHttpUrl = if (url.contains(encDecUrl)) {
-                    url.toHttpUrl().queryParameter("url")?.toHttpUrl() ?: url.toHttpUrl()
-                } else {
-                    url.toHttpUrl()
-                }
-
-                // Simplified parser: just resolve URLs and pass them to the proxy.
-                // The proxy will dynamically route them to enc-dec.app.
-                val modifiedText = bodyText.split("\n").joinToString("\n") { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty()) return@joinToString ""
-
-                    if (trimmed.startsWith("#")) {
-                        if (trimmed.contains("URI=\"")) {
-                            val uri = URI_REGEX.find(trimmed)?.groupValues?.get(1) ?: ""
-                            if (uri.isNotEmpty()) {
-                                var resolvedUri = parentHttpUrl.resolve(uri).toString()
-                                resolvedUri = ensureToken(resolvedUri, url)
-                                val newUri = createProxyUrl(resolvedUri, wPayload)
-                                trimmed.replace(URI_REGEX, "URI=\"$newUri\"")
-                            } else {
-                                trimmed
-                            }
-                        } else {
-                            trimmed
-                        }
-                    } else {
-                        var resolvedUrl = parentHttpUrl.resolve(trimmed).toString()
-                        resolvedUrl = ensureToken(resolvedUrl, url)
-                        createProxyUrl(resolvedUrl, wPayload)
-                    }
-                }
-
-                // Use application/vnd.apple.mpegurl to match the CDN exactly
-                newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
+                serveManifest(url, finalUrl, wPayload, proxyHeaders)
             }
         } catch (e: Exception) {
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.toString())
+            // Return 503 for timeouts so ExoPlayer/mpv retries the segment instead of failing completely
+            val status = if (e is java.net.SocketTimeoutException) {
+                Response.Status.SERVICE_UNAVAILABLE
+            } else {
+                Response.Status.INTERNAL_ERROR
+            }
+
+            newFixedLengthResponse(status, "text/plain", e.toString())
         }
+    }
+
+    /**
+     * Stream a flixcloud segment with on-the-fly XOR decoding.
+     *
+     * Wrap the OkHttp response body's [Source] in a
+     * [FlixcloudSegmentSource] that:
+     *  1. Skips the fake WebP/PNG image header (8 or 12 bytes)
+     *  2. XOR-decrypts each subsequent byte with the 16-byte mask
+     *
+     * The transformed bytes flow directly to ExoPlayer via NanoHTTPD's
+     * InputStream-based response.
+     */
+    private fun serveSegment(
+        finalUrl: String,
+        proxyHeaders: Headers,
+    ): Response {
+        val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
+        val response = proxyClient.newCall(request).execute()
+
+        if (!response.isSuccessful) {
+            val code = response.code
+            response.close()
+            return newFixedLengthResponse(
+                Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                "text/plain",
+                "CDN Error: $code",
+            )
+        }
+
+        val body = response.body
+        val source = body.source()
+
+        // Peek at the first 13 bytes (max 12-byte WebP header + 1 payload byte)
+        // to determine the header type and whether XOR is needed. peek() does
+        // not consume the bytes, so the FlixcloudSegmentSource still sees them.
+        val headerBytes = try {
+            source.peek().readByteArray(13)
+        } catch (_: java.io.EOFException) {
+            ByteArray(0)
+        }
+
+        val headerSize = detectHeader(headerBytes)
+        val shouldXor = headerSize > 0 &&
+            headerBytes.size > headerSize &&
+            (headerBytes[headerSize].toInt() and 0xFF) != 0x47
+
+        // Output length = original length minus the stripped image header.
+        val originalLength = body.contentLength()
+        val outputLength = if (originalLength > 0 && headerSize > 0) {
+            originalLength - headerSize
+        } else {
+            originalLength
+        }
+
+        // Wrap the upstream source with our XOR-decoding ForwardingSource.
+        val xorSource = FlixcloudSegmentSource(source, flixcloudSegmentMask, headerSize, shouldXor)
+        val inputStream = xorSource.buffer().inputStream()
+
+        return if (outputLength > 0) {
+            newFixedLengthResponse(Response.Status.OK, "video/mp2t", inputStream, outputLength)
+        } else {
+            newChunkedResponse(Response.Status.OK, "video/mp2t", inputStream)
+        }
+    }
+
+    private fun serveManifest(
+        url: String,
+        finalUrl: String,
+        wPayload: String,
+        proxyHeaders: Headers,
+    ): Response {
+        val request = Request.Builder().url(finalUrl).headers(proxyHeaders).build()
+
+        var response: okhttp3.Response? = null
+        var attempt = 0
+        while (response == null) {
+            try {
+                response = proxyClient.newCall(request).execute()
+            } catch (e: java.net.SocketTimeoutException) {
+                attempt++
+                if (attempt >= 3) throw e
+                Log.w("ReAnime", "Manifest timeout, retrying... (Attempt $attempt/3)")
+            }
+        }
+
+        if (!response.isSuccessful) {
+            val errorBody = response.body.string()
+            response.close()
+            return newFixedLengthResponse(
+                Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR,
+                "text/plain",
+                "Manifest Error: $errorBody",
+            )
+        }
+
+        val bodyText = response.body.string()
+        response.close()
+
+        val parentHttpUrl = if (url.contains(encDecUrl)) {
+            url.toHttpUrl().queryParameter("url")?.toHttpUrl() ?: url.toHttpUrl()
+        } else {
+            url.toHttpUrl()
+        }
+
+        // Simplified parser: just resolve URLs and pass them to the proxy.
+        val modifiedText = bodyText.split("\n").joinToString("\n") { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@joinToString ""
+
+            if (trimmed.startsWith("#")) {
+                // Fix broken BANDWIDTH values so ExoPlayer doesn't throttle the buffer
+                val cleanedLine = if (trimmed.startsWith("#EXT-X-STREAM-INF")) {
+                    val peakBw = BANDWIDTH_REGEX.find(trimmed)?.groupValues?.get(1)?.toLongOrNull()
+                    val avgBw = AVERAGE_BANDWIDTH_REGEX.find(trimmed)?.groupValues?.get(1)?.toLongOrNull()
+
+                    if (peakBw != null && peakBw < 100_000L) {
+                        // Peak bandwidth is suspiciously low (< 100 Kbps)
+                        val finalBw = if (avgBw != null && avgBw > 100_000L) {
+                            // Use average bandwidth if it's valid
+                            avgBw
+                        } else {
+                            // Assume the provider forgot to convert Kbps to bps
+                            peakBw * 1000L
+                        }
+                        trimmed.replace(BANDWIDTH_REGEX, "BANDWIDTH=$finalBw")
+                    } else {
+                        trimmed
+                    }
+                } else {
+                    trimmed
+                }
+
+                if (cleanedLine.contains("URI=\"")) {
+                    val uri = URI_REGEX.find(cleanedLine)?.groupValues?.get(1) ?: ""
+                    if (uri.isNotEmpty()) {
+                        var resolvedUri = parentHttpUrl.resolve(uri).toString()
+                        resolvedUri = ensureToken(resolvedUri, url)
+                        val newUri = createProxyUrl(resolvedUri, wPayload)
+                        cleanedLine.replace(URI_REGEX, "URI=\"$newUri\"")
+                    } else {
+                        cleanedLine
+                    }
+                } else {
+                    cleanedLine
+                }
+            } else {
+                var resolvedUrl = parentHttpUrl.resolve(trimmed).toString()
+                resolvedUrl = ensureToken(resolvedUrl, url)
+                createProxyUrl(resolvedUrl, wPayload)
+            }
+        }
+
+        // Use application/vnd.apple.mpegurl to match the CDN exactly
+        return newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
     }
 
     companion object {
@@ -188,6 +279,8 @@ class FlixProxyServer(
         val encDecUrl = "https://enc-dec.app"
         val decApi = "$encDecUrl/api"
         private val URI_REGEX = Regex("URI=\"(.*?)\"")
+        private val BANDWIDTH_REGEX = Regex("""BANDWIDTH=(\d+)""")
+        private val AVERAGE_BANDWIDTH_REGEX = Regex("""AVERAGE-BANDWIDTH=(\d+)""")
 
         /**
          * Flixcloud segment XOR mask (16 bytes, repeating).
@@ -208,49 +301,79 @@ class FlixProxyServer(
         }
 
         /**
-         * Decode a flixcloud segment.
+         * Detect the fake image header type from the first bytes of a segment.
          *
-         * Segments are disguised as WebP/PNG images: a real image magic header
-         * (12 bytes for WebP, 8 for PNG) followed by the actual MPEG-TS bytes
-         * XOR'd with a 16-byte repeating mask. After XOR, the first byte should
-         * be 0x47 (MPEG-TS sync).
-         *
-         * If the response doesn't match this pattern, returns the original bytes
-         * unchanged (rare case — happens if the CDN ever serves raw MPEG-TS).
+         * Returns 12 for WebP (RIFF....WEBP), 8 for PNG signature, or 0 if
+         * the data doesn't match either pattern (raw MPEG-TS passthrough).
          */
-        private fun decodeFlixcloudSegment(data: ByteArray): ByteArray {
-            val headerSize = when {
-                data.size >= 12 &&
-                    data[0] == 0x52.toByte() && data[1] == 0x49.toByte() &&
-                    data[2] == 0x46.toByte() && data[3] == 0x46.toByte() &&
-                    data[8] == 0x57.toByte() && data[9] == 0x45.toByte() &&
-                    data[10] == 0x42.toByte() && data[11] == 0x50.toByte() -> 12 // RIFF....WEBP
-                data.size >= 8 &&
-                    data[0] == 0x89.toByte() && data[1] == 0x50.toByte() &&
-                    data[2] == 0x4E.toByte() && data[3] == 0x47.toByte() &&
-                    data[4] == 0x0D.toByte() && data[5] == 0x0A.toByte() &&
-                    data[6] == 0x1A.toByte() && data[7] == 0x0A.toByte() -> 8 // PNG sig
-                else -> return data // Not a flixcloud-wrapped segment, serve as-is
-            }
-
-            // Quick check: if byte after header is already 0x47, segment wasn't encrypted
-            if (data.size <= headerSize || data[headerSize] == 0x47.toByte()) {
-                return data.copyOfRange(headerSize, data.size)
-            }
-
-            // XOR-decrypt in-place
-            val decoded = data.copyOfRange(headerSize, data.size)
-            for (i in decoded.indices) {
-                decoded[i] = (decoded[i].toInt() xor flixcloudSegmentMask[i and 15].toInt()).toByte()
-            }
-
-            // Verify: first byte should now be 0x47 (MPEG-TS sync)
-            if (decoded.isEmpty() || decoded[0] != 0x47.toByte()) {
-                // Restore: return original data minus the image header (best-effort)
-                return data.copyOfRange(headerSize, data.size)
-            }
-
-            return decoded
+        private fun detectHeader(data: ByteArray): Int = when {
+            data.size >= 12 &&
+                data[0] == 0x52.toByte() && data[1] == 0x49.toByte() &&
+                data[2] == 0x46.toByte() && data[3] == 0x46.toByte() &&
+                data[8] == 0x57.toByte() && data[9] == 0x45.toByte() &&
+                data[10] == 0x42.toByte() && data[11] == 0x50.toByte() -> 12 // RIFF....WEBP
+            data.size >= 8 &&
+                data[0] == 0x89.toByte() && data[1] == 0x50.toByte() &&
+                data[2] == 0x4E.toByte() && data[3] == 0x47.toByte() &&
+                data[4] == 0x0D.toByte() && data[5] == 0x0A.toByte() &&
+                data[6] == 0x1A.toByte() && data[7] == 0x0A.toByte() -> 8 // PNG sig
+            else -> 0
         }
+    }
+}
+
+/**
+ * Okio [Source] that strips a flixcloud segment's fake image header and
+ * XOR-decrypts the payload on the fly.
+ *
+ * Data flows through in small chunks (whatever the network provides per read,
+ * typically 4-16KB).
+ * This lets ExoPlayer start decoding as soon as the first bytes arrive.
+ *
+ * @param upstream    The original OkHttp response body source.
+ * @param mask        The 16-byte XOR mask (repeating).
+ * @param skipBytes   Number of header bytes to skip (8 for PNG, 12 for WebP, 0 for passthrough).
+ * @param shouldXor   Whether to XOR-decrypt the payload (false if segment is already plaintext).
+ */
+private class FlixcloudSegmentSource(
+    upstream: Source,
+    private val mask: ByteArray,
+    private val skipBytes: Int,
+    private val shouldXor: Boolean,
+) : ForwardingSource(upstream) {
+
+    private var bytesSkipped = 0
+    private var xorIndex = 0
+
+    override fun read(sink: Buffer, byteCount: Long): Long {
+        // Phase 1: skip the image header bytes (runs only on the first reads)
+        while (bytesSkipped < skipBytes) {
+            val toSkip = (skipBytes - bytesSkipped).toLong()
+            val temp = Buffer()
+            val skipped = super.read(temp, toSkip)
+            if (skipped == -1L) return -1L
+            bytesSkipped += skipped.toInt()
+            // temp (header bytes) is discarded when it goes out of scope
+        }
+
+        // Phase 2: read payload, XOR if needed, write to sink.
+        // OkHttp's source already returns what's available from the network
+        // (typically 4-16KB chunks), so no artificial cap is needed.
+        val temp = Buffer()
+        val n = super.read(temp, byteCount)
+        if (n == -1L) return -1L
+
+        if (shouldXor) {
+            val bytes = temp.readByteArray()
+            for (i in bytes.indices) {
+                bytes[i] = (bytes[i].toInt() xor mask[xorIndex and 15].toInt()).toByte()
+                xorIndex++
+            }
+            sink.write(bytes)
+        } else {
+            sink.write(temp, n)
+        }
+
+        return n
     }
 }

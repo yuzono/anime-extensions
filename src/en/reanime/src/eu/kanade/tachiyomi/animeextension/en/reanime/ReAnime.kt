@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.LruCache
 import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.decApi
 import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.flixCloudUrl
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -88,6 +89,8 @@ class ReAnime :
             .rateLimit(5, 1.seconds)
             .build()
     }
+
+    private val playlistUtils by lazy { PlaylistUtils(network.client, headers) }
 
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
 
@@ -533,24 +536,10 @@ class ReAnime :
             extractFromServer(dataLink, label, referer)
         }
 
-        // Group by (server, resolution) so we can interleave audio types
-        val grouped = videos.groupBy { video ->
-            val server = SERVER_NAME_REGEX.find(video.quality)?.groupValues?.get(1) ?: ""
-            val resolution = RESOLUTION_REGEX.find(video.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            server to resolution
-        }
-
-        // Sort groups: preferred server first, then resolution descending
-        val sortedGroups = grouped.entries.sortedByDescending { (key, _) ->
-            val (server, resolution) = key
-            val serverScore = if (server.equals(preferredServer, ignoreCase = true)) 10000 else 0
-            serverScore + resolution
-        }
-
-        // Within each group, preferred audio first → produces Dub/Sub Dub/Sub pattern
-        return sortedGroups.flatMap { (_, groupVideos) ->
-            groupVideos.sortedBy { !it.quality.contains(audioTag) }
-        }
+        return videos.sortedWith(
+            compareByDescending<Video> { it.quality.contains(preferredServer, ignoreCase = true) }
+                .thenByDescending { it.quality.contains(audioTag) },
+        )
     }
 
     private val jsonParser = Json { ignoreUnknownKeys = true }
@@ -644,12 +633,21 @@ class ReAnime :
 
             // Step 5: Build local proxy URL
             val server = getProxyServer()
-            // Cache skip times for this episode (keyed by the local proxy URL)
             val localManifestUrl = server.createProxyUrl(streamUrl, wPayload)
+
+            // Cache skip times for this episode (keyed by the local proxy URL)
             skipTimesCache.put(localManifestUrl, skipTimes)
 
-            return listOf(
-                Video(localManifestUrl, "$label - 1080p", localManifestUrl, headers, subtitleTracks),
+            // Step 6: Pass to PlaylistUtils
+            return playlistUtils.extractFromHls(
+                playlistUrl = localManifestUrl,
+                referer = flixCloudUrl,
+                masterHeaders = headers,
+                videoHeaders = headers,
+                videoNameGen = { quality ->
+                    "$label - $quality"
+                },
+                subtitleList = subtitleTracks,
             )
         } catch (_: Exception) {
             emptyList()
@@ -668,13 +666,13 @@ class ReAnime :
         // Remove trailing commas before } or ]
         .replace(JSON5_TRAILING_COMMA_REGEX, "$1")
         // Replace undefined with null
-        .replace(JSON5_UNDEFINED_REGEX, "null")
+        .replace(JSON5_UNDEFINED_REGEX, ": null")
 
     private var proxyServer: FlixProxyServer? = null
 
     private fun getProxyServer(): FlixProxyServer {
         if (proxyServer == null || !proxyServer!!.isAlive) {
-            proxyServer = FlixProxyServer(headers, client)
+            proxyServer = FlixProxyServer(headers)
             proxyServer!!.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
         }
         return proxyServer!!
@@ -759,12 +757,10 @@ class ReAnime :
         private val ANILIST_ID_REGEX = Regex("""anilist_id:\s*(\d+)""")
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
-        private val SERVER_NAME_REGEX = Regex("""\[(?:Sub|Dub)]\s*(\S+)""")
-        private val RESOLUTION_REGEX = Regex("""(\d{3,4})p""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
         private val JSON5_KEY_REGEX = Regex("""([{,]\s*)([\w_]+)(\s*:)""")
         private val JSON5_TRAILING_COMMA_REGEX = Regex(""",\s*([}\]])""")
-        private val JSON5_UNDEFINED_REGEX = Regex("""\bundefined\b""")
+        private val JSON5_UNDEFINED_REGEX = Regex(""":\s*undefined\b""")
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING
