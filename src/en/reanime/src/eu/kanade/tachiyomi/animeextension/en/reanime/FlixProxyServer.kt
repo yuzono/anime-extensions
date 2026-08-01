@@ -184,8 +184,8 @@ class FlixProxyServer(
     }
 
     companion object {
-        val encDecUrl = "https://enc-dec.app"
         val flixCloudUrl = "https://flixcloud.cc"
+        val encDecUrl = "https://enc-dec.app"
         val decApi = "$encDecUrl/api"
         private val URI_REGEX = Regex("URI=\"(.*?)\"")
 
