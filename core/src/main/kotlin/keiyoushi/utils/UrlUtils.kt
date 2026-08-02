@@ -8,10 +8,13 @@ object UrlUtils {
 
     fun fixUrl(url: String): String? = when {
         url.isEmpty() -> null
+
         url.startsWith("http") ||
             // Do not fix JSON objects when passed as urls.
             url.startsWith("{\"") -> url
+
         url.startsWith("//") -> "https:$url"
+
         else -> url.replaceFirst(firstHttpsRegex, "")
     }
 
@@ -19,15 +22,19 @@ object UrlUtils {
         val baseHttpUrl = baseUrl.toHttpUrlOrNull() ?: return null
         return when {
             url.isEmpty() -> null
+
             url.startsWith("http") ||
                 // Do not fix JSON objects when passed as urls.
                 url.startsWith("{\"") -> url
+
             url.startsWith("//") -> "https:$url"
+
             url.startsWith("/") -> {
                 // Will be: http[s]://<domain>/<url>
                 baseHttpUrl.newBuilder().encodedPath("/").build().toString()
                     .substringBeforeLast("/") + url
             }
+
             else -> {
                 // Will be: http[s]://<domain>/<base paths>/<url>
                 val basePath = baseHttpUrl.newBuilder().apply {
