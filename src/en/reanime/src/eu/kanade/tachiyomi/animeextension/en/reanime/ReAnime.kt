@@ -337,7 +337,6 @@ class ReAnime :
         if (sourceStr != null || countryStr != null) {
             infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" • "))
         }
-        
         val startDateStr = formatFuzzyDate(dto.startDate)
         val endDateStr = formatFuzzyDate(dto.endDate)
 
