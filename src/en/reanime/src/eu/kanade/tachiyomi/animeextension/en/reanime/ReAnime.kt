@@ -337,15 +337,20 @@ class ReAnime :
         if (sourceStr != null || countryStr != null) {
             infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" • "))
         }
-
+        
         val startDateStr = formatFuzzyDate(dto.startDate)
         val endDateStr = formatFuzzyDate(dto.endDate)
-        if (startDateStr != null && endDateStr != null) {
-            infoLines.add("**Aired**: From $startDateStr to $endDateStr")
-        } else if (startDateStr != null) {
-            infoLines.add("**Start Date**: $startDateStr")
-        } else if (endDateStr != null) {
-            infoLines.add("**End Date**: $endDateStr")
+
+        when {
+            startDateStr != null && endDateStr != null -> {
+                if (startDateStr == endDateStr) {
+                    infoLines.add("**Aired**: On $startDateStr")
+                } else {
+                    infoLines.add("**Aired**: From $startDateStr to $endDateStr")
+                }
+            }
+            startDateStr != null -> infoLines.add("**Start Date**: $startDateStr")
+            endDateStr != null -> infoLines.add("**End Date**: $endDateStr")
         }
 
         dto.nextAiringEpisode?.let { next ->
