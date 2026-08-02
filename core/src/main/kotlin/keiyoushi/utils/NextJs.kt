@@ -63,21 +63,34 @@ private fun resolveNextJsRefs(
     resolving: Set<String> = emptySet(),
 ): JsonElement = when (element) {
     is JsonObject -> JsonObject(element.mapValues { resolveNextJsRefs(it.value, chunkCache, modelCache, resolving) })
+
     is JsonArray -> JsonArray(element.map { resolveNextJsRefs(it, chunkCache, modelCache, resolving) })
+
     is JsonPrimitive -> {
         if (element.isString && element.content.startsWith("$") && element.content.length >= 2) {
             val str = element.content
             when {
-                str == "\$undefined" -> JsonNull // JS undefined -> null
+                str == "\$undefined" -> JsonNull
+
+                // JS undefined -> null
                 // Non-finite / negative-zero -> strip '$', keep token as string for ReactFlightNumber.
                 // JSON has no Infinity/NaN, so they can't live in the JsonElement tree as numbers.
                 str == "\$Infinity" || str == "\$-Infinity" || str == "\$NaN" || str == "\$-0" ->
                     JsonPrimitive(str.substring(1))
-                str[1] == '$' -> JsonPrimitive(str.substring(1)) // Escaped '$' -> keep one
-                str[1] == 'D' -> JsonPrimitive(str.substring(2)) // Date -> strip '$D' for ReactFlightDate
-                str[1] == 'n' -> JsonPrimitive(str.substring(2)) // BigInt -> strip '$n' for ReactFlightBigInt
+
+                str[1] == '$' -> JsonPrimitive(str.substring(1))
+
+                // Escaped '$' -> keep one
+                str[1] == 'D' -> JsonPrimitive(str.substring(2))
+
+                // Date -> strip '$D' for ReactFlightDate
+                str[1] == 'n' -> JsonPrimitive(str.substring(2))
+
+                // BigInt -> strip '$n' for ReactFlightBigInt
                 str[1] == 'Q' -> resolveMapRef(str.substring(2), chunkCache, modelCache, resolving) ?: element
+
                 str[1] == 'W' -> resolveSetRef(str.substring(2), chunkCache, modelCache, resolving) ?: element
+
                 // RSC chunk reference -> look up in cache and replace with content if found
                 else -> chunkCache[str.substring(1)]?.let { JsonPrimitive(it) } ?: element
             }
@@ -185,7 +198,9 @@ private fun extractRscPayloads(
                 // e.g. emoji) occupy 4 UTF-8 bytes; we consume both surrogate chars in one step.
                 when {
                     body[pos].code < 0x80 -> bytes += 1
+
                     body[pos].code < 0x800 -> bytes += 2
+
                     Character.isHighSurrogate(body[pos]) -> {
                         bytes += 4
                         pos++ // consume the high surrogate; the loop increment handles the low
@@ -247,6 +262,7 @@ private fun parseJsonAt(body: String, start: Int): Pair<JsonElement?, Int> {
         if (inString) continue
         when (c) {
             '{', '[' -> depth++
+
             '}', ']' -> if (--depth == 0) {
                 return try {
                     Pair(jsonInstance.parseToJsonElement(body.substring(start, i)), i)
