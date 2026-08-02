@@ -311,12 +311,21 @@ class ReAnime :
             }
         }
 
-        dto.title?.romaji?.takeIf { it.isNotBlank() && it != dto.title.preferredTitle(titleLanguage) }?.let {
-            infoLines.add("**Romaji**: $it")
+        val altTitles = mutableListOf<String>()
+
+        dto.title?.let { title ->
+            val preferred = title.preferredTitle(titleLanguage)
+            listOfNotNull(title.english, title.romaji, title.native)
+                .filter { it.isNotBlank() && it != preferred }
+                .forEach { altTitles.add(it) }
         }
 
-        dto.synonyms?.takeIf { it.isNotEmpty() }?.let {
-            infoLines.add("**Alternative Titles**: ${it.joinToString(", ")}")
+        dto.synonyms?.filter { it.isNotBlank() }?.let { altTitles.addAll(it) }
+
+        val uniqueAltTitles = altTitles.distinctBy { it }
+
+        if (uniqueAltTitles.isNotEmpty()) {
+            infoLines.add("**Alternative Titles**: ${uniqueAltTitles.joinToString(" **•** ")}")
         }
 
         dto.format?.takeIf { it.isNotBlank() }?.let {
