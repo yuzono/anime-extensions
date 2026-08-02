@@ -345,7 +345,7 @@ class ReAnime :
                 if (startDateStr == endDateStr) {
                     infoLines.add("**Aired**: On $startDateStr")
                 } else {
-                    infoLines.add("**Aired**: From $startDateStr to $endDateStr")
+                    infoLines.add("**Airing**: From $startDateStr to $endDateStr")
                 }
             }
             startDateStr != null -> infoLines.add("**Start Date**: $startDateStr")
