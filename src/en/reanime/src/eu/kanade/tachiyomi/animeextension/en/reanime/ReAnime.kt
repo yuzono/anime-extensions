@@ -325,7 +325,7 @@ class ReAnime :
         val uniqueAltTitles = altTitles.distinctBy { it }
 
         if (uniqueAltTitles.isNotEmpty()) {
-            infoLines.add("**Alternative Titles**: ${uniqueAltTitles.joinToString(" **•** ")}")
+            infoLines.add("**Alternative Titles**: ${uniqueAltTitles.joinToString(" • ")}")
         }
 
         dto.format?.takeIf { it.isNotBlank() }?.let {
@@ -335,7 +335,7 @@ class ReAnime :
         val sourceStr = dto.source?.takeIf { it.isNotBlank() }?.let { it.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } }
         val countryStr = dto.countryOfOrigin?.takeIf { it.isNotBlank() }
         if (sourceStr != null || countryStr != null) {
-            infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" · "))
+            infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" • "))
         }
 
         val startDateStr = formatFuzzyDate(dto.startDate)
@@ -391,7 +391,7 @@ class ReAnime :
             dto.imdbId?.takeIf { it.isNotBlank() }?.let { add("[IMDB](https://www.imdb.com/title/$it)") }
         }
         if (trackers.isNotEmpty()) {
-            append("**Trackers**: ${trackers.joinToString(" **•** ")}")
+            append("**Trackers**: ${trackers.joinToString(" • ")}")
             append("\n\n")
         }
 
@@ -402,7 +402,7 @@ class ReAnime :
                 "[$site]($url)"
             }
             if (streamingLinks.isNotEmpty()) {
-                append("**Streaming**: ${streamingLinks.joinToString(" **•** ")}")
+                append("**Streaming**: ${streamingLinks.joinToString(" • ")}")
                 append("\n\n")
             }
         }
