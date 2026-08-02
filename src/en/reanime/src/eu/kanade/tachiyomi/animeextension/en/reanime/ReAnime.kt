@@ -391,7 +391,7 @@ class ReAnime :
             dto.imdbId?.takeIf { it.isNotBlank() }?.let { add("[IMDB](https://www.imdb.com/title/$it)") }
         }
         if (trackers.isNotEmpty()) {
-            append("**Trackers**: ${trackers.joinToString(" · ")}")
+            append("**Trackers**: ${trackers.joinToString(" **•** ")}")
             append("\n\n")
         }
 
@@ -402,7 +402,7 @@ class ReAnime :
                 "[$site]($url)"
             }
             if (streamingLinks.isNotEmpty()) {
-                append("**Streaming**: ${streamingLinks.joinToString(" · ")}")
+                append("**Streaming**: ${streamingLinks.joinToString(" **•** ")}")
                 append("\n\n")
             }
         }
