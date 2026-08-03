@@ -16,6 +16,10 @@ import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaSearchRespon
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeList
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.StreamDataTorrent
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.TheMovieDatabaseResponse
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.TmdbDiscoverPlusMeta
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.TmdbDiscoverPlusResponse
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.TmdbResult
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -32,11 +36,13 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class Torrentio :
@@ -49,7 +55,7 @@ class Torrentio :
 
     override val lang = "all"
 
-    override val supportsLatest = false
+    override val supportsLatest = true
 
     private val json: Json by injectLazy()
 
@@ -57,37 +63,61 @@ class Torrentio :
 
     private val cinemetaUrl = "https://v3-cinemeta.strem.io"
     private val streamingCatalogUrl = "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club"
+    private val tmdbUrl = "https://api.themoviedb.org"
+    private val tmdbDiscoverPlusUrl = "https://tmdb-discover-plus.elfhosted.com/t5mDdzCuoL" // rate limited do not abuse
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
+    // ============================== Related =====================================
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> = emptyList()
+
     // ============================== Popular =====================================
+
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         if (page > 1) return AnimesPage(emptyList(), false)
 
+        val contentType = getContentType()
+        val service = getStreamingServiceForContentType(contentType)
+
         val results = coroutineScope {
-            val movies = async { fetchStreamingCatalog("movie", DEFAULT_STREAMING_SERVICE) }
-            val series = async { fetchStreamingCatalog("series", DEFAULT_STREAMING_SERVICE) }
+            val movies = async { fetchStreamingCatalog("movie", service) }
+            val series = async { fetchStreamingCatalog("series", service) }
             movies.await() + series.await()
         }
 
         return AnimesPage(results.map { it.toSAnime() }, false)
     }
-
-    override fun popularAnimeRequest(page: Int): Request = GET("$streamingCatalogUrl/catalog/movie/$DEFAULT_STREAMING_SERVICE.json")
-
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val url = response.request.url.toString()
-        val type = if (url.contains("/movie/")) "movie" else "series"
-
-        val results = runBlocking {
-            fetchStreamingCatalog(type, DEFAULT_STREAMING_SERVICE)
-        }
-        return AnimesPage(results.map { it.toSAnime() }, false)
+    override fun popularAnimeRequest(page: Int): Request {
+        TODO("Not yet implemented") // hmm naah
     }
 
-    //  =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/")
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        TODO("Not yet implemented") // i wont
+    }
+    // =============================== Latest ===============================
 
-    override fun latestUpdatesParse(response: Response) = AnimesPage(emptyList(), false)
+    override fun latestUpdatesRequest(page: Int): Request {
+        val contentType = getContentType()
+
+        val url = when (contentType) {
+            "anime" -> buildTmdbAnimeDiscoverUrl(page)
+            else -> buildTmdbTrendingUrl("tv", page)
+        }
+
+        return GET(url)
+    }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val url = response.request.url
+        val page = url.queryParameter("page")?.toIntOrNull() ?: 1
+        val contentType = getContentType()
+
+        return runBlocking {
+            when (contentType) {
+                "anime" -> fetchTmdbAnime(page)
+                else -> fetchTrendingMoviesAndTV(page)
+            }
+        }
+    }
 
     // =========================== Search ====================================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -110,12 +140,14 @@ class Torrentio :
 
         val trimmedQuery = query.trim()
         val types = CatalogFilters.mediaType(filters)
-        val network = CatalogFilters.streamingService(filters)
+        val contentType = getContentType()
 
         if (trimmedQuery.isBlank()) {
+            val effectiveNetwork = resolveEffectiveNetwork(contentType, filters)
+
             val results = coroutineScope {
                 types.map { type ->
-                    async { fetchStreamingCatalog(type, network) }
+                    async { fetchStreamingCatalog(type, effectiveNetwork) }
                 }.awaitAll().flatten()
             }
             return AnimesPage(results.distinctBy { it.id }.map { it.toSAnime() }, false)
@@ -123,12 +155,11 @@ class Torrentio :
 
         val results = coroutineScope {
             types.map { type ->
-                async { fetchCatalog(type, trimmedQuery) }
+                async { searchCinemeta(type, trimmedQuery) }
             }.awaitAll().flatten()
         }
 
         val distinctResults = results.distinctBy { it.id }.map { it.toSAnime() }
-
         return AnimesPage(distinctResults, false)
     }
 
@@ -138,34 +169,37 @@ class Torrentio :
             return GET("$cinemetaUrl/meta/movie/$id.json")
         }
 
-        val types = CatalogFilters.mediaType(filters)
-        val network = CatalogFilters.streamingService(filters)
-        val type = types.firstOrNull() ?: "movie"
         val trimmedQuery = query.trim()
 
-        return if (trimmedQuery.isBlank()) {
-            GET("$streamingCatalogUrl/catalog/$type/$network.json")
-        } else {
-            GET("$cinemetaUrl/catalog/$type/top/search=$trimmedQuery.json")
+        if (trimmedQuery.isBlank()) {
+            val types = CatalogFilters.mediaType(filters)
+            val contentType = getContentType()
+            val effectiveNetwork = resolveEffectiveNetwork(contentType, filters)
+            val type = types.firstOrNull() ?: "movie"
+            return GET("$streamingCatalogUrl/catalog/$type/$effectiveNetwork.json")
         }
+
+        val types = CatalogFilters.mediaType(filters)
+        val type = types.firstOrNull() ?: "movie"
+        return GET("$cinemetaUrl/catalog/$type/top/search=$trimmedQuery.json")
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val responseString = response.body.string()
-        var url = response.request.url.toString()
+        val url = response.request.url.toString()
 
         if (url.contains("/meta/")) {
             val detail = json.decodeFromString<CinemetaMetaDetailResponse>(responseString)
-            val meta = detail.meta
+            val meta = detail.meta ?: return AnimesPage(emptyList(), false)
             val type = if (url.contains("/movie/")) "movie" else "series"
-            val imdbId = meta?.id.orEmpty()
+            val id = meta.id.orEmpty()
 
             val anime = SAnime.create().apply {
-                url = "$imdbId,$type"
-                title = meta?.name.orEmpty()
-                thumbnail_url = meta?.poster.orEmpty()
-                description = meta?.description.orEmpty()
-                genre = meta?.genres?.joinToString().orEmpty()
+                this.url = "$id,$type"
+                title = meta.name.orEmpty()
+                thumbnail_url = meta.poster.orEmpty()
+                description = meta.description.orEmpty()
+                genre = meta.genres?.joinToString().orEmpty()
             }
             return AnimesPage(listOf(anime), false)
         }
@@ -175,117 +209,243 @@ class Torrentio :
         return AnimesPage(results.map { it.toSAnime() }, false)
     }
 
+    private fun resolveEffectiveNetwork(contentType: String, filters: AnimeFilterList): String = when (contentType) {
+        "anime" -> "cru"
+        else -> CatalogFilters.streamingService(filters)
+    }
+
     // =============================== Filters =======================================
 
-    override fun getFilterList(): AnimeFilterList = CatalogFilters.getFilterList()
+    override fun getFilterList(): AnimeFilterList {
+        val contentType = getContentType()
+        return CatalogFilters.getFilterList(contentType)
+    }
 
-    // ===========================  Details  ====================================
+    // =========================== Details ====================================
 
     override fun animeDetailsParse(response: Response): SAnime {
         val responseString = response.body.string()
-        val detail = json.decodeFromString<CinemetaMetaDetailResponse>(responseString)
-        val meta = detail.meta ?: return SAnime.create()
+        val url = response.request.url.toString()
 
-        var url = response.request.url.toString()
+        // Try to parse as TmdbDiscoverPlusResponse first
+        val detail = runCatching {
+            json.decodeFromString<TmdbDiscoverPlusResponse>(responseString)
+        }.getOrNull()
+
+        val meta = detail?.meta
+
+        if (meta == null) {
+            val cinemetaDetail = runCatching {
+                json.decodeFromString<CinemetaMetaDetailResponse>(responseString)
+            }.getOrNull()
+            val cinemetaMeta = cinemetaDetail?.meta ?: return SAnime.create()
+
+            return SAnime.create().apply {
+                val id = cinemetaMeta.id.orEmpty()
+                val type = if (url.contains("/movie/")) "movie" else "series"
+                this.url = "$id,$type"
+                title = cinemetaMeta.name.orEmpty()
+                thumbnail_url = cinemetaMeta.poster.orEmpty()
+                description = cinemetaMeta.description.orEmpty()
+                genre = cinemetaMeta.genres?.joinToString().orEmpty()
+                author = cinemetaMeta.director?.joinToString().orEmpty()
+                artist = cinemetaMeta.cast?.take(4)?.joinToString().orEmpty()
+                status = mapStatus(cinemetaMeta.status, cinemetaMeta.released)
+            }
+        }
+
         val type = if (url.contains("/movie/")) "movie" else "series"
-        val imdbId = meta.id.orEmpty()
+        val id = meta.imdbId ?: meta.imdb_id ?: meta.id.orEmpty()
 
         return SAnime.create().apply {
-            url = "$imdbId,$type"
+            this.url = "$id,$type"
             title = meta.name.orEmpty()
             thumbnail_url = meta.poster.orEmpty()
             description = meta.description.orEmpty()
             genre = meta.genres?.joinToString().orEmpty()
-            author = meta.director?.joinToString().orEmpty()
+            author = meta.writer ?: meta.director ?: ""
             artist = meta.cast?.take(4)?.joinToString().orEmpty()
             status = mapStatus(meta.status, meta.released)
         }
     }
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val parts = anime.url.split(",")
-        val imdbId = parts[0]
+        val originalUrl = anime.url
+        val parts = originalUrl.split(",")
+        val id = parts[0]
         val type = parts.getOrNull(1)?.lowercase()?.ifBlank { "movie" } ?: "movie"
 
-        val detail = fetchMetaDetail(type, imdbId)
+        val isTmdbId = id.toIntOrNull() != null
 
-        if (detail != null) {
-            anime.title = detail.name ?: anime.title
-            if (!detail.poster.isNullOrBlank()) {
-                anime.thumbnail_url = detail.poster
+        val meta = if (isTmdbId) {
+            fetchMetaDetailViaDiscoverPlus(type, id)
+        } else {
+            fetchMetaDetail(type, id)?.let { cinemetaMeta ->
+
+                cinemetaMeta.toDiscoverPlusMeta()
             }
-            anime.description = detail.description ?: anime.description
-            anime.genre = detail.genres?.joinToString() ?: anime.genre
-            anime.author = detail.writer?.joinToString() ?: detail.writer?.joinToString()
-            anime.artist = detail.cast?.take(4)?.joinToString() ?: anime.artist
-            anime.status = mapStatus(detail.status, detail.released)
+        }
+
+        if (meta != null) {
+            val imdbId = meta.imdbId ?: meta.imdb_id
+
+            anime.title = meta.name ?: anime.title
+            if (!meta.poster.isNullOrBlank()) {
+                anime.thumbnail_url = meta.poster
+            }
+            anime.description = meta.description ?: anime.description
+            anime.genre = meta.genres?.joinToString() ?: anime.genre
+            anime.author = meta.writer ?: meta.director ?: anime.author
+            anime.artist = meta.cast?.take(4)?.joinToString() ?: anime.artist
+            anime.status = mapStatus(meta.status, meta.released)
+
+            if (!imdbId.isNullOrBlank()) {
+                val newUrl = "$imdbId,$type"
+                anime.url = newUrl
+            } else {
+            }
+        } else {
         }
 
         return anime
     }
 
     // ============================== Episodes ==============================
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val resolvedAnime = if (anime.url.split(",")[0].toIntOrNull() != null) {
+            getAnimeDetails(anime)
+        } else {
+            anime
+        }
+        return super.getEpisodeList(resolvedAnime)
+    }
+
     override fun episodeListRequest(anime: SAnime): Request {
         val parts = anime.url.split(",")
-        val type = parts[1].lowercase()
-        val imdbId = parts[0]
-        return GET("$cinemetaUrl/meta/$type/$imdbId.json")
+        val type = parts.getOrNull(1)?.lowercase() ?: "movie"
+        val id = parts[0]
+
+        if (id.toIntOrNull() != null) {
+            return GET("$tmdbDiscoverPlusUrl/meta/$type/tmdb:$id.json")
+        }
+
+        return GET("$cinemetaUrl/meta/$type/$id.json")
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val responseString = response.body.string()
-        val episodeList = json.decodeFromString<EpisodeList>(responseString)
+        val url = response.request.url.toString()
+
+        if (url.contains("tmdb-discover-plus")) {
+            val discoverPlusResponse = runCatching {
+                json.decodeFromString<TmdbDiscoverPlusResponse>(responseString)
+            }.getOrNull()
+
+            if (discoverPlusResponse != null) {
+                return parseEpisodeListFromTmdbDiscoverPlus(discoverPlusResponse)
+            }
+        }
+
+        val episodeList = runCatching {
+            json.decodeFromString<EpisodeList>(responseString)
+        }.getOrNull()
+
+        if (episodeList == null) {
+            return emptyList()
+        }
 
         return when (episodeList.meta?.type) {
-            "series" -> {
-                val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
-                val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
-                val now = System.currentTimeMillis()
-
-                episodeList.meta.videos
-                    .orEmpty()
-                    .filter { video ->
-                        if (hideSeasonZero) video.season != 0 else true
-                    }
-                    .mapNotNull { video ->
-                        val releaseTime = (video.firstAired ?: video.released)
-                            ?.let(::parseDate) ?: Long.MAX_VALUE
-
-                        val isReleased = releaseTime <= now
-                        if (!showUpcoming && !isReleased) {
-                            return@mapNotNull null
-                        }
-
-                        val episode = SEpisode.create().apply {
-                            episode_number = "${video.season}.${video.number}".toFloat()
-                            url = "/stream/series/${video.id}.json"
-                            date_upload = if (releaseTime == Long.MAX_VALUE) 0L else releaseTime
-                            name = "S${video.season}:E${video.number} - ${video.name.orEmpty()}"
-                            scanlator = if (!isReleased) "Upcoming" else ""
-                        }
-
-                        video to episode
-                    }
-                    .sortedWith(
-                        compareByDescending<Pair<EpisodeVideo, SEpisode>> { (video, _) -> video.season!! > 0 }
-                            .thenByDescending { (video, _) -> video.season }
-                            .thenByDescending { (video, _) -> video.number },
-                    )
-                    .map { (_, episode) -> episode }
+            "series" -> buildSeriesEpisodes(
+                videos = episodeList.meta.videos.orEmpty(),
+                episodeUrl = { videoId -> "/stream/series/$videoId.json" },
+            )
+            "movie" -> {
+                listOf(singleMovieEpisode("/stream/movie/${episodeList.meta.id}.json"))
             }
 
-            "movie" -> {
-                listOf(
-                    SEpisode.create().apply {
-                        episode_number = 1f
-                        url = "/stream/movie/${episodeList.meta.id}.json"
-                        name = "Movie"
-                    },
+            else -> {
+                emptyList()
+            }
+        }
+    }
+
+    private fun parseEpisodeListFromTmdbDiscoverPlus(response: TmdbDiscoverPlusResponse): List<SEpisode> {
+        val meta = response.meta ?: return emptyList()
+        val type = meta.type ?: "movie"
+
+        return when (type) {
+            "series" -> {
+                val videos = meta.videos.orEmpty()
+
+                if (videos.isEmpty()) {
+                    val imdbId = meta.imdbId ?: meta.imdb_id ?: meta.id.orEmpty()
+                    return listOf(
+                        SEpisode.create().apply {
+                            episode_number = 1f
+                            this.url = "/stream/series/$imdbId.json"
+                            name = "Series - ${meta.name.orEmpty()}"
+                        },
+                    )
+                }
+
+                buildSeriesEpisodes(
+                    videos = videos,
+                    episodeUrl = { videoId -> "/stream/series/$videoId.json" },
                 )
             }
-
-            else -> emptyList()
+            "movie" -> {
+                val imdbId = meta.imdbId ?: meta.imdb_id ?: meta.id.orEmpty()
+                listOf(singleMovieEpisode("/stream/movie/$imdbId.json"))
+            }
+            else -> {
+                emptyList()
+            }
         }
+    }
+
+    private fun buildSeriesEpisodes(
+        videos: List<EpisodeVideo>,
+        episodeUrl: (String) -> String,
+    ): List<SEpisode> {
+        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
+        val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
+        val now = System.currentTimeMillis()
+
+        return videos
+            .filter { video ->
+                if (hideSeasonZero) video.season != 0 else true
+            }
+            .mapNotNull { video ->
+                val releaseTime = (video.firstAired ?: video.released)
+                    ?.let(::parseDate) ?: Long.MAX_VALUE
+
+                val isReleased = releaseTime <= now
+                if (!showUpcoming && !isReleased) {
+                    return@mapNotNull null
+                }
+
+                val episode = SEpisode.create().apply {
+                    episode_number = "${video.season}.${video.number}".toFloat()
+                    this.url = episodeUrl(video.id.orEmpty())
+                    date_upload = if (releaseTime == Long.MAX_VALUE) 0L else releaseTime
+                    name = "S${video.season}:E${video.number} - ${video.name.orEmpty()}"
+                    scanlator = if (!isReleased) "Upcoming" else ""
+                }
+
+                video to episode
+            }
+            .sortedWith(
+                compareByDescending<Pair<EpisodeVideo, SEpisode>> { (video, _) -> video.season!! > 0 }
+                    .thenByDescending { (video, _) -> video.season }
+                    .thenByDescending { (video, _) -> video.number },
+            )
+            .map { (_, episode) -> episode }
+    }
+
+    private fun singleMovieEpisode(url: String): SEpisode = SEpisode.create().apply {
+        episode_number = 1f
+        this.url = url
+        name = "Movie"
     }
 
     private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
@@ -331,6 +491,7 @@ class Torrentio :
             }
             append(episode.url)
         }.removeSuffix("|")
+
         return GET(mainURL)
     }
 
@@ -392,7 +553,163 @@ class Torrentio :
         )
     }
 
+    // ============================ TMDB Helpers ==============================
+
+    private fun buildTmdbAnimeDiscoverUrl(page: Int): HttpUrl {
+        val (weekStart, weekEnd) = getWeeklyDates()
+        return tmdbUrl.toHttpUrl().newBuilder()
+            .addPathSegment("3")
+            .addPathSegment("discover")
+            .addPathSegment("tv")
+            .addQueryParameter("api_key", getTmdbApiKey())
+            .addQueryParameter("with_genres", "16,10765,10759")
+            .addQueryParameter("with_original_language", "ja")
+            .addQueryParameter("with_origin_country", "JP")
+            .addQueryParameter("air_date.gte", weekStart)
+            .addQueryParameter("air_date.lte", weekEnd)
+            .addQueryParameter("sort_by", "popularity.desc")
+            .addQueryParameter("page", page.toString())
+            .build()
+    }
+
+    private fun buildTmdbTrendingUrl(mediaType: String, page: Int): HttpUrl = tmdbUrl.toHttpUrl().newBuilder()
+        .addPathSegment("3")
+        .addPathSegment("trending")
+        .addPathSegment(mediaType)
+        .addPathSegment("week")
+        .addQueryParameter("api_key", getTmdbApiKey())
+        .addQueryParameter("page", page.toString())
+        .build()
+
+    private suspend fun fetchTmdbAnime(page: Int): AnimesPage {
+        val url = buildTmdbAnimeDiscoverUrl(page)
+
+        return try {
+            val response = client.newCall(GET(url)).awaitSuccess()
+            val body = response.body.string()
+            val discoverResponse = json.decodeFromString<TheMovieDatabaseResponse>(body)
+
+            val animeList = discoverResponse.results.map { result ->
+                SAnime.create().apply {
+                    this.url = "${result.id},series"
+                    title = result.name ?: "Unknown"
+                    thumbnail_url = buildImageUrl(result.poster_path)
+                    description = result.overview ?: ""
+                    genre = result.genre_ids?.joinToString() ?: ""
+                    status = mapStatusFromDate(result.first_air_date)
+                }
+            }
+
+            AnimesPage(
+                animeList,
+                discoverResponse.page < discoverResponse.total_pages,
+            )
+        } catch (e: Exception) {
+            AnimesPage(emptyList(), false)
+        }
+    }
+
+    private suspend fun fetchTrendingMoviesAndTV(page: Int): AnimesPage = try {
+        val results = coroutineScope {
+            val tvDeferred = async {
+                val url = buildTmdbTrendingUrl("tv", page)
+                val response = client.newCall(GET(url)).awaitSuccess()
+                json.decodeFromString<TheMovieDatabaseResponse>(response.body.string())
+            }
+
+            val movieDeferred = async {
+                val url = buildTmdbTrendingUrl("movie", page)
+                val response = client.newCall(GET(url)).awaitSuccess()
+                json.decodeFromString<TheMovieDatabaseResponse>(response.body.string())
+            }
+
+            val tvResults = tvDeferred.await()
+            val movieResults = movieDeferred.await()
+
+            val combined = mutableListOf<TmdbResult>()
+            combined.addAll(tvResults.results)
+            combined.addAll(movieResults.results)
+            combined.sortByDescending { it.popularity ?: 0.0 }
+
+            combined to (tvResults.total_pages > page || movieResults.total_pages > page)
+        }
+
+        val (combinedResults, hasNextPage) = results
+
+        val animeList = combinedResults.map { result ->
+            SAnime.create().apply {
+                val isTv = result.first_air_date != null
+                this.url = "${result.id},${if (isTv) "series" else "movie"}"
+                title = if (isTv) result.name ?: "Unknown" else result.title ?: "Unknown"
+                thumbnail_url = buildImageUrl(result.poster_path)
+                description = result.overview ?: ""
+                genre = result.genre_ids?.joinToString() ?: ""
+                status = if (isTv) {
+                    mapStatusFromDate(result.first_air_date)
+                } else {
+                    SAnime.COMPLETED
+                }
+            }
+        }
+
+        AnimesPage(animeList, hasNextPage)
+    } catch (e: Exception) {
+        AnimesPage(emptyList(), false)
+    }
+
+    private fun getWeeklyDates(offsetWeeks: Int = 0): Pair<String, String> {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+        val calendar = Calendar.getInstance()
+        calendar.add(Calendar.DAY_OF_MONTH, -offsetWeeks * 7)
+
+        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) - 1
+
+        val diffToMonday = calendar.get(Calendar.DAY_OF_MONTH) - dayOfWeek + (if (dayOfWeek == 0) -6 else 1)
+        calendar.set(Calendar.DAY_OF_MONTH, diffToMonday)
+        val monday = calendar.time
+
+        val sundayCalendar = calendar.clone() as Calendar
+        sundayCalendar.add(Calendar.DAY_OF_MONTH, 6)
+        val sunday = sundayCalendar.time
+
+        return dateFormat.format(monday) to dateFormat.format(sunday)
+    }
+
+    private fun buildImageUrl(path: String?): String = if (!path.isNullOrBlank()) {
+        "https://image.tmdb.org/t/p/w500$path"
+    } else {
+        ""
+    }
+
+    private fun mapStatusFromDate(date: String?): Int {
+        if (date == null) return SAnime.UNKNOWN
+        return try {
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val releaseDate = dateFormat.parse(date)
+            val now = System.currentTimeMillis()
+
+            if (releaseDate != null && releaseDate.time > now) {
+                SAnime.ONGOING
+            } else {
+                SAnime.COMPLETED
+            }
+        } catch (e: Exception) {
+            SAnime.UNKNOWN
+        }
+    }
+
+    private fun getTmdbApiKey(): String = PREF_TMDB_DEFAULT
+
     // ============================ Helper Methods ==============================
+
+    private fun getContentType(): String = preferences.getString(PREF_CONTENT_TYPE_KEY, PREF_CONTENT_TYPE_DEFAULT) ?: PREF_CONTENT_TYPE_DEFAULT
+
+    private fun getStreamingServiceForContentType(contentType: String): String = when (contentType) {
+        "anime" -> "cru"
+        else -> DEFAULT_STREAMING_SERVICE
+    }
+
     private suspend fun fetchStreamingCatalog(mediaType: String, streamingServiceId: String): List<CinemetaMeta> {
         val url = "$streamingCatalogUrl/catalog/$mediaType/$streamingServiceId.json"
         return runCatching {
@@ -402,16 +719,46 @@ class Torrentio :
     }
 
     private suspend fun searchAnimeByIdParse(imdbId: String): AnimesPage {
-        val movieMeta = fetchMetaDetail("movie", imdbId)
-        val meta = movieMeta ?: fetchMetaDetail("series", imdbId)
-        val type = if (movieMeta != null) "movie" else "series"
+        val isTmdbId = imdbId.toIntOrNull() != null
+
+        var meta: TmdbDiscoverPlusMeta? = null
+        var type = "movie"
+
+        if (isTmdbId) {
+            meta = fetchMetaDetailViaDiscoverPlus("movie", imdbId)
+            type = "movie"
+
+            if (meta == null) {
+                meta = fetchMetaDetailViaDiscoverPlus("series", imdbId)
+                type = "series"
+            }
+        } else {
+            var cinemetaMeta = fetchMetaDetail("movie", imdbId)
+            type = "movie"
+
+            if (cinemetaMeta == null) {
+                cinemetaMeta = fetchMetaDetail("series", imdbId)
+                type = "series"
+            }
+
+            meta = cinemetaMeta?.let { cm ->
+
+                cm.toDiscoverPlusMeta()
+            }
+        }
+
+        if (meta == null) {
+            return AnimesPage(emptyList(), false)
+        }
+
+        val finalId = meta.imdbId ?: meta.imdb_id ?: imdbId
 
         val anime = SAnime.create().apply {
-            url = "$imdbId,$type"
-            title = meta?.name.orEmpty()
-            thumbnail_url = meta?.poster.orEmpty()
-            description = meta?.description.orEmpty()
-            genre = meta?.genres?.joinToString().orEmpty()
+            this.url = "$finalId,$type"
+            title = meta.name.orEmpty()
+            thumbnail_url = meta.poster.orEmpty()
+            description = meta.description.orEmpty()
+            genre = meta.genres?.joinToString().orEmpty()
         }
 
         return AnimesPage(listOf(anime), false)
@@ -427,11 +774,72 @@ class Torrentio :
         }.getOrNull()
     }
 
+    private suspend fun fetchMetaDetailViaDiscoverPlus(type: String, id: String): TmdbDiscoverPlusMeta? {
+        // If it's already a tt ID, use cinemeta directly
+        if (id.startsWith("tt")) {
+            return fetchMetaDetail(type, id)?.let { meta ->
+                meta.toDiscoverPlusMeta()
+            }
+        }
+
+        val url = "$tmdbDiscoverPlusUrl/meta/$type/tmdb:$id.json"
+
+        return try {
+            val response = client.newCall(GET(url)).awaitSuccess()
+            val body = response.body.string()
+            val detail = json.decodeFromString<TmdbDiscoverPlusResponse>(body)
+            detail.meta?.apply {
+                val imdb = this.imdbId ?: this.imdb_id
+                if (!imdb.isNullOrBlank()) {
+                    this.imdbId = imdb
+                    this.imdb_id = imdb
+                } else {
+                }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private suspend fun searchCinemeta(type: String, query: String): List<CinemetaMeta> {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return emptyList()
+
+        val url = cinemetaUrl.toHttpUrl().newBuilder()
+            .addPathSegment("catalog")
+            .addPathSegment(type)
+            .addPathSegment("top")
+            .addPathSegment("search=$trimmed.json")
+            .build()
+
+        return runCatching {
+            val response = client.newCall(GET(url)).awaitSuccess()
+            val body = response.body.string()
+            json.decodeFromString<CinemetaSearchResponse>(body).metas.orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
     private fun CinemetaMeta.toSAnime(): SAnime = SAnime.create().apply {
-        url = "${imdbId ?: id.orEmpty()},${type.orEmpty()}"
+        url = "${id.orEmpty()},${type.orEmpty()}"
         title = name.orEmpty()
         thumbnail_url = poster.orEmpty()
     }
+
+    private fun CinemetaMetaDetail.toDiscoverPlusMeta(): TmdbDiscoverPlusMeta = TmdbDiscoverPlusMeta(
+        id = id,
+        imdbId = id,
+        imdb_id = id,
+        type = type,
+        name = name,
+        poster = poster,
+        description = description,
+        genres = genres,
+        cast = cast,
+        director = director?.joinToString(),
+        writer = writer?.joinToString(),
+        released = released,
+        status = status,
+    )
 
     private fun mapStatus(status: String?, released: String?): Int {
         if (status != null) {
@@ -444,24 +852,6 @@ class Torrentio :
 
         val releaseTime = released?.let(::parseDate) ?: return SAnime.UNKNOWN
         return if (releaseTime > System.currentTimeMillis()) SAnime.ONGOING else SAnime.COMPLETED
-    }
-
-    private suspend fun fetchCatalog(type: String, query: String): List<CinemetaMeta> {
-        val trimmed = query.trim()
-
-        if (trimmed.length < 2) return emptyList()
-
-        val url = cinemetaUrl.toHttpUrl().newBuilder()
-            .addPathSegment("catalog")
-            .addPathSegment(type)
-            .addPathSegment("top")
-            .addPathSegment("search=$trimmed.json")
-            .build()
-
-        return runCatching {
-            val response = client.newCall(GET(url)).awaitSuccess()
-            json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
-        }.getOrDefault(emptyList())
     }
 
     private fun fetchTrackers(): String {
@@ -478,15 +868,13 @@ class Torrentio :
     // ============================ Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        // Debrid provider
         ListPreference(screen.context).apply {
-            key = PREF_DEBRID_KEY
-            title = "Debrid Provider"
-            entries = PREF_DEBRID_ENTRIES
-            entryValues = PREF_DEBRID_VALUES
-            setDefaultValue("none")
-            summary =
-                "Choose 'None' for Torrent. If you select a Debrid provider, enter your token key. No token key is needed if 'None' is selected."
+            key = PREF_CONTENT_TYPE_KEY
+            title = "Content Type"
+            entries = PREF_CONTENT_TYPE_ENTRIES
+            entryValues = PREF_CONTENT_TYPE_VALUES
+            setDefaultValue(PREF_CONTENT_TYPE_DEFAULT)
+            summary = "Filter content: %s"
 
             setOnPreferenceChangeListener { _, newValue ->
                 val selected = newValue as String
@@ -496,7 +884,22 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
-        // Token
+        ListPreference(screen.context).apply {
+            key = PREF_DEBRID_KEY
+            title = "Debrid Provider"
+            entries = PREF_DEBRID_ENTRIES
+            entryValues = PREF_DEBRID_VALUES
+            setDefaultValue("none")
+            summary = "Choose 'None' for Torrent. If you select a Debrid provider, enter your token key."
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(key, entry).commit()
+            }
+        }.also(screen::addPreference)
+
         EditTextPreference(screen.context).apply {
             key = PREF_TOKEN_KEY
             title = "Token"
@@ -512,7 +915,6 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
-        // Provider
         MultiSelectListPreference(screen.context).apply {
             key = PREF_PROVIDER_KEY
             title = "Enable/Disable Providers"
@@ -526,7 +928,6 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
-        // Exclude Qualities
         MultiSelectListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = "Exclude Qualities/Resolutions"
@@ -540,7 +941,6 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
-        // Priority foreign language
         MultiSelectListPreference(screen.context).apply {
             key = PREF_LANG_KEY
             title = "Priority foreign language"
@@ -554,7 +954,6 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
-        // Sorting
         ListPreference(screen.context).apply {
             key = PREF_SORT_KEY
             title = "Sorting"
@@ -605,22 +1004,25 @@ class Torrentio :
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit().putBoolean(key, newValue as Boolean).commit()
             }
-            summary = "Codec: (HEVC / x265)  & AV1. High-quality video with less data usage."
+            summary = "Codec: (HEVC / x265) & AV1. High-quality video with less data usage."
         }.also(screen::addPreference)
     }
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+        const val DEFAULT_STREAMING_SERVICE = "nfx"
 
-        // Popular source (Streaming Catalogs addon)
-        private const val DEFAULT_STREAMING_SERVICE = "nfx"
+        private const val PREF_CONTENT_TYPE_KEY = "content_type"
+        private const val PREF_CONTENT_TYPE_DEFAULT = "all"
+        private val PREF_CONTENT_TYPE_ENTRIES = arrayOf("All Content", "Anime Only (Crunchyroll)", "Movies & TV")
+        private val PREF_CONTENT_TYPE_VALUES = arrayOf("all", "anime", "movies_tv")
 
-        // Token
+        private const val PREF_TMDB_DEFAULT = "ea021b3b0775c8531592713ab727f254" // ignore this ive got keys to play with
+
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""
         private const val PREF_TOKEN_SUMMARY = "Exclusive to Debrid providers; not intended for Torrents."
 
-        // Debrid
         private const val PREF_DEBRID_KEY = "debrid_provider"
         private val PREF_DEBRID_ENTRIES = arrayOf(
             "None",
@@ -643,229 +1045,57 @@ class Torrentio :
             "torbox",
         )
 
-        // Sort
         private const val PREF_SORT_KEY = "sorting_link"
-        private val PREF_SORT_ENTRIES = arrayOf(
-            "By quality then seeders",
-            "By quality then size",
-            "By seeders",
-            "By size",
-        )
-        private val PREF_SORT_VALUES = arrayOf(
-            "quality",
-            "qualitysize",
-            "seeders",
-            "size",
+        private val PREF_SORT_ENTRIES = arrayOf("By quality then seeders", "By quality then size", "By seeders", "By size")
+        private val PREF_SORT_VALUES = arrayOf("quality", "qualitysize", "seeders", "size")
 
-        )
-
-        // Provider
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
-            "YTS",
-            "EZTV",
-            "RARBG",
-            "1337x",
-            "ThePirateBay",
-            "KickassTorrents",
-            "TorrentGalaxy",
-            "MagnetDL",
-            "HorribleSubs",
-            "NyaaSi",
-            "TokyoTosho",
-            "AniDex",
-            "nekoBT",
-            "🇷🇺 Rutor",
-            "🇷🇺 Rutracker",
-            "🇵🇹 Comando",
-            "🇵🇹 BluDV",
-            "🇫🇷 Torrent9",
-            "🇮🇹 ilCorSaRoNero",
-            "🇪🇸 MejorTorrent",
-            "🇪🇸 Wolfmax4k",
-            "🇲🇽 Cinecalidad",
-            "🇵🇱 BestTorrents",
+            "YTS", "EZTV", "RARBG", "1337x", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
+            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
+            "🇵🇹 BluDV", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k", "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
         )
-
         private val PREF_PROVIDERS_VALUE = arrayOf(
-            "yts",
-            "eztv",
-            "rarbg",
-            "1337x",
-            "thepiratebay",
-            "kickasstorrents",
-            "torrentgalaxy",
-            "magnetdl",
-            "horriblesubs",
-            "nyaasi",
-            "tokyotosho",
-            "anidex",
-            "nekobt",
-            "rutor",
-            "rutracker",
-            "comando",
-            "bludv",
-            "torrent9",
-            "ilcorsaronero",
-            "mejortorrent",
-            "wolfmax4k",
-            "cinecalidad",
-            "besttorrents",
+            "yts", "eztv", "rarbg", "1337x", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
+            "bludv", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
         )
-
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
-            "yts",
-            "eztv",
-            "rarbg",
-            "1337x",
-            "thepiratebay",
-            "kickasstorrents",
-            "torrentgalaxy",
-            "magnetdl",
-            "horriblesubs",
-            "nyaasi",
-            "tokyotosho",
-            "anidex",
-            "nekobt",
+            "yts", "eztv", "rarbg", "1337x", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
-        // / Qualities/Resolutions
         private const val PREF_QUALITY_KEY = "quality_selection"
         private val PREF_QUALITY = arrayOf(
-            "BluRay REMUX",
-            "HDR/HDR10+/Dolby Vision",
-            "Dolby Vision",
-            "Dolby Vision + HDR",
-            "3D",
-            "Non 3D (DO NOT SELECT IF NOT SURE)",
-            "4k",
-            "1080p",
-            "720p",
-            "480p",
-            "Other (DVDRip/HDRip/BDRip...)",
-            "Screener",
-            "Cam",
-            "Unknown",
+            "BluRay REMUX", "HDR/HDR10+/Dolby Vision", "Dolby Vision", "Dolby Vision + HDR", "3D",
+            "Non 3D (DO NOT SELECT IF NOT SURE)", "4k", "1080p", "720p", "480p", "Other (DVDRip/HDRip/BDRip...)",
+            "Screener", "Cam", "Unknown",
         )
-
         private val PREF_QUALITY_VALUE = arrayOf(
-            "brremux",
-            "hdrall",
-            "dolbyvision",
-            "dolbyvisionwithhdr",
-            "threed",
-            "nonthreed",
-            "4k",
-            "1080p",
-            "720p",
-            "480p",
-            "other",
-            "scr",
-            "cam",
-            "unknown",
+            "brremux", "hdrall", "dolbyvision", "dolbyvisionwithhdr", "threed", "nonthreed",
+            "4k", "1080p", "720p", "480p", "other", "scr", "cam", "unknown",
         )
-
-        private val PREF_DEFAULT_QUALITY_VALUE = arrayOf(
-            "720p",
-            "480p",
-            "other",
-            "scr",
-            "cam",
-            "unknown",
-        )
-
+        private val PREF_DEFAULT_QUALITY_VALUE = arrayOf("720p", "480p", "other", "scr", "cam", "unknown")
         private val PREF_QUALITY_DEFAULT = PREF_DEFAULT_QUALITY_VALUE.toSet()
 
-        // Languages
         private const val PREF_LANG_KEY = "lang_selection"
         private val PREF_LANG = arrayOf(
-            "🇯🇵 Japanese",
-            "🇷🇺 Russian",
-            "🇮🇹 Italian",
-            "🇵🇹 Portuguese",
-            "🇪🇸 Spanish",
-            "🇲🇽 Latino",
-            "🇰🇷 Korean",
-            "🇨🇳 Chinese",
-            "🇹🇼 Taiwanese",
-            "🇫🇷 French",
-            "🇩🇪 German",
-            "🇳🇱 Dutch",
-            "🇮🇳 Hindi",
-            "🇮🇳 Telugu",
-            "🇮🇳 Tamil",
-            "🇵🇱 Polish",
-            "🇱🇹 Lithuanian",
-            "🇱🇻 Latvian",
-            "🇪🇪 Estonian",
-            "🇨🇿 Czech",
-            "🇸🇰 Slovakian",
-            "🇸🇮 Slovenian",
-            "🇭🇺 Hungarian",
-            "🇷🇴 Romanian",
-            "🇧🇬 Bulgarian",
-            "🇷🇸 Serbian",
-            "🇭🇷 Croatian",
-            "🇺🇦 Ukrainian",
-            "🇬🇷 Greek",
-            "🇩🇰 Danish",
-            "🇫🇮 Finnish",
-            "🇸🇪 Swedish",
-            "🇳🇴 Norwegian",
-            "🇹🇷 Turkish",
-            "🇸🇦 Arabic",
-            "🇮🇷 Persian",
-            "🇮🇱 Hebrew",
-            "🇻🇳 Vietnamese",
-            "🇮🇩 Indonesian",
-            "🇲🇾 Malay",
-            "🇹🇭 Thai",
+            "🇯🇵 Japanese", "🇷🇺 Russian", "🇮🇹 Italian", "🇵🇹 Portuguese", "🇪🇸 Spanish", "🇲🇽 Latino",
+            "🇰🇷 Korean", "🇨🇳 Chinese", "🇹🇼 Taiwanese", "🇫🇷 French", "🇩🇪 German", "🇳🇱 Dutch",
+            "🇮🇳 Hindi", "🇮🇳 Telugu", "🇮🇳 Tamil", "🇵🇱 Polish", "🇱🇹 Lithuanian", "🇱🇻 Latvian",
+            "🇪🇪 Estonian", "🇨🇿 Czech", "🇸🇰 Slovakian", "🇸🇮 Slovenian", "🇭🇺 Hungarian", "🇷🇴 Romanian",
+            "🇧🇬 Bulgarian", "🇷🇸 Serbian", "🇭🇷 Croatian", "🇺🇦 Ukrainian", "🇬🇷 Greek", "🇩🇰 Danish",
+            "🇫🇮 Finnish", "🇸🇪 Swedish", "🇳🇴 Norwegian", "🇹🇷 Turkish", "🇸🇦 Arabic", "🇮🇷 Persian",
+            "🇮🇱 Hebrew", "🇻🇳 Vietnamese", "🇮🇩 Indonesian", "🇲🇾 Malay", "🇹🇭 Thai",
         )
         private val PREF_LANG_VALUE = arrayOf(
-            "japanese",
-            "russian",
-            "italian",
-            "portuguese",
-            "spanish",
-            "latino",
-            "korean",
-            "chinese",
-            "taiwanese",
-            "french",
-            "german",
-            "dutch",
-            "hindi",
-            "telugu",
-            "tamil",
-            "polish",
-            "lithuanian",
-            "latvian",
-            "estonian",
-            "czech",
-            "slovakian",
-            "slovenian",
-            "hungarian",
-            "romanian",
-            "bulgarian",
-            "serbian",
-            "croatian",
-            "ukrainian",
-            "greek",
-            "danish",
-            "finnish",
-            "swedish",
-            "norwegian",
-            "turkish",
-            "arabic",
-            "persian",
-            "hebrew",
-            "vietnamese",
-            "indonesian",
-            "malay",
-            "thai",
+            "japanese", "russian", "italian", "portuguese", "spanish", "latino", "korean", "chinese",
+            "taiwanese", "french", "german", "dutch", "hindi", "telugu", "tamil", "polish", "lithuanian",
+            "latvian", "estonian", "czech", "slovakian", "slovenian", "hungarian", "romanian", "bulgarian",
+            "serbian", "croatian", "ukrainian", "greek", "danish", "finnish", "swedish", "norwegian",
+            "turkish", "arabic", "persian", "hebrew", "vietnamese", "indonesian", "malay", "thai",
         )
-
         private val PREF_LANG_DEFAULT = setOf<String>()
 
         private const val UPCOMING_EP_KEY = "upcoming_ep"

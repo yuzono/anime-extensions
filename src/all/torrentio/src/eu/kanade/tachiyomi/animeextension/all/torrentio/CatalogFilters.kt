@@ -5,9 +5,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 object CatalogFilters {
 
-    fun getFilterList(): AnimeFilterList = AnimeFilterList(
+    fun getFilterList(contentType: String = "all"): AnimeFilterList = AnimeFilterList(
         TypeFilter(),
-        ServiceFilter(),
+        ServiceFilter(contentType),
     )
 
     fun mediaType(filters: AnimeFilterList): List<String> {
@@ -26,33 +26,58 @@ object CatalogFilters {
     }
 
     class TypeFilter : AnimeFilter.Select<String>("Type", arrayOf("All", "Movie", "Series"))
+    class ServiceFilter(
+        contentType: String = "all",
+    ) : AnimeFilter.Select<String>(
+        "Platform",
+        when (contentType) {
+            "anime" -> {
 
-    class ServiceFilter :
-        AnimeFilter.Select<String>(
-            "Platform",
-            arrayOf(
-                "Netflix",
-                "Disney+",
-                "Apple TV+",
-                "Amazon Prime",
-                "HBO Max",
-                "Paramount+",
-                "Hulu",
-                "Peacock",
-                "Crunchyroll",
-            ),
-        ) {
-        fun toCatalogId(): String = when (state) {
-            0 -> "nfx" // Netflix
-            1 -> "dpe" // Disney+
-            2 -> "atp" // Apple TV+
-            3 -> "amp" // Amazon Prime
-            4 -> "hbm" // HBO Max
-            5 -> "pmp" // Paramount+
-            6 -> "hlu" // Hulu
-            7 -> "pcp" // Peacock
-            8 -> "cru" // Crunchyroll
-            else -> "nfx" // Fallback default Netflix
+                arrayOf("Crunchyroll")
+            }
+            "all" -> {
+                arrayOf(
+                    "Netflix",
+                    "Disney+",
+                    "Apple TV+",
+                    "Amazon Prime",
+                    "HBO Max",
+                    "Paramount+",
+                    "Hulu",
+                    "Peacock",
+                    "Crunchyroll",
+                )
+            }
+            else -> {
+                arrayOf(
+                    "Netflix",
+                    "Disney+",
+                    "Apple TV+",
+                    "Amazon Prime",
+                    "HBO Max",
+                    "Paramount+",
+                    "Hulu",
+                    "Peacock",
+                )
+            }
+        },
+    ) {
+        fun toCatalogId(): String {
+            // Get the actual selected service name
+            val selectedService = values.getOrNull(state) ?: return "nfx"
+
+            return when (selectedService) {
+                "Netflix" -> "nfx"
+                "Disney+" -> "dpe"
+                "Apple TV+" -> "atp"
+                "Amazon Prime" -> "amp"
+                "HBO Max" -> "hbm"
+                "Paramount+" -> "pmp"
+                "Hulu" -> "hlu"
+                "Peacock" -> "pcp"
+                "Crunchyroll" -> "cru"
+                else -> "nfx"
+            }
         }
     }
 }
