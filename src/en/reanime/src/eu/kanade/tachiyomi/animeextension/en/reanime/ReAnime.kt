@@ -337,6 +337,7 @@ class ReAnime :
         if (sourceStr != null || countryStr != null) {
             infoLines.add("**Source**: " + listOfNotNull(sourceStr, countryStr).joinToString(" • "))
         }
+
         val startDateStr = formatFuzzyDate(dto.startDate)
         val endDateStr = formatFuzzyDate(dto.endDate)
 
@@ -362,9 +363,11 @@ class ReAnime :
             }
         }
 
-        dto.season?.let { season ->
-            val year = dto.seasonYear?.let { " $it" } ?: ""
-            infoLines.add("**Season**: ${season.replaceFirstChar { c -> c.titlecase() }}$year")
+        val seasonStr = dto.season?.takeIf { it.isNotBlank() && it != "0" }?.replaceFirstChar { c -> c.titlecase() }
+        val seasonYearStr = dto.seasonYear?.takeIf { it > 0 }?.toString()
+
+        when {
+            seasonStr != null && seasonYearStr != null -> infoLines.add("**Season**: $seasonStr $seasonYearStr")
         }
 
         dto.duration?.takeIf { it > 0 }?.let {
