@@ -4,5 +4,4 @@ ext {
     extVersionCode = 9
     isNsfw = false
 }
-// Temporary comment for Upload APK job
 apply plugin: "kei.plugins.extension.legacy"
