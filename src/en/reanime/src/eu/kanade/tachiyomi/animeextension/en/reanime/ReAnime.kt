@@ -381,7 +381,7 @@ class ReAnime :
         // Append all info lines cleanly
         if (infoLines.isNotEmpty()) {
             append(infoLines.joinToString("\n"))
-            append("\n\n")
+            append("\n")
         }
 
         val trackers = buildList {
@@ -399,7 +399,7 @@ class ReAnime :
         }
         if (trackers.isNotEmpty()) {
             append("**Trackers**: ${trackers.joinToString(" • ")}")
-            append("\n\n")
+            append("\n")
         }
 
         dto.externalLinks?.filter { it.type == "STREAMING" }?.takeIf { it.isNotEmpty() }?.let { links ->
@@ -410,16 +410,17 @@ class ReAnime :
             }
             if (streamingLinks.isNotEmpty()) {
                 append("**Streaming**: ${streamingLinks.joinToString(" • ")}")
-                append("\n\n")
+                append("\n")
             }
         }
 
         dto.trailer?.takeIf { it.site == "youtube" && !it.id.isNullOrBlank() }?.let {
             append("**Trailer**: [YouTube](https://www.youtube.com/watch?v=${it.id})")
-            append("\n\n")
+            append("\n")
         }
 
         dto.bannerImage?.takeIf { it.isNotBlank() }?.let {
+            append("\n")
             append("![Banner]($it)")
         }
     }
