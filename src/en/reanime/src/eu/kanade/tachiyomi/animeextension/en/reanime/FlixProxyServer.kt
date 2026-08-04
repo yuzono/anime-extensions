@@ -117,7 +117,7 @@ class FlixProxyServer(
                 serveManifest(url, finalUrl, wPayload, proxyHeaders)
             }
         } catch (e: Exception) {
-            // Return 503 for timeouts so ExoPlayer/mpv retries the segment instead of failing completely
+            // Return 503 for timeouts so the player retries the segment instead of failing completely
             val status = if (e is java.net.SocketTimeoutException) {
                 Response.Status.SERVICE_UNAVAILABLE
             } else {
@@ -136,7 +136,7 @@ class FlixProxyServer(
      *  1. Skips the fake WebP/PNG image header (8 or 12 bytes)
      *  2. XOR-decrypts each subsequent byte with the 16-byte mask
      *
-     * The transformed bytes flow directly to ExoPlayer via NanoHTTPD's
+     * The transformed bytes flow directly to the player via NanoHTTPD's
      * InputStream-based response.
      */
     private fun serveSegment(
@@ -247,7 +247,7 @@ class FlixProxyServer(
             if (trimmed.isEmpty()) return@joinToString ""
 
             if (trimmed.startsWith("#")) {
-                // Fix broken BANDWIDTH values so ExoPlayer doesn't throttle the buffer
+                // Fix broken BANDWIDTH values so the player doesn't throttle the buffer
                 val cleanedLine = if (trimmed.startsWith("#EXT-X-STREAM-INF")) {
                     val peakBw = BANDWIDTH_REGEX.find(trimmed)?.groupValues?.get(1)?.toLongOrNull()
                     val avgBw = AVERAGE_BANDWIDTH_REGEX.find(trimmed)?.groupValues?.get(1)?.toLongOrNull()
@@ -329,7 +329,7 @@ class FlixProxyServer(
  *
  * Data flows through in small chunks (whatever the network provides per read,
  * typically 4-16KB).
- * This lets ExoPlayer start decoding as soon as the first bytes arrive.
+ * This lets the player start decoding as soon as the first bytes arrive.
  *
  * @param upstream    The original OkHttp response body source.
  * @param mask        The 16-byte XOR mask (repeating).
