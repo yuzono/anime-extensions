@@ -283,7 +283,7 @@ class FlixcloudEmbedDataDto(
     )
 }
 
-val skipTimesCache = LruCache<String, SkipTimes>(64)
+val skipTimesCache by lazy { LruCache<String, SkipTimes>(64) }
 
 class SkipTimes(
     val introStart: Long? = null,

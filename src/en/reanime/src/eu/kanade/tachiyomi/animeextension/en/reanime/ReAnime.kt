@@ -98,7 +98,7 @@ class ReAnime :
 
     private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
 
-    private val animeMetaCache = LruCache<String, AnimeMeta>(64)
+    private val animeMetaCache by lazy { LruCache<String, AnimeMeta>(64) }
 
     @Synchronized
     private fun fetchAnimeMeta(animeSlug: String): AnimeMeta? {
