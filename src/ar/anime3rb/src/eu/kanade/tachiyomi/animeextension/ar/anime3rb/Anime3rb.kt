@@ -49,7 +49,7 @@ class Anime3rb :
     override fun headersBuilder() = super.headersBuilder()
         .add("referer", baseUrl)
 
-    override fun popularAnimeRequest(page: Int): Request = GET(baseUrl, headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/titles/list?page=$page", headers)
 
     override fun popularAnimeSelector(): String = "div.title-card a[href*='/titles/']"
 
@@ -109,15 +109,17 @@ class Anime3rb :
             }
         }
 
-        if (query.isBlank() && queryParams.none { it.first != "page" }) {
-            return "$baseUrl/titles/list?page=$page"
+        val path = if (query.isBlank()) {
+            "titles/list"
+        } else {
+            "search"
         }
 
         val filteredQueryParams = queryParams.toMutableList().apply {
             add("page" to page.toString())
         }
 
-        return buildUrl(baseUrl, "search", filteredQueryParams)
+        return buildUrl(baseUrl, path, filteredQueryParams)
     }
 
     private fun buildUrl(baseUrl: String, path: String, params: List<Pair<String, String>>): String {
@@ -176,7 +178,7 @@ class Anime3rb :
         }
     }
 
-    override fun searchAnimeNextPageSelector(): String? = "a[rel=next]"
+    override fun searchAnimeNextPageSelector(): String? = "a[rel=next], button[rel=next]"
 
     override fun animeDetailsRequest(anime: SAnime): Request {
         // anime.url is stored without domain (e.g. "/titles/naruto")
@@ -375,8 +377,8 @@ class Anime3rb :
         fun getQueryValue(): String? = STATUS_VALUES.getOrNull(state)?.takeIf { it.isNotBlank() }
 
         companion object {
-            private val STATUS_ENTRIES = arrayOf("الكل", "مستمر", "مكتمل", "متوقف")
-            private val STATUS_VALUES = arrayOf("", "ongoing", "finished", "paused")
+            private val STATUS_ENTRIES = arrayOf("الكل", "قيد البث", "منتهي", "قادم")
+            private val STATUS_VALUES = arrayOf("", "running", "finished", "upcomming")
         }
     }
 
