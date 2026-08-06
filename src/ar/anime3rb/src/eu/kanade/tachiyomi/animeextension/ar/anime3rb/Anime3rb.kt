@@ -51,7 +51,7 @@ class Anime3rb :
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/titles/list?page=$page", headers)
 
-    override fun popularAnimeSelector(): String = "div.title-card a[href*='/titles/']"
+    override fun popularAnimeSelector(): String = "div.title-card > a[href*='/titles/']:not(.details)"
 
     override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         val href = element.absUrl("href").takeUnless { it.isBlank() }
@@ -65,7 +65,8 @@ class Anime3rb :
             setUrlWithoutDomain(normalizedHref)
         }
 
-        title = element.selectFirst(".title, h3, h4, .card-title")?.text()?.trim()
+        title = element.selectFirst("h2.title-name, h2.text-[1.08rem]")?.text()?.trim()
+            ?: element.selectFirst(".title, h3, h4, .card-title")?.text()?.trim()
             ?: element.text().trim().takeIf { it.isNotBlank() }.orEmpty()
 
         thumbnail_url = element.selectFirst("img")?.let { image ->
@@ -151,8 +152,9 @@ class Anime3rb :
     }
 
     override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        // Title may live in several possible tags inside the card — set this first
-        title = element.selectFirst(".title, h3, h4, .card-title")?.text()?.trim()
+        // Title may live in several possible tags inside the card — prefer the explicit title elements.
+        title = element.selectFirst("h2.title-name, h2.text-[1.08rem], .title, h3, h4, .card-title")
+            ?.text()?.trim()
             ?: element.text().trim().takeIf { it.isNotBlank() }.orEmpty()
 
         // Prefer an explicit anchor inside the card for the URL (accept absolute or relative)
