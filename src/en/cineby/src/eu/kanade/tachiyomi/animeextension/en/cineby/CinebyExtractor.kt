@@ -427,7 +427,8 @@ class CinebyExtractor(
         private val GENERIC_QUALITY_REGEX = Regex("""^(video|stream|hls|dash)(\s+.*)?$""")
 
         //   Official servers (verified against website JS + reference table)
-        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.speedracelight.com)
+        //   Yoru    = cdn                      [MAY HAVE 4K] (api.speedracelight.com)
+        //   Cypher  = downloader2                            (api.speedracelight.com)
         //   Breach  = m4uhd                                  (api.speedracelight.com)
         //   Neon    = vsrc                                   (api.speedracelight.com)
         //   Vyse    = hdmovie      [FILTERS quality=English] (api.speedracelight.com)
@@ -441,6 +442,12 @@ class CinebyExtractor(
                 VIDEASY_API_BASE,
                 "cdn",
                 mayHave4K = true,
+                audioLabel = "Original",
+            ),
+            VideasyServer(
+                "Cypher",
+                VIDEASY_API_BASE,
+                "downloader2",
                 audioLabel = "Original",
             ),
             VideasyServer(
