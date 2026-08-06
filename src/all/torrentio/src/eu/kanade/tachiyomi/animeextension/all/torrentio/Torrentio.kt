@@ -86,13 +86,9 @@ class Torrentio :
 
         return AnimesPage(results.map { it.toSAnime() }, false)
     }
-    override fun popularAnimeRequest(page: Int): Request {
-        TODO("Not yet implemented") // hmm naah
-    }
+    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException("Use getPopularAnime instead")
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        TODO("Not yet implemented") // i wont
-    }
+    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException("Use getPopularAnime instead")
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
@@ -435,9 +431,9 @@ class Torrentio :
                 video to episode
             }
             .sortedWith(
-                compareByDescending<Pair<EpisodeVideo, SEpisode>> { (video, _) -> video.season!! > 0 }
-                    .thenByDescending { (video, _) -> video.season }
-                    .thenByDescending { (video, _) -> video.number },
+                compareByDescending<Pair<EpisodeVideo, SEpisode>> { (video, _) -> (video.season ?: 0) > 0 }
+                    .thenByDescending { (video, _) -> video.season ?: 0 }
+                    .thenByDescending { (video, _) -> video.number ?: 0 },
             )
             .map { (_, episode) -> episode }
     }
@@ -448,8 +444,20 @@ class Torrentio :
         name = "Movie"
     }
 
-    private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
-        .getOrNull() ?: 0L
+    private fun parseDate(dateStr: String): Long {
+        val trimmed = dateStr.trim()
+        if (trimmed.isEmpty()) return 0L
+
+        runCatching { DATE_FORMATTER.parse(trimmed)?.time }
+            .getOrNull()
+            ?.let { return it }
+
+        runCatching { SIMPLE_DATE_FORMATTER.parse(trimmed)?.time }
+            .getOrNull()
+            ?.let { return it }
+
+        return 0L
+    }
 
     // ============================ Video Links =============================
 
@@ -699,7 +707,7 @@ class Torrentio :
         }
     }
 
-    private fun getTmdbApiKey(): String = PREF_TMDB_DEFAULT
+    private fun getTmdbApiKey(): String = preferences.getString(PREF_TMDB_API_KEY, null)?.takeIf { it.isNotBlank() } ?: PREF_TMDB_DEFAULT
 
     // ============================ Helper Methods ==============================
 
@@ -915,6 +923,19 @@ class Torrentio :
             }
         }.also(screen::addPreference)
 
+        EditTextPreference(screen.context).apply {
+            key = PREF_TMDB_API_KEY
+            title = "TMDB API Key"
+            summary = "Optional: provide your own TMDB API key. Leave blank to use the bundled default key."
+
+            setOnPreferenceChangeListener { _, newValue ->
+                runCatching {
+                    val value = (newValue as String).trim()
+                    preferences.edit().putString(key, value).commit()
+                }.getOrDefault(false)
+            }
+        }.also(screen::addPreference)
+
         MultiSelectListPreference(screen.context).apply {
             key = PREF_PROVIDER_KEY
             title = "Enable/Disable Providers"
@@ -1016,8 +1037,8 @@ class Torrentio :
         private const val PREF_CONTENT_TYPE_DEFAULT = "all"
         private val PREF_CONTENT_TYPE_ENTRIES = arrayOf("All Content", "Anime Only (Crunchyroll)", "Movies & TV")
         private val PREF_CONTENT_TYPE_VALUES = arrayOf("all", "anime", "movies_tv")
-
-        private const val PREF_TMDB_DEFAULT = "ea021b3b0775c8531592713ab727f254" // ignore this ive got keys to play with
+        private const val PREF_TMDB_DEFAULT = "ea021b3b0775c8531592713ab727f254"
+        private const val PREF_TMDB_API_KEY = "tmdb_api_key"
 
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""
@@ -1112,6 +1133,10 @@ class Torrentio :
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
+        }
+
+        private val SIMPLE_DATE_FORMATTER by lazy {
+            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
         }
     }
 }
