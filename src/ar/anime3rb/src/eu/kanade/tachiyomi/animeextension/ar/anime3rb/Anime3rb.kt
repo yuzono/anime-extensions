@@ -6,6 +6,7 @@ import aniyomi.lib.cloudflareinterceptor.CloudflareInterceptor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -134,6 +135,19 @@ class Anime3rb :
     // in case the anchor structure varies between pages (search vs popular).
     override fun searchAnimeSelector(): String = "div.title-card"
 
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val animes = document.select(searchAnimeSelector()).mapNotNull { element ->
+            runCatching { searchAnimeFromElement(element) }
+                .getOrNull()
+                ?.takeIf { it.url?.isNotBlank() == true }
+        }
+        val hasNextPage = searchAnimeNextPageSelector()?.let { selector ->
+            document.selectFirst(selector) != null
+        } ?: false
+        return AnimesPage(animes, hasNextPage)
+    }
+
     override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         // Title may live in several possible tags inside the card — set this first
         title = element.selectFirst(".title, h3, h4, .card-title")?.text()?.trim()
@@ -141,10 +155,10 @@ class Anime3rb :
 
         // Prefer an explicit anchor inside the card for the URL (accept absolute or relative)
         val anchor = element.selectFirst("a[href*='/titles/']")
-            ?: throw IllegalStateException("Missing href in search result card")
+            ?: return SAnime.create()
 
         val href = anchor.absUrl("href").takeUnless { it.isBlank() }
-            ?: throw IllegalStateException("Empty href in search result anchor")
+            ?: return SAnime.create()
 
         val normalizedHref = when {
             href.startsWith("http://") || href.startsWith("https://") -> href.removePrefix(baseUrl)
@@ -468,7 +482,8 @@ class Anime3rb :
                 val selected = newValue as String
                 val index = findIndexOfValue(selected)
                 val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
+                preferences.edit().putString(key, entry).apply()
+                true
             }
         }.also(screen::addPreference)
     }
