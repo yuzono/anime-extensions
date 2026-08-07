@@ -106,12 +106,11 @@ class Torrentio :
         val url = response.request.url
         val page = url.queryParameter("page")?.toIntOrNull() ?: 1
         val contentType = getContentType()
+        val body = response.body.string()
 
-        return runBlocking {
-            when (contentType) {
-                "anime" -> fetchTmdbAnime(page)
-                else -> fetchTrendingMoviesAndTV(page)
-            }
+        return when (contentType) {
+            "anime" -> parseTmdbAnimeDiscover(body)
+            else -> runBlocking { fetchTrendingMoviesAndTV(body, page) }
         }
     }
 
@@ -389,10 +388,12 @@ class Torrentio :
                     episodeUrl = { videoId -> "/stream/series/$videoId.json" },
                 )
             }
+
             "movie" -> {
                 val imdbId = meta.imdbId ?: meta.imdb_id ?: meta.id.orEmpty()
                 listOf(singleMovieEpisode("/stream/movie/$imdbId.json"))
             }
+
             else -> {
                 emptyList()
             }
@@ -589,41 +590,31 @@ class Torrentio :
         .addQueryParameter("page", page.toString())
         .build()
 
-    private suspend fun fetchTmdbAnime(page: Int): AnimesPage {
-        val url = buildTmdbAnimeDiscoverUrl(page)
+    private fun parseTmdbAnimeDiscover(body: String): AnimesPage = try {
+        val discoverResponse = json.decodeFromString<TheMovieDatabaseResponse>(body)
 
-        return try {
-            val response = client.newCall(GET(url)).awaitSuccess()
-            val body = response.body.string()
-            val discoverResponse = json.decodeFromString<TheMovieDatabaseResponse>(body)
-
-            val animeList = discoverResponse.results.map { result ->
-                SAnime.create().apply {
-                    this.url = "${result.id},series"
-                    title = result.name ?: "Unknown"
-                    thumbnail_url = buildImageUrl(result.poster_path)
-                    description = result.overview ?: ""
-                    genre = result.genre_ids?.joinToString() ?: ""
-                    status = mapStatusFromDate(result.first_air_date)
-                }
+        val animeList = discoverResponse.results.map { result ->
+            SAnime.create().apply {
+                this.url = "${result.id},series"
+                title = result.name ?: "Unknown"
+                thumbnail_url = buildImageUrl(result.poster_path)
+                description = result.overview ?: ""
+                genre = result.genre_ids?.joinToString() ?: ""
+                status = mapStatusFromDate(result.first_air_date)
             }
-
-            AnimesPage(
-                animeList,
-                discoverResponse.page < discoverResponse.total_pages,
-            )
-        } catch (e: Exception) {
-            AnimesPage(emptyList(), false)
         }
+
+        AnimesPage(
+            animeList,
+            discoverResponse.page < discoverResponse.total_pages,
+        )
+    } catch (e: Exception) {
+        AnimesPage(emptyList(), false)
     }
 
-    private suspend fun fetchTrendingMoviesAndTV(page: Int): AnimesPage = try {
+    private suspend fun fetchTrendingMoviesAndTV(tvBody: String, page: Int): AnimesPage = try {
         val results = coroutineScope {
-            val tvDeferred = async {
-                val url = buildTmdbTrendingUrl("tv", page)
-                val response = client.newCall(GET(url)).awaitSuccess()
-                json.decodeFromString<TheMovieDatabaseResponse>(response.body.string())
-            }
+            val tvResults = json.decodeFromString<TheMovieDatabaseResponse>(tvBody)
 
             val movieDeferred = async {
                 val url = buildTmdbTrendingUrl("movie", page)
@@ -631,7 +622,6 @@ class Torrentio :
                 json.decodeFromString<TheMovieDatabaseResponse>(response.body.string())
             }
 
-            val tvResults = tvDeferred.await()
             val movieResults = movieDeferred.await()
 
             val combined = mutableListOf<TmdbResult>()
@@ -917,7 +907,6 @@ class Torrentio :
             setOnPreferenceChangeListener { _, newValue ->
                 runCatching {
                     val value = (newValue as String).trim().ifBlank { PREF_TOKEN_DEFAULT }
-                    Toast.makeText(screen.context, "Restart App to apply new setting.", Toast.LENGTH_LONG).show()
                     preferences.edit().putString(key, value).commit()
                 }.getOrDefault(false)
             }
