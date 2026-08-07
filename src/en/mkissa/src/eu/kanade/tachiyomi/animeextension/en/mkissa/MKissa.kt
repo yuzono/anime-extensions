@@ -359,10 +359,13 @@ class MKissa :
                 }
 
                 sName.startsWith("player@") -> {
+                    // These Yt sources live on the site's CDN (tools.fast4speed.rsvp), which is
+                    // Cloudflare-gated: it streams with a legacy allanime.day Referer and 403s on
+                    // any mkissa one. `set` replaces the base mkissa Referer instead of appending,
+                    // while keeping the client's configured headers (user agent, etc.).
                     val videoHeaders = headers.newBuilder().apply {
                         add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                        add("Host", server.sourceUrl.toHttpUrl().host)
-                        add("Referer", "$iframeEndpoint/")
+                        set("Referer", "$PLAYER_DOMAIN/")
                     }.build()
 
                     Video(

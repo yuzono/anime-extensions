@@ -144,14 +144,18 @@ object MKissaBundle {
 
     private val BUILD_ID_REGEX = Regex("""!==\s*["']string["']\s*\?\s*["'](\d+)["']\s*:\s*["']["']""")
 
-    private val TABLE_HEAD_REGEX = Regex("""function (\w+)\(\)\s*\{\s*(?:const|let|var)\s+\w+\s*=\s*\[""")
+    // The obfuscator names functions with `$` too (`$l`, `Cr`), which `\w` excludes. The `${'$'}`
+    // interpolation yields the literal dollar sign without starting a template.
+    private val IDENT = """[${'$'}A-Za-z0-9_]+"""
 
-    private val BASE_DECODER_REGEX = Regex("""function (\w+)\((\w+)(?:,\w+)*\)\{return \2=\2-\(?([-\d+*\s]+?)\)?,(\w+)\(\)\[\2\]\}""")
+    private val TABLE_HEAD_REGEX = Regex("""function ($IDENT)\(\)\s*\{\s*(?:const|let|var)\s+$IDENT\s*=\s*\[""")
+
+    private val BASE_DECODER_REGEX = Regex("""function ($IDENT)\(($IDENT)(?:,$IDENT)*\)\{return \2=\2-\(?([-\d+*\s]+?)\)?,($IDENT)\(\)\[\2\]\}""")
 
     // Two parameters exactly: the argIndex logic only distinguishes first from second.
-    private val ALIAS_DECODER_REGEX = Regex("""function (\w+)\((\w+),(\w+)\)\{return (\w+)\((\w+)((?:[-+][\d+*\s-]+)?)\)\}""")
+    private val ALIAS_DECODER_REGEX = Regex("""function ($IDENT)\(($IDENT),($IDENT)\)\{return ($IDENT)\(($IDENT)((?:[-+][\d+*\s-]+)?)\)\}""")
 
-    private const val CALL_PATTERN = """(\w+)\(\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\)"""
+    private val CALL_PATTERN = """($IDENT)\(\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\)"""
     private val CALL_REGEX = Regex(CALL_PATTERN)
 
     private val SEED_ARRAY_REGEX = Regex("""=\[((?:$CALL_PATTERN\+$CALL_PATTERN,){3}$CALL_PATTERN\+$CALL_PATTERN)]""")
