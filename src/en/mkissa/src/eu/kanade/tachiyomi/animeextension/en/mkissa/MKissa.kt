@@ -319,7 +319,9 @@ class MKissa :
             "okru" to listOf("ok.ru", "okru"),
             "mp4upload" to listOf("mp4upload.com"),
             "streamlare" to listOf("streamlare.com"),
-            "filemoon" to listOf("filemoon", "moonplayer"),
+            // Fm-Hls is Filemoon; the embed domain rotates (bysekoze.com is current), so match the
+            // legacy filemoon domains too.
+            "Fm-Hls" to listOf("bysekoze.com", "fastmoon", "filemoon", "moonplayer"),
             "streamwish" to listOf("wish"),
         )
 
@@ -328,7 +330,9 @@ class MKissa :
             val videoUrl = video.sourceUrl.decryptSource()
 
             val matchingMapping = mappings.firstOrNull { (altHoster, urlMatches) ->
-                altHosterSelection.contains(altHoster) && videoUrl.containsAny(urlMatches)
+                // Fm-Hls lives in the Hoster selection (lowercased); the rest are Alternative Hosts.
+                (hosterSelection.contains(altHoster.lowercase()) || altHosterSelection.contains(altHoster)) &&
+                    videoUrl.containsAny(urlMatches)
             }
 
             when {
@@ -396,8 +400,8 @@ class MKissa :
                     streamlareExtractor.videosFromUrl(server.sourceUrl)
                 }
 
-                sName == "filemoon" -> {
-                    filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Filemoon:")
+                sName == "Fm-Hls" -> {
+                    filemoonExtractor.videosFromUrl(server.sourceUrl, prefix = "Fm-Hls:")
                 }
 
                 sName == "streamwish" -> {
@@ -591,7 +595,6 @@ class MKissa :
             "mp4upload",
             "streamlare",
             "doodstream",
-            "filemoon",
             "streamwish",
         )
 
@@ -622,10 +625,13 @@ class MKissa :
         private const val PREF_SERVER_DEFAULT = "site_default"
 
         private const val PREF_HOSTER_KEY = "hoster_selection"
-        private val PREF_HOSTER_ENTRY_VALUES = INTERAL_HOSTER_NAMES.map {
+
+        // Fm-Hls (Filemoon) is a Hoster here, not an Alternative Host, matching the site's layout.
+        private val HOSTER_NAMES = INTERAL_HOSTER_NAMES + "Fm-Hls"
+        private val PREF_HOSTER_ENTRY_VALUES = HOSTER_NAMES.map {
             it.lowercase()
         }.toTypedArray()
-        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "si-hls", "s-mp4", "ac-hls")
+        private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "si-hls", "s-mp4", "ac-hls", "fm-hls")
 
         private const val PREF_ALT_HOSTER_KEY = "alt_hoster_selection"
 
@@ -703,7 +709,7 @@ class MKissa :
         MultiSelectListPreference(screen.context).apply {
             key = PREF_HOSTER_KEY
             title = "Enable/Disable Hosts"
-            entries = INTERAL_HOSTER_NAMES
+            entries = HOSTER_NAMES
             entryValues = PREF_HOSTER_ENTRY_VALUES
             setDefaultValue(PREF_HOSTER_DEFAULT)
         }.also(screen::addPreference)
