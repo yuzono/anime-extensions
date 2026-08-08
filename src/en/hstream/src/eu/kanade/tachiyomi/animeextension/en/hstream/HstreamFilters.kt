@@ -16,7 +16,7 @@ object HstreamFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    open class CheckBoxFilterList(name: String, val pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
+    open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
@@ -41,8 +41,8 @@ object HstreamFilters {
         .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
         .groupBy { it.first } // group by state
         .let { dict ->
-            val included = dict.get(TriState.STATE_INCLUDE)?.map { it.second }.orEmpty()
-            val excluded = dict.get(TriState.STATE_EXCLUDE)?.map { it.second }.orEmpty()
+            val included = dict[TriState.STATE_INCLUDE]?.map { it.second }.orEmpty()
+            val excluded = dict[TriState.STATE_EXCLUDE]?.map { it.second }.orEmpty()
             listOf(included, excluded)
         }
 
