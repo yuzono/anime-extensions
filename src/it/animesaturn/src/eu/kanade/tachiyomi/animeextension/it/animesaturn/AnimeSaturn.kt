@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.it.animesaturn
 
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -69,6 +70,8 @@ class AnimeSaturn :
         return episode
     }
 
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
     override fun videoListParse(response: Response): List<Video> {
         if (response.code != 200) {
             return emptyList()
@@ -87,23 +90,7 @@ class AnimeSaturn :
             )
         }
 
-        val basePlaylist = client.newCall(GET(videoUrl)).execute().use { it.body.string() }
-        val videoList = mutableListOf<Video>()
-
-        for (quality in QUALITY_ENTRIES) {
-            if (basePlaylist.contains(quality)) {
-                val sourceUrl = videoUrl.replace("playlist.m3u8", "$quality/playlist_$quality.m3u8")
-                videoList.add(
-                    Video(
-                        sourceUrl,
-                        quality,
-                        sourceUrl,
-                    ),
-                )
-            }
-        }
-
-        return videoList
+        return playlistUtils.extractFromHls(videoUrl)
     }
 
     private fun decodeUrl(url: String, token: String): String {
@@ -129,18 +116,11 @@ class AnimeSaturn :
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString("preferred_quality", "1080")!!
-        val qualityList = mutableListOf<Video>()
-        var preferred = 0
-        for (video in this) {
-            if (video.quality.contains(quality)) {
-                qualityList.add(preferred, video)
-                preferred++
-            } else {
-                qualityList.add(video)
-            }
-        }
-        return qualityList
+        val prQuality = preferences.getString(PREF_QUALITY, QUALITY_DEFAULT)!!
+
+        return sortedWith(
+            compareByDescending { it.quality.contains(prQuality) },
+        )
     }
 
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
