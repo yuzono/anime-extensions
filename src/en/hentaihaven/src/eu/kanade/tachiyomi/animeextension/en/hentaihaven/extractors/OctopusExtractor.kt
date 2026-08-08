@@ -95,7 +95,7 @@ class OctopusExtractor(private val client: OkHttpClient) {
      * @param playerDataB64 Raw base64 string from `player.php?data=`.
      * @param episodeUrl    Full episode page URL (used for Referer/Origin headers).
      */
-    fun getVideosFromPayload(
+    suspend fun getVideosFromPayload(
         apiUrl: String,
         playerDataB64: String,
         episodeUrl: String,
