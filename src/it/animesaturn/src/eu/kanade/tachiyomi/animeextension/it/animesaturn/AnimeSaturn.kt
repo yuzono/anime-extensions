@@ -51,7 +51,7 @@ class AnimeSaturn :
 
     override fun popularAnimeFromElement(element: Element): SAnime = searchAnimeFromElement(element)
 
-    override fun popularAnimeNextPageSelector(): String = "nav.flex a[href*=ongoing]:last-child"
+    override fun popularAnimeNextPageSelector(): String = "a[rel=\"next\"]"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -153,7 +153,7 @@ class AnimeSaturn :
         return anime
     }
 
-    override fun searchAnimeNextPageSelector(): String = "nav.flex a[href*=ongoing]:last-child"
+    override fun searchAnimeNextPageSelector(): String = "a[rel=\"next\"]"
 
     override fun searchAnimeSelector(): String = "a.group[href]:not(.flex)"
 
@@ -188,7 +188,7 @@ class AnimeSaturn :
     override fun latestUpdatesFromElement(element: Element): SAnime = searchAnimeFromElement(element)
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/newest/$page")
 
-    override fun latestUpdatesNextPageSelector(): String = "nav.flex a[href*=ongoing]:last-child"
+    override fun latestUpdatesNextPageSelector(): String = "a[rel=\"next\"]"
 
     // Filters
     internal class Genre(val id: String) : AnimeFilter.CheckBox(id)
