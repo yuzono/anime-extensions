@@ -98,13 +98,17 @@ class HentaiHaven :
         val sortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()
 
         val browseUrl = genreFilter?.browseUrl(baseUrl) ?: tagFilter?.browseUrl(baseUrl)
-        if (browseUrl != null) {
-            val urlBuilder = browseUrl.toHttpUrl().newBuilder()
-            if (page > 1) urlBuilder.addPathSegments("page/$page/")
-            return GET(urlBuilder.build().toString(), headers)
+        val urlBuilder = (browseUrl ?: "$baseUrl/").toHttpUrl().newBuilder()
+
+        if (page > 1) {
+            urlBuilder.addPathSegments("page/$page/")
         }
 
-        return GET("$baseUrl/page/$page/", headers)
+        sortFilter?.let {
+            urlBuilder.addQueryParameter("m_orderby", it.urlValue)
+        }
+
+        return GET(urlBuilder.build().toString(), headers)
     }
 
     override fun searchAnimeSelector() = "div.c-tabs-item, div.page-item-detail.video"
