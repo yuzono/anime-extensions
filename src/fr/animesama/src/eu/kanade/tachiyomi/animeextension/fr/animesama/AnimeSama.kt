@@ -210,7 +210,7 @@ class AnimeSama :
 
                         contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
 
-                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
+                        contains("vidmoly") || contains("ansembed") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
 
                         else -> emptyList()
                     }
