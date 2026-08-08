@@ -66,22 +66,22 @@ import uy.kohesive.injekt.api.get
  *       which avoids a secondary validation round-trip.
  *
  *  3. `Accept: application/x-mpegURL, application/vnd.apple.mpegurl, *;q=0.8`
-*       Explicit MIME declaration skips the CDN's content-type negotiation step,
-*       shaving the decision overhead on the first manifest request.
-*
-*  4. `Connection: keep-alive`
-*       ExoPlayer issues at minimum 3 sequential HTTP requests before the first
-*       segment download (master → variant → audio rendition playlist). Without an
-*       explicit keep-alive hint the CDN may close the connection between requests,
-*       forcing a new TCP + TLS handshake per request (~150-300 ms each on mobile).
-*
-*  Hard constraints honoured:
-*  - No pre-flight requests to resolve redirects.
-*  - No manifest rewriting or slicing.
-*  - `identity` encoding is applied via the Video headers map only, not via OkHttp
-*    client configuration, so it does not interfere with OkHttp's own compressed
-*    responses for the API POST.
-*/
+ *       Explicit MIME declaration skips the CDN's content-type negotiation step,
+ *       shaving the decision overhead on the first manifest request.
+ *
+ *  4. `Connection: keep-alive`
+ *       ExoPlayer issues at minimum 3 sequential HTTP requests before the first
+ *       segment download (master → variant → audio rendition playlist). Without an
+ *       explicit keep-alive hint the CDN may close the connection between requests,
+ *       forcing a new TCP + TLS handshake per request (~150-300 ms each on mobile).
+ *
+ *  Hard constraints honoured:
+ *  - No pre-flight requests to resolve redirects.
+ *  - No manifest rewriting or slicing.
+ *  - `identity` encoding is applied via the Video headers map only, not via OkHttp
+ *    client configuration, so it does not interfere with OkHttp's own compressed
+ *    responses for the API POST.
+ */
 class OctopusExtractor(private val client: OkHttpClient) {
 
     private val json: Json = Injekt.get()
