@@ -1,0 +1,13 @@
+ext {
+    extName = 'Anime3rb'
+    extClass = '.Anime3rb'
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:cloudflareinterceptor'))
+    testImplementation(libs.junit)
+}
