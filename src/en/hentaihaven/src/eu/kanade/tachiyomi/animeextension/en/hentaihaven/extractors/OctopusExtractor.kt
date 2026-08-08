@@ -10,6 +10,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import eu.kanade.tachiyomi.network.awaitSuccess
 import okhttp3.Headers
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -140,7 +141,7 @@ class OctopusExtractor(private val client: OkHttpClient) {
                     .post(requestBody)
                     .headers(apiHeaders)
                     .build(),
-            ).execute().use { response ->
+            ).awaitSuccess().use { response ->
                 response.body?.string()
             }
         } catch (e: Exception) {
@@ -156,37 +157,33 @@ class OctopusExtractor(private val client: OkHttpClient) {
             return emptyList()
         }
 
-        val data = payload["data"]?.jsonObject ?: run {
-            Log.e(TAG, "No 'data' key in API response")
-            return emptyList()
-        }
+        val videos = runCatching {
+            val data = payload["data"]?.jsonObject ?: return emptyList()
+            val sourceUrl = data["sources"]
+                ?.jsonArray
+                ?.firstOrNull()
+                ?.jsonObject
+                ?.get("src")
+                ?.jsonPrimitive
+                ?.content
+                ?: return emptyList()
 
-        val sourceUrl = data["sources"]
-            ?.jsonArray
-            ?.firstOrNull()
-            ?.jsonObject
-            ?.get("src")
-            ?.jsonPrimitive
-            ?.content
-            ?: run {
-                Log.e(TAG, "No 'sources[0].src' in API response data")
-                return emptyList()
+            val isOctopus = data["isOctopus"]?.jsonPrimitive?.boolean ?: false
+
+            Log.d(TAG, "Player type: ${if (isOctopus) "Octopus VP9/CMAF" else "Master H.264"}")
+            Log.d(TAG, "Source URL: $sourceUrl")
+
+            if (isOctopus) {
+                extractOctopusStream(sourceUrl, episodeUrl, payload)
+            } else {
+                masterExtractor.extractVideos(sourceUrl, episodeUrl)
             }
-
-        // `isOctopus` distinguishes the player type:
-        //   true  → VP9/CMAF split-stream (octopusmanifest.org CDN)
-        //   false / absent → Legacy H.264 muxed (master-lengs.org CDN)
-        val isOctopus = data["isOctopus"]?.jsonPrimitive?.boolean ?: false
-
-        Log.d(TAG, "Player type: ${if (isOctopus) "Octopus VP9/CMAF" else "Master H.264"}")
-        Log.d(TAG, "Source URL: $sourceUrl")
-
-        // ── Step 4: delegate to the correct extractor ─────────────────────────
-        return if (isOctopus) {
-            extractOctopusStream(sourceUrl, episodeUrl, payload)
-        } else {
-            masterExtractor.extractVideos(sourceUrl, episodeUrl)
+        }.getOrElse { e ->
+            Log.e(TAG, "Failed to extract videos from payload", e)
+            emptyList()
         }
+
+        return videos
     }
 
     // ── Octopus VP9/CMAF path ─────────────────────────────────────────────────
