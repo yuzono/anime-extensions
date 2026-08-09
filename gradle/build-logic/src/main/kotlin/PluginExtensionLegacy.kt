@@ -31,10 +31,11 @@ class PluginExtensionLegacy : Plugin<Project> {
             alias(kei.plugins.spotless)
         }
 
+        assertWithoutFlag(extra.has("extName")) { "Gradle configuration must contain 'extName'" }
         assertWithoutFlag(!extra.has("pkgNameSuffix")) { "Gradle configuration cannot contain 'pkgNameSuffix'" }
         assertWithoutFlag(!extra.has("libVersion")) { "Gradle configuration cannot contain 'libVersion'" }
 
-        assertWithoutFlag(extName.all { it.code < 0x180 }) { "Extension name should be romanized" }
+        assertWithoutFlag(extName.all { it.code < 0x180 }) { "Extension name '$extName' should be romanized (character code must be < 0x180)" }
 
         val theme: Project? = if (extra.has("themePkg")) project(":lib-multisrc:$themePkg") else null
         if (theme != null) evaluationDependsOn(theme.path)
