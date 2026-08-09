@@ -1,0 +1,13 @@
+ext {
+    extName = 'YummyAnime'
+    extClass = '.YummyAnime'
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:sibnetextractor'))
+}

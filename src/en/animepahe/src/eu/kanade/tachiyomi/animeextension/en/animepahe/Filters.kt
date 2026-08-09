@@ -111,7 +111,7 @@ object Filters {
 
     class YearFilter :
         UriPartFilter(
-            "Browse by Season",
+            "Browse by Year",
             YEARS,
         ) {
         companion object {

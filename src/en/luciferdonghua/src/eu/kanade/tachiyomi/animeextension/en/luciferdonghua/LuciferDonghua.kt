@@ -76,6 +76,8 @@ class LuciferDonghua :
         return episodeList
     }
 
+    override fun getEpisodeIframeSelector() = "#embed_holder iframe[src~=.]"
+
     // ============================ Video Links =============================
     private val okruExtractor by lazy { OkruExtractor(client) }
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }

@@ -1,0 +1,9 @@
+ext {
+    extName = 'Anikoto'
+    extClass = '.Anikoto'
+    themePkg = 'anikototheme'
+    baseUrl = 'https://anikototv.to'
+    overrideVersionCode = 0
+}
+
+apply plugin: "kei.plugins.extension.legacy"

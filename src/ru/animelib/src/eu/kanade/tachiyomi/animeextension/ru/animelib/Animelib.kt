@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ru.animelib
 
+import android.net.Uri
 import android.util.Base64
 import android.widget.Toast
 import androidx.preference.EditTextPreference
@@ -18,7 +19,6 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
@@ -27,12 +27,16 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -54,7 +58,10 @@ class Animelib :
 
     private val apiSite = "https://hapi.hentaicdn.org"
     private val apiUrl = "$apiSite/api"
-    private val coverDomain = "cover.imglib.info"
+
+    // Some deployments use different cover hosts — include both common ones
+    private val coverDomains = listOf("cover.hentaicdn.org", "cover.imglib.info")
+    private val defaultCoverDomain = coverDomains[0]
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val dateFormatter by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
@@ -87,15 +94,30 @@ class Animelib :
     override val client = network.client.newBuilder()
         .addInterceptor { chain ->
             val request = chain.request()
-            val requestToProceed = if (request.url.host == coverDomain) {
-                request.newBuilder()
-                    .header("Referer", "https://$domain/")
-                    .build()
-            } else {
-                request
+            val host = request.url.host
+            val apiHost = apiSite.toHttpUrl().host
+            val builder = request.newBuilder()
+            // Add Referer/Origin for cover and API hosts
+            if (host in coverDomains || host == apiHost) {
+                builder.header("Referer", "https://$domain/")
+                builder.header("Origin", "https://$domain")
+            }
+            // Additional headers for API requests to bypass simple bot protections
+            if (host == apiHost) {
+                builder.header("Accept", "application/json, text/plain, */*")
+                builder.header("X-Requested-With", "XMLHttpRequest")
+                builder.header("User-Agent", "Mozilla/5.0 (Android)")
             }
 
-            chain.proceed(requestToProceed)
+            val requestToProceed = builder.build()
+            val response = chain.proceed(requestToProceed)
+
+            // Log 403 responses for easier debugging
+            if (response.code == 403) {
+                android.util.Log.w("Animelib", "HTTP 403 for ${request.url} (host=$host)")
+            }
+
+            response
         }.build()
 
     // =============================== Preference ===============================
@@ -224,13 +246,7 @@ class Animelib :
     }
 
     // =============================== Video List ===============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
-        .awaitSuccess()
-        .use { response ->
-            videoListParseAsync(response)
-        }
-
-    private suspend fun videoListParseAsync(response: Response): List<Video> {
+    override fun videoListParse(response: Response): List<Video> = runBlocking {
         val episodeData = response.parseAs<EpisodeVideoData>()
         val videoServer = fetchPreferredVideoServer()
         val teams = preferences.getString(PREF_DUB_TEAM_KEY, "")?.split(',')
@@ -253,7 +269,8 @@ class Animelib :
         } ?: preferredTeams
 
         val ignoreSubs = preferences.getBoolean(PREF_IGNORE_SUBS_KEY, PREF_IGNORE_SUBS_DEFAULT)
-        return videoInfoList?.parallelCatchingFlatMap { videoInfo ->
+
+        return@runBlocking videoInfoList?.parallelCatchingFlatMap { videoInfo ->
             if (ignoreSubs && videoInfo.translationInfo.id == 1) {
                 return@parallelCatchingFlatMap emptyList()
             }
@@ -352,17 +369,21 @@ class Animelib :
             .parseAs<VideoServerData>()
 
         val serverPreference = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_ENTRIES[0])
-        if (serverPreference.isNullOrEmpty()) {
-            return videoServers.data.videoServers[0].url
-        }
-
-        for (videoServer in videoServers.data.videoServers) {
-            if (videoServer.label == serverPreference) {
-                return videoServer.url
+        val chosen = if (serverPreference.isNullOrEmpty()) {
+            videoServers.data.videoServers[0].url
+        } else {
+            var found: String? = null
+            for (videoServer in videoServers.data.videoServers) {
+                if (videoServer.label == serverPreference) {
+                    found = videoServer.url
+                    break
+                }
             }
+            found ?: videoServers.data.videoServers[0].url
         }
 
-        return videoServers.data.videoServers[0].url
+        android.util.Log.d("Animelib", "fetchPreferredVideoServer: chosen=$chosen preference=$serverPreference servers=${videoServers.data.videoServers}")
+        return chosen
     }
 
     private suspend fun kodikVideoLinks(playerUrl: String?, teamName: String): List<Video> {
@@ -391,18 +412,29 @@ class Animelib :
         val kodikDomain = formData.pd
         val formBody = FormBody.Builder()
         formBody.add("d", formData.d)
-        formBody.add("d_sign", URLDecoder.decode(formData.dSign, "utf-8"))
+        formBody.add("d_sign", Uri.decode(formData.dSign))
         formBody.add("pd", formData.pd)
-        formBody.add("pd_sign", URLDecoder.decode(formData.pdSign, "utf-8"))
-        formBody.add("ref", URLDecoder.decode(formData.ref, "utf-8"))
-        formBody.add("ref_sign", URLDecoder.decode(formData.refSign, "utf-8"))
+        formBody.add("pd_sign", Uri.decode(formData.pdSign))
+        formBody.add("ref", Uri.decode(formData.ref))
+        formBody.add("ref_sign", Uri.decode(formData.refSign))
 
         val urlParts = playerUrl.split('/')
         formBody.add("type", urlParts[3])
         formBody.add("id", urlParts[4])
         formBody.add("hash", urlParts[5])
 
-        val videoInfoRequest = POST("https://$kodikDomain/ftor", body = formBody.build())
+        val videoInfoRequest = Request.Builder()
+            .url("https://$kodikDomain/ftor")
+            .post(formBody.build())
+            .headers(
+                Headers.Builder().apply {
+                    set("Referer", "$baseUrl/")
+                    set("Origin", "https://$domain")
+                    set("User-Agent", "Mozilla/5.0 (Android)")
+                }.build(),
+            )
+            .build()
+
         val kodikData = client.newCall(videoInfoRequest).awaitSuccess().parseAs<KodikData>()
 
         // Load js with encode algorithm and parse it
@@ -459,8 +491,10 @@ class Animelib :
 
             val hlsUrl = Base64.decode(base64Url, Base64.DEFAULT).toString(Charsets.UTF_8)
             val playlistUrl = UrlUtils.fixUrl(hlsUrl) ?: return@flatMap emptyList()
+
             playlistUtils.extractFromHls(
                 playlistUrl,
+
                 videoNameGen = { "$teamName (${quality}p Kodik)" },
             )
         }
@@ -495,8 +529,12 @@ class Animelib :
                 }
             }
 
-            val url = "$serverUrl${it.href}"
+            // Build absolute URL for the video; `href` may be absolute or relative
+            val href = it.href.trim()
+            val url = UrlUtils.fixUrl(href, serverUrl) ?: return@mapNotNull null
+
             val quality = "${videoInfo.team.name} (${it.quality}p Animelib)"
+
             Video(url, quality, url, subtitleTracks = subtitles)
         }
 
@@ -524,20 +562,72 @@ class Animelib :
         }
     }
 
+    // Extract plain text from summary which can be either a string or a structured JSON doc
+    private fun extractTextFromSummary(element: JsonElement?): String? {
+        if (element == null) return null
+
+        val sb = StringBuilder()
+
+        fun recurse(el: JsonElement) {
+            when (el) {
+                is JsonPrimitive -> {
+                    // Append primitive content (string, number, etc.)
+                    sb.append(el.content)
+                }
+                is JsonObject -> {
+                    // If node has a 'text' field, append it
+                    el["text"]?.let { textEl ->
+                        if (textEl is JsonPrimitive) sb.append(textEl.content)
+                    }
+                    // Recurse into 'content' arrays or other fields that may contain text
+                    el["content"]?.let { recurse(it) }
+                }
+                is JsonArray -> {
+                    for (child in el) {
+                        recurse(child)
+                        // Separate block nodes with a space
+                        sb.append(" ")
+                    }
+                }
+            }
+        }
+
+        recurse(element)
+
+        val result = sb.toString().replace(spaceRegex, " ").trim()
+        return result.ifEmpty { null }
+    }
+
+    private val spaceRegex by lazy { Regex("\\s+") }
+
+    // Normalize cover URL which can be absolute, protocol-relative, or relative path
+    private fun normalizeCoverUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        val trimmed = url.trim()
+
+        return UrlUtils.fixUrl(trimmed, "https://$defaultCoverDomain")
+    }
+
     private fun AnimeData.toSAnime() = SAnime.create().apply {
-        url = href
-        title = rusName
-        thumbnail_url = cover.default
-        description = summary
+        setUrlWithoutDomain(href)
+        title = rusName ?: engName ?: run {
+            when (otherNames) {
+                is JsonArray -> otherNames.firstOrNull()?.let { if (it is JsonPrimitive) it.content else null }
+                is JsonPrimitive -> otherNames.content
+                else -> null
+            }
+        } ?: href
+        thumbnail_url = normalizeCoverUrl(cover.default)
+        description = extractTextFromSummary(summary)
         status = convertStatus(animeStatus.id)
         author = publisher?.joinToString { it.name }
         artist = authors?.joinToString { it.name }
     }
 
     private fun EpisodeInfo.toSEpisode() = SEpisode.create().apply {
-        url = "api/episodes/$id"
+        setUrlWithoutDomain("api/episodes/$id")
         name = "Сезон $season Серия $number $episodeName"
-        episode_number = number.toFloat()
+        episode_number = number.toFloatOrNull() ?: 0f
         date_upload = dateFormatter.tryParse(date)
     }
 }

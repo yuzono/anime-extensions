@@ -1,0 +1,9 @@
+ext {
+    extName = 'AnimeKai (Unoriginal)'
+    extClass = '.KotoKai'
+    themePkg = 'anikototheme'
+    baseUrl = 'https://animekaitv.to'
+    overrideVersionCode = 0
+}
+
+apply plugin: "kei.plugins.extension.legacy"

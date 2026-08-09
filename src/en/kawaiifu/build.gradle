@@ -1,9 +1,0 @@
-ext {
-    extName = 'Kawaiifu'
-    extClass = '.Kawaiifu'
-    extVersionCode = 5
-    isNsfw = true
-}
-
-
-apply plugin: "kei.plugins.extension.legacy"

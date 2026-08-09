@@ -269,7 +269,7 @@ abstract class AnimeStream(
         else -> "Alternative name(s): "
     }
 
-    protected open fun getAnimeDescription(document: Document) = document.selectFirst(animeDescriptionSelector)?.text()
+    protected open fun getAnimeDescription(document: Document) = document.select(animeDescriptionSelector).lastOrNull()?.text()
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         setUrlWithoutDomain(document.location())
@@ -348,6 +348,8 @@ abstract class AnimeStream(
         return getHosterUrl(encodedData)
     }
 
+    protected open fun getEpisodeIframeSelector() = "iframe[src~=.]"
+
     // Taken from LuciferDonghua
     protected open suspend fun getHosterUrl(encodedData: String): String {
         val doc = if (encodedData.toHttpUrlOrNull() == null) {
@@ -357,7 +359,7 @@ abstract class AnimeStream(
             client.newCall(GET(encodedData, headers)).awaitSuccess().useAsJsoup()
         }
 
-        return doc.selectFirst("#embed_holder iframe[src~=.]")?.safeUrl()
+        return doc.selectFirst(getEpisodeIframeSelector())?.safeUrl()
             ?: doc.selectFirst("meta[content~=.][itemprop=embedUrl]")!!.safeUrl("content")
     }
 

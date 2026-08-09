@@ -12,9 +12,7 @@ class SearchInterceptor(client: OkHttpClient, baseUrl: String, searchUrl: String
     private val token: String by lazy {
         runCatching {
             val document = client.newCall(
-                GET(
-                    baseUrl,
-                ),
+                GET(baseUrl),
             ).execute().useAsJsoup()
 
             document.selectFirst("meta[name=ao-search-token]")?.attr("content") ?: ""
