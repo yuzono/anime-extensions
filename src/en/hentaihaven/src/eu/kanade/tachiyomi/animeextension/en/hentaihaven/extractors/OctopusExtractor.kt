@@ -4,7 +4,10 @@ import android.util.Base64
 import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.UrlUtils
+import keiyoushi.utils.bodyString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -12,6 +15,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,24 +30,43 @@ import uy.kohesive.injekt.api.get
  *  2. Assemble and fire the multipart POST to `api.php` to obtain the signed JSON response.
  *  3. Parse the JSON to determine which player framework is active (`isOctopus` flag).
  *  4. Delegate Legacy H.264 streams to [MasterExtractor] (no logic duplication).
- *  5. For Octopus (VP9/CMAF) streams: construct the `playlist_vp9.m3u8` master URL,
- *     attach optimised CDN headers, and return a single [Video] whose URL is the
- *     top-level HLS master playlist — letting ExoPlayer's native HlsMediaSource
- *     handle the #EXT-X-MEDIA audio rendition demux without interference.
+ *  5. For Octopus (VP9/CMAF) streams: construct the `playlist_vp9.m3u8` master URL
+ *     and return one [Video] per declared variant quality (all pointing at the same
+ *     master URL) with the English VTT attached via `subtitleTracks` — see the
+ *     architecture section below for why the master is handed to the player
+ *     unmodified instead of the video-only variant playlists.
  *
  * ── Octopus Stream Architecture ──────────────────────────────────────────────
  *
  *  The Octopus CDN (octopusmanifest.org) serves a CMAF split-stream layout:
  *
- *    playlist_vp9.m3u8   ← top-level HLS Master Playlist  ← we pass this to Video.url
+ *    playlist_vp9.m3u8   ← top-level HLS Master Playlist
  *    │
  *    ├─ #EXT-X-STREAM-INF  →  v.m3u8           (video-only VP9 variants)
  *    ├─ #EXT-X-MEDIA TYPE=AUDIO  →  snd/a.m3u8  (standalone AAC audio rendition)
- *    └─ #EXT-X-MEDIA TYPE=SUBTITLES  →  s/en.vtt
+ *    └─ s/en.vtt            (English subtitle track, external VTT)
  *
- *  ExoPlayer's HlsMediaSource correctly demuxes these when given the master URL
- *  directly. Any attempt to pass v.m3u8 or snd/a.m3u8 individually silences audio.
- *  PlaylistUtils must NOT be called for this path for the same reason.
+ *  Segments are plain public static content (no auth header, no cookie, CORS
+ *  fully open) — the X-Video-* headers derived from the API response are
+ *  optional and harmless.
+ *
+ *  The variants are video-only, so a bare `v.m3u8` plays without audio. Earlier
+ *  versions split the master into per-variant [Video] entries and re-attached the
+ *  standalone rendition via `audioTracks` + `subtitleTracks`. That was verified
+ *  broken on mpv-based clients (libmpv 0.41, Anikku): `--audio-file` at startup
+ *  plays, but `audio-add` of an external HLS playlist while playback is starting
+ *  up never attaches (track-list stays at zero, no segment requests), so the
+ *  player stays silent. Handing the untouched master instead gives every demuxer
+ *  (ExoPlayer, mpv) video + audio + adaptive switching natively in one container —
+ *  exactly the layout the vendor's own player requests.
+ *
+ *  To keep the quality picker visible, one [Video] entry is produced per variant
+ *  resolution declared in the master (e.g. "Octopus · 1080p"). Every entry shares
+ *  the same master URL, so whatever the user selects the player receives the full
+ *  master with native audio and picks the rendition itself (mpv selects the
+ *  highest bitrate within `--hls-bitrate-max`, ExoPlayer is adaptive). Quality
+ *  selection is therefore a UI affordance, not a bandwidth-pin, but it needs no
+ *  proxy and never breaks audio.
  *
  * ── Latency Optimisation Strategy ────────────────────────────────────────────
  *
@@ -77,7 +100,9 @@ import uy.kohesive.injekt.api.get
  *
  *  Hard constraints honoured:
  *  - No pre-flight requests to resolve redirects.
- *  - No manifest rewriting or slicing.
+ *  - The only manifest processing is reading the master body for the subtitle
+ *    URI and the quality label; every URL handed to the player is the canonical
+ *    CDN URL, byte-for-byte unmodified.
  *  - `identity` encoding is applied via the Video headers map only, not via OkHttp
  *    client configuration, so it does not interfere with OkHttp's own compressed
  *    responses for the API POST.
@@ -189,49 +214,113 @@ class OctopusExtractor(private val client: OkHttpClient) {
     // ── Octopus VP9/CMAF path ─────────────────────────────────────────────────
 
     /**
-     * Build a single [Video] whose URL is the Octopus top-level HLS master playlist.
+     * Build the playback entries for an Octopus (VP9/CMAF) split-stream layout.
      *
-     * The playlist_vp9.m3u8 master contains both the video variant list and the
-     * #EXT-X-MEDIA audio rendition group. We pass this URL directly to Video.url so
-     * ExoPlayer's HlsMediaSource can read the full manifest and wire up audio natively.
+     * ── Why the master is handed over unmodified ───────────────────────────────
      *
-     * PlaylistUtils is intentionally NOT called here. Calling it would cause
-     * HlsMediaSource to receive a variant-level playlist (v.m3u8) that has no
-     * #EXT-X-MEDIA entry, stripping the audio track permanently.
+     * Only the master playlist carries video + audio together (the standalone
+     * string rendition is referenced via #EXT-X-MEDIA; the English VTT sits at
+     * the CDN-layout path `s/en.vtt`, optionally declared as a SUBTITLES group).
+     * The variants themselves are video-only.
+     *
+     * Splitting the master into per-variant [Video] entries and re-attaching the
+     * string rendition via [Track]-based `audioTracks` is unreliable on
+     * mpv-based clients (libmpv 0.41, Anikku): external HLS audio added with
+     * `audio-add` while playback starts up never attaches, so the player stays
+     * silent. Feeding the untouched master instead makes audio/adaptive
+     * switching native to the demuxer — verified to play audio on both
+     * ExoPlayer and mpv, and it is what the site's own player requests.
+     *
+     * One [Video] entry is produced per variant resolution declared in the
+     * master so the app's quality picker stays populated (e.g. "Octopus ·
+     * 1080p", "Octopus · 720p", "Octopus · 360p"). Every entry shares the same
+     * master URL, so whichever entry is selected the player receives the full
+     * master with native audio and picks the rendition itself — quality
+     * selection is a UI affordance, not a bandwidth pin, but it requires no
+     * proxy and can never produce a silent stream.
      */
     private fun extractOctopusStream(
         sourceUrl: String,
         episodeUrl: String,
         payload: JsonObject,
     ): List<Video> {
-        // The API returns "playlist.m3u8"; the VP9 CMAF master is "playlist_vp9.m3u8".
-        // This single string replacement is the only manifest-path manipulation allowed.
-        val masterPlaylistUrl = sourceUrl.replace("playlist.m3u8", "playlist_vp9.m3u8")
-
-        // CDN base for relative sub-resource paths.
-        // octopusBase = "https://octopusmanifest.org/{uuid}" (everything before final slash)
+        val masterPlaylistUrl = sourceUrl.toHttpUrl().let { url ->
+            if (url.pathSegments.lastOrNull() == "playlist.m3u8") {
+                url.newBuilder()
+                    .setPathSegment(url.pathSize - 1, "playlist_vp9.m3u8")
+                    .build()
+                    .toString()
+            } else {
+                sourceUrl
+            }
+        }
         val octopusBase = masterPlaylistUrl.substringBeforeLast("/")
 
-        // External VTT subtitle track.
-        // The CDN always places English captions at s/en.vtt relative to the playlist root.
-        val subtitleTracks = listOf(Track("$octopusBase/s/en.vtt", "English"))
-
-        // Extract signed auth tokens from the `authorization` object in the API response.
-        // These are passed as custom headers on every CDN request ExoPlayer makes.
+        // Signed auth tokens from the API response, if present.
         val auth = payload["authorization"]?.jsonObject
         val videoHeaders = buildOctopusCdnHeaders(episodeUrl, auth)
 
         Log.d(TAG, "Octopus master URL: $masterPlaylistUrl")
 
-        return listOf(
-            Video(
-                url = masterPlaylistUrl,
-                quality = "Octopus · Auto",
-                videoUrl = masterPlaylistUrl,
-                headers = videoHeaders,
-                subtitleTracks = subtitleTracks,
-            ),
-        )
+        // Lightweight master fetch: subtitle URI + declared variant resolutions.
+        // Never fatal — playback works from the master URL alone.
+        var subtitleTrack = Track("$octopusBase/s/en.vtt", "English")
+        val declaredHeights = mutableListOf<Int>()
+        try {
+            val masterBody = client.newCall(GET(masterPlaylistUrl, videoHeaders))
+                .execute()
+                .use { response -> if (response.isSuccessful) response.bodyString() else "" }
+            if (masterBody.isNotBlank()) {
+                val declaredSubtitle = masterBody.lineSequence()
+                    .firstOrNull { it.startsWith("#EXT-X-MEDIA:") && it.contains("TYPE=\"SUBTITLES\"") }
+                    ?.let { line ->
+                        line.substringAfter("URI=\"", "")
+                            .substringBefore('"')
+                            .takeIf { it.isNotBlank() }
+                            ?.let { UrlUtils.fixUrl(it, masterPlaylistUrl) }
+                    }
+                if (declaredSubtitle != null) subtitleTrack = Track(declaredSubtitle, "English")
+
+                masterBody.lineSequence()
+                    .mapNotNull { line ->
+                        RESOLUTION_REGEX.find(line)?.groupValues?.get(1)
+                            ?.substringAfterLast('x')
+                            ?.substringAfterLast('X')
+                            ?.toIntOrNull()
+                    }
+                    .distinct()
+                    .sortedDescending()
+                    .take(MAX_QUALITIES)
+                    .forEach { declaredHeights.add(it) }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch the Octopus master playlist", e)
+        }
+
+        val entries: List<Video> = if (declaredHeights.isEmpty()) {
+            listOf(
+                Video(
+                    url = masterPlaylistUrl,
+                    videoUrl = masterPlaylistUrl,
+                    quality = "Octopus · Auto",
+                    headers = videoHeaders,
+                    subtitleTracks = listOf(subtitleTrack),
+                ),
+            )
+        } else {
+            declaredHeights.map { height ->
+                Video(
+                    url = masterPlaylistUrl,
+                    videoUrl = masterPlaylistUrl,
+                    quality = "Octopus · ${height}p",
+                    headers = videoHeaders,
+                    subtitleTracks = listOf(subtitleTrack),
+                )
+            }
+        }
+
+        Log.d(TAG, "Octopus entries: ${entries.joinToString { it.quality }}")
+        return entries
     }
 
     // ── Header builders ───────────────────────────────────────────────────────
@@ -302,5 +391,10 @@ class OctopusExtractor(private val client: OkHttpClient) {
     companion object {
         private const val TAG = "OctopusExtractor"
         private const val SITE_ORIGIN = "https://hentaihaven.xxx"
+
+        /** Maximum number of per-quality entries produced from the master. */
+        private const val MAX_QUALITIES = 6
+
+        private val RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=([xX\d]+)""") }
     }
 }

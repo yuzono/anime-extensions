@@ -254,7 +254,7 @@ class HentaiHaven :
         val videos = extractor.getVideosFromPayload(apiUrl, playerDataB64, episodeUrl)
 
         val preferred = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        return videos.sortedWith(compareByDescending { it.quality == preferred })
+        return videos.sortedWith(compareByDescending { it.quality.contains(preferred) })
     }
 
     override fun videoListSelector() = ""
