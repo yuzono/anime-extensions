@@ -18,6 +18,10 @@ abstract class GenerateKeepRulesTask : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
+    init {
+        outputDir.convention(project.layout.buildDirectory.dir("generated/keepRules/$name"))
+    }
+
     @TaskAction
     fun action() {
         outputDir.get().file("extClass.keep").asFile.apply {

@@ -34,7 +34,7 @@ class PluginExtensionLegacy : Plugin<Project> {
         assertWithoutFlag(!extra.has("pkgNameSuffix")) { "Gradle configuration cannot contain 'pkgNameSuffix'" }
         assertWithoutFlag(!extra.has("libVersion")) { "Gradle configuration cannot contain 'libVersion'" }
 
-        assertWithoutFlag(extName.max().code < 0x180) { "Extension name should be romanized" }
+        assertWithoutFlag(extName.all { it.code < 0x180 }) { "Extension name should be romanized" }
 
         val theme: Project? = if (extra.has("themePkg")) project(":lib-multisrc:$themePkg") else null
         if (theme != null) evaluationDependsOn(theme.path)
@@ -121,7 +121,8 @@ class PluginExtensionLegacy : Plugin<Project> {
                     buildConfigField("String", "KISSKH_API", "\"https://script.google.com/macros/s/AKfycbzn8B31PuDxzaMa9_CQ0VGEDasFqfzI5bXvjaIZH4DM8DNq9q6xj1ALvZNz_JT3jF0suA/exec?id=\"")
                     buildConfigField("String", "KISSKH_SUB_API", "\"https://script.google.com/macros/s/AKfycbyq6hTj0ZhlinYC6xbggtgo166tp6XaDKBCGtnYk8uOfYBUFwwxBui0sGXiu_zIFmA/exec?id=\"")
                     buildConfigField("String", "KAISVA", "\"https://c-kai-8090.amarullz.com\"")
-                    buildConfigField("String", "TMDB_API", "\"${System.getenv("TMDB_API")}\"")
+                    val tmdbApi = providers.environmentVariable("TMDB_API").orElse("").get()
+                    buildConfigField("String", "TMDB_API", "\"$tmdbApi\"")
                 }
             }
 

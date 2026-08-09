@@ -14,3 +14,4 @@ generated-src/
 .history
 signingkey.jks
 nul
+bin/
