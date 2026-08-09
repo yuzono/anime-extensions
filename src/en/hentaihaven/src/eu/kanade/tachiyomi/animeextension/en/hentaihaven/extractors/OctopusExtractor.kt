@@ -14,6 +14,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Headers
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -243,7 +244,16 @@ class OctopusExtractor(private val client: OkHttpClient) {
         episodeUrl: String,
         payload: JsonObject,
     ): List<Video> {
-        val masterPlaylistUrl = sourceUrl.replace("playlist.m3u8", "playlist_vp9.m3u8")
+        val masterPlaylistUrl = sourceUrl.toHttpUrl().let { url ->
+            if (url.pathSegments.lastOrNull() == "playlist.m3u8") {
+                url.newBuilder()
+                    .setPathSegment(url.pathSize - 1, "playlist_vp9.m3u8")
+                    .build()
+                    .toString()
+            } else {
+                sourceUrl
+            }
+        }
         val octopusBase = masterPlaylistUrl.substringBeforeLast("/")
 
         // Signed auth tokens from the API response, if present.

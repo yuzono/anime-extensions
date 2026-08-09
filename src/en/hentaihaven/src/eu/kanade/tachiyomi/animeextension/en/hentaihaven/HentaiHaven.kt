@@ -119,7 +119,7 @@ class HentaiHaven :
         setUrlWithoutDomain(linkEl?.attr("href") ?: "")
         title = linkEl?.attr("title")?.takeIf { it.isNotBlank() }
             ?: element.selectFirst("div.post-title a, h3 a, h4 a")?.text()
-            ?: ""
+                ?: ""
         thumbnail_url = element.selectFirst("img")?.attr("abs:src")
     }
 
