@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
 import android.os.Looper
+import android.util.Log
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
@@ -103,7 +104,7 @@ class AnimePahe :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
-        val animeId = ANIME_ID_REGEX.find(document.outerHtml())?.groupValues?.get(1)
+        val animeId = document.selectFirst("meta[name=id]")?.attr("content")
 
         return SAnime.create().apply {
             if (animeId != null) {
@@ -425,6 +426,8 @@ class AnimePahe :
 
     // ============================ Video Links =============================
     override fun videoListRequest(episode: SEpisode): Request {
+        // Strip the `?anime_id=...` query parameter.
+        // This parameter is strictly for database mapping and orphan prevention.
         val urlPath = episode.url.substringBefore("?")
         return GET("$baseUrl$urlPath", headers)
     }
@@ -588,7 +591,8 @@ class AnimePahe :
                 val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
                 searchData.items.firstOrNull { it.id.toString() == animeId }?.session
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("AnimePahe", "Error fetching session for ID $animeId ('$title')", e)
             null
         }
     }
@@ -613,8 +617,6 @@ class AnimePahe :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
-
-        private val ANIME_ID_REGEX = Regex("""<meta name="id" content="(\d+)">""")
 
         private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
         private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
