@@ -98,8 +98,7 @@ class AnimePahe :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
-        val html = document.outerHtml()
-        val animeId = ANIME_ID_REGEX.find(html)?.groupValues?.get(1)
+        val animeId = ANIME_ID_REGEX.find(document.outerHtml())?.groupValues?.get(1)
 
         return SAnime.create().apply {
             if (animeId != null) {
@@ -573,7 +572,7 @@ class AnimePahe :
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
 
-        private val ANIME_ID_REGEX = Regex("""anime_id['"]?\s*[:=]\s*['"]?(\d+)""")
+        private val ANIME_ID_REGEX = Regex("""<meta name="id" content="(\d+)">""")
 
         private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
         private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
