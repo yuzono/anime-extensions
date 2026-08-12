@@ -403,7 +403,7 @@ class AnimePahe :
 
     private suspend fun fetchEpisodes(response: Response, session: String): List<SEpisode> {
         val episodeList = mutableListOf<SEpisode>()
-        val urlWithoutPage = response.request.url.toString().substringBefore("&page=")
+        val requestUrl = response.request.url
         var currentData = response.parseAs<ResponseDto<EpisodeDto>>()
 
         if (currentData.items.isNotEmpty()) {
@@ -415,7 +415,10 @@ class AnimePahe :
             episodeList.addAll(parseEpisodePage(currentData.items, session))
             if (currentData.currentPage >= currentData.lastPage) break
 
-            val nextUrl = "$urlWithoutPage&page=${currentData.currentPage + 1}"
+            val nextUrl = requestUrl.newBuilder()
+                .setQueryParameter("page", (currentData.currentPage + 1).toString())
+                .build()
+
             currentData = client.newCall(GET(nextUrl)).await().use { it.parseAs() }
         }
 
