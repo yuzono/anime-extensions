@@ -102,6 +102,34 @@ class AnimePahe :
         throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
     }
 
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val session = anime.getSession()
+        if (session != null) {
+            val urlPath = anime.url.substringBefore("?")
+            return GET("$baseUrl$urlPath")
+        }
+
+        val animeId = anime.getId()
+        if (animeId != null) {
+            val cachedSession = getSessionFromCache(animeId)
+            if (cachedSession != null) {
+                return GET("$baseUrl/anime/$cachedSession")
+            }
+
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                val resolvedSession = fetchSessionFromTitle(animeId, anime.title)
+                if (resolvedSession != null) {
+                    saveSessionToCache(animeId, resolvedSession) // Save to cache
+                    return GET("$baseUrl/anime/$resolvedSession")
+                }
+            }
+
+            return GET("$baseUrl/a/$animeId")
+        }
+
+        return GET("$baseUrl${anime.url}")
+    }
+
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
         val animeId = document.selectFirst("meta[name=id]")?.attr("content")
