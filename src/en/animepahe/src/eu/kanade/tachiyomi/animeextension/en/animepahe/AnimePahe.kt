@@ -584,20 +584,27 @@ class AnimePahe :
                 if (!response.isSuccessful) return null
                 val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
 
-                // If we know the ID, match it exactly.
-                // If no ID, prefer exact title match, then fall back to first result.
                 val matchedAnime = if (animeId != null) {
                     searchData.items.firstOrNull { it.id.toString() == animeId }
                 } else {
-                    searchData.items.firstOrNull { it.title.equals(title, ignoreCase = true) }
-                        ?: searchData.items.firstOrNull()
+                    val normalizedQuery = normalizeTitle(title)
+                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedQuery }
                 }
 
-                matchedAnime?.let { it.id.toString() to it.session }
+                if (matchedAnime == null) return null
+
+                matchedAnime.let { it.id.toString() to it.session }
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun normalizeTitle(raw: String): String {
+        return raw
+            .lowercase()
+            .replace(NORMALIZE_REGEX, "")
+            .trim()
     }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
@@ -620,6 +627,8 @@ class AnimePahe :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
+
+        private val NORMALIZE_REGEX = Regex("[^a-z0-9]+")
 
         private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
         private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
