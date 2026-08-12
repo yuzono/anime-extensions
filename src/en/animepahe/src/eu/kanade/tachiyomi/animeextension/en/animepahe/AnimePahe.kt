@@ -332,6 +332,8 @@ class AnimePahe :
     private fun SAnime.getId() = newAnimeIdRegex.find(url)?.groupValues?.get(1)
         ?: oldQueryIdRegex.find(url)?.groupValues?.get(1)
 
+    private fun SAnime.getSession() = sessionIdRegex.find(url)?.groupValues?.get(1)
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.getId()
         var session = animeId?.let { getSessionFromCache(it) }
@@ -382,11 +384,14 @@ class AnimePahe :
 
     override fun episodeListRequest(anime: SAnime): Request {
         val animeId = anime.getId()
-        val session = animeId?.let { getSessionFromCache(it) }
+        val session = animeId?.let { getSessionFromCache(it) } ?: anime.getSession()
+        if (session == null) {
+            throw IllegalStateException("Anime session not found.")
+        }
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("api")
             addQueryParameter("m", "release")
-            addQueryParameter("id", session ?: "")
+            addQueryParameter("id", session)
             addQueryParameter("sort", "episode_asc")
             addQueryParameter("page", "1")
         }.build()
@@ -616,7 +621,7 @@ class AnimePahe :
                     searchData.items.firstOrNull { it.id.toString() == animeId }
                 } else {
                     val normalizedQuery = normalizeTitle(title)
-                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedQuery }
+                    searchData.items.firstOrNull { normalizeTitle(it.title).contains(normalizedQuery) }
                 }
 
                 if (matchedAnime == null) return null
