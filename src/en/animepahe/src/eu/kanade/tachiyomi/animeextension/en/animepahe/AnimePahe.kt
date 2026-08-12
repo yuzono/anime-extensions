@@ -78,32 +78,27 @@ class AnimePahe :
     // =========================== Anime Details ============================
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val request = animeDetailsRequest(anime)
-        try {
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    return animeDetailsParse(response)
-                } else {
-                    val animeId = anime.getId()
-                    if (animeId != null) {
-                        val newSession = fetchSessionFromTitle(animeId, anime.title)
-                        if (newSession != null) {
-                            saveSessionToCache(animeId, newSession)
-                            val newRequest = GET("$baseUrl/anime/$newSession")
-                            client.newCall(newRequest).execute().use { newResponse ->
-                                if (newResponse.isSuccessful) {
-                                    return animeDetailsParse(newResponse)
-                                }
-                                throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $animeId) at ${newRequest.url}")
-                            }
-                        }
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                return animeDetailsParse(response)
+            }
+        }
+
+        val animeId = anime.getId()
+        if (animeId != null) {
+            val newSession = fetchSessionFromTitle(animeId, anime.title)
+            if (newSession != null) {
+                saveSessionToCache(animeId, newSession)
+                val newRequest = GET("$baseUrl/anime/$newSession")
+                client.newCall(newRequest).execute().use { newResponse ->
+                    if (newResponse.isSuccessful) {
+                        return animeDetailsParse(newResponse)
                     }
-                    throw IOException("HTTP ${response.code} fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+                    throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $animeId) at ${newRequest.url}")
                 }
             }
-        } catch (e: Exception) {
-            if (e is IOException) throw e
-            throw IOException("Network error fetching details for '${anime.title}' (ID: ${anime.getId() ?: "N/A"})", e)
         }
+        throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -300,41 +295,36 @@ class AnimePahe :
     // ============================== Episodes ==============================
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val request = episodeListRequest(anime)
-        try {
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    return episodeListParse(response)
-                } else {
-                    val animeId = anime.getId()
-                    val title = anime.title
-                    if (animeId != null && title.isNotBlank()) {
-                        val newSession = fetchSessionFromTitle(animeId, title)
-                        if (newSession != null) {
-                            saveSessionToCache(animeId, newSession)
-                            val newUrl = baseUrl.toHttpUrl().newBuilder().apply {
-                                addPathSegment("api")
-                                addQueryParameter("m", "release")
-                                addQueryParameter("id", newSession)
-                                addQueryParameter("sort", "episode_asc")
-                                addQueryParameter("page", "1")
-                                addQueryParameter("anime_id", animeId)
-                                addQueryParameter("title", title)
-                            }.build()
-                            client.newCall(GET(newUrl)).execute().use { newResponse ->
-                                if (newResponse.isSuccessful) {
-                                    return episodeListParse(newResponse)
-                                }
-                                throw IOException("HTTP ${newResponse.code} fetching episodes for '$title' (ID: $animeId) at $newUrl")
-                            }
-                        }
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                return episodeListParse(response)
+            }
+        }
+
+        val animeId = anime.getId()
+        val title = anime.title
+        if (animeId != null && title.isNotBlank()) {
+            val newSession = fetchSessionFromTitle(animeId, title)
+            if (newSession != null) {
+                saveSessionToCache(animeId, newSession)
+                val newUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                    addPathSegment("api")
+                    addQueryParameter("m", "release")
+                    addQueryParameter("id", newSession)
+                    addQueryParameter("sort", "episode_asc")
+                    addQueryParameter("page", "1")
+                    addQueryParameter("anime_id", animeId)
+                    addQueryParameter("title", title)
+                }.build()
+                client.newCall(GET(newUrl)).execute().use { newResponse ->
+                    if (newResponse.isSuccessful) {
+                        return episodeListParse(newResponse)
                     }
-                    throw IOException("HTTP ${response.code} fetching episodes for '$title' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+                    throw IOException("HTTP ${newResponse.code} fetching episodes for '$title' (ID: $animeId) at $newUrl")
                 }
             }
-        } catch (e: Exception) {
-            if (e is IOException) throw e
-            throw IOException("Network error fetching episodes for '${anime.title}' (ID: ${anime.getId() ?: "N/A"})", e)
         }
+        throw IOException("HTTP error fetching episodes for '$title' (ID: ${animeId ?: "N/A"}) at ${request.url}")
     }
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -569,20 +559,20 @@ class AnimePahe :
 
     // ============================= Utilities ==============================
     private fun saveSessionToCache(animeId: String, session: String) {
-        val idCached = getSessionFromCache(animeId) == session
-        val sessionCached = getIdFromCache(session) == animeId
+        val idKey = SESSION_CACHE_PREFIX + animeId
+        val sessionKey = ID_CACHE_PREFIX + session
 
-        if (!idCached || !sessionCached) {
+        if (preferences.getString(idKey, null) != session || preferences.getString(sessionKey, null) != animeId) {
             preferences.edit()
-                .putString("session_cache_$animeId", session)
-                .putString("id_cache_$session", animeId)
+                .putString(idKey, session)
+                .putString(sessionKey, animeId)
                 .apply()
         }
     }
 
-    private fun getSessionFromCache(animeId: String): String? = preferences.getString("session_cache_$animeId", null)
+    private fun getSessionFromCache(animeId: String): String? = preferences.getString(SESSION_CACHE_PREFIX + animeId, null)
 
-    private fun getIdFromCache(session: String): String? = preferences.getString("id_cache_$session", null)
+    private fun getIdFromCache(session: String): String? = preferences.getString(ID_CACHE_PREFIX + session, null)
 
     private fun fetchSessionFromTitle(animeId: String, title: String?): String? {
         if (title.isNullOrBlank()) return null
@@ -667,6 +657,10 @@ class AnimePahe :
         private const val PREF_SHOW_SITE_NUMBER_TITLE = "Show Site Episode Number"
         private const val PREF_SHOW_SITE_NUMBER_DEFAULT = false
         private const val PREF_SHOW_SITE_NUMBER_SUMMARY = "Show the actual episode number from the site in the episode title"
+
+        private const val CACHE_VERSION = 1
+        private const val SESSION_CACHE_PREFIX = "v${CACHE_VERSION}_session_cache_"
+        private const val ID_CACHE_PREFIX = "v${CACHE_VERSION}_id_cache_"
 
         const val UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
         private const val PREF_CF_UA_KEY = "cf_bypass_ua"
