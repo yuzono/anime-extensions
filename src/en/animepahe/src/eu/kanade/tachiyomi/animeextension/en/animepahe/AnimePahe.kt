@@ -98,8 +98,13 @@ class AnimePahe :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
+        val html = document.outerHtml()
+        val animeId = ANIME_ID_REGEX.find(html)?.groupValues?.get(1)
+
         return SAnime.create().apply {
-            // We want the database to keep the /a/{id} URL permanently, so that entries never get orphaned.
+            if (animeId != null) {
+                url = "/a/$animeId"
+            }
 
             title = document.selectFirst("div.title-wrapper > h1 > span")!!.text()
             author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studios:)")
@@ -260,9 +265,12 @@ class AnimePahe :
         val recommendationAnimes = document.select("div.anime-content div.anime-recommendation .mx-n1")
         return (relationAnimes + recommendationAnimes).mapNotNull { entry ->
             entry.selectFirst("h5 > a")?.let { it: Element ->
+                val sessionUrl = it.attr("href")
+                val session = sessionIdRegex.find(sessionUrl)?.groupValues?.get(1)
+                val knownId = session?.let { getIdFromCache(it) }
+
                 SAnime.create().apply {
-                    // Related animes URL using sessionId, it doesn't come with animeId
-                    setUrlWithoutDomain(it.attr("href"))
+                    setUrlWithoutDomain(knownId?.let { "/a/$it" } ?: sessionUrl)
                     title = it.ownText()
                     thumbnail_url = entry.selectFirst("img")?.attr("abs:data-src")
                 }
@@ -375,7 +383,6 @@ class AnimePahe :
     }
 
     // ============================ Video Links =============================
-
     override fun videoListRequest(episode: SEpisode): Request {
         val urlPath = episode.url.substringBefore("?")
         return GET("$baseUrl$urlPath", headers)
@@ -510,14 +517,21 @@ class AnimePahe :
     }
 
     // ============================= Utilities ==============================
-
     private fun saveSessionToCache(animeId: String, session: String) {
-        if (getSessionFromCache(animeId) != session) {
-            preferences.edit().putString("session_cache_$animeId", session).apply()
+        val idCached = getSessionFromCache(animeId) == session
+        val sessionCached = getIdFromCache(session) == animeId
+
+        if (!idCached || !sessionCached) {
+            preferences.edit()
+                .putString("session_cache_$animeId", session)
+                .putString("id_cache_$session", animeId)
+                .apply()
         }
     }
 
     private fun getSessionFromCache(animeId: String): String? = preferences.getString("session_cache_$animeId", null)
+
+    private fun getIdFromCache(session: String): String? = preferences.getString("id_cache_$session", null)
 
     private fun fetchSessionFromTitle(animeId: String, title: String?): String? {
         if (title.isNullOrBlank()) return null
@@ -558,6 +572,8 @@ class AnimePahe :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
         }
+
+        private val ANIME_ID_REGEX = Regex("""anime_id['"]?\s*[:=]\s*['"]?(\d+)""")
 
         private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
         private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
