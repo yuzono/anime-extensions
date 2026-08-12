@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import android.os.Looper
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
@@ -75,25 +74,28 @@ class AnimePahe :
     override val supportsLatest = false
 
     // =========================== Anime Details ============================
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        val animeId = anime.getId()
-        if (animeId != null) {
-            val cachedSession = getSessionFromCache(animeId)
-            if (cachedSession != null) {
-                return GET("$baseUrl/anime/$cachedSession")
-            }
-
-            if (Looper.myLooper() != Looper.getMainLooper()) {
-                val resolvedSession = fetchSessionFromTitle(animeId, anime.title)
-                if (resolvedSession != null) {
-                    saveSessionToCache(animeId, resolvedSession) // Save to cache
-                    return GET("$baseUrl/anime/$resolvedSession")
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val request = animeDetailsRequest(anime)
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                return animeDetailsParse(response)
+            } else {
+                val animeId = anime.getId()
+                if (animeId != null) {
+                    val newSession = fetchSessionFromTitle(animeId, anime.title)
+                    if (newSession != null) {
+                        saveSessionToCache(animeId, newSession)
+                        val newRequest = GET("$baseUrl/anime/$newSession")
+                        client.newCall(newRequest).execute().use { newResponse ->
+                            if (newResponse.isSuccessful) {
+                                return animeDetailsParse(newResponse)
+                            }
+                        }
+                    }
                 }
+                throw Exception("HTTP ${response.code}")
             }
-
-            return GET("$baseUrl/a/$animeId")
         }
-        return GET("$baseUrl${anime.url}")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -287,59 +289,85 @@ class AnimePahe :
 
     private fun SAnime.getSession() = sessionIdRegex.find(url)?.groupValues?.get(1)
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        val animeId = anime.getId()
-
-        var session = anime.getSession()
-
-        if (session == null && animeId != null) {
-            session = getSessionFromCache(animeId)
-        }
-
-        if (session == null && animeId != null && Looper.myLooper() != Looper.getMainLooper()) {
-            session = fetchSessionFromTitle(animeId, anime.title)
-            // Save mapping to cache, useful for relatedAnime entries that don't have anime_id in HTML
-            if (session != null) {
-                saveSessionToCache(animeId, session)
+    // ============================== Episodes ==============================
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val request = episodeListRequest(anime)
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                return episodeListParse(response)
+            } else {
+                val animeId = anime.getId()
+                val title = anime.title
+                if (animeId != null && title.isNotBlank()) {
+                    val newSession = fetchSessionFromTitle(animeId, title)
+                    if (newSession != null) {
+                        saveSessionToCache(animeId, newSession)
+                        val newUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                            addPathSegment("api")
+                            addQueryParameter("m", "release")
+                            addQueryParameter("id", newSession)
+                            addQueryParameter("sort", "episode_asc")
+                            addQueryParameter("page", "1")
+                            addQueryParameter("anime_id", animeId)
+                            addQueryParameter("title", title)
+                        }.build()
+                        client.newCall(GET(newUrl)).execute().use { newResponse ->
+                            if (newResponse.isSuccessful) {
+                                return episodeListParse(newResponse)
+                            }
+                        }
+                    }
+                }
+                throw Exception("HTTP ${response.code}")
             }
         }
-
-        if (session == null) {
-            throw IllegalStateException("Anime session not found. Please open the anime details page to update the URL.")
-        }
-
-        val url = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("api")
-            addQueryParameter("m", "release")
-            addQueryParameter("id", session)
-            addQueryParameter("sort", "episode_asc")
-            addQueryParameter("page", "1")
-        }.build()
-
-        return GET(url)
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val url = response.request.url
         val session = url.queryParameter("id")
             ?: throw IllegalStateException("Anime session not found in URL: $url")
+
+        val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
         val episodeList = mutableListOf<SEpisode>()
-        recursivePages(episodeList, response, session)
+        recursivePages(episodeList, episodesData, session, url.toString().substringBefore("&page="))
+
         val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
 
-        return episodeList
-            .mapIndexed { index, episode ->
-                val siteEpisodeNumber = episode.name.removePrefix("Episode ")
-                episode.apply {
-                    episode_number = (index + 1).toFloat()
-                    name = if (showSiteEpisodeNumber && siteEpisodeNumber != (index + 1).toString()) {
-                        "Episode ${index + 1} ($siteEpisodeNumber)"
-                    } else {
-                        "Episode ${index + 1}"
-                    }
+        return episodeList.mapIndexed { index, episode ->
+            val siteEpisodeNumber = episode.name.removePrefix("Episode ")
+            episode.apply {
+                episode_number = (index + 1).toFloat()
+                name = if (showSiteEpisodeNumber && siteEpisodeNumber != (index + 1).toString()) {
+                    "Episode ${index + 1} ($siteEpisodeNumber)"
+                } else {
+                    "Episode ${index + 1}"
                 }
             }
-            .reversed()
+        }.reversed()
+    }
+
+    private fun recursivePages(
+        episodeList: MutableList<SEpisode>,
+        episodesData: ResponseDto<EpisodeDto>,
+        animeSession: String,
+        urlWithoutPage: String,
+    ) {
+        val page = episodesData.currentPage
+        val hasNextPage = page < episodesData.lastPage
+
+        if (episodesData.items.isNotEmpty()) {
+            val animeId = episodesData.items.first().animeId.toString()
+            saveSessionToCache(animeId, animeSession)
+        }
+
+        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
+        if (hasNextPage) {
+            nextPageRequest(urlWithoutPage, page + 1).use { nextPage ->
+                val nextData = nextPage.parseAs<ResponseDto<EpisodeDto>>()
+                recursivePages(episodeList, nextData, animeSession, urlWithoutPage)
+            }
+        }
     }
 
     private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
@@ -358,26 +386,8 @@ class AnimePahe :
         }
     }.toMutableList()
 
-    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String) {
-        val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
-        val page = episodesData.currentPage
-        val hasNextPage = page < episodesData.lastPage
-
-        if (episodesData.items.isNotEmpty()) {
-            val animeId = episodesData.items.first().animeId.toString()
-            saveSessionToCache(animeId, animeSession)
-        }
-
-        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
-        if (hasNextPage) {
-            nextPageRequest(response.request.url.toString(), page + 1).use { nextPage ->
-                recursivePages(episodeList, nextPage, animeSession)
-            }
-        }
-    }
-
-    private fun nextPageRequest(url: String, page: Int): Response {
-        val request = GET(url.substringBeforeLast("&page=") + "&page=$page")
+    private fun nextPageRequest(urlWithoutPage: String, page: Int): Response {
+        val request = GET("$urlWithoutPage&page=$page")
         return client.newCall(request).execute()
     }
 
