@@ -403,7 +403,7 @@ class AnimePahe :
                 }
                 .thenByDescending {
                     val quality = it.quality.lowercase()
-                    val isDub = quality.contains("eng") || quality.contains("dub")
+                    val isDub = quality.contains("eng")
                     if (shouldEndWithEng) isDub else !isDub
                 }
                 .thenByDescending { it.quality.lowercase().contains("av1") == shouldBeAv1 },

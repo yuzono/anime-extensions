@@ -217,6 +217,17 @@ class CinebyExtractor(
     }
 
     /**
+     * Returns true if the quality string already represents a real resolution
+     * (e.g. "1080p", "720p", "480p", "4K", "2160p", or bare digits like "1080").
+     * These don't need HLS expansion — the server already provided the correct label.
+     */
+    private fun isRealResolution(quality: String): Boolean = quality.isNotBlank() && (
+        qualityRegex.containsMatchIn(quality) ||
+            quality.contains("4k", ignoreCase = true) ||
+            quality.all { it.isDigit() }
+        )
+
+    /**
      * Extracts a numeric quality value for sorting. Maps "4K" to 2160
      * so it sorts above 1080p instead of being treated as 0.
      */
@@ -265,11 +276,18 @@ class CinebyExtractor(
                     val isDash = source.url.lowercase().contains(".mpd")
                     val isLang = isLanguageAsQuality(server, rawQuality)
 
-                    // Always expand HLS/Dash to extract multiple audio tracks and resolutions.
-                    // For servers with generic playlists (like Yoru/Neon), we must expand
-                    // to find the actual resolutions.
+                    // Expand when quality is NOT a real resolution AND either:
+                    // - URL is .m3u8/.mpd (standard HLS/DASH), or
+                    // - Quality is a language name (these are almost always HLS
+                    //   even if the URL doesn't contain .m3u8 explicitly)
+                    // - Quality is a generic placeholder (e.g. "Auto", "video")
+                    //   to catch playlists that lack a file extension.
+                    //
+                    // FORCE EXPANSION FOR BREACH: m4uhd often returns a master playlist
+                    // without a .m3u8 extension. We force it here to extract the variants.
                     val isGeneric = isGenericQuality(rawQuality)
-                    val needsExpansion = isHls || isDash || isLang || isGeneric
+                    val needsExpansion = (!isRealResolution(rawQuality) && (isHls || isDash || isLang || isGeneric)) ||
+                        (server.displayName == "Breach")
 
                     if (needsExpansion) {
                         val expanded = runCatching {
@@ -333,18 +351,8 @@ class CinebyExtractor(
             else -> emptyList()
         }
 
-        return videos.distinctBy { it.videoUrl }.map { video ->
-            if (video.audioTracks.size > 1 && !video.quality.contains("Multi audio", ignoreCase = true)) {
-                val newQuality = if (video.quality.contains("audio")) {
-                    video.quality.replace(Regex("""\w+ audio"""), "Multi audio")
-                } else {
-                    video.quality + " · Multi audio"
-                }
-                video.copy(quality = newQuality)
-            } else {
-                video
-            }
-        }
+        // Return directly without post-processing to preserve original labels
+        return videos.distinctBy { it.videoUrl }
     }
 
     private fun cacheKey(
@@ -393,7 +401,7 @@ class CinebyExtractor(
     }
 
     companion object {
-        private const val VIDEASY_API_BASE = "https://api.wingsdatabase.com"
+        private const val VIDEASY_API_BASE = "https://api.speedracelight.com"
         private const val DECRYPTION_API_URL = "https://enc-dec.app/api/dec-videasy"
         private const val HEX = "0123456789ABCDEF"
 
@@ -419,48 +427,21 @@ class CinebyExtractor(
         private val GENERIC_QUALITY_REGEX = Regex("""^(video|stream|hls|dash)(\s+.*)?$""")
 
         //   Official servers (verified against website JS + reference table)
-        //   Jett    = jett                                   (api.wingsdatabase.com)
-        //   Yoru    = cdn          [MOVIE ONLY, MAY HAVE 4K] (api.wingsdatabase.com)
-        //   Tejo    = tejo                                   (api.wingsdatabase.com)
-        //   Neon    = neon2                                  (api.wingsdatabase.com)
-        //   Sage    = ym                                     (api.wingsdatabase.com)
-        //   Cypher  = downloader2                            (api.wingsdatabase.com)
-        //   Breach  = m4uhd                                  (api.wingsdatabase.com)
-        //   Vyse    = hdmovie      [FILTERS quality=English] (api.wingsdatabase.com)
-        //   Killjoy = meine ?lang=german  - German           (api.wingsdatabase.com)
-        //   Fade    = hdmovie      [FILTERS quality=Hindi]   (api.wingsdatabase.com)
-        //   Omen    = lamovie             - Spanish          (api.wingsdatabase.com)
-        //   Raze    = superflix           - Portuguese       (api.wingsdatabase.com)
+        //   Yoru    = cdn                      [MAY HAVE 4K] (api.speedracelight.com)
+        //   Cypher  = downloader2                            (api.speedracelight.com)
+        //   Breach  = m4uhd                                  (api.speedracelight.com)
+        //   Neon    = vsrc                                   (api.speedracelight.com)
+        //   Vyse    = hdmovie      [FILTERS quality=English] (api.speedracelight.com)
+        //   Killjoy = meine ?lang=german  - German           (api.speedracelight.com)
+        //   Fade    = hdmovie      [FILTERS quality=Hindi]   (api.speedracelight.com)
+        //   Omen    = lamovie             - Spanish          (api.speedracelight.com)
+        //   Raze    = superflix           - Portuguese       (api.speedracelight.com)
         val VIDEASY_SERVERS = listOf(
-            VideasyServer(
-                "Jett",
-                VIDEASY_API_BASE,
-                "jett",
-                audioLabel = "Original",
-            ),
             VideasyServer(
                 "Yoru",
                 VIDEASY_API_BASE,
                 "cdn",
                 mayHave4K = true,
-                audioLabel = "Original",
-            ),
-            VideasyServer(
-                "Tejo",
-                VIDEASY_API_BASE,
-                "tejo",
-                audioLabel = "Original",
-            ),
-            VideasyServer(
-                "Neon",
-                VIDEASY_API_BASE,
-                "neon2",
-                audioLabel = "Original",
-            ),
-            VideasyServer(
-                "Sage",
-                VIDEASY_API_BASE,
-                "ym",
                 audioLabel = "Original",
             ),
             VideasyServer(
@@ -473,6 +454,12 @@ class CinebyExtractor(
                 "Breach",
                 VIDEASY_API_BASE,
                 "m4uhd",
+                audioLabel = "Original",
+            ),
+            VideasyServer(
+                "Neon",
+                VIDEASY_API_BASE,
+                "vsrc",
                 audioLabel = "Original",
             ),
             VideasyServer(
