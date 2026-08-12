@@ -600,12 +600,10 @@ class AnimePahe :
         }
     }
 
-    private fun normalizeTitle(raw: String): String {
-        return raw
-            .lowercase()
-            .replace(NORMALIZE_REGEX, "")
-            .trim()
-    }
+    private fun normalizeTitle(raw: String): String = raw
+        .lowercase()
+        .replace(NORMALIZE_REGEX, "")
+        .trim()
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING
