@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
-import android.util.Log
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
@@ -355,11 +354,11 @@ class AnimePahe :
 
     override fun episodeListRequest(anime: SAnime): Request {
         val animeId = anime.getId()
-        val session = animeId?.let { getSessionFromCache(it) } ?: throw IllegalStateException("Anime session not found.")
+        val session = animeId?.let { getSessionFromCache(it) }
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("api")
             addQueryParameter("m", "release")
-            addQueryParameter("id", session)
+            addQueryParameter("id", session ?: "")
             addQueryParameter("sort", "episode_asc")
             addQueryParameter("page", "1")
         }.build()
@@ -585,16 +584,18 @@ class AnimePahe :
                 if (!response.isSuccessful) return null
                 val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
 
+                // If we know the ID, match it exactly.
+                // If no ID, prefer exact title match, then fall back to first result.
                 val matchedAnime = if (animeId != null) {
                     searchData.items.firstOrNull { it.id.toString() == animeId }
                 } else {
-                    searchData.items.firstOrNull()
+                    searchData.items.firstOrNull { it.title.equals(title, ignoreCase = true) }
+                        ?: searchData.items.firstOrNull()
                 }
 
                 matchedAnime?.let { it.id.toString() to it.session }
             }
-        } catch (e: Exception) {
-            Log.e("AnimePahe", "Error fetching session for ID $animeId ('$title')", e)
+        } catch (_: Exception) {
             null
         }
     }
