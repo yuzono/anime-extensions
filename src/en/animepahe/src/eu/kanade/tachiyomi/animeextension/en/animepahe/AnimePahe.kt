@@ -76,6 +76,7 @@ class AnimePahe :
     override val supportsLatest = false
 
     // =========================== Anime Details ============================
+
     /*** AnimePahe gives anime page {session_id} that varies after a few days.
      *   Code was remade so that it could fetch new {session_id}
      *   from a constant {anime_id}, which can be found in airing/search
