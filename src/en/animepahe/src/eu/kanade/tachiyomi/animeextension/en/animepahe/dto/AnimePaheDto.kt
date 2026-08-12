@@ -17,26 +17,25 @@ data class ResponseDto<T>(
 
 @Serializable
 data class LatestAnimeDto(
-    @SerialName("anime_title")
-    val title: String,
+    @SerialName("anime_id") val id: Int,
+    @SerialName("anime_session") val session: String,
+    @SerialName("anime_title") val title: String,
     val snapshot: String,
-    @SerialName("anime_id")
-    val id: Int,
-    val fansub: String,
+    val fansub: String? = null,
 )
 
 @Serializable
 data class SearchResultDto(
+    val id: Int,
     val title: String,
     val poster: String,
-    val id: Int,
+    val session: String,
 )
 
 @Serializable
 data class EpisodeDto(
-    @SerialName("created_at")
-    val createdAt: String,
+    @SerialName("created_at") val createdAt: String,
     val session: String,
-    @SerialName("episode")
-    val episodeNumber: Float,
+    @SerialName("episode") val episodeNumber: Float,
+    @SerialName("anime_id") val animeId: Int,
 )

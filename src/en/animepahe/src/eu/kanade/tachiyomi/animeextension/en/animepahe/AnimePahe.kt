@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
+import android.os.Looper
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.en.animepahe.dto.EpisodeDto
@@ -30,7 +31,6 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -75,20 +75,32 @@ class AnimePahe :
     override val supportsLatest = false
 
     // =========================== Anime Details ============================
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val animeId = anime.getId()
+        if (animeId != null) {
+            val cachedSession = getSessionFromCache(animeId)
+            if (cachedSession != null) {
+                return GET("$baseUrl/anime/$cachedSession")
+            }
 
-    /**
-     * This override is necessary because AnimePahe does not provide permanent
-     * URLs to its animes, so we need to fetch the anime session every time.
-     *
-     * @see episodeListRequest
-     */
-    override fun animeDetailsRequest(anime: SAnime): Request = anime.getId()
-        ?.let { GET("$baseUrl/a/$it") }
-        ?: GET("$baseUrl${anime.url}") // fallback to session URL (when searching by filters): /anime/{sessionId}
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                val resolvedSession = fetchSessionFromTitle(animeId, anime.title)
+                if (resolvedSession != null) {
+                    saveSessionToCache(animeId, resolvedSession) // Save to cache
+                    return GET("$baseUrl/anime/$resolvedSession")
+                }
+            }
+
+            return GET("$baseUrl/a/$animeId")
+        }
+        return GET("$baseUrl${anime.url}")
+    }
 
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
         return SAnime.create().apply {
+            // We want the database to keep the /a/{id} URL permanently, so that entries never get orphaned.
+
             title = document.selectFirst("div.title-wrapper > h1 > span")!!.text()
             author = document.selectFirst("div.col-sm-4.anime-info p:contains(Studios:)")
                 ?.text()
@@ -131,11 +143,12 @@ class AnimePahe :
         val latestData = response.parseAs<ResponseDto<LatestAnimeDto>>()
         val hasNextPage = latestData.currentPage < latestData.lastPage
         val animeList = latestData.items.map { anime ->
+            saveSessionToCache(anime.id.toString(), anime.session)
+
             SAnime.create().apply {
                 title = anime.title
                 thumbnail_url = anime.snapshot
-                val animeId = anime.id
-                setUrlWithoutDomain("/a/$animeId")
+                setUrlWithoutDomain("/a/${anime.id}")
                 artist = anime.fansub
             }
         }
@@ -206,11 +219,12 @@ class AnimePahe :
         if (url.pathSegments.contains("api") && url.queryParameter("m") == "search") {
             val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
             val animeList = searchData.items.map { anime ->
+                saveSessionToCache(anime.id.toString(), anime.session)
+
                 SAnime.create().apply {
                     title = anime.title
                     thumbnail_url = anime.poster
-                    val animeId = anime.id
-                    setUrlWithoutDomain("/a/$animeId")
+                    setUrlWithoutDomain("/a/${anime.id}")
                 }
             }
             return AnimesPage(animeList, false)
@@ -257,41 +271,53 @@ class AnimePahe :
     }
 
     // ============================== Episodes ==============================
+    private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
+    private val newAnimeIdRegex by lazy { Regex("""/a/(\d+)""") }
+    private val oldQueryIdRegex by lazy { Regex("""\?anime_id=(\d+)""") }
 
-    /**
-     * This override is necessary because AnimePahe does not provide permanent
-     * URLs to its animes, so we need to fetch the anime session every time.
-     *
-     * @see animeDetailsRequest
-     */
+    private fun SAnime.getId() = newAnimeIdRegex.find(url)?.groupValues?.get(1)
+        ?: oldQueryIdRegex.find(url)?.groupValues?.get(1)
+
+    private fun SAnime.getSession() = sessionIdRegex.find(url)?.groupValues?.get(1)
+
     override fun episodeListRequest(anime: SAnime): Request {
         val animeId = anime.getId()
-        val session = animeId?.let { fetchSession(it) }
-            ?: sessionIdRegex.find(anime.url)?.groupValues?.get(1)
-            ?: throw IllegalStateException("Anime session not found")
+
+        var session = anime.getSession()
+
+        if (session == null && animeId != null) {
+            session = getSessionFromCache(animeId)
+        }
+
+        if (session == null && animeId != null && Looper.myLooper() != Looper.getMainLooper()) {
+            session = fetchSessionFromTitle(animeId, anime.title)
+            // Save mapping to cache, useful for relatedAnime entries that don't have anime_id in HTML
+            if (session != null) {
+                saveSessionToCache(animeId, session)
+            }
+        }
+
+        if (session == null) {
+            throw IllegalStateException("Anime session not found. Please open the anime details page to update the URL.")
+        }
 
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("api")
             addQueryParameter("m", "release")
             addQueryParameter("id", session)
             addQueryParameter("sort", "episode_asc")
-            animeId?.let { addQueryParameter("anime_id", it) }
             addQueryParameter("page", "1")
         }.build()
 
         return GET(url)
     }
 
-    private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
-    private val stableEpisodeRegex by lazy { Regex("""/play/anime/(\d+)/episode/([\d.]+)""") }
-
     override fun episodeListParse(response: Response): List<SEpisode> {
         val url = response.request.url
         val session = url.queryParameter("id")
             ?: throw IllegalStateException("Anime session not found in URL: $url")
-        val animeId = url.queryParameter("anime_id")
         val episodeList = mutableListOf<SEpisode>()
-        recursivePages(episodeList, response, session, animeId)
+        recursivePages(episodeList, response, session)
         val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
 
         return episodeList
@@ -309,11 +335,11 @@ class AnimePahe :
             .reversed()
     }
 
-    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String, animeId: String?): MutableList<SEpisode> = episodes.map { episode ->
+    private fun parseEpisodePage(episodes: List<EpisodeDto>, animeSession: String): MutableList<SEpisode> = episodes.map { episode ->
         SEpisode.create().apply {
             date_upload = episode.createdAt.let { DATE_FORMATTER.tryParse(it) }
             val session = episode.session
-            setUrlWithoutDomain(animeId?.let { "/play/anime/$it/episode/${episode.episodeNumber}" } ?: "/play/$animeSession/$session")
+            setUrlWithoutDomain("/play/$animeSession/$session?anime_id=${episode.animeId}")
             val epNum = episode.episodeNumber
             episode_number = epNum
             val epName = if (floor(epNum) == ceil(epNum)) {
@@ -325,14 +351,20 @@ class AnimePahe :
         }
     }.toMutableList()
 
-    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String, animeId: String?) {
+    private fun recursivePages(episodeList: MutableList<SEpisode>, response: Response, animeSession: String) {
         val episodesData = response.parseAs<ResponseDto<EpisodeDto>>()
         val page = episodesData.currentPage
         val hasNextPage = page < episodesData.lastPage
-        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession, animeId))
+
+        if (episodesData.items.isNotEmpty()) {
+            val animeId = episodesData.items.first().animeId.toString()
+            saveSessionToCache(animeId, animeSession)
+        }
+
+        episodeList.addAll(parseEpisodePage(episodesData.items, animeSession))
         if (hasNextPage) {
             nextPageRequest(response.request.url.toString(), page + 1).use { nextPage ->
-                recursivePages(episodeList, nextPage, animeSession, animeId)
+                recursivePages(episodeList, nextPage, animeSession)
             }
         }
     }
@@ -345,14 +377,8 @@ class AnimePahe :
     // ============================ Video Links =============================
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val stableEpisode = stableEpisodeRegex.find(episode.url)
-            ?: return GET("$baseUrl${episode.url}")
-
-        val animeId = stableEpisode.groupValues[1]
-        val episodeNumber = stableEpisode.groupValues[2].toFloat()
-        val animeSession = fetchSession(animeId)
-        val episodeSession = fetchEpisodeSession(animeSession, episodeNumber)
-        return GET("$baseUrl/play/$animeSession/$episodeSession")
+        val urlPath = episode.url.substringBefore("?")
+        return GET("$baseUrl$urlPath", headers)
     }
 
     override fun videoListParse(response: Response): List<Video> {
@@ -485,33 +511,31 @@ class AnimePahe :
 
     // ============================= Utilities ==============================
 
-    /**
-     * AnimePahe does not provide permanent URLs to its animes,
-     * so we need to fetch the anime session every time.
-     */
-    private fun fetchSession(animeId: String): String {
-        val sessionId = client.newCall(GET("$baseUrl/a/$animeId")).execute().use {
-            it.request.url.pathSegments.last()
+    private fun saveSessionToCache(animeId: String, session: String) {
+        if (getSessionFromCache(animeId) != session) {
+            preferences.edit().putString("session_cache_$animeId", session).apply()
         }
-        return sessionId
     }
 
-    private fun fetchEpisodeSession(animeSession: String, episodeNumber: Float): String {
-        var page = 1
-        while (true) {
-            val request = GET("$baseUrl/api?m=release&id=$animeSession&sort=episode_asc&page=$page")
-            val episodesData = client.newCall(request).execute().use { response ->
-                response.parseAs<ResponseDto<EpisodeDto>>()
+    private fun getSessionFromCache(animeId: String): String? = preferences.getString("session_cache_$animeId", null)
+
+    private fun fetchSessionFromTitle(animeId: String, title: String?): String? {
+        if (title.isNullOrBlank()) return null
+
+        val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("api")
+            addQueryParameter("m", "search")
+            addQueryParameter("q", title)
+        }.build()
+
+        return try {
+            client.newCall(GET(searchUrl)).execute().use { response ->
+                val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+                searchData.items.firstOrNull { it.id.toString() == animeId }?.session
             }
-
-            episodesData.items.firstOrNull { abs(it.episodeNumber - episodeNumber) < 0.001f }
-                ?.let { return it.session }
-
-            if (page >= episodesData.lastPage) break
-            page++
+        } catch (_: Exception) {
+            null
         }
-
-        throw IllegalStateException("Episode session not found")
     }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
@@ -519,12 +543,6 @@ class AnimePahe :
         "Finished Airing" -> SAnime.COMPLETED
         else -> SAnime.UNKNOWN
     }
-
-    private val newAnimeIdRegex by lazy { Regex("""/a/(\d+)""") }
-    private val oldAnimeIdRegex by lazy { Regex("""\?anime_id=(\d+)""") }
-
-    private fun SAnime.getId() = newAnimeIdRegex.find(url)?.let { it.groupValues[1] }
-        ?: oldAnimeIdRegex.find(url)?.let { it.groupValues[1] }
 
     private val cfBypassUserAgent: String
         get() {
@@ -571,7 +589,6 @@ class AnimePahe :
         private val PREF_LINK_TYPE_SUMMARY = """Enable this if you are having Cloudflare issues.
         """.trimMargin()
 
-        // Big slap to whoever misspelled `preferred`
         private const val PREF_AV1_KEY = "preferred_av1"
         private const val PREF_AV1_TITLE = "Use AV1 Codec"
         private const val PREF_AV1_DEFAULT = false
