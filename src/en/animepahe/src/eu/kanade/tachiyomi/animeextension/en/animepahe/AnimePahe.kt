@@ -76,6 +76,33 @@ class AnimePahe :
     override val supportsLatest = false
 
     // =========================== Anime Details ============================
+    /*** AnimePahe gives anime page {session_id} that varies after a few days.
+     *   Code was remade so that it could fetch new {session_id}
+     *   from a constant {anime_id}, which can be found in airing/search
+     *   API responses.
+     *
+     *   Related (Anikku feature) needs to match {session_id} to
+     *   said {anime_id}, since HTML does not provide the id
+     *   in animeDetails for other anime.
+     *
+     *   Legacy way of fetching a {session_id} was through "$baseUrl/a/$anime_id",
+     *   but that's gone, so we have to do a cat and mouse race to link ids
+     *   that expire every few days to canonical {anime_id}.
+     *
+     *   To limit network calls and prevent orphaning of library entries,
+     *   we double-cache these ids in SharedPreferences:
+     *   - "session_cache" (id -> session): Lets WebView load /anime/{session_id},
+     *     since /a/{anime_id} no longer works.
+     *   - "id_cache" (session -> id): Lets Related Anime list match /anime/{session_id}
+     *     or any entry without {anime_id} to the library's /a/{anime_id}, since
+     *     animeDetails doesn't have any external {anime_id} for related entries.
+     *
+     *   If a cached session 404s, getAnimeDetails and getEpisodeList intercept it,
+     *   search the API by title, match the {anime_id}, overwrite the cache,
+     *   and retry the request automatically. If {anime_id} is missing, user may
+     *   need to migrate the entry to fetch new anime, which migration search
+     *   will map it automatically with {anime_id} and {session_id}.
+     */
     override fun getAnimeUrl(anime: SAnime): String {
         val animeId = anime.getId()
         val cachedSession = animeId?.let { getSessionFromCache(it) }
