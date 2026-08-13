@@ -698,7 +698,6 @@ import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
-import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -706,6 +705,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
+import kotlin.time.Duration.Companion.seconds
 import java.util.Base64 as JavaBase64
 
 const val TYPE_SERIES = 2
@@ -1064,7 +1064,7 @@ private fun configureToIgnoreCertificate(): OkHttpClient {
         return OkHttpClient.Builder()
             .sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
             .hostnameVerifier { _, _ -> true }
-            .readTimeout(70, TimeUnit.SECONDS)
+            .readTimeout(70.seconds)
             .build()
     } catch (e: Exception) {
         throw Exception("Exception while configuring IgnoreSslCertificate: $e")

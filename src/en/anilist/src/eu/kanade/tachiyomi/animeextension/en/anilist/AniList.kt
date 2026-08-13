@@ -31,7 +31,7 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class AniList :
     AnimeHttpSource(),
@@ -48,7 +48,7 @@ class AniList :
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1L, TimeUnit.SECONDS)
+        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1.seconds)
         .build()
 
     private val json: Json by injectLazy()

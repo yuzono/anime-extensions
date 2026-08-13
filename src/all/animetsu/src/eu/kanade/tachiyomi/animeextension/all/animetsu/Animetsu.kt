@@ -33,7 +33,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class Animetsu :
     AnimeHttpSource(),
@@ -60,7 +60,7 @@ class Animetsu :
     // Custom client to avoid HTTP/2 stream timeout and allow longer reads
     private val m3u8Client by lazy {
         client.newBuilder()
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
             .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
@@ -142,7 +142,7 @@ class Animetsu :
 
     override val client by lazy {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1.seconds)
             .build()
     }
 
