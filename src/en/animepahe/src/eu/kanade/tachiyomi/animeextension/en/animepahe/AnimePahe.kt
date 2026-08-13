@@ -612,28 +612,28 @@ class AnimePahe :
         val searchQuery = normalizeSearchQuery(title)
         val words = searchQuery.split(" ").filter { it.isNotBlank() }
 
-        // Full normalized title
-        var result = searchApiForId(animeId, title, searchQuery)
+        val normalizedTitle = normalizeTitle(title)
+
+        // Define the trailing lengths we want to try
+        // e.g. 4 words ("Dungeon IV Part 2"), 3 words ("IV Part 2")
+        val trailingLengths = listOf(4, 3)
+
+        // Try searching with the full normalized title first
+        var result = searchApiForId(animeId, normalizedTitle, searchQuery)
         if (result != null) return result
 
-        // Last 4 words e.g. "Dungeon IV Part 2" or "Break Time From Zero"
-        if (words.size > 4) {
-            val last4 = words.takeLast(4).joinToString(" ")
-            result = searchApiForId(animeId, title, last4)
-            if (result != null) return result
-        }
-
-        // Last 3 words e.g. "IV Part 2" or "Time From Zero"
-        if (words.size > 3) {
-            val last3 = words.takeLast(3).joinToString(" ")
-            result = searchApiForId(animeId, title, last3)
-            if (result != null) return result
+        for (len in trailingLengths) {
+            if (words.size > len) {
+                val shortQuery = words.takeLast(len).joinToString(" ")
+                result = searchApiForId(animeId, normalizedTitle, shortQuery)
+                if (result != null) return result
+            }
         }
 
         return null
     }
 
-    private suspend fun searchApiForId(animeId: String?, originalTitle: String, query: String): Pair<String, String>? {
+    private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, query: String): Pair<String, String>? {
         val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("api")
             addQueryParameter("m", "search")
@@ -647,9 +647,10 @@ class AnimePahe :
 
                 val matchedAnime = if (animeId != null) {
                     searchData.items.firstOrNull { it.id.toString() == animeId }
+                } else if (normalizedTitle != null) {
+                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
                 } else {
-                    val normalizedQuery = normalizeTitle(originalTitle)
-                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedQuery }
+                    null
                 }
 
                 matchedAnime?.let { it.id.toString() to it.session }
