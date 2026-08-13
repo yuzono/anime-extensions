@@ -8,6 +8,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -31,66 +32,101 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
     private val tag by lazy { javaClass.simpleName }
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val m3u8Integration by lazy { M3u8Integration(client) }
 
-    suspend fun videosFromUrl(url: String): List<Video> {
+    suspend fun videosFromUrl(url: String, serverName: String = ""): List<Video> {
+        val qualityPrefix = qualityPrefix(serverName)
         val playerDoc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
 
-        val encodedScript = playerDoc.selectFirst("script:containsData(TextDecoder)")?.data()
-        val script = if (encodedScript != null) {
-            Log.d(tag, "TextDecoder script found, length=${encodedScript.length}")
-            decodeTextDecoderScript(encodedScript).takeIf { it.isNotEmpty() }
-        } else {
-            null
-        } ?: run {
-            Log.w(tag, "TextDecoder script not found, falling back to inline player script")
-            playerDoc.selectFirst("script:containsData(AniDrivePlayerConfig)")?.data()
-                ?: playerDoc.selectFirst("script:containsData(const player)")?.data()
-                ?: return videosFromWebView(url).also {
-                    Log.e(tag, "No player script found, WebView fallback returned ${it.size} videos")
-                }
+        // AniDrive embeds multiple TextDecoder scripts (service-worker first, player config later).
+        // Decode each until playable sources are found instead of stopping at the first match.
+        val textDecoderScripts = playerDoc.select("script:containsData(TextDecoder)")
+        for (scriptElement in textDecoderScripts) {
+            val encodedScript = scriptElement.data()
+            Log.d(tag, "Trying TextDecoder script, length=${encodedScript.length}")
+            val decoded = decodeTextDecoderScript(encodedScript)
+            if (decoded.isEmpty()) {
+                continue
+            }
+            val videos = extractVideosFromScript(decoded, url, qualityPrefix)
+            if (videos.isNotEmpty()) {
+                Log.d(tag, "Extracted ${videos.size} videos from TextDecoder script")
+                return finalizeVideos(videos)
+            }
         }
 
-        val videos = extractVideosFromScript(script)
-        if (videos.isNotEmpty()) {
-            return videos
+        Log.w(tag, "No playable TextDecoder script found, falling back to inline player script")
+        val fallbackScript = playerDoc.selectFirst("script:containsData(AniDrivePlayerConfig)")?.data()
+            ?: playerDoc.selectFirst("script:containsData(const player)")?.data()
+
+        if (fallbackScript != null) {
+            val videos = extractVideosFromScript(fallbackScript, url, qualityPrefix)
+            if (videos.isNotEmpty()) {
+                return finalizeVideos(videos)
+            }
         }
 
-        Log.w(tag, "No videos extracted from decoded script, falling back to WebView")
-        return videosFromWebView(url)
+        Log.w(tag, "No videos extracted from scripts, falling back to WebView")
+        return finalizeVideos(videosFromWebView(url, qualityPrefix))
     }
 
-    private fun extractVideosFromScript(script: String): List<Video> {
+    private fun qualityPrefix(serverName: String): String {
+        val trimmed = serverName.trim()
+        return if (trimmed.isEmpty()) "Animei.to" else "Animei.to $trimmed"
+    }
+
+    private fun finalizeVideos(videos: List<Video>): List<Video> {
+        if (videos.isEmpty()) {
+            return emptyList()
+        }
+        // Prime HLS segments are served as .image with an optional PNG prefix before MPEG-TS.
+        return m3u8Integration.processVideoList(videos)
+    }
+
+    private fun extractVideosFromScript(script: String, pageUrl: String, qualityPrefix: String): List<Video> {
         val sourcesBlock = extractSourcesBlock(script)
         if (sourcesBlock != null) {
-            val directVideos = videosFromSourceText(sourcesBlock)
+            val directVideos = videosFromSourceText(sourcesBlock, pageUrl, qualityPrefix)
             if (directVideos.isNotEmpty()) {
                 return directVideos
             }
         }
 
         if ("videoplayback" in script) {
-            return videosFromSourceText(script)
+            return videosFromSourceText(script, pageUrl, qualityPrefix)
         }
 
         val masterPlaylistUrl = extractHlsUrl(script)
         if (masterPlaylistUrl != null) {
             Log.d(tag, "HLS master URL: $masterPlaylistUrl")
-            return playlistUtils.extractFromHls(masterPlaylistUrl, videoNameGen = { "Animei.to - $it" })
+            return playlistUtils.extractFromHls(
+                masterPlaylistUrl,
+                pageUrl,
+                videoNameGen = { "$qualityPrefix - $it" },
+            )
         }
 
         return emptyList()
     }
 
-    private fun videosFromSourceText(text: String): List<Video> {
+    private fun videosFromSourceText(text: String, pageUrl: String, qualityPrefix: String): List<Video> {
+        val videoHeaders = buildVideoHeaders(pageUrl)
         return SOURCE_ENTRY_REGEX.findAll(text)
-            .mapNotNull { match ->
-                val videoUrl = match.groupValues[1]
+            .flatMap { match ->
+                val videoUrl = normalizeStreamUrl(match.groupValues[1])
                 val quality = match.groupValues[2]
                 if (!isPlayableUrl(videoUrl)) {
-                    return@mapNotNull null
+                    return@flatMap emptySequence()
                 }
                 Log.d(tag, "Found video: $quality - ${videoUrl.take(80)}...")
-                Video(videoUrl, "Animei.to - $quality", videoUrl, headers)
+                when {
+                    ".m3u8" in videoUrl -> playlistUtils.extractFromHls(
+                        videoUrl,
+                        pageUrl,
+                        videoNameGen = { "$qualityPrefix - $it" },
+                    ).asSequence()
+                    else -> sequenceOf(Video(videoUrl, "$qualityPrefix - $quality", videoUrl, videoHeaders))
+                }
             }
             .toList()
     }
@@ -132,14 +168,14 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
     private fun isPlayableUrl(url: String): Boolean = url.contains("videoplayback") || url.contains(".m3u8") || url.contains(".mp4")
 
     @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun videosFromWebView(url: String): List<Video> = withContext(Dispatchers.IO) {
+    private suspend fun videosFromWebView(url: String, qualityPrefix: String): List<Video> = withContext(Dispatchers.IO) {
         synchronized(WEB_VIEW_LOCK) {
-            videosFromWebViewInternal(url)
+            videosFromWebViewInternal(url, qualityPrefix)
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun videosFromWebViewInternal(url: String): List<Video> {
+    private fun videosFromWebViewInternal(url: String, qualityPrefix: String): List<Video> {
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var jsResult = ""
@@ -170,7 +206,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                 Log.e(tag, "WebView timed out after ${TIMEOUT_SEC}s")
             }
 
-            return parseWebViewResult(jsResult, url)
+            return parseWebViewResult(jsResult, url, qualityPrefix)
         } catch (e: Exception) {
             Log.e(tag, "WebView extraction failed", e)
             return emptyList()
@@ -183,7 +219,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         }
     }
 
-    private fun parseWebViewResult(json: String, pageUrl: String): List<Video> {
+    private fun parseWebViewResult(json: String, pageUrl: String, qualityPrefix: String): List<Video> {
         if (json.isBlank()) {
             Log.e(tag, "WebView returned empty player data")
             return emptyList()
@@ -214,16 +250,16 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
             val type = item["type"]?.jsonPrimitive?.content.orEmpty()
 
             when {
-                type == "m3u8" || ".m3u8" in videoUrl -> {
+                type == "m3u8" || type == "hls" || ".m3u8" in videoUrl -> {
                     videos += playlistUtils.extractFromHls(
                         videoUrl,
                         pageUrl,
-                        videoNameGen = { "Animei.to - $it" },
+                        videoNameGen = { "$qualityPrefix - $it" },
                     )
                 }
                 else -> {
                     Log.d(tag, "WebView video: $label - ${videoUrl.take(80)}...")
-                    videos += Video(videoUrl, "Animei.to - $label", videoUrl, videoHeaders)
+                    videos += Video(videoUrl, "$qualityPrefix - $label", videoUrl, videoHeaders)
                 }
             }
         }
@@ -373,7 +409,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                     if (config && config.sources && config.sources.length > 0) {
                         deliverResults(config.sources.map(function(source) {
                             var type = source.type || '';
-                            if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
+                            if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || type.indexOf('hls') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
                                 type = 'm3u8';
                             } else {
                                 type = 'mp4';
@@ -389,7 +425,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
                         if (item && item.sources && item.sources.length > 0) {
                             deliverResults(item.sources.map(function(source) {
                                 var type = source.type || '';
-                                if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
+                                if (type.indexOf('mpegurl') >= 0 || type.indexOf('m3u8') >= 0 || type.indexOf('hls') >= 0 || (source.file || '').indexOf('.m3u8') >= 0) {
                                     type = 'm3u8';
                                 } else {
                                     type = 'mp4';
