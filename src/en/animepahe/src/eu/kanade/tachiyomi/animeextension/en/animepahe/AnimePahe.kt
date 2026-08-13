@@ -609,10 +609,35 @@ class AnimePahe :
     private suspend fun fetchSessionAndId(animeId: String?, title: String?): Pair<String, String>? {
         if (title.isNullOrBlank()) return null
 
+        val searchQuery = normalizeSearchQuery(title)
+        val words = searchQuery.split(" ").filter { it.isNotBlank() }
+
+        // Full normalized title
+        var result = searchApiForId(animeId, title, searchQuery)
+        if (result != null) return result
+
+        // Last 4 words e.g. "Dungeon IV Part 2" or "Break Time From Zero"
+        if (words.size > 4) {
+            val last4 = words.takeLast(4).joinToString(" ")
+            result = searchApiForId(animeId, title, last4)
+            if (result != null) return result
+        }
+
+        // Last 3 words e.g. "IV Part 2" or "Time From Zero"
+        if (words.size > 3) {
+            val last3 = words.takeLast(3).joinToString(" ")
+            result = searchApiForId(animeId, title, last3)
+            if (result != null) return result
+        }
+
+        return null
+    }
+
+    private suspend fun searchApiForId(animeId: String?, originalTitle: String, query: String): Pair<String, String>? {
         val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("api")
             addQueryParameter("m", "search")
-            addQueryParameter("q", title)
+            addQueryParameter("q", query)
         }.build()
 
         return try {
@@ -623,18 +648,21 @@ class AnimePahe :
                 val matchedAnime = if (animeId != null) {
                     searchData.items.firstOrNull { it.id.toString() == animeId }
                 } else {
-                    val normalizedQuery = normalizeTitle(title)
-                    searchData.items.firstOrNull { normalizeTitle(it.title).contains(normalizedQuery) }
+                    val normalizedQuery = normalizeTitle(originalTitle)
+                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedQuery }
                 }
 
-                if (matchedAnime == null) return null
-
-                matchedAnime.let { it.id.toString() to it.session }
+                matchedAnime?.let { it.id.toString() to it.session }
             }
         } catch (_: Exception) {
             null
         }
     }
+
+    private fun normalizeSearchQuery(raw: String): String = raw
+        .replace(SEARCH_NORMALIZE_REGEX, "")
+        .replace(SPACE_NORMALIZE_REGEX, " ")
+        .trim()
 
     private fun normalizeTitle(raw: String): String = raw
         .lowercase()
@@ -663,7 +691,8 @@ class AnimePahe :
         }
 
         private val NORMALIZE_REGEX = Regex("[^a-z0-9]+")
-
+        private val SPACE_NORMALIZE_REGEX = Regex("\\s+")
+        private val SEARCH_NORMALIZE_REGEX = Regex("[^a-zA-Z0-9\\s]+")
         private val QUALITY_REGEX_P by lazy { Regex("""(\d+)p""") }
         private val QUALITY_REGEX by lazy { Regex("""(\d+)""") }
 
