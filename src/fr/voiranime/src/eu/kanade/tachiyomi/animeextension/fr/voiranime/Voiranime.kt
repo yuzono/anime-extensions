@@ -10,14 +10,13 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class Voiranime : ParsedAnimeHttpSource() {
 
@@ -37,8 +36,6 @@ class Voiranime : ParsedAnimeHttpSource() {
     // makes some CDNs (e.g. yourupload's) reject the video request with a 500.
     private val extractorHeaders by lazy { headers.newBuilder().removeAll("Referer").build() }
 
-    private val json by injectLazy<Json>()
-
     // ─── Popular ─────────────────────────────────────────────────────────────
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=trending", headers)
@@ -51,7 +48,7 @@ class Voiranime : ParsedAnimeHttpSource() {
 
     // ─── Latest ──────────────────────────────────────────────────────────────
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=latest", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/?s&post_type=wp-manga&m_orderby=new-manga", headers)
 
     override fun latestUpdatesSelector(): String = popularAnimeSelector()
 
@@ -157,7 +154,7 @@ class Voiranime : ParsedAnimeHttpSource() {
             ?.data()
             ?.substringAfter("thisChapterSources = ")
             ?.substringBefore(";")
-            ?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
+            ?.let { runCatching { it.parseAs<Map<String, String>>() }.getOrNull() }
 
         if (sources.isNullOrEmpty()) return emptyList()
 
