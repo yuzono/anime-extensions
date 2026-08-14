@@ -1,14 +1,13 @@
 ext {
     extName = 'HentaiHaven'
     extClass = '.HentaiHaven'
-    extVersionCode = 3
+    extVersionCode = 4
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(libs.jsoup)
     implementation(project(":lib:m3u8server"))
     implementation(project(":lib:playlistutils"))
 }

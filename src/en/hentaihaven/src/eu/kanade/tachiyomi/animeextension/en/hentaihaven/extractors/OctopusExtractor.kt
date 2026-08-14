@@ -8,7 +8,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
@@ -19,8 +19,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 
 /**
  * OctopusExtractor — Orchestrator + VP9/CMAF split-stream handler.
@@ -109,7 +107,6 @@ import uy.kohesive.injekt.api.get
  */
 class OctopusExtractor(private val client: OkHttpClient) {
 
-    private val json: Json = Injekt.get()
     private val masterExtractor by lazy { MasterExtractor(client) }
 
     // ── Public entry point ────────────────────────────────────────────────────
@@ -167,16 +164,16 @@ class OctopusExtractor(private val client: OkHttpClient) {
                     .headers(apiHeaders)
                     .build(),
             ).awaitSuccess().use { response ->
-                response.body?.string()
+                response.body.string()
             }
         } catch (e: Exception) {
             Log.e(TAG, "API POST to $apiUrl failed", e)
             return emptyList()
-        } ?: return emptyList()
+        }
 
         // ── Step 3: parse JSON response ───────────────────────────────────────
         val payload = runCatching {
-            json.decodeFromString<JsonObject>(responseBody)
+            responseBody.parseAs<JsonObject>()
         }.getOrElse {
             Log.e(TAG, "JSON parse failed. Body preview: ${responseBody.take(200)}")
             return emptyList()

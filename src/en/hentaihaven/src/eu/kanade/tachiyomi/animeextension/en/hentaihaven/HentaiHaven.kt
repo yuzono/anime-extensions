@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
@@ -22,7 +22,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class HentaiHaven :
-    ParsedAnimeHttpSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "HentaiHaven"
@@ -30,7 +30,7 @@ class HentaiHaven :
     override val lang = "en"
     override val supportsLatest = true
 
-    override val client = network.cloudflareClient.newBuilder()
+    override val client = network.client.newBuilder()
         .addInterceptor { chain ->
             val request = chain.request().newBuilder()
                 .header("Accept-Language", "en-US,en;q=0.9")
@@ -46,6 +46,10 @@ class HentaiHaven :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val QUALITY_OPTIONS = arrayOf("1080p", "720p", "360p")
+
+        private const val ANIME_LIST_SELECTOR = "div.page-item-detail.video"
+        private const val NEXT_PAGE_SELECTOR = "a.nextpostslink, div.wp-pagenavi a.next"
+        private const val SEARCH_SELECTOR = "div.c-tabs-item, div.page-item-detail.video"
     }
 
     // ── Preferences ───────────────────────────────────────────────────────────
@@ -65,10 +69,14 @@ class HentaiHaven :
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page/?m_orderby=views", headers)
 
-    override fun popularAnimeSelector() = "div.page-item-detail.video"
-    override fun popularAnimeNextPageSelector() = "a.nextpostslink, div.wp-pagenavi a.next"
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val animes = document.select(ANIME_LIST_SELECTOR).map(::animeFromElement)
+        val hasNextPage = document.selectFirst(NEXT_PAGE_SELECTOR) != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
-    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+    private fun animeFromElement(element: Element): SAnime = SAnime.create().apply {
         setUrlWithoutDomain(element.selectFirst("div.item-thumb a")?.attr("href") ?: "")
         title = element.selectFirst("div.post-title a, h3.h5 a")?.text() ?: ""
         thumbnail_url = element.selectFirst("img")?.attr("abs:src")
@@ -78,9 +86,7 @@ class HentaiHaven :
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/?m_orderby=latest", headers)
 
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // ── Search ────────────────────────────────────────────────────────────────
 
@@ -111,26 +117,23 @@ class HentaiHaven :
         return GET(urlBuilder.build().toString(), headers)
     }
 
-    override fun searchAnimeSelector() = "div.c-tabs-item, div.page-item-detail.video"
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val items = document.select(SEARCH_SELECTOR)
+            .map(::searchAnimeFromElement)
+            .distinctBy { it.url }
+            .filter { it.url.isNotBlank() && it.title.isNotBlank() }
+        val hasNextPage = document.selectFirst(NEXT_PAGE_SELECTOR) != null
+        return AnimesPage(items, hasNextPage)
+    }
 
-    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+    private fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         val linkEl = element.selectFirst("a[href*='/watch/']")
         setUrlWithoutDomain(linkEl?.attr("href") ?: "")
         title = linkEl?.attr("title")?.takeIf { it.isNotBlank() }
             ?: element.selectFirst("div.post-title a, h3 a, h4 a")?.text()
             ?: ""
         thumbnail_url = element.selectFirst("img")?.attr("abs:src")
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.useAsJsoup()
-        val items = document.select(searchAnimeSelector())
-            .map { searchAnimeFromElement(it) }
-            .distinctBy { it.url }
-            .filter { it.url.isNotBlank() && it.title.isNotBlank() }
-        val hasNextPage = document.selectFirst(searchAnimeNextPageSelector()) != null
-        return AnimesPage(items, hasNextPage)
     }
 
     override fun getFilterList() = AnimeFilterList(
@@ -143,7 +146,8 @@ class HentaiHaven :
 
     // ── Details ───────────────────────────────────────────────────────────────
 
-    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+    override fun animeDetailsParse(response: Response): SAnime = SAnime.create().apply {
+        val document = response.useAsJsoup()
         title = document.selectFirst("div.post-title h1")?.text()
             ?: document.selectFirst("h1.entry-title")?.text() ?: ""
         thumbnail_url = document.selectFirst(
@@ -179,8 +183,10 @@ class HentaiHaven :
 
     // ── Episodes ──────────────────────────────────────────────────────────────
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
+    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
+
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.useAsJsoup()
         return parseEpisodesFromHtml(document)
     }
 
@@ -210,9 +216,6 @@ class HentaiHaven :
             runCatching { fmt.parse(raw.trim())?.time }.getOrNull()
         } ?: 0L
     }.getOrDefault(0L)
-
-    override fun episodeListSelector() = "li.wp-manga-chapter"
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ── Videos ────────────────────────────────────────────────────────────────
 
@@ -257,7 +260,5 @@ class HentaiHaven :
         return videos.sortedWith(compareByDescending { it.quality.contains(preferred) })
     }
 
-    override fun videoListSelector() = ""
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
+    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 }
