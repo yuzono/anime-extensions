@@ -2,6 +2,8 @@ package eu.kanade.tachiyomi.animeextension.pt.anitube
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstanceOrNull
+import java.util.Calendar
 
 object AnitubeFilters {
     open class QueryPartFilter(
@@ -14,7 +16,7 @@ object AnitubeFilters {
         fun toQueryPart() = vals[state].second
     }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
+    private inline fun <reified R : QueryPartFilter> AnimeFilterList.asQueryPart(): String = firstInstanceOrNull<R>()?.toQueryPart() ?: ""
 
     class GenreFilter : QueryPartFilter("Gênero", AnitubeFiltersData.GENRES)
     class CharacterFilter : QueryPartFilter("Inicia com", AnitubeFiltersData.INITIAL_CHARS)
@@ -33,7 +35,7 @@ object AnitubeFilters {
     data class FilterSearchParams(
         val genre: String = "",
         val season: String = "",
-        val year: String = "2024",
+        val year: String = AnitubeFiltersData.CURRENT_YEAR.toString(),
         val initialChar: String = "todos",
     )
 
@@ -50,6 +52,8 @@ object AnitubeFilters {
         const val IGNORE_SEASON_MSG = "Nota: o filtro de temporada IGNORA o filtro de gênero/letra."
         val EVERY = Pair("Qualquer um", "")
 
+        val CURRENT_YEAR = Calendar.getInstance().get(Calendar.YEAR)
+
         val SEASONS = arrayOf(
             EVERY,
             Pair("Outono", "outono"),
@@ -58,7 +62,7 @@ object AnitubeFilters {
             Pair("Verão", "verao"),
         )
 
-        val YEARS = (2024 downTo 1979).map {
+        val YEARS = (CURRENT_YEAR downTo 1979).map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
 
