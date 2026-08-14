@@ -27,13 +27,7 @@ class Voiranime : ParsedAnimeHttpSource() {
 
     override val supportsLatest = true
 
-    private val userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/124.0.0.0 Safari/537.36"
-
-    override fun headersBuilder(): Headers.Builder = Headers.Builder()
-        .add("User-Agent", userAgent)
-        .add("Referer", "$baseUrl/")
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder().add("Referer", "$baseUrl/")
 
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
