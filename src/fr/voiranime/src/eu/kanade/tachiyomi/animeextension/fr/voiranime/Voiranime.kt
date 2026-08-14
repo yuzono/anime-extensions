@@ -11,11 +11,13 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.injectLazy
 
 class Voiranime : ParsedAnimeHttpSource() {
 
@@ -30,6 +32,12 @@ class Voiranime : ParsedAnimeHttpSource() {
     override fun headersBuilder(): Headers.Builder = super.headersBuilder().add("Referer", "$baseUrl/")
 
     private val universalExtractor by lazy { UniversalExtractor(client) }
+
+    // Without a Referer: UniversalExtractor adds one itself, and a duplicate Referer
+    // makes some CDNs (e.g. yourupload's) reject the video request with a 500.
+    private val extractorHeaders by lazy { headers.newBuilder().removeAll("Referer").build() }
+
+    private val json by injectLazy<Json>()
 
     // ─── Popular ─────────────────────────────────────────────────────────────
 
@@ -144,28 +152,21 @@ class Voiranime : ParsedAnimeHttpSource() {
         val episodeUrl = baseUrl + episode.url
         val document = client.newCall(GET(episodeUrl, headers)).awaitSuccess().useAsJsoup()
 
-        // Server list — the host-select options are duplicated for desktop/mobile, so dedupe.
-        val servers = document.select("select.host-select option")
-            .mapNotNull { it.text().trim().takeIf(String::isNotBlank) }
-            .distinct()
+        // All servers and their iframes are embedded in a single inline script object.
+        val sources = document.selectFirst("script:containsData(thisChapterSources)")
+            ?.data()
+            ?.substringAfter("thisChapterSources = ")
+            ?.substringBefore(";")
+            ?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
 
-        if (servers.isEmpty()) return emptyList()
+        if (sources.isNullOrEmpty()) return emptyList()
 
-        return servers.parallelCatchingFlatMap { serverName ->
-            val hostUrl = episodeUrl.toHttpUrl().newBuilder()
-                .addQueryParameter("host", serverName)
-                .build()
-                .toString()
-
-            val hostDoc = client.newCall(GET(hostUrl, headers)).awaitSuccess().useAsJsoup()
-            val iframe = hostDoc.selectFirst(
-                ".reading-content iframe, .text-left iframe, .entry-content iframe",
-            )?.let { it.absUrl("src").ifEmpty { it.absUrl("data-src") } }
-                ?.takeIf { it.isNotBlank() }
+        return sources.entries.parallelCatchingFlatMap { (serverName, iframeHtml) ->
+            val iframe = IFRAME_SRC_REGEX.find(iframeHtml)?.groupValues?.get(1)
                 ?: return@parallelCatchingFlatMap emptyList()
 
             val prefix = serverName.removePrefix("LECTEUR").trim()
-            universalExtractor.videosFromUrl(iframe, headers, prefix = "$prefix - ")
+            universalExtractor.videosFromUrl(iframe, extractorHeaders, prefix = "$prefix - ")
         }
     }
 
@@ -183,6 +184,7 @@ class Voiranime : ParsedAnimeHttpSource() {
     companion object {
         private val NUMBER_REGEX = Regex("""\d+(?:[.,]\d+)?""")
         private val EP_NUM_REGEX = Regex("""-(\d+(?:[.,]\d+)?)-(?:vostfr|vf)""", RegexOption.IGNORE_CASE)
+        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]*\ssrc=["']([^"']+)["']""")
         private val DATE_FORMAT by lazy {
             java.text.SimpleDateFormat("dd MMMM yyyy", java.util.Locale.FRENCH)
         }
