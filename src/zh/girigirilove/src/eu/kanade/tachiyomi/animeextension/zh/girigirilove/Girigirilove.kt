@@ -59,15 +59,11 @@ class Girigirilove :
         GirigiriloveVideoResolver(
             client = client.newBuilder()
                 .connectTimeout(3, TimeUnit.SECONDS)
-    private val videoResolver by lazy {
-        GirigiriloveVideoResolver(
-            client = client.newBuilder()
-                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .writeTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS)
+                .writeTimeout(3, TimeUnit.SECONDS)
                 .build(),
-            generatedM3u8Server = generatedM3u8Server,
             headerCandidates = listOf(noRefererMediaHeaders, siteRefererMediaHeaders),
+            generatedPlaylistUrl = ::generatedPlaylistUrl,
         )
     }
 
