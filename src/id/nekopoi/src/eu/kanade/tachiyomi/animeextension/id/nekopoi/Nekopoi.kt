@@ -81,6 +81,18 @@ class Nekopoi :
                     GET(url, headers)
                 }
             }
+            params.category.isNotBlank() && params.category != "hentai" -> {
+                val url = baseUrl.toHttpUrl().newBuilder().apply {
+                    addPathSegment("category")
+                    addPathSegment(params.category)
+                    if (page > 1) {
+                        addPathSegment("page")
+                        addPathSegment(page.toString())
+                    }
+                    addPathSegment("")
+                }.build()
+                GET(url, headers)
+            }
             params.genre.isNotBlank() -> {
                 val url = baseUrl.toHttpUrl().newBuilder().apply {
                     addPathSegment("genres")
@@ -300,10 +312,7 @@ internal object NekopoiParser {
 
                 if (!isValidEntry(rawTitle, href)) return@mapNotNull null
 
-                val thumbEl = element.selectFirst(".nk-thumb-crop, .nk-post-thumb, .nk-search-thumb, .nk-episode-card-thumb")
-                val style = thumbEl?.attr("style").orEmpty()
-                val thumbnail = extractBgUrl(style)
-                    ?: element.selectFirst("img")?.let { it.attr("abs:src").ifEmpty { it.attr("src") } }
+                val thumbnail = extractThumbnail(element)
 
                 ParsedAnime(
                     url = cleanUrlWithoutDomain(href),
@@ -323,10 +332,8 @@ internal object NekopoiParser {
             ?: "Unknown Title"
         val title = cleanTitle(rawTitle)
 
-        val posterStyle = doc.selectFirst(".nk-series-poster")?.attr("style") ?: ""
-        val thumbnail = extractBgUrl(posterStyle)
+        val thumbnail = extractThumbnail(doc)
             ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-            ?: doc.selectFirst(".nk-featured-img img")?.attr("abs:src")
 
         val synopsisParts = mutableListOf<String>()
         val genres = mutableListOf<String>()
@@ -505,6 +512,31 @@ internal object NekopoiParser {
     fun extractBgUrl(style: String): String? {
         val match = bgUrlRegex.find(style)
         return match?.groupValues?.get(1)?.trim('\'', '"')
+    }
+    fun extractThumbnail(element: org.jsoup.nodes.Element): String? {
+        val styleEl = element.selectFirst("[style*='url('], [style*='url (']")
+        if (styleEl != null) {
+            val bg = extractBgUrl(styleEl.attr("style"))
+            if (!bg.isNullOrBlank()) return bg
+        }
+
+        val thumbEl = element.selectFirst(".nk-thumb-crop, .nk-search-thumb, .nk-episode-card-thumb, .nk-series-poster")
+        if (thumbEl != null) {
+            val bg = extractBgUrl(thumbEl.attr("style"))
+            if (!bg.isNullOrBlank()) return bg
+        }
+
+        val img = element.selectFirst("img")
+        if (img != null) {
+            val src = img.attr("abs:data-src").ifEmpty {
+                img.attr("data-src").ifEmpty {
+                    img.attr("abs:src").ifEmpty { img.attr("src") }
+                }
+            }
+            if (src.isNotBlank()) return src
+        }
+
+        return null
     }
 
     private fun cleanUrlWithoutDomain(orig: String): String = try {

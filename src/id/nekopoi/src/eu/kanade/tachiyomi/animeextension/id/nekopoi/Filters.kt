@@ -22,7 +22,10 @@ object Filters {
 
     val FILTER_LIST
         get() = AnimeFilterList(
-            AnimeFilter.Header("Catatan: Filter diabaikan jika menggunakan pencarian teks"),
+            AnimeFilter.Header("Catatan Filter:"),
+            AnimeFilter.Header("• Pencarian teks mengabaikan semua filter"),
+            AnimeFilter.Header("• Genre hanya tersedia untuk konten Hentai"),
+            AnimeFilter.Header("• Jika Kategori non-Hentai dipilih, filter Genre akan diabaikan"),
             CategoryFilter(),
             GenreFilter(),
         )

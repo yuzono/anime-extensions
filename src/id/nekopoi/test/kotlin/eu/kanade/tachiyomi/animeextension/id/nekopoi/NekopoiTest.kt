@@ -254,6 +254,18 @@ class NekopoiTest {
         assertEquals(1, page.animes.size)
         assertEquals("inaka-episode-2-subtitle-indonesia", page.animes[0].url.trim('/'))
         assertEquals("Inaka Episode 2", page.animes[0].title)
+        assertEquals("https://nekopoi.care/thumb1.jpg", page.animes[0].thumbnailUrl)
+    }
+
+    @Test
+    fun `extractThumbnail extracts image from nested style and img tags`() {
+        val html1 = """<div class="nk-post-card"><div class="nk-post-thumb"><div class="nk-thumb-crop" style="background-image: url('https://nekopoi.care/test1.jpg')"></div></div></div>"""
+        val doc1 = Jsoup.parse(html1).body().child(0)
+        assertEquals("https://nekopoi.care/test1.jpg", NekopoiParser.extractThumbnail(doc1))
+
+        val html2 = """<div class="card"><img data-src="https://nekopoi.care/test2.jpg" /></div>"""
+        val doc2 = Jsoup.parse(html2).body().child(0)
+        assertEquals("https://nekopoi.care/test2.jpg", NekopoiParser.extractThumbnail(doc2))
     }
 
     @Test
