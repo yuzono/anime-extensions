@@ -7,16 +7,18 @@ object Filters {
     open class UriPartFilter(
         displayName: String,
         private val vals: Array<Pair<String, String>>,
+        state: Int = 0,
     ) : AnimeFilter.Select<String>(
         displayName,
         vals.map { it.first }.toTypedArray(),
+        state,
     ) {
         fun toUriPart() = vals[state].second
     }
 
-    class CategoryFilter : UriPartFilter("Kategori", FiltersData.CATEGORIES)
+    class CategoryFilter(state: Int = 0) : UriPartFilter("Kategori", FiltersData.CATEGORIES, state)
 
-    class GenreFilter : UriPartFilter("Genre", FiltersData.GENRES)
+    class GenreFilter(state: Int = 0) : UriPartFilter("Genre", FiltersData.GENRES, state)
 
     val FILTER_LIST
         get() = AnimeFilterList(
