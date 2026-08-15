@@ -22,6 +22,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -46,24 +47,17 @@ class Nekopoi :
     private val streamWishExtractor by lazy { StreamWishExtractor(client, headers) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
 
-    private val dateFormat by lazy {
-        SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
-    }
-
-    private val bgUrlRegex = """url\(['"]?(.*?)['"]?\)""".toRegex()
-    private val episodeRegex = Regex("""(?:Ep|Episode)\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
-
     // ============================== Popular Anime ==============================
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/category/hentai/page/$page/", headers)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimePage(response.asJsoup())
+    override fun popularAnimeParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
 
     // ============================== Latest Updates =============================
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimePage(response.asJsoup())
+    override fun latestUpdatesParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
 
     // ================================== Search =================================
 
@@ -116,82 +110,21 @@ class Nekopoi :
         }
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimePage(response.asJsoup())
+    override fun searchAnimeParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
 
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // =============================== Anime Details =============================
 
-    override fun animeDetailsParse(response: Response): SAnime = parseAnimeDetails(response.asJsoup())
-
-    private fun parseAnimeDetails(doc: Document): SAnime = SAnime.create().apply {
-        title = doc.selectFirst(".nk-series-synopsis > b")?.text()
-            ?: doc.selectFirst(".nk-post-header h1")?.text()
-            ?: doc.selectFirst("h1")?.text()
-            ?: "Unknown Title"
-
-        val posterStyle = doc.selectFirst(".nk-series-poster")?.attr("style") ?: ""
-        thumbnail_url = extractBgUrl(posterStyle)
-            ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-            ?: doc.selectFirst(".nk-featured-img img")?.attr("abs:src")
-
-        description = doc.selectFirst(".nk-series-synopsis p")?.text()
-            ?: doc.select(".nk-post-body p.separator").joinToString("\n\n") { it.text() }
-                .takeIf(String::isNotBlank)
-
-        val metaElements = doc.select(".nk-series-meta-list li")
-        for (meta in metaElements) {
-            val text = meta.text()
-            when {
-                text.contains("Status", ignoreCase = true) -> {
-                    status = parseStatus(text.substringAfter(":"))
-                }
-                text.contains("Produser", ignoreCase = true) || text.contains("Producers", ignoreCase = true) -> {
-                    author = text.substringAfter(":").trim()
-                }
-                text.contains("Genre", ignoreCase = true) -> {
-                    val genres = meta.select("a").mapNotNull { it.text().takeIf(String::isNotBlank) }
-                    genre = if (genres.isNotEmpty()) {
-                        genres.joinToString()
-                    } else {
-                        text.substringAfter(":").trim()
-                    }
-                }
-            }
-        }
-
-        if (genre.isNullOrBlank()) {
-            val bodyGenres = doc.select(".konten p:has(b:contains(Genre))").text().substringAfter(":").trim()
-            if (bodyGenres.isNotBlank()) {
-                genre = bodyGenres
-            }
-        }
-    }
-
-    private fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
-        "completed" -> SAnime.COMPLETED
-        "ongoing" -> SAnime.ONGOING
-        else -> SAnime.UNKNOWN
-    }
+    override fun animeDetailsParse(response: Response): SAnime = NekopoiParser.parseAnimeDetails(response.asJsoup()).toSAnime()
 
     // ============================== Episode List ===============================
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
-        val episodeCards = doc.select(".nk-episode-grid ul li a.nk-episode-card, .nk-episode-grid a.nk-episode-card")
-        if (episodeCards.isNotEmpty()) {
-            return episodeCards.mapIndexed { index, card ->
-                SEpisode.create().apply {
-                    setUrlWithoutDomain(card.attr("abs:href").ifEmpty { card.attr("href") })
-                    name = card.selectFirst(".nk-episode-card-title")?.text()
-                        ?: "Episode ${index + 1}"
-                    val badgeText = card.selectFirst(".nk-episode-badge")?.text() ?: ""
-                    episode_number = parseEpisodeNumber(badgeText, name, (index + 1).toFloat())
-                    val dateElement = card.selectFirst(".nk-episode-card-date")
-                    val dateText = dateElement?.text()?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
-                    date_upload = dateFormat.tryParse(dateText)
-                }
-            }
+        val episodes = NekopoiParser.parseEpisodeList(doc)
+        if (episodes.isNotEmpty()) {
+            return episodes.map(ParsedEpisode::toSEpisode)
         }
 
         // Fallback: If opened directly on an episode page, fetch the series page if available
@@ -199,46 +132,16 @@ class Nekopoi :
         if (!seriesLink.isNullOrBlank()) {
             return runCatching {
                 val seriesDoc = client.newCall(GET(seriesLink, headers)).execute().asJsoup()
-                val seriesCards = seriesDoc.select(".nk-episode-grid ul li a.nk-episode-card, .nk-episode-grid a.nk-episode-card")
-                if (seriesCards.isNotEmpty()) {
-                    seriesCards.mapIndexed { index, card ->
-                        SEpisode.create().apply {
-                            setUrlWithoutDomain(card.attr("abs:href").ifEmpty { card.attr("href") })
-                            name = card.selectFirst(".nk-episode-card-title")?.text()
-                                ?: "Episode ${index + 1}"
-                            val badgeText = card.selectFirst(".nk-episode-badge")?.text() ?: ""
-                            episode_number = parseEpisodeNumber(badgeText, name, (index + 1).toFloat())
-                            val dateElement = card.selectFirst(".nk-episode-card-date")
-                            val dateText = dateElement?.text()?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
-                            date_upload = dateFormat.tryParse(dateText)
-                        }
-                    }
+                val seriesEpisodes = NekopoiParser.parseEpisodeList(seriesDoc)
+                if (seriesEpisodes.isNotEmpty()) {
+                    seriesEpisodes.map(ParsedEpisode::toSEpisode)
                 } else {
-                    listOf(createSingleEpisode(doc, response.request.url.toString()))
+                    listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode())
                 }
-            }.getOrDefault(listOf(createSingleEpisode(doc, response.request.url.toString())))
+            }.getOrDefault(listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode()))
         }
 
-        return listOf(createSingleEpisode(doc, response.request.url.toString()))
-    }
-
-    private fun createSingleEpisode(doc: Document, currentUrl: String): SEpisode = SEpisode.create().apply {
-        setUrlWithoutDomain(currentUrl)
-        name = doc.selectFirst(".nk-post-header h1")?.text() ?: "Episode 1"
-        episode_number = parseEpisodeNumber("", name, 1F)
-        val dateText = doc.selectFirst(".nk-post-header-meta")?.text()
-            ?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
-        date_upload = dateFormat.tryParse(dateText)
-    }
-
-    private fun parseEpisodeNumber(badge: String, title: String, fallback: Float): Float {
-        val badgeNum = episodeRegex.find(badge)?.groupValues?.get(1)?.toFloatOrNull()
-        if (badgeNum != null) return badgeNum
-
-        val titleNum = episodeRegex.find(title)?.groupValues?.get(1)?.toFloatOrNull()
-        if (titleNum != null) return titleNum
-
-        return fallback
+        return listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode())
     }
 
     // ============================= Video Links =================================
@@ -284,35 +187,6 @@ class Nekopoi :
         }
     }
 
-    // ============================= Common Helpers ==============================
-
-    private fun parseAnimePage(doc: Document): AnimesPage {
-        val items = doc.select("div.nk-search-results ul li a.nk-search-item, div.nk-episode-grid ul li a.nk-episode-card, a.nk-search-item, a.nk-episode-card")
-            .mapNotNull { element ->
-                val href = element.attr("abs:href").ifEmpty { element.attr("href") }
-                if (href.isBlank()) return@mapNotNull null
-
-                SAnime.create().apply {
-                    setUrlWithoutDomain(href)
-                    title = element.selectFirst("h2, .nk-episode-card-title")?.text()
-                        ?: element.attr("title").takeIf(String::isNotBlank)
-                        ?: return@mapNotNull null
-
-                    val style = element.selectFirst(".nk-search-thumb, .nk-episode-card-thumb")?.attr("style") ?: ""
-                    thumbnail_url = extractBgUrl(style)
-                        ?: element.selectFirst("img")?.attr("abs:src")
-                }
-            }
-
-        val hasNextPage = doc.selectFirst("nav.pagination .nav-links a.next.page-numbers, .pagination a.next, .page-numbers.next") != null
-        return AnimesPage(items, hasNextPage)
-    }
-
-    private fun extractBgUrl(style: String): String? {
-        val match = bgUrlRegex.find(style)
-        return match?.groupValues?.get(1)?.trim('\'', '"')
-    }
-
     // ============================= Preferences =================================
 
     override fun List<Video>.sort(): List<Video> {
@@ -338,5 +212,205 @@ class Nekopoi :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
         private val QUALITY_LIST = arrayOf("1080p", "720p", "480p", "360p")
+    }
+}
+
+internal data class ParsedAnime(
+    var url: String = "",
+    var title: String = "",
+    var thumbnailUrl: String? = null,
+    var description: String? = null,
+    var genre: String? = null,
+    var status: Int = SAnime.UNKNOWN,
+    var author: String? = null,
+) {
+    fun toSAnime(): SAnime = SAnime.create().apply {
+        url = this@ParsedAnime.url
+        title = this@ParsedAnime.title
+        thumbnail_url = this@ParsedAnime.thumbnailUrl
+        description = this@ParsedAnime.description
+        genre = this@ParsedAnime.genre
+        status = this@ParsedAnime.status
+        author = this@ParsedAnime.author
+    }
+}
+
+internal data class ParsedAnimePage(
+    val animes: List<ParsedAnime>,
+    val hasNextPage: Boolean,
+) {
+    fun toAnimesPage(): AnimesPage = AnimesPage(animes.map(ParsedAnime::toSAnime), hasNextPage)
+}
+
+internal data class ParsedEpisode(
+    var url: String = "",
+    var name: String = "",
+    var episodeNumber: Float = 0F,
+    var dateUpload: Long = 0L,
+) {
+    fun toSEpisode(): SEpisode = SEpisode.create().apply {
+        url = this@ParsedEpisode.url
+        name = this@ParsedEpisode.name
+        episode_number = this@ParsedEpisode.episodeNumber
+        date_upload = this@ParsedEpisode.dateUpload
+    }
+}
+
+internal object NekopoiParser {
+
+    private val bgUrlRegex = """url\(['"]?(.*?)['"]?\)""".toRegex()
+    private val episodeRegex = Regex("""(?:Ep|Episode)\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+
+    private val dateFormat by lazy {
+        SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
+    }
+
+    fun parseAnimePage(doc: Document): ParsedAnimePage {
+        val items = doc.select("div.nk-search-results ul li a.nk-search-item, div.nk-episode-grid ul li a.nk-episode-card, a.nk-search-item, a.nk-episode-card")
+            .mapNotNull { element ->
+                val href = element.attr("abs:href").ifEmpty { element.attr("href") }
+                if (href.isBlank()) return@mapNotNull null
+
+                val title = element.selectFirst("h2, .nk-episode-card-title")?.text()
+                    ?: element.attr("title").takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
+
+                val style = element.selectFirst(".nk-search-thumb, .nk-episode-card-thumb")?.attr("style") ?: ""
+                val thumbnail = extractBgUrl(style)
+                    ?: element.selectFirst("img")?.attr("abs:src")
+
+                ParsedAnime(
+                    url = cleanUrlWithoutDomain(href),
+                    title = title,
+                    thumbnailUrl = thumbnail,
+                )
+            }
+
+        val hasNextPage = doc.selectFirst("nav.pagination .nav-links a.next.page-numbers, .pagination a.next, .page-numbers.next") != null
+        return ParsedAnimePage(items, hasNextPage)
+    }
+
+    fun parseAnimeDetails(doc: Document): ParsedAnime {
+        val title = doc.selectFirst(".nk-series-synopsis > b")?.text()
+            ?: doc.selectFirst(".nk-post-header h1")?.text()
+            ?: doc.selectFirst("h1")?.text()
+            ?: "Unknown Title"
+
+        val posterStyle = doc.selectFirst(".nk-series-poster")?.attr("style") ?: ""
+        val thumbnail = extractBgUrl(posterStyle)
+            ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
+            ?: doc.selectFirst(".nk-featured-img img")?.attr("abs:src")
+
+        val description = doc.selectFirst(".nk-series-synopsis p")?.text()
+            ?: doc.select(".nk-post-body p.separator").joinToString("\n\n") { it.text() }
+                .takeIf(String::isNotBlank)
+
+        var status = SAnime.UNKNOWN
+        var author: String? = null
+        var genre: String? = null
+
+        val metaElements = doc.select(".nk-series-meta-list li")
+        for (meta in metaElements) {
+            val text = meta.text()
+            when {
+                text.contains("Status", ignoreCase = true) -> {
+                    status = parseStatus(text.substringAfter(":"))
+                }
+                text.contains("Produser", ignoreCase = true) || text.contains("Producers", ignoreCase = true) -> {
+                    author = text.substringAfter(":").trim()
+                }
+                text.contains("Genre", ignoreCase = true) -> {
+                    val genres = meta.select("a").mapNotNull { it.text().takeIf(String::isNotBlank) }
+                    genre = if (genres.isNotEmpty()) {
+                        genres.joinToString()
+                    } else {
+                        text.substringAfter(":").trim()
+                    }
+                }
+            }
+        }
+
+        if (genre.isNullOrBlank()) {
+            val bodyGenres = doc.select(".konten p:has(b:contains(Genre))").text().substringAfter(":").trim()
+            if (bodyGenres.isNotBlank()) {
+                genre = bodyGenres
+            }
+        }
+
+        return ParsedAnime(
+            title = title,
+            thumbnailUrl = thumbnail,
+            description = description,
+            genre = genre,
+            status = status,
+            author = author,
+        )
+    }
+
+    fun parseEpisodeList(doc: Document): List<ParsedEpisode> {
+        val episodeCards = doc.select(".nk-episode-grid ul li a.nk-episode-card, .nk-episode-grid a.nk-episode-card")
+        return episodeCards.mapIndexed { index, card ->
+            val href = card.attr("abs:href").ifEmpty { card.attr("href") }
+            val name = card.selectFirst(".nk-episode-card-title")?.text()
+                ?: "Episode ${index + 1}"
+            val badgeText = card.selectFirst(".nk-episode-badge")?.text() ?: ""
+            val episodeNumber = parseEpisodeNumber(badgeText, name, (index + 1).toFloat())
+            val dateElement = card.selectFirst(".nk-episode-card-date")
+            val dateText = dateElement?.text()?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
+            val dateUpload = dateFormat.tryParse(dateText)
+
+            ParsedEpisode(
+                url = cleanUrlWithoutDomain(href),
+                name = name,
+                episodeNumber = episodeNumber,
+                dateUpload = dateUpload,
+            )
+        }
+    }
+
+    fun createSingleEpisode(doc: Document, currentUrl: String): ParsedEpisode {
+        val name = doc.selectFirst(".nk-post-header h1")?.text() ?: "Episode 1"
+        val episodeNumber = parseEpisodeNumber("", name, 1F)
+        val dateText = doc.selectFirst(".nk-post-header-meta")?.text()
+            ?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
+        val dateUpload = dateFormat.tryParse(dateText)
+
+        return ParsedEpisode(
+            url = cleanUrlWithoutDomain(currentUrl),
+            name = name,
+            episodeNumber = episodeNumber,
+            dateUpload = dateUpload,
+        )
+    }
+
+    fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
+        "completed" -> SAnime.COMPLETED
+        "ongoing" -> SAnime.ONGOING
+        else -> SAnime.UNKNOWN
+    }
+
+    fun parseEpisodeNumber(badge: String, title: String, fallback: Float): Float {
+        val badgeNum = episodeRegex.find(badge)?.groupValues?.get(1)?.toFloatOrNull()
+        if (badgeNum != null) return badgeNum
+
+        val titleNum = episodeRegex.find(title)?.groupValues?.get(1)?.toFloatOrNull()
+        if (titleNum != null) return titleNum
+
+        return fallback
+    }
+
+    fun extractBgUrl(style: String): String? {
+        val match = bgUrlRegex.find(style)
+        return match?.groupValues?.get(1)?.trim('\'', '"')
+    }
+
+    private fun cleanUrlWithoutDomain(orig: String): String = try {
+        val uri = URI(orig)
+        val path = uri.rawPath.orEmpty()
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
+        path + query + fragment
+    } catch (_: Throwable) {
+        orig
     }
 }
