@@ -36,7 +36,7 @@ class Nekopoi :
 
     override val lang = "id"
 
-    override val supportsLatest = true
+    override val supportsLatest = false
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -49,16 +49,15 @@ class Nekopoi :
 
     // ============================== Popular Anime ==============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/category/hentai/page/$page/", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
 
     // ============================== Latest Updates =============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException("Not used")
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
-
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException("Not used")
     // ================================== Search =================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -122,48 +121,32 @@ class Nekopoi :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
-        val episodes = NekopoiParser.parseEpisodeList(doc)
-        if (episodes.isNotEmpty()) {
-            return episodes.map(ParsedEpisode::toSEpisode)
-        }
-
-        // Fallback: If opened directly on an episode page, fetch the series page if available
-        val seriesLink = doc.selectFirst("a.nk-player-series")?.attr("abs:href")
-        if (!seriesLink.isNullOrBlank()) {
-            return runCatching {
-                val seriesDoc = client.newCall(GET(seriesLink, headers)).execute().asJsoup()
-                val seriesEpisodes = NekopoiParser.parseEpisodeList(seriesDoc)
-                if (seriesEpisodes.isNotEmpty()) {
-                    seriesEpisodes.map(ParsedEpisode::toSEpisode)
-                } else {
-                    listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode())
-                }
-            }.getOrDefault(listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode()))
-        }
-
-        return listOf(NekopoiParser.createSingleEpisode(doc, response.request.url.toString()).toSEpisode())
+        val currentUrl = response.request.url.toString()
+        val episodes = NekopoiParser.parseEpisodeList(doc, currentUrl)
+        return episodes.map(ParsedEpisode::toSEpisode)
     }
 
     // ============================= Video Links =================================
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.asJsoup()
-        val iframes = doc.select("#nk-player .nk-player-frame iframe, #nk-player iframe, div.nk-player-frame iframe")
+        val iframes = doc.select("#nk-player .nk-player-frame iframe, #nk-player iframe, div.nk-player-frame iframe, iframe")
             .mapNotNull {
                 val src = it.attr("abs:src").ifEmpty { it.attr("src") }
                 src.takeIf(String::isNotBlank)
             }
             .distinct()
 
-        return iframes.parallelCatchingFlatMapBlocking { iframeUrl ->
+        val videos = iframes.parallelCatchingFlatMapBlocking { iframeUrl ->
             val fullUrl = when {
                 iframeUrl.startsWith("//") -> "https:$iframeUrl"
                 else -> iframeUrl
             }
             extractVideosFromUrl(fullUrl)
         }
-    }
 
+        return NekopoiParser.deduplicateVideos(videos)
+    }
     private suspend fun extractVideosFromUrl(url: String): List<Video> {
         return when {
             "playmogo" in url || "dood" in url || "d000d" in url || "ds2play" in url -> {
@@ -263,54 +246,96 @@ internal object NekopoiParser {
 
     private val bgUrlRegex = """url\(['"]?(.*?)['"]?\)""".toRegex()
     private val episodeRegex = Regex("""(?:Ep|Episode)\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+    private val titleCleanupRegex = Regex("""(?i)\[NEW\s+RELEASE\]\s*|\bSUB\s*[-_]?\s*INDO(?:NESIA)?\b|\bSubtitle\s+Indonesia\b""")
+    private val emptyBracketsRegex = Regex("""\[\s*\]|\(\s*\)""")
 
     private val dateFormat by lazy {
         SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
     }
 
+    fun cleanTitle(title: String): String {
+        var t = titleCleanupRegex.replace(title, "")
+        t = emptyBracketsRegex.replace(t, "")
+        t = t.replace(Regex("""\[\s+"""), "[").replace(Regex("""\s+\]"""), "]")
+        t = t.replace(Regex("""\(\s+"""), "(").replace(Regex("""\s+\)"""), ")")
+        t = t.replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—')
+        return t
+    }
+
+    fun isValidEntry(title: String, url: String): Boolean {
+        val lowerTitle = title.lowercase()
+        if (lowerTitle.contains("anniversary") ||
+            lowerTitle.contains("selamat tahun baru") ||
+            lowerTitle.contains("ulang tahun") ||
+            lowerTitle.contains("nekopoi mengucapkan") ||
+            lowerTitle.contains("[batch]") ||
+            lowerTitle.contains(" batch")
+        ) {
+            return false
+        }
+        val lowerUrl = url.lowercase()
+        if (lowerUrl.contains("selamat-tahun-baru") ||
+            lowerUrl.contains("anniversary") ||
+            lowerUrl.contains("ulang-tahun")
+        ) {
+            return false
+        }
+        return true
+    }
+
     fun parseAnimePage(doc: Document): ParsedAnimePage {
-        val items = doc.select("div.nk-search-results ul li a.nk-search-item, div.nk-episode-grid ul li a.nk-episode-card, a.nk-search-item, a.nk-episode-card")
+        val items = doc.select(".nk-post-card, div.nk-search-results ul li a.nk-search-item, a.nk-search-item, div.nk-episode-grid ul li a.nk-episode-card, a.nk-episode-card")
             .mapNotNull { element ->
-                val href = element.attr("abs:href").ifEmpty { element.attr("href") }
+                val linkElement = when {
+                    element.tagName() == "a" -> element
+                    else -> element.selectFirst("h2 a, .nk-post-meta h2 a, a") ?: return@mapNotNull null
+                }
+                val href = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
                 if (href.isBlank()) return@mapNotNull null
 
-                val title = element.selectFirst("h2, .nk-episode-card-title")?.text()
+                val rawTitle = element.selectFirst("h2, .nk-episode-card-title")?.text()
+                    ?: linkElement.text().takeIf(String::isNotBlank)
                     ?: element.attr("title").takeIf(String::isNotBlank)
                     ?: return@mapNotNull null
 
-                val style = element.selectFirst(".nk-search-thumb, .nk-episode-card-thumb")?.attr("style") ?: ""
+                if (!isValidEntry(rawTitle, href)) return@mapNotNull null
+
+                val thumbEl = element.selectFirst(".nk-thumb-crop, .nk-post-thumb, .nk-search-thumb, .nk-episode-card-thumb")
+                val style = thumbEl?.attr("style").orEmpty()
                 val thumbnail = extractBgUrl(style)
-                    ?: element.selectFirst("img")?.attr("abs:src")
+                    ?: element.selectFirst("img")?.let { it.attr("abs:src").ifEmpty { it.attr("src") } }
 
                 ParsedAnime(
                     url = cleanUrlWithoutDomain(href),
-                    title = title,
+                    title = cleanTitle(rawTitle),
                     thumbnailUrl = thumbnail,
                 )
             }
 
-        val hasNextPage = doc.selectFirst("nav.pagination .nav-links a.next.page-numbers, .pagination a.next, .page-numbers.next") != null
+        val hasNextPage = doc.selectFirst("nav.pagination .nav-links a.next.page-numbers, .pagination a.next, .page-numbers.next, a.next.page-numbers") != null
         return ParsedAnimePage(items, hasNextPage)
     }
 
     fun parseAnimeDetails(doc: Document): ParsedAnime {
-        val title = doc.selectFirst(".nk-series-synopsis > b")?.text()
+        val rawTitle = doc.selectFirst(".nk-series-synopsis > b")?.text()
             ?: doc.selectFirst(".nk-post-header h1")?.text()
             ?: doc.selectFirst("h1")?.text()
             ?: "Unknown Title"
+        val title = cleanTitle(rawTitle)
 
         val posterStyle = doc.selectFirst(".nk-series-poster")?.attr("style") ?: ""
         val thumbnail = extractBgUrl(posterStyle)
             ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
             ?: doc.selectFirst(".nk-featured-img img")?.attr("abs:src")
 
-        val description = doc.selectFirst(".nk-series-synopsis p")?.text()
-            ?: doc.select(".nk-post-body p.separator").joinToString("\n\n") { it.text() }
-                .takeIf(String::isNotBlank)
-
-        var status = SAnime.UNKNOWN
+        val synopsisParts = mutableListOf<String>()
+        val genres = mutableListOf<String>()
         var author: String? = null
-        var genre: String? = null
+        var status = SAnime.UNKNOWN
+
+        doc.selectFirst(".nk-series-synopsis p")?.text()?.takeIf(String::isNotBlank)?.let {
+            synopsisParts.add(it)
+        }
 
         val metaElements = doc.select(".nk-series-meta-list li")
         for (meta in metaElements) {
@@ -323,22 +348,54 @@ internal object NekopoiParser {
                     author = text.substringAfter(":").trim()
                 }
                 text.contains("Genre", ignoreCase = true) -> {
-                    val genres = meta.select("a").mapNotNull { it.text().takeIf(String::isNotBlank) }
-                    genre = if (genres.isNotEmpty()) {
-                        genres.joinToString()
+                    val metaGenres = meta.select("a").mapNotNull { it.text().takeIf(String::isNotBlank) }
+                    if (metaGenres.isNotEmpty()) {
+                        genres.addAll(metaGenres)
                     } else {
-                        text.substringAfter(":").trim()
+                        val gText = text.substringAfter(":").trim()
+                        if (gText.isNotBlank()) {
+                            genres.addAll(gText.split(",").map(String::trim).filter(String::isNotBlank))
+                        }
                     }
                 }
             }
         }
 
-        if (genre.isNullOrBlank()) {
-            val bodyGenres = doc.select(".konten p:has(b:contains(Genre))").text().substringAfter(":").trim()
-            if (bodyGenres.isNotBlank()) {
-                genre = bodyGenres
+        val kontenPs = doc.select(".konten p, .nk-post-body p, .entry-content p")
+        for (p in kontenPs) {
+            val text = p.text().trim()
+            if (text.isEmpty() || text.equals("Sinopsis", ignoreCase = true)) continue
+            val lower = text.lowercase()
+            when {
+                lower.startsWith("genre") -> {
+                    val gText = text.substringAfter(":").trim()
+                    if (gText.isNotBlank()) {
+                        genres.addAll(gText.split(",").map(String::trim).filter(String::isNotBlank))
+                    }
+                }
+                lower.startsWith("producers") || lower.startsWith("produser") -> {
+                    if (author.isNullOrBlank()) {
+                        author = text.substringAfter(":").trim()
+                    }
+                }
+                lower.startsWith("actress") -> {
+                    if (author.isNullOrBlank()) {
+                        author = text.substringAfter(":").trim()
+                    }
+                }
+                lower.startsWith("status") -> {
+                    if (status == SAnime.UNKNOWN) {
+                        status = parseStatus(text.substringAfter(":"))
+                    }
+                }
+                !lower.startsWith("size") && !lower.startsWith("duration") && !lower.startsWith("durasi") -> {
+                    synopsisParts.add(text)
+                }
             }
         }
+
+        val description = synopsisParts.distinct().joinToString("\n\n").takeIf(String::isNotBlank)
+        val genre = genres.distinct().joinToString().takeIf(String::isNotBlank)
 
         return ParsedAnime(
             title = title,
@@ -350,30 +407,45 @@ internal object NekopoiParser {
         )
     }
 
-    fun parseEpisodeList(doc: Document): List<ParsedEpisode> {
+    fun parseEpisodeList(doc: Document, currentUrl: String = ""): List<ParsedEpisode> {
         val episodeCards = doc.select(".nk-episode-grid ul li a.nk-episode-card, .nk-episode-grid a.nk-episode-card")
-        return episodeCards.mapIndexed { index, card ->
-            val href = card.attr("abs:href").ifEmpty { card.attr("href") }
-            val name = card.selectFirst(".nk-episode-card-title")?.text()
-                ?: "Episode ${index + 1}"
-            val badgeText = card.selectFirst(".nk-episode-badge")?.text() ?: ""
-            val episodeNumber = parseEpisodeNumber(badgeText, name, (index + 1).toFloat())
-            val dateElement = card.selectFirst(".nk-episode-card-date")
-            val dateText = dateElement?.text()?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
-            val dateUpload = dateFormat.tryParse(dateText)
+        if (episodeCards.isNotEmpty()) {
+            return episodeCards.mapIndexed { index, card ->
+                val href = card.attr("abs:href").ifEmpty { card.attr("href") }
+                val rawTitle = card.selectFirst(".nk-episode-card-title")?.text() ?: ""
+                val badgeText = card.selectFirst(".nk-episode-badge")?.text() ?: ""
+                val epNum = parseEpisodeNumber(badgeText, rawTitle, (index + 1).toFloat())
+                val epStr = if (epNum % 1.0f == 0.0f) epNum.toInt().toString() else epNum.toString()
+                val name = "Episode $epStr"
 
-            ParsedEpisode(
-                url = cleanUrlWithoutDomain(href),
-                name = name,
-                episodeNumber = episodeNumber,
-                dateUpload = dateUpload,
-            )
+                val dateElement = card.selectFirst(".nk-episode-card-date")
+                val dateText = dateElement?.text()?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
+                val dateUpload = dateFormat.tryParse(dateText)
+
+                ParsedEpisode(
+                    url = cleanUrlWithoutDomain(href),
+                    name = name,
+                    episodeNumber = (index + 1).toFloat(),
+                    dateUpload = dateUpload,
+                )
+            }
         }
+
+        return listOf(createSingleEpisode(doc, currentUrl))
     }
 
     fun createSingleEpisode(doc: Document, currentUrl: String): ParsedEpisode {
-        val name = doc.selectFirst(".nk-post-header h1")?.text() ?: "Episode 1"
-        val episodeNumber = parseEpisodeNumber("", name, 1F)
+        val rawTitle = doc.selectFirst(".nk-post-header h1")?.text()
+            ?: doc.selectFirst("h1")?.text()
+            ?: ""
+        val epNum = parseEpisodeNumber("", rawTitle, 0F)
+        val name = if (epNum > 0F) {
+            val epStr = if (epNum % 1.0f == 0.0f) epNum.toInt().toString() else epNum.toString()
+            "Episode $epStr"
+        } else {
+            "Episode 1"
+        }
+
         val dateText = doc.selectFirst(".nk-post-header-meta")?.text()
             ?.replace(Regex("[^0-9a-zA-Z ]"), " ")?.trim()
         val dateUpload = dateFormat.tryParse(dateText)
@@ -381,9 +453,25 @@ internal object NekopoiParser {
         return ParsedEpisode(
             url = cleanUrlWithoutDomain(currentUrl),
             name = name,
-            episodeNumber = episodeNumber,
+            episodeNumber = 1F,
             dateUpload = dateUpload,
         )
+    }
+
+    fun deduplicateVideos(videos: List<Video>): List<Video> {
+        val result = mutableListOf<Video>()
+        val seenUrls = mutableSetOf<String>()
+        val qualityCounts = mutableMapOf<String, Int>()
+
+        for (video in videos) {
+            if (!seenUrls.add(video.url)) continue
+            val baseQuality = video.quality
+            val count = (qualityCounts[baseQuality] ?: 0) + 1
+            qualityCounts[baseQuality] = count
+            val quality = if (count > 1) "$baseQuality ($count)" else baseQuality
+            result.add(Video(video.url, quality, video.videoUrl, video.headers, video.subtitleTracks, video.audioTracks))
+        }
+        return result
     }
 
     fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {

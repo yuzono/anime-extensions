@@ -90,9 +90,13 @@ class NekopoiTest {
         val doc = Jsoup.parse(html)
         val anime = NekopoiParser.parseAnimeDetails(doc)
 
-        assertEquals("[NEW Release] Deco x Deco Episode 1 Subtitle Indonesia", anime.title)
+        assertEquals("Deco x Deco Episode 1", anime.title)
         assertEquals("Big Oppai, Romance", anime.genre)
+        assertEquals("PoRO", anime.author)
         assertTrue(anime.description!!.contains("Sinopsis Deco x Deco"))
+        // Ensure genres and producers are NOT in the description
+        assertTrue(!anime.description!!.contains("Genre :"))
+        assertTrue(!anime.description!!.contains("Producers :"))
     }
 
     @Test
@@ -137,11 +141,12 @@ class NekopoiTest {
         assertEquals(2, episodes.size)
         assertEquals("inaka-episode-1-subtitle-indonesia", episodes[0].url.trim('/'))
         assertEquals(1.0f, episodes[0].episodeNumber)
-        assertEquals("Inaka Episode 1 Subtitle Indonesia", episodes[0].name)
+        assertEquals("Episode 1", episodes[0].name)
         assertTrue(episodes[0].dateUpload > 0L)
 
         assertEquals("inaka-episode-2-subtitle-indonesia", episodes[1].url.trim('/'))
         assertEquals(2.0f, episodes[1].episodeNumber)
+        assertEquals("Episode 2", episodes[1].name)
     }
 
     @Test
@@ -165,7 +170,7 @@ class NekopoiTest {
 
         assertEquals("deco-episode-1", ep.url.trim('/'))
         assertEquals(1.0f, ep.episodeNumber)
-        assertNotNull(ep.name)
+        assertEquals("Episode 1", ep.name)
     }
 
     @Test
@@ -205,6 +210,76 @@ class NekopoiTest {
         assertEquals("So_Low", page.animes[0].title)
         assertEquals("https://nekopoi.care/thumb.jpg", page.animes[0].thumbnailUrl)
         assertTrue(page.hasNextPage)
+    }
+
+    @Test
+    fun `parseAnimePage supports nk-post-card and filters out sticky blog posts`() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <div class="nk-hentai-grid">
+                    <div class="nk-post-card">
+                        <div class="nk-post-thumb">
+                            <div class="nk-thumb-crop" style="background-image: url('https://nekopoi.care/thumb1.jpg')"></div>
+                        </div>
+                        <div class="nk-post-meta">
+                            <h2><a href="https://nekopoi.care/inaka-episode-2-subtitle-indonesia/">[NEW Release] Inaka Episode 2 Subtitle Indonesia</a></h2>
+                        </div>
+                    </div>
+                    <div class="nk-post-card">
+                        <div class="nk-post-thumb">
+                            <div class="nk-thumb-crop" style="background-image: url('https://nekopoi.care/thumb2.jpg')"></div>
+                        </div>
+                        <div class="nk-post-meta">
+                            <h2><a href="https://nekopoi.care/selamat-tahun-baru-2022/">Selamat Tahun Baru 2022</a></h2>
+                        </div>
+                    </div>
+                    <div class="nk-post-card">
+                        <div class="nk-post-thumb">
+                            <div class="nk-thumb-crop" style="background-image: url('https://nekopoi.care/thumb3.jpg')"></div>
+                        </div>
+                        <div class="nk-post-meta">
+                            <h2><a href="https://nekopoi.care/happy-anniversary-nekopoi/">Happy 6th Anniversary NekoPoi</a></h2>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html)
+        val page = NekopoiParser.parseAnimePage(doc)
+
+        assertEquals(1, page.animes.size)
+        assertEquals("inaka-episode-2-subtitle-indonesia", page.animes[0].url.trim('/'))
+        assertEquals("Inaka Episode 2", page.animes[0].title)
+    }
+
+    @Test
+    fun `title cleanup removes Subtitle Indonesia, NEW Release, and bracket tags`() {
+        assertEquals("Inaka Episode 2", NekopoiParser.cleanTitle("[NEW Release] Inaka Episode 2 Subtitle Indonesia"))
+        assertEquals("Onaji Semi Episode 5", NekopoiParser.cleanTitle("Onaji Semi Episode 5 Subtitle Indonesia"))
+        assertEquals("[3D] NieR Automata Climax", NekopoiParser.cleanTitle("[3D SUB INDO] NieR Automata Climax"))
+        assertEquals("Marika Hase JAV", NekopoiParser.cleanTitle("Marika Hase JAV Subtitle Indonesia"))
+        assertEquals("Deco x Deco Episode 1", NekopoiParser.cleanTitle("[NEW RELEASE] Deco x Deco Episode 1 - Sub Indo"))
+    }
+
+    @Test
+    fun `deduplicateVideos removes duplicate URLs and adds server numbering`() {
+        val videos = listOf(
+            eu.kanade.tachiyomi.animesource.model.Video("https://stream1.com/vid.mp4", "Doodstream", "https://stream1.com/vid.mp4"),
+            eu.kanade.tachiyomi.animesource.model.Video("https://stream2.com/vid.mp4", "Doodstream", "https://stream2.com/vid.mp4"),
+            eu.kanade.tachiyomi.animesource.model.Video("https://stream1.com/vid.mp4", "Doodstream", "https://stream1.com/vid.mp4"),
+            eu.kanade.tachiyomi.animesource.model.Video("https://stream3.com/vid.mp4", "StreamWish", "https://stream3.com/vid.mp4"),
+        )
+
+        val result = NekopoiParser.deduplicateVideos(videos)
+
+        assertEquals(3, result.size)
+        assertEquals("Doodstream", result[0].quality)
+        assertEquals("Doodstream (2)", result[1].quality)
+        assertEquals("StreamWish", result[2].quality)
     }
 
     @Test
