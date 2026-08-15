@@ -170,7 +170,10 @@ class Nekopoi :
                 val directVideos = doodExtractor.videosFromUrl(url)
                 if (directVideos.isNotEmpty()) return directVideos
 
-                val id = url.substringAfterLast("/")
+                val id = url
+                    .substringAfterLast("/")
+                    .substringBefore("?")
+                    .substringBefore("#")
                 val mirrorUrl = "https://d000d.com/e/$id"
                 doodExtractor.videosFromUrl(mirrorUrl)
             }
@@ -384,8 +387,20 @@ internal object NekopoiParser {
     }
 
     fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
-        "completed" -> SAnime.COMPLETED
-        "ongoing" -> SAnime.ONGOING
+        "completed",
+        "complete",
+        "finished",
+        "finish",
+        "ended",
+        "end",
+        "tamat",
+        -> SAnime.COMPLETED
+        "ongoing",
+        "on going",
+        "on-going",
+        "berjalan",
+        "sedang berjalan",
+        -> SAnime.ONGOING
         else -> SAnime.UNKNOWN
     }
 

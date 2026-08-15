@@ -211,8 +211,12 @@ class NekopoiTest {
     fun `status parsing handles variations`() {
         assertEquals(SAnime.COMPLETED, NekopoiParser.parseStatus("Completed"))
         assertEquals(SAnime.COMPLETED, NekopoiParser.parseStatus("completed"))
+        assertEquals(SAnime.COMPLETED, NekopoiParser.parseStatus("Finished"))
+        assertEquals(SAnime.COMPLETED, NekopoiParser.parseStatus("tamat"))
         assertEquals(SAnime.ONGOING, NekopoiParser.parseStatus("Ongoing"))
-        assertEquals(SAnime.ONGOING, NekopoiParser.parseStatus("ongoing"))
+        assertEquals(SAnime.ONGOING, NekopoiParser.parseStatus("on-going"))
+        assertEquals(SAnime.ONGOING, NekopoiParser.parseStatus("berjalan"))
+        assertEquals(SAnime.ONGOING, NekopoiParser.parseStatus("sedang berjalan"))
         assertEquals(SAnime.UNKNOWN, NekopoiParser.parseStatus("Unknown"))
         assertEquals(SAnime.UNKNOWN, NekopoiParser.parseStatus(null))
     }
