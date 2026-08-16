@@ -63,7 +63,11 @@ class Nekopoi :
 
     // ============================== Latest Updates =============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
+    override fun latestUpdatesRequest(page: Int): Request = if (page == 1) {
+        GET("$baseUrl/?post_type=anime", headers)
+    } else {
+        GET("$baseUrl/page/$page/?post_type=anime", headers)
+    }
 
     override fun latestUpdatesParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
     // ================================== Search =================================
@@ -125,7 +129,7 @@ class Nekopoi :
                 }.build()
                 GET(url, headers)
             }
-            else -> popularAnimeRequest(page)
+            else -> latestUpdatesRequest(page)
         }
     }
 
