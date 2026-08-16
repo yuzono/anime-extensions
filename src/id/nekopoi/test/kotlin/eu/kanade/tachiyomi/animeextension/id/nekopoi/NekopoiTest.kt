@@ -391,4 +391,5 @@ class NekopoiTest {
         assertEquals("Low Score Title", page2.animes[0].title)
         assertEquals(false, page2.hasNextPage)
     }
+
 }

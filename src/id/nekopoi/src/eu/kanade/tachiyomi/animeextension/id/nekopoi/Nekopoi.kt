@@ -49,11 +49,15 @@ class Nekopoi :
 
     // ============================== Popular Anime ==============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/hentai-list/?page=$page", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/hentai-list/?nk_page=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
-        val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        val page = response.request.url.queryParameter("nk_page")?.toIntOrNull()
+            ?: response.priorResponse?.request?.url?.queryParameter("nk_page")?.toIntOrNull()
+            ?: response.priorResponse?.request?.url?.queryParameter("page")?.toIntOrNull()
+            ?: response.request.url.queryParameter("page")?.toIntOrNull()
+            ?: 1
         return NekopoiParser.parsePopularHentaiList(doc, page).toAnimesPage()
     }
 
