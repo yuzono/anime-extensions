@@ -331,10 +331,10 @@ internal object NekopoiParser {
             ?: doc.selectFirst("h1")?.text()
             ?: "Unknown Title"
         val title = cleanTitle(rawTitle)
-
-        val thumbnail = extractThumbnail(doc)
+        val posterStyle = doc.selectFirst(".nk-series-poster")?.attr("style").orEmpty()
+        val thumbnail = extractBgUrl(posterStyle)
             ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-
+            ?: doc.selectFirst(".nk-featured-img img, .featured-image img, .nk-post-thumb img")?.let { it.attr("abs:src").ifEmpty { it.attr("src") } }
         val synopsisParts = mutableListOf<String>()
         val genres = mutableListOf<String>()
         var author: String? = null

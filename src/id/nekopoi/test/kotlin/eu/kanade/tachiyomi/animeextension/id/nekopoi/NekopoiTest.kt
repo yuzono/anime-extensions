@@ -100,6 +100,37 @@ class NekopoiTest {
     }
 
     @Test
+    fun `anime details parsing uses exact cover and ignores unrelated sidebar styles`() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta property="og:image" content="https://nekopoi.care/wp-content/uploads/2026/08/correct-cover.jpg">
+            </head>
+            <body>
+                <div class="sidebar">
+                    <div class="ltd" style="background-image: url('https://nekopoi.care/wp-content/uploads/2026/08/random-recommended.jpg')"></div>
+                    <div class="nk-player-series-thumb" style="background-image: url('https://nekopoi.care/wp-content/uploads/2026/08/random-series.jpg')"></div>
+                </div>
+                <div class="nk-post-header">
+                    <h1>[L2D] Bertukar Hasrat Kepuasan Bersama Shaula</h1>
+                </div>
+                <div class="nk-post-body">
+                    <div class="konten">
+                        <p>Sinopsis cerita Shaula.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html)
+        val anime = NekopoiParser.parseAnimeDetails(doc)
+
+        assertEquals("https://nekopoi.care/wp-content/uploads/2026/08/correct-cover.jpg", anime.thumbnailUrl)
+    }
+
+    @Test
     fun `episode list parsing extracts episodes correctly`() {
         val html = """
             <!DOCTYPE html>
