@@ -186,7 +186,7 @@ class Nekopoi :
             "vidhide" in url || "vidhided" in url || "embedwish" in url -> {
                 vidHideExtractor.videosFromUrl(url)
             }
-            url.endsWith(".mp4") || url.endsWith(".m3u8") -> {
+            url.lowercase().endsWith(".mp4") || url.lowercase().endsWith(".m3u8") -> {
                 listOf(Video(url, "Direct", url, headers = headers))
             }
             else -> emptyList()
