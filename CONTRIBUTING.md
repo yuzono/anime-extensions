@@ -34,7 +34,10 @@ or fixing it directly by submitting a Pull Request.
         - [JSON serialization - `toJsonString` / `toJsonRequestBody`](#json-serialization---tojsonstring--tojsonrequestbody)
         - [JSON models (DTOs) and serialization](#json-models-dtos-and-serialization)
         - [Protobuf parsing and serialization - `parseAsProto` / `toRequestBodyProto`](#protobuf-parsing-and-serialization---parseasproto--torequestbodyproto)
-        - [Date parsing - `tryParse`](#date-parsing---tryparse)
+        - [Date parsing - `tryParse` helpers](#date-parsing---tryparse-helpers)
+        - [HTTP requests - `OkHttpClient.get` / `post` / `put` / `head`](#http-requests---okhttpclientget--post--put--head)
+        - [Custom cookies - `addCookie`](#custom-cookies---addcookie)
+        - [WebView execution - `runWebView` / `getLocalStorage`](#webview-execution---runwebview--getlocalstorage)
         - [Filter helpers - `firstInstance` / `firstInstanceOrNull`](#filter-helpers---firstinstance--firstinstanceornull)
         - [Next.js data extraction - `extractNextJs` / `extractNextJsRsc`](#nextjs-data-extraction---extractnextjs--extractnextjsrsc)
         - [Extracting URLs - `setUrlWithoutDomain` + `absUrl`](#extracting-urls---seturlwithoutdomain--absurl)
@@ -318,20 +321,27 @@ Referencing the actual implementation will help with understanding extensions' c
 #### lib tools
 
 The `lib/` directory contains reusable Gradle modules that solve common problems shared across
-multiple extensions, such as cookie injection, stream descrambling, JavaScript deobfuscation, and
+multiple extensions, such as stream descrambling, JavaScript deobfuscation, and
 more. Before implementing something from scratch, check whether an existing lib already covers your
 use case. Each lib is self-documented via KDoc comments and/or a README in its own folder.
 
 #### Available libs
 
-| Module                                                                                                         | Description                                                          |
-|----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| [`lib-cookieinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/cookieinterceptor)        | Injects cookies into OkHttp requests for a given domain              |
-| [`lib-cryptoaes`](https://github.com/yuzono/anime-extensions/tree/master/lib/cryptoaes)                        | AES-CBC decryption compatible with CryptoJS; JSFuck deobfuscation    |
-| [`lib-randomua`](https://github.com/yuzono/anime-extensions/tree/master/lib/randomua)                          | Fetches and rotates real-world User-Agent strings                    |
-| [`lib-synchrony`](https://github.com/yuzono/anime-extensions/tree/master/lib/synchrony)                        | JavaScript deobfuscation via the Synchrony engine (QuickJS sandbox)  |
-| [`lib-textinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/textinterceptor)            | Renders plain text or HTML as a PNG image page                       |
-| [`lib-unpacker`](https://github.com/yuzono/anime-extensions/tree/master/lib/unpacker)                          | Unpacks Dean Edwards-packed JavaScript; substring extraction helpers |
+| Module                                                                                                    | Description                                                                             |
+|-----------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| [`lib-cryptoaes`](https://github.com/yuzono/anime-extensions/tree/master/lib/cryptoaes)                 | AES-CBC decryption compatible with CryptoJS; JSFuck deobfuscation                       |
+| [`lib-dataimage`](https://github.com/yuzono/anime-extensions/tree/master/lib/dataimage)                 | Decodes base64 `data:image` strings into mock URLs that OkHttp can handle               |
+| [`lib-i18n`](https://github.com/yuzono/anime-extensions/tree/master/lib/i18n)                           | Internationalization helper (`Intl`) for multi-language UI strings in extensions        |
+| [`lib-lzstring`](https://github.com/yuzono/anime-extensions/tree/master/lib/lzstring)                   | LZ-String decompression and compression                                                 |
+| [`lib-randomua`](https://github.com/yuzono/anime-extensions/tree/master/lib/randomua)                   | Fetches and rotates real-world User-Agent strings (requires overriding `getMangaUrl()`) |
+| [`lib-seedrandom`](https://github.com/yuzono/anime-extensions/tree/master/lib/seedrandom)               | Seeded deterministic pseudo-random number generation (ARC4-based)                       |
+| [`lib-synchrony`](https://github.com/yuzono/anime-extensions/tree/master/lib/synchrony)                 | JavaScript deobfuscation via the Synchrony engine (QuickJS sandbox)                     |
+| [`lib-textinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/textinterceptor)     | Renders plain text or HTML as a PNG image page                                          |
+| [`lib-unpacker`](https://github.com/yuzono/anime-extensions/tree/master/lib/unpacker)                   | Unpacks Dean Edwards-packed JavaScript; substring extraction helpers                    |
+| [`lib-zipinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/zipinterceptor)       | Decodes, stitches, and processes multi-page ZIP/AVIF/SVG image archives                 |
+
+> [!IMPORTANT]
+> If your module uses `:lib:randomua`, the Spotless check requires your extension to override the `getMangaUrl()` method in your main class, or the build will fail.
 
 > [!NOTE]
 > The table above highlights the most commonly used libraries. Check the `lib/` directory for the full list of available modules and their specific READMEs.
@@ -695,7 +705,7 @@ either `AnimeSourceFactory` or `AnimeHttpSource`.
 - **Avoid synchronous calls in `parse` methods:** Do not call `client.newCall(...).execute()` inside parsing methods like `videoListParse` or `episodeListParse`. Make the request part of the standard flow by overriding the corresponding request method (e.g., `videoListRequest`) or `getVideoList`.
 - **Pass `HttpUrl` directly:** The `GET()` and `POST()` helpers accept an `HttpUrl` object. Do not call `.toString()` on a built `HttpUrl` before passing it.
 - **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments()` or `queryParameter()`) over manual string splitting or regex. It is safer and handles edge cases better.
-- **Use `CookieInterceptor` for custom cookies:** When you need to inject custom cookies into requests, use the `lib-cookieinterceptor` dependency instead of manually adding `Cookie` headers. Manually setting the `Cookie` header overrides all cookies (including Cloudflare cookies set via WebView), breaking login and challenge solving.
+- **Use `addCookie` for custom cookies:** See [Custom cookies - `addCookie`](#custom-cookies---addcookie). Do not manually add `Cookie` headers: doing so can discard unrelated cookies already attached to the request, whereas `addCookie` preserves them and replaces only cookies with matching names.
 
 ### Extension call flow
 
