@@ -54,7 +54,6 @@ class Hanime1 :
     private val preferences by getPreferencesLazy()
 
     private var filterUpdateState = FilterUpdateState.NONE
-    private val uploadDateRegex = Regex("""\d{4}-\d{2}-\d{2}""")
     private val uploadDateFormat: SimpleDateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
     }
@@ -64,7 +63,7 @@ class Hanime1 :
         return SAnime.create().apply {
             genre = doc.select(".single-video-tag").not("[data-toggle]").eachText()
                 // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
-                .joinToString { it.replace(Regex("""^(# )?(.*?)( \(\d+\))?$"""), "$2") }
+                .joinToString { it.replace(REGEX_VIDEO_TAG, "$2") }
             author = doc.select("#video-artist-name").text()
             title = doc.select("#shareBtn-title").text()
                 .takeIf { it.isNotBlank() }
@@ -104,7 +103,7 @@ class Hanime1 :
                 name = element.select(".video-title").text()
                 if (href == response.request.url.toString()) {
                     // current video, parse `觀看次數：362.5萬次 2025-12-26` to upload date
-                    uploadDateRegex.find(jsoup.select("#shareBtn-title + div").text())?.value?.let {
+                    REGEX_UPLOAD_DATE.find(jsoup.select("#shareBtn-title + div").text())?.value?.let {
                         date_upload = runCatching { uploadDateFormat.parse(it)?.time }.getOrNull() ?: 0L
                     }
                 }
@@ -362,5 +361,8 @@ class Hanime1 :
         const val PREF_KEY_CATEGORY_LIST = "PREF_KEY_CATEGORY_LIST"
 
         const val DEFAULT_QUALITY = "1080P"
+
+        private val REGEX_UPLOAD_DATE = Regex("""\d{4}-\d{2}-\d{2}""")
+        private val REGEX_VIDEO_TAG = Regex("""^(# )?(.*?)( \(\d+\))?$""")
     }
 }
