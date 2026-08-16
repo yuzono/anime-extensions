@@ -36,7 +36,7 @@ class Nekopoi :
 
     override val lang = "id"
 
-    override val supportsLatest = false
+    override val supportsLatest = true
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -49,15 +49,19 @@ class Nekopoi :
 
     // ============================== Popular Anime ==============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/hentai-list/?page=$page", headers)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val doc = response.asJsoup()
+        val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        return NekopoiParser.parsePopularHentaiList(doc, page).toAnimesPage()
+    }
 
     // ============================== Latest Updates =============================
 
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException("Not used")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/page/$page/", headers)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException("Not used")
+    override fun latestUpdatesParse(response: Response): AnimesPage = NekopoiParser.parseAnimePage(response.asJsoup()).toAnimesPage()
     // ================================== Search =================================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -260,7 +264,8 @@ internal object NekopoiParser {
     private val episodeRegex = Regex("""(?:Ep|Episode)\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
     private val titleCleanupRegex = Regex("""(?i)\[NEW\s+RELEASE\]\s*|\bSUB\s*[-_]?\s*INDO(?:NESIA)?\b|\bSubtitle\s+Indonesia\b""")
     private val emptyBracketsRegex = Regex("""\[\s*\]|\(\s*\)""")
-
+    private val tooltipImgRegex = Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    private val tooltipScoreRegex = Regex("""Skor\s*(?:</b>)?\s*:\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
     private val dateFormat by lazy {
         SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
     }
@@ -324,6 +329,52 @@ internal object NekopoiParser {
         val hasNextPage = doc.selectFirst("nav.pagination .nav-links a.next.page-numbers, .pagination a.next, .page-numbers.next, a.next.page-numbers") != null
         return ParsedAnimePage(items, hasNextPage)
     }
+    fun parsePopularHentaiList(doc: Document, page: Int, pageSize: Int = 20): ParsedAnimePage {
+        val items = doc.select(".nk-az-item a, a.nk-series-link")
+            .mapNotNull { element ->
+                val href = element.attr("abs:href").ifEmpty { element.attr("href") }
+                if (href.isBlank()) return@mapNotNull null
+
+                val rawTitle = element.text().takeIf(String::isNotBlank)
+                    ?: element.attr("title").takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
+
+                if (!isValidEntry(rawTitle, href)) return@mapNotNull null
+
+                val rawTooltip = element.attr("original-title")
+                val thumbnail = tooltipImgRegex.find(rawTooltip)?.groupValues?.get(1)
+                    ?: extractThumbnail(element)
+
+                val score = tooltipScoreRegex.find(rawTooltip)?.groupValues?.get(1)?.toFloatOrNull() ?: 0.0f
+
+                ScoredAnime(
+                    anime = ParsedAnime(
+                        url = cleanUrlWithoutDomain(href),
+                        title = cleanTitle(rawTitle),
+                        thumbnailUrl = thumbnail,
+                    ),
+                    score = score,
+                )
+            }
+            .sortedByDescending { it.score }
+            .map { it.anime }
+
+        val startIndex = (page - 1) * pageSize
+        if (startIndex >= items.size) {
+            return ParsedAnimePage(emptyList(), false)
+        }
+
+        val endIndex = minOf(startIndex + pageSize, items.size)
+        val pagedItems = items.subList(startIndex, endIndex)
+        val hasNextPage = endIndex < items.size
+
+        return ParsedAnimePage(pagedItems, hasNextPage)
+    }
+
+    private data class ScoredAnime(
+        val anime: ParsedAnime,
+        val score: Float,
+    )
 
     fun parseAnimeDetails(doc: Document): ParsedAnime {
         val rawTitle = doc.selectFirst(".nk-series-synopsis > b")?.text()

@@ -354,4 +354,41 @@ class NekopoiTest {
         assertEquals("https://nekopoi.care/img2.jpg", NekopoiParser.extractBgUrl("background-image: url(\"https://nekopoi.care/img2.jpg\");"))
         assertEquals("https://nekopoi.care/img3.jpg", NekopoiParser.extractBgUrl("background: url(https://nekopoi.care/img3.jpg) center;"))
     }
+
+    @Test
+    fun `parsePopularHentaiList sorts by score descending and paginates correctly`() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <div class="nk-hentai-list">
+                    <div class="nk-az-item">
+                        <a href="https://nekopoi.care/hentai/low-score/" original-title='<div class="nk-tooltip-card"><h2>Low Score Title</h2><div class="nk-tooltip-body"><img src="https://nekopoi.care/low.jpg" class="nk-tooltip-img" /><div class="nk-tooltip-detail"><p><b>Skor</b>: 5.50</p></div></div></div>'>Low Score Title</a>
+                    </div>
+                    <div class="nk-az-item">
+                        <a href="https://nekopoi.care/hentai/high-score/" original-title='<div class="nk-tooltip-card"><h2>High Score Title</h2><div class="nk-tooltip-body"><img src="https://nekopoi.care/high.jpg" class="nk-tooltip-img" /><div class="nk-tooltip-detail"><p><b>Skor</b>: 9.25</p></div></div></div>'>High Score Title</a>
+                    </div>
+                    <div class="nk-az-item">
+                        <a href="https://nekopoi.care/hentai/mid-score/" original-title='<div class="nk-tooltip-card"><h2>Mid Score Title</h2><div class="nk-tooltip-body"><img src="https://nekopoi.care/mid.jpg" class="nk-tooltip-img" /><div class="nk-tooltip-detail"><p><b>Skor</b>: 7.80</p></div></div></div>'>Mid Score Title</a>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html)
+        val page1 = NekopoiParser.parsePopularHentaiList(doc, page = 1, pageSize = 2)
+
+        assertEquals(2, page1.animes.size)
+        assertEquals("High Score Title", page1.animes[0].title)
+        assertEquals("https://nekopoi.care/high.jpg", page1.animes[0].thumbnailUrl)
+        assertEquals("hentai/high-score", page1.animes[0].url.trim('/'))
+        assertEquals("Mid Score Title", page1.animes[1].title)
+        assertTrue(page1.hasNextPage)
+
+        val page2 = NekopoiParser.parsePopularHentaiList(doc, page = 2, pageSize = 2)
+        assertEquals(1, page2.animes.size)
+        assertEquals("Low Score Title", page2.animes[0].title)
+        assertEquals(false, page2.hasNextPage)
+    }
 }
