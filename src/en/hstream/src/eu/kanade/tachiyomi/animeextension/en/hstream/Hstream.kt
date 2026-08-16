@@ -2,6 +2,11 @@ package eu.kanade.tachiyomi.animeextension.en.hstream
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.extractEpisodeNumber
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.normalizeHref
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.stripEpisodeSuffix
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.toSeriesSlug
+import eu.kanade.tachiyomi.animeextension.en.hstream.HstreamUtils.toSeriesUrl
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -14,9 +19,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -51,10 +58,18 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("img")!!.attr("alt")
-        val episode = url.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        val rawHref = element.attr("href")
+        val episodeUrl = rawHref.normalizeHref()
+        if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            setUrlWithoutDomain(episodeUrl.toSeriesUrl())
+            title = element.selectFirst("img")!!.attr("alt").stripEpisodeSuffix()
+            thumbnail_url = "$baseUrl/images$url/cover-ep-1.webp"
+        } else {
+            setUrlWithoutDomain(episodeUrl)
+            title = element.selectFirst("img")!!.attr("alt")
+            val episode = url.substringAfterLast("-").substringBefore("/")
+            thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        }
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
@@ -84,7 +99,12 @@ class Hstream :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/hentai/$id"))
+            val url = if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+                "$baseUrl/hentai/${id.toSeriesSlug()}"
+            } else {
+                "$baseUrl/hentai/$id"
+            }
+            client.newCall(GET(url))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
         }
@@ -125,9 +145,17 @@ class Hstream :
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = SAnime.COMPLETED
 
-        val floatleft = document.selectFirst("div.relative > div.justify-between > div")!!
-        title = floatleft.selectFirst("div > h1")!!.text()
-        artist = floatleft.select("div > a:nth-of-type(3)").text()
+        val detailsSection = document.selectFirst("div.relative > div.justify-between > div")
+        if (detailsSection != null) {
+            // Episode page: h1 is inside div.justify-between > div
+            title = detailsSection.selectFirst("div > h1")!!.text()
+            artist = detailsSection.select("div > a:nth-of-type(3)").text()
+        } else {
+            // Series page: h1 is a direct child of div.relative
+            title = document.selectFirst("div.relative > h1")?.text()
+                ?: document.selectFirst("h1")!!.text()
+            artist = ""
+        }
 
         thumbnail_url = document.selectFirst("div.float-left > img.object-cover")?.absUrl("src")
         genre = document.select("ul.list-none > li > a").eachText().joinToString()
@@ -136,10 +164,96 @@ class Hstream :
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        if (preferences.getBoolean(PREF_GROUP_BY_SERIES_KEY, PREF_GROUP_BY_SERIES_DEFAULT)) {
+            // Fetch the series page to extract the series title
+            val doc = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use { it.asJsoup() }
+            // Series page is JS-rendered, so episode grid isn't available in JSoup HTML.
+            // Instead, use the search endpoint to find all episodes of this series.
+            val seriesUrl = "$baseUrl${anime.url}".normalizeHref()
+
+            // Get series title from the page, strip Japanese name for matching
+            val h1Episode = doc.selectFirst("div.relative > div.justify-between > div > div > h1")?.text()
+            val h1Series = doc.selectFirst("div.relative > h1")?.text()
+            val h1Fallback = doc.selectFirst("h1")?.text()
+
+            val seriesTitle = h1Episode ?: h1Series ?: h1Fallback ?: ""
+            val matchTitle = seriesTitle.substringBefore("(").trim()
+
+            if (matchTitle.isBlank()) {
+                val episodeUrl = "$seriesUrl-1"
+                val fallbackEpNum = episodeUrl.extractEpisodeNumber()
+                return listOf(
+                    SEpisode.create().apply {
+                        setUrlWithoutDomain(episodeUrl)
+                        episode_number = fallbackEpNum?.toFloatOrNull() ?: 1F
+                        name = if (fallbackEpNum != null) "Episode $fallbackEpNum" else "Episode 1"
+                        date_upload = 0L
+                    },
+                )
+            }
+
+            val searchUrl = "$baseUrl/search".toHttpUrl().newBuilder()
+                .addQueryParameter("search", matchTitle)
+                .build()
+
+            val searchDoc = client.newCall(GET(searchUrl.toString())).awaitSuccess().use { it.asJsoup() }
+            val searchResults = searchDoc.select(popularAnimeSelector())
+
+            val urlPrefix = "$seriesUrl-"
+
+            val episodes = searchResults.mapNotNull { element ->
+                val rawHref = element.attr("href")
+                val href = rawHref.normalizeHref()
+
+                if (!href.startsWith(urlPrefix)) return@mapNotNull null
+
+                val alt = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
+
+                if (!alt.contains(matchTitle, ignoreCase = true)) return@mapNotNull null
+
+                val epNum = href.extractEpisodeNumber() ?: return@mapNotNull null
+
+                SEpisode.create().apply {
+                    setUrlWithoutDomain(href)
+                    episode_number = epNum.toFloatOrNull() ?: 1F
+                    name = "Episode $epNum"
+                    date_upload = 0L
+                }
+            }
+
+            // Fallback for single-series entries where search found no matching episodes.
+            // Without this, the framework creates a default episode named "Episode (url)".
+            if (episodes.isEmpty()) {
+                val episodeUrl = "$seriesUrl-1"
+                val fallbackEpNum = episodeUrl.extractEpisodeNumber()
+
+                val fallbackEp = SEpisode.create().apply {
+                    setUrlWithoutDomain(episodeUrl)
+                    if (fallbackEpNum != null) {
+                        episode_number = fallbackEpNum.toFloatOrNull() ?: 1F
+                        name = "Episode $fallbackEpNum"
+                    } else {
+                        episode_number = 1F
+                        name = "Episode 1"
+                    }
+                    date_upload = 0L
+                }
+
+                return listOf(fallbackEp)
+            }
+
+            val sortedEpisodes = episodes.sortedByDescending { it.episode_number }
+            return sortedEpisodes
+        }
+
+        // Original behavior: single episode from the page (grouping disabled)
+        val doc = client.newCall(animeDetailsRequest(anime)).awaitSuccess().use { it.asJsoup() }
+
+        val uploadDateText = doc.selectFirst("a:has(i.fa-upload)")?.ownText()
+
         val episode = SEpisode.create().apply {
-            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
+            date_upload = DATE_FORMATTER.tryParse(uploadDateText)
             setUrlWithoutDomain(doc.location())
             val num = url.substringAfterLast("-").substringBefore("/")
             episode_number = num.toFloatOrNull() ?: 1F
@@ -148,6 +262,8 @@ class Hstream :
 
         return listOf(episode)
     }
+
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Use getEpisodeList instead")
 
     override fun episodeListSelector(): String = throw UnsupportedOperationException()
 
@@ -158,8 +274,8 @@ class Hstream :
         val doc = response.asJsoup()
 
         val token = client.cookieJar.loadForRequest(response.request.url)
-            .first { it.name.equals("XSRF-TOKEN") }
-            .value
+            .find { it.name == "XSRF-TOKEN" }?.value
+            ?: throw Exception("XSRF-TOKEN cookie not found")
 
         val episodeId = doc.selectFirst("input#e_id")!!.attr("value")
 
@@ -185,7 +301,7 @@ class Hstream :
     }
 
     private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
-        if (resolution.equals("720")) {
+        if (resolution == "720") {
             "/x264.720p.mp4"
         } else {
             "/av1.$resolution.webm"
@@ -210,6 +326,13 @@ class Hstream :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addSwitchPreference(
+            key = PREF_GROUP_BY_SERIES_KEY,
+            default = PREF_GROUP_BY_SERIES_DEFAULT,
+            title = PREF_GROUP_BY_SERIES_TITLE,
+            summary = PREF_GROUP_BY_SERIES_SUMMARY,
+        )
+
         ListPreference(screen.context).apply {
             key = PREF_QUALITY_KEY
             title = PREF_QUALITY_TITLE
@@ -228,9 +351,6 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
-        .getOrNull() ?: 0L
-
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
@@ -245,6 +365,11 @@ class Hstream :
         }
 
         const val PREFIX_SEARCH = "id:"
+
+        private const val PREF_GROUP_BY_SERIES_KEY = "pref_group_by_series_key"
+        private const val PREF_GROUP_BY_SERIES_TITLE = "Group by series"
+        private const val PREF_GROUP_BY_SERIES_SUMMARY = "Merge episodes of the same series into a single entry"
+        private const val PREF_GROUP_BY_SERIES_DEFAULT = true
 
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
