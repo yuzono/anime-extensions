@@ -91,14 +91,31 @@ class Hanime1 :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val jsoup = response.useAsJsoup()
-        val nodes = jsoup.select("#playlist-scroll").first()!!.select(">div")
-        return nodes.mapIndexed { index, element ->
+        val nodes = jsoup.select("#playlist-scroll").first()?.select(">div").orEmpty()
+
+        val episodes = nodes.mapNotNull { element ->
+            val href =
+                element.attr("data-href").ifEmpty {
+                    element.select("a.overlay, h4.video-title a, a[href*=/watch]").attr("href")
+                }
+            if (href.isEmpty()) {
+                return@mapNotNull null
+            }
+
+            val title =
+                element.select("h4.video-title a, div.card-mobile-title").firstOrNull()?.text().orEmpty()
+
+            href to title
+        }
+
+        val currentUrl = response.request.url.toString()
+
+        return episodes.mapIndexed { index, (href, title) ->
             SEpisode.create().apply {
-                val href = element.select("a.overlay").attr("href")
                 setUrlWithoutDomain(href)
-                episode_number = (nodes.size - index).toFloat()
-                name = element.select("div.card-mobile-title").text()
-                if (href == response.request.url.toString()) {
+                episode_number = (episodes.size - index).toFloat()
+                name = title
+                if (response.request.url.resolve(href)?.toString() == currentUrl) {
                     // current video
                     val timeStr =
                         jsoup.select("div.video-description-panel > div:first-child").text()
