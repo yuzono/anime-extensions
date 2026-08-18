@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -91,6 +92,25 @@ class MKissaKeyManager(
 
     fun isCryptoError(body: String): Boolean = runCatching { body.parseAs<AaApiError>().errors }.getOrNull()
         ?.any { it.extensions?.code?.startsWith("AA_CRYPTO") == true } == true
+
+    /**
+     * The server's own complaint — a captcha gate, a rate limit — for responses it refuses outright.
+     * Null while a crypto error is present, since fresh material can still rescue those.
+     */
+    fun apiErrorMessage(body: String): String? {
+        if (isCryptoError(body)) return null
+        val message = runCatching { body.parseAs<AaApiError>().errors }.getOrNull()
+            ?.firstNotNullOfOrNull { it.message }
+            ?: return null
+        // The bare code says nothing to someone whose episode just refused to load, and the gate is
+        // on the network rather than the account, so there is nothing to sign in to or re-install.
+        return if (message == CAPTCHA_ERROR) {
+            "MKissa is rate limiting this network ($CAPTCHA_ERROR). Browsing still works; " +
+                "streams should return on their own after a while."
+        } else {
+            "MKissa: $message"
+        }
+    }
 
     private class Handshake(
         val build: MKissaBundle.BuildInfo,
@@ -183,16 +203,20 @@ class MKissaKeyManager(
             .distinct()
             .sortedByDescending { it.contains("/chunks/") }
             .take(MAX_BUILD_CHUNKS)
+            .toList()
 
-        for (ref in chunkRefs) {
-            val chunkUrl = appUrl.resolve(ref) ?: continue
-            val body = runCatching {
-                client.newCall(GET(chunkUrl, headers)).awaitSuccess().bodyString()
-            }.getOrNull() ?: continue
-
-            if (!body.contains(CRYPTO_CHUNK_MARKER)) continue
-
-            MKissaBundle.parse(body)?.let { return it }
+        // In batches rather than all at once: the chunks run to about a megabyte each, so fetching
+        // the whole list in parallel would pull tens of megabytes to use one of them, while walking
+        // them one at a time pays a full round trip per miss.
+        for (batch in chunkRefs.chunked(BUILD_CHUNK_BATCH)) {
+            val found = batch.parallelCatchingMapNotNull { ref ->
+                val chunkUrl = appUrl.resolve(ref) ?: return@parallelCatchingMapNotNull null
+                val body = client.newCall(GET(chunkUrl, headers)).awaitSuccess().bodyString()
+                if (!body.contains(CRYPTO_CHUNK_MARKER)) return@parallelCatchingMapNotNull null
+                MKissaBundle.parse(body)
+            }
+            // Order is preserved, so this stays the first hit in the site's own chunk order.
+            found.firstOrNull()?.let { return it }
         }
         return null
     }
@@ -213,6 +237,8 @@ class MKissaKeyManager(
     companion object {
         private const val MATERIAL_ERROR = "Unable to obtain MKissa crypto material"
 
+        private const val CAPTCHA_ERROR = "NEED_CAPTCHA"
+
         private const val BOOTSTRAP_PATH = "/client-crypto/v1/bootstrap"
 
         // 403 invalid_boot_token, 404 unknown_build_id.
@@ -225,6 +251,7 @@ class MKissaKeyManager(
         private const val FIELD_SEPARATOR = "|"
 
         private const val MAX_BUILD_CHUNKS = 40
+        private const val BUILD_CHUNK_BATCH = 4
 
         private const val MATERIAL_TTL_MS = 6 * 60 * 60 * 1000L
 

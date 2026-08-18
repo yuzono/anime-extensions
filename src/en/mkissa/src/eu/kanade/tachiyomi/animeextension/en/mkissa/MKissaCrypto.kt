@@ -36,6 +36,11 @@ object MKissaCrypto {
     private const val EPOCH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L
     private const val EPOCH_GRACE_MS = 24 * 60 * 60 * 1000L
 
+    /** Identifies a persisted query: the server hashes the query text the same way. */
+    fun sha256Hex(value: String): String = MessageDigest.getInstance(HASH_ALGO)
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .toHex()
+
     /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild. */
     fun deriveMask(buildId: String, seeds: List<String>): ByteArray? {
         if (buildId.isEmpty() || seeds.size != SEED_COUNT) return null

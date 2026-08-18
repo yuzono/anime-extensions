@@ -4,7 +4,36 @@ fun buildQuery(queryAction: () -> String): String = queryAction()
     .trimIndent()
     .replace("%", "$")
 
-const val STREAM_HASH = "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0"
+// The streams endpoint speaks Apollo's automatic persisted queries: it registers a query the first
+// time a client sends the text, then keys both that cache and the `qh` field inside `aaReq` on the
+// SHA-256 of the exact text. Sending our own query instead of quoting the site's hash means a
+// site-side edit to its query can no longer strand the extension on a hash the server has dropped,
+// and the reply carries the two fields we read rather than the ~9 kB the site's query asks for.
+//
+// Nothing reads `show`, but the episode resolver writes to it while resolving `sourceUrls` and
+// fails with "Cannot set properties of undefined" when the selection set leaves it out.
+val STREAM_QUERY: String = buildQuery {
+    """
+        query(
+            %showId: String!
+            %translationType: VaildTranslationTypeEnumType!
+            %episodeString: String!
+        ) {
+            episode(
+                showId: %showId
+                translationType: %translationType
+                episodeString: %episodeString
+            ) {
+                sourceUrls
+                show {
+                    _id
+                }
+            }
+        }
+    """
+}
+
+val STREAM_HASH: String = MKissaCrypto.sha256Hex(STREAM_QUERY)
 
 // Content lane: the site scopes crypto material per content type, picking the lane from the
 // query it is about to send. `k7` is anime episodes (`k9` manga chapter pages, `k2` music).
