@@ -574,7 +574,7 @@ class MKissa :
         // Compiled once: the source-name match used to run through a freshly built Regex for every
         // internal hoster, for every source, on every episode.
         private val INTERNAL_HOSTER_MATCHERS = INTERAL_HOSTER_NAMES.map {
-            it.lowercase() to Regex("""\b${it.lowercase()}\b""")
+            it.lowercase() to Regex("""\b${Regex.escape(it.lowercase())}\b""")
         }
 
         private val HOSTER_MAPPINGS = listOf(
