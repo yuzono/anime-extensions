@@ -69,7 +69,7 @@ class Hanime1 :
                 .takeIf { it.isNotBlank() }
                 ?: doc.select("meta[property=og:title]").attr("content")
                     .takeIf { it.isNotBlank() }
-                    ?: ""
+                    ?: throw Exception("Could not find title")
             description = doc.select("meta[property=og:description]").attr("content")
             thumbnail_url = doc.select("meta[property=og:image]").attr("content")
             val type = doc.select("a#video-artist-name + a").text().trim()
