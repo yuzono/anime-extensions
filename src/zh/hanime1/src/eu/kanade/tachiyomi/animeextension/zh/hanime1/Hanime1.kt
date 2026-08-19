@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +64,7 @@ class Hanime1 :
         return SAnime.create().apply {
             genre = doc.select(".single-video-tag").not("[data-toggle]").eachText()
                 // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
-                .joinToString { it.replace(REGEX_VIDEO_TAG, "$2") }
+                .joinToString { it.removePrefix("# ").replace(REGEX_VIDEO_TAG_SUFFIX, "") }
             author = doc.select("#video-artist-name").text()
             title = doc.select("#shareBtn-title").text()
                 .takeIf { it.isNotBlank() }
@@ -101,11 +102,9 @@ class Hanime1 :
                 setUrlWithoutDomain(href)
                 episode_number = (nodes.size - index).toFloat()
                 name = element.select(".video-title").text()
-                if (href == response.request.url.toString()) {
+                if (response.request.url.resolve(href) == response.request.url) {
                     // current video, parse `觀看次數：362.5萬次 2025-12-26` to upload date
-                    REGEX_UPLOAD_DATE.find(jsoup.select("#shareBtn-title + div").text())?.value?.let {
-                        date_upload = runCatching { uploadDateFormat.parse(it)?.time }.getOrNull() ?: 0L
-                    }
+                    date_upload = uploadDateFormat.tryParse(REGEX_UPLOAD_DATE.find(jsoup.select("#shareBtn-title + div").text())?.value)
                 }
             }
         }
@@ -363,6 +362,6 @@ class Hanime1 :
         const val DEFAULT_QUALITY = "1080P"
 
         private val REGEX_UPLOAD_DATE = Regex("""\d{4}-\d{2}-\d{2}""")
-        private val REGEX_VIDEO_TAG = Regex("""^(# )?(.*?)( \(\d+\))?$""")
+        private val REGEX_VIDEO_TAG_SUFFIX = Regex(""" \(\d+\)$""")
     }
 }
