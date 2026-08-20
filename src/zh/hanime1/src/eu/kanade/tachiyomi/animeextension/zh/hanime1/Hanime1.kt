@@ -139,9 +139,7 @@ class Hanime1 :
      * If [SEpisode.name] is identical to [SAnime.title], the episode title becomes empty. To avoid this issue,
      * we use this method to append an invisible character to [SAnime.title].
      */
-    private fun String.appendInvisibleChar(): String {
-        return "${this}\u200B"
-    }
+    private fun String.appendInvisibleChar(): String = "${this}\u200B"
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val jsoup = response.useAsJsoup()
