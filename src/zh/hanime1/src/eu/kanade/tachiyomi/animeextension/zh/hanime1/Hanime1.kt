@@ -66,22 +66,21 @@ class Hanime1 :
                 // Convert `# 博麗靈夢`, `1080p (1)` to `博麗靈夢`, `1080p`
                 .joinToString { it.removePrefix("# ").replace(REGEX_VIDEO_TAG_SUFFIX, "") }
             author = doc.select("#video-artist-name").text()
-            title = doc.select("#shareBtn-title").text()
-                .takeIf { it.isNotBlank() }
-                ?: doc.select("meta[property=og:title]").attr("content")
-                    .takeIf { it.isNotBlank() }
-                    ?: ""
+            val realTitle = doc.select("#shareBtn-title").text().takeIf { it.isNotBlank() }
+                ?: doc.select("meta[property=og:title]").attr("content").takeIf { it.isNotBlank() }
+            // Leave the title empty when unavailable so the details page falls back to the title from the list page.
+            title = realTitle?.appendInvisibleChar() ?: ""
             description = doc.select("meta[property=og:description]").attr("content")
             thumbnail_url = doc.select("meta[property=og:image]").attr("content")
             val type = doc.select("a#video-artist-name + a").text().trim()
-            if ((type == "裏番" || type == "泡麵番") && title.isNotEmpty()) {
+            if ((type == "裏番" || type == "泡麵番") && realTitle != null) {
                 // Use the series cover image for bangumi entries instead of the episode image.
                 runBlocking {
                     try {
                         val animesPage =
                             getSearchAnime(
                                 1,
-                                title,
+                                realTitle,
                                 AnimeFilterList(GenreFilter(arrayOf("", type)).apply { state = 1 }),
                             )
                         thumbnail_url = animesPage.animes.firstOrNull()?.thumbnail_url
@@ -135,9 +134,12 @@ class Hanime1 :
 
     override fun popularAnimeRequest(page: Int) = searchAnimeRequest(page, "", AnimeFilterList(HotFilter))
 
+    /**
+     * On the details page, the episode title is calculated as `SEpisode.name.removePrefix(SAnime.title)`.
+     * If [SEpisode.name] is identical to [SAnime.title], the episode title becomes empty. To avoid this issue,
+     * we use this method to append an invisible character to [SAnime.title].
+     */
     private fun String.appendInvisibleChar(): String {
-        // The search result title will be same as one episode name of anime.
-        // Adding extra char makes them has different title
         return "${this}\u200B"
     }
 
