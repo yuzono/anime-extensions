@@ -193,8 +193,15 @@ class Serienstream :
             else -> document.select("div.chips-wrap a").joinToString(", ") { it.text().trim() }
         }
         if (author.isNotBlank()) anime.author = author
-        anime.status = SAnime.UNKNOWN
+        anime.status = parseStatus(document)
         return anime
+    }
+
+    private fun parseStatus(document: Document): Int {
+        val yearBlock = document.selectFirst("p.small.text-muted.mb-2")?.text() ?: return SAnime.UNKNOWN
+        if (yearBlock.contains("NA")) return SAnime.ONGOING
+        val years = Regex("""\b(19|20)\d{2}\b""").findAll(yearBlock).toList()
+        return if (years.size >= 2) SAnime.COMPLETED else SAnime.UNKNOWN
     }
 
     override fun episodeListSelector() = throw UnsupportedOperationException()
