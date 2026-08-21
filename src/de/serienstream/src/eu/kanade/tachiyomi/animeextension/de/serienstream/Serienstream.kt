@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.de.serienstream
 
-import androidx.preference.ListPreference
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
@@ -14,8 +12,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -43,13 +47,20 @@ class Serienstream :
 
     private val preferences by getPreferencesLazy()
 
+    private var preferredHoster by preferences.delegate(SConstants.PREFERRED_HOSTER, SConstants.URL_STAPE)
+    private var preferredLang by preferences.delegate(SConstants.PREFERRED_LANG, SConstants.LANG_GER_SUB)
+    private var hosterSelection by preferences.delegate(SConstants.HOSTER_SELECTION, SConstants.HOSTER_NAMES.toSet())
+
     override val client = network.client.newBuilder()
         .addInterceptor(DdosGuardInterceptor(network.client))
         .build()
 
     private val json: Json by injectLazy()
 
-    // ===== POPULAR ANIME =====
+    private val voeExtractor by lazy { VoeExtractor(client, headers) }
+    private val doodExtractor by lazy { DoodExtractor(client) }
+    private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
+
     override fun popularAnimeSelector(): String = "a.show-card"
 
     override fun popularAnimeNextPageSelector(): String? = null
@@ -59,60 +70,54 @@ class Serienstream :
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
         val rawHref = element.attr("href")
-        // Strip staffel suffix to get base serie url, fallback to raw
         val href = if (rawHref.contains("/staffel")) rawHref.substringBefore("/staffel") else rawHref
         anime.url = href.ifEmpty { rawHref }
         val img = element.selectFirst("img")
         anime.title = img?.attr("alt")?.takeIf { it.isNotBlank() } ?: element.text().trim()
-        val thumb = img?.let {
-            val ds = it.attr("data-src")
-            if (ds.isNotBlank()) ds else it.attr("src")
-        } ?: ""
-        anime.thumbnail_url = when {
-            thumb.startsWith("http") -> thumb
-            thumb.isNotBlank() -> baseUrl + thumb
-            else -> ""
-        }
+        anime.thumbnail_url = img?.let { thumbUrl(it) }
         return anime
     }
 
-    // ===== LATEST ANIME =====
     override fun latestUpdatesSelector(): String = "table.new-episodes-table tbody tr"
 
     override fun latestUpdatesNextPageSelector(): String? = null
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/neue-episoden")
 
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+        val elements = document.select(latestUpdatesSelector())
+        val animes = elements.parallelMapNotNullBlocking { element ->
+            val link = element.selectFirst("td a[href*=\"/serie/\"]") ?: return@parallelMapNotNullBlocking null
+            val href = link.attr("href")
+            val serieHref = if (href.contains("/staffel")) href.substringBefore("/staffel") else href.substringBefore("/episode")
+            val anime = SAnime.create().apply {
+                url = serieHref
+                title = link.text().trim()
+            }
+            try {
+                val doc = client.newCall(GET(baseUrl + serieHref)).execute().useAsJsoup()
+                val img = doc.selectFirst("div.show-cover-mobile img")
+                    ?: doc.selectFirst("div.col-5 picture img")
+                    ?: doc.selectFirst("img[data-src*=\"/media/images/channel/\"]")
+                    ?: doc.selectFirst("picture img")
+                anime.thumbnail_url = img?.let { thumbUrl(it) }
+            } catch (_: Exception) {
+            }
+            anime
+        }
+        return AnimesPage(animes, false)
+    }
+
     override fun latestUpdatesFromElement(element: Element): SAnime {
         val anime = SAnime.create()
         val link = element.selectFirst("td a[href*=\"/serie/\"]") ?: return anime
-        val href = link.attr("href") // /serie/name/staffel-X/episode-Y
+        val href = link.attr("href")
         val serieHref = if (href.contains("/staffel")) href.substringBefore("/staffel") else href.substringBefore("/episode")
         anime.url = serieHref
         anime.title = link.text().trim()
-        // Try to fetch thumbnail from serie page (best effort)
-        try {
-            val doc = client.newCall(GET(baseUrl + serieHref)).execute().asJsoup()
-            val img = doc.selectFirst("div.show-cover-mobile img")
-                ?: doc.selectFirst("div.col-5 picture img")
-                ?: doc.selectFirst("img[data-src*=\"/media/images/channel/\"]")
-                ?: doc.selectFirst("picture img")
-            val thumb = img?.let {
-                val ds = it.attr("data-src")
-                if (ds.isNotBlank()) ds else it.attr("src")
-            } ?: ""
-            anime.thumbnail_url = when {
-                thumb.startsWith("http") -> thumb
-                thumb.isNotBlank() -> baseUrl + thumb
-                else -> ""
-            }
-        } catch (e: Exception) {
-            anime.thumbnail_url = ""
-        }
         return anime
     }
-
-    // ===== SEARCH =====
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encoded = URLEncoder.encode(query, "UTF-8")
@@ -123,25 +128,24 @@ class Serienstream :
     override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val body = response.body.string()
+        val body = response.bodyString()
         return try {
             val obj = json.decodeFromString<JsonObject>(body)
             val shows = obj["shows"] as? JsonArray ?: JsonArray(emptyList())
-            val animes = shows.mapNotNull { elem ->
+            val animes = shows.parallelMapNotNullBlocking { elem ->
                 val jo = elem.jsonObject
-                val link = jo["url"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                val title = jo["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val link = jo["url"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
+                val title = jo["name"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
                 animeFromSearch(title, link)
             }
             AnimesPage(animes, false)
-        } catch (e: Exception) {
-            // Fallback: try old array format
+        } catch (_: Exception) {
             try {
                 val arr = json.decodeFromString<JsonArray>(body)
-                val animes = arr.mapNotNull { elem ->
+                val animes = arr.parallelMapNotNullBlocking { elem ->
                     val jo = elem.jsonObject
-                    val link = jo["link"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val title = jo["title"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    val link = jo["link"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
+                    val title = jo["title"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
                     animeFromSearch(title, link)
                 }
                 AnimesPage(animes, false)
@@ -156,29 +160,19 @@ class Serienstream :
         anime.title = title.replace("<em>", "").replace("</em>", "")
         anime.url = link
         try {
-            val doc = client.newCall(GET(baseUrl + link)).execute().asJsoup()
+            val doc = client.newCall(GET(baseUrl + link)).execute().useAsJsoup()
             val img = doc.selectFirst("div.show-cover-mobile img")
                 ?: doc.selectFirst("div.col-5 picture img")
                 ?: doc.selectFirst("img[data-src*=\"/media/images/channel/\"]")
                 ?: doc.selectFirst("picture img")
-            val thumb = img?.let {
-                val ds = it.attr("data-src")
-                if (ds.isNotBlank()) ds else it.attr("src")
-            } ?: ""
-            anime.thumbnail_url = when {
-                thumb.startsWith("http") -> thumb
-                thumb.isNotBlank() -> baseUrl + thumb
-                else -> ""
-            }
-        } catch (e: Exception) {
-            anime.thumbnail_url = ""
+            anime.thumbnail_url = img?.let { thumbUrl(it) }
+        } catch (_: Exception) {
         }
         return anime
     }
 
     override fun searchAnimeFromElement(element: Element) = throw UnsupportedOperationException()
 
-    // ===== ANIME DETAILS =====
     override fun animeDetailsParse(document: Document): SAnime {
         val anime = SAnime.create()
         anime.title = document.selectFirst("h1")?.text()?.trim()
@@ -187,20 +181,11 @@ class Serienstream :
             ?: document.selectFirst("div.col-5 picture img")
             ?: document.selectFirst("img[data-src*=\"/media/images/channel/\"]")
             ?: document.selectFirst("picture img")
-        val thumb = img?.let {
-            val ds = it.attr("data-src")
-            if (ds.isNotBlank()) ds else it.attr("src")
-        } ?: ""
-        anime.thumbnail_url = when {
-            thumb.startsWith("http") -> thumb
-            thumb.isNotBlank() -> baseUrl + thumb
-            else -> ""
-        }
+        anime.thumbnail_url = img?.let { thumbUrl(it) }
         anime.genre = document.select("a[href^=\"/genre/\"]").joinToString(", ") { it.text().trim() }
         anime.description = document.selectFirst("div.series-description span.description-text")?.text()?.trim()
             ?: document.selectFirst("div.series-description")?.text()?.trim()
             ?: document.selectFirst("meta[name=description]")?.attr("content")?.trim() ?: ""
-        // Try chip-based author (episode page) then serie page fallback
         val producersChip = document.select("[id^=pg-produzenten-] a").eachText()
         val directorsChip = document.select("[id^=pg-regisseure-] a").eachText()
         val actorsChip = document.select("[id^=pg-besetzung-] a").eachText()
@@ -221,17 +206,15 @@ class Serienstream :
         return anime
     }
 
-    // ===== EPISODE =====
     override fun episodeListSelector() = throw UnsupportedOperationException()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val episodeList = mutableListOf<SEpisode>()
         var seasonLinks = document.select("nav#season-nav a[data-season-pill]")
         if (seasonLinks.isEmpty()) seasonLinks = document.select("a[data-season-pill]")
         if (seasonLinks.isEmpty()) seasonLinks = document.select("#stream > ul:nth-child(1) > li > a")
         if (seasonLinks.isEmpty()) {
-            // Single season page: parse table directly
             val rows = document.select("table.episode-table tbody tr.episode-row")
             if (rows.isNotEmpty()) {
                 val baseSeasonUrl = response.request.url.toString()
@@ -248,8 +231,8 @@ class Serienstream :
                 document
             } else {
                 try {
-                    client.newCall(GET(seasonHref)).execute().asJsoup()
-                } catch (e: Exception) {
+                    client.newCall(GET(seasonHref)).execute().useAsJsoup()
+                } catch (_: Exception) {
                     continue
                 }
             }
@@ -257,7 +240,6 @@ class Serienstream :
             if (rows.isNotEmpty()) {
                 rows.forEach { row -> episodeList.add(parseEpisodeRow(row, seasonHref)) }
             } else {
-                // Fallback to nav episode links
                 val epLinks = seasonDoc.select("nav#episode-nav a[href*=\"/episode-\"]")
                 epLinks.forEach { el ->
                     val ep = SEpisode.create()
@@ -302,9 +284,7 @@ class Serienstream :
             episode.episode_number = epNum.toFloat()
         } else {
             episode.name = "Staffel $seasonNumRaw Folge $epNum : $displayTitle"
-            // Use absolute episode number for sorting; keep simple
             episode.episode_number = try {
-                // Try to keep unique ordering across seasons: season*1000 + ep
                 val s = seasonNumRaw.toIntOrNull() ?: 1
                 (s * 1000 + epNum).toFloat()
             } catch (_: Exception) {
@@ -314,241 +294,176 @@ class Serienstream :
         return episode
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        // Keep for compatibility, parse as generic row
-        return parseEpisodeRow(element, element.attr("abs:href").substringBefore("/episode"))
-    }
+    override fun episodeFromElement(element: Element): SEpisode = parseEpisodeRow(element, element.attr("abs:href").substringBefore("/episode"))
 
-    // ===== VIDEO SOURCES =====
     override fun videoListSelector() = throw UnsupportedOperationException()
 
     override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
+        val document = response.useAsJsoup()
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
         val formToken = document.selectFirst("input[name=_token]")?.attr("value") ?: csrfToken
         val buttons = document.select("button.link-box[data-play-url]")
             .ifEmpty { document.select("div.link-wrapper button[data-play-url]") }
             .ifEmpty { document.select("button[data-play-url]") }
-        val videoList = mutableListOf<Video>()
-        val hosterSelection = preferences.getStringSet(SConstants.HOSTER_SELECTION, null)
+        val selection = hosterSelection
 
-        for (btn in buttons) {
+        return buttons.parallelCatchingFlatMapBlocking { btn ->
             val provider = btn.attr("data-provider-name").trim()
             val langId = btn.attr("data-language-id").trim()
             val langLabel = btn.attr("data-language-label").trim()
-            val playUrl = btn.attr("data-play-url").trim() // /r?t=...
-            if (playUrl.isBlank()) continue
+            val playUrl = btn.attr("data-play-url").trim()
+            if (playUrl.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
             val language = getLanguage(langId) ?: getLanguage(langLabel) ?: langLabel
-            // Pre-filter by provider if possible
             val preFilterPass = when {
-                hosterSelection == null || hosterSelection.isEmpty() -> true
-                provider.equals("VOE", ignoreCase = true) -> hosterSelection.contains(SConstants.NAME_VOE)
-                provider.equals("Doodstream", ignoreCase = true) || provider.contains("Dood", ignoreCase = true) -> hosterSelection.contains(SConstants.NAME_DOOD)
-                provider.contains("Streamtape", ignoreCase = true) -> hosterSelection.contains(SConstants.NAME_STAPE)
-                provider.equals("Provider", ignoreCase = true) -> true // need to resolve to decide
-                else -> hosterSelection.contains(provider)
+                selection.isEmpty() -> true
+                provider.equals("VOE", true) -> selection.contains(SConstants.NAME_VOE)
+                provider.equals("Doodstream", true) || provider.contains("Dood", true) -> selection.contains(SConstants.NAME_DOOD)
+                provider.contains("Streamtape", true) -> selection.contains(SConstants.NAME_STAPE)
+                provider.equals("Provider", true) -> true
+                else -> selection.contains(provider)
             }
-            if (!preFilterPass) continue
+            if (!preFilterPass) return@parallelCatchingFlatMapBlocking emptyList()
 
-            val t = when {
-                playUrl.contains("t=") -> playUrl.substringAfter("t=").substringBefore("&")
-                else -> playUrl
+            val t = if (playUrl.contains("t=")) playUrl.substringAfter("t=").substringBefore("&") else playUrl
+            if (t.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
+
+            val hosterUrl = resolveHosterUrl(t, csrfToken, formToken, response.request.url.toString(), playUrl) ?: return@parallelCatchingFlatMapBlocking emptyList()
+            if (hosterUrl.isBlank() || hosterUrl.contains("/r?") || hosterUrl == "$baseUrl/r" || hosterUrl == baseUrl) return@parallelCatchingFlatMapBlocking emptyList()
+
+            if (provider.equals("Provider", true)) {
+                val isVoe = hosterUrl.contains("voe", true)
+                val isDood = hosterUrl.contains("dood", true) || hosterUrl.contains("myvidplay", true)
+                val isStape = hosterUrl.contains("streamtape", true)
+                when {
+                    isVoe && !selection.contains(SConstants.NAME_VOE) -> return@parallelCatchingFlatMapBlocking emptyList()
+                    isDood && !selection.contains(SConstants.NAME_DOOD) -> return@parallelCatchingFlatMapBlocking emptyList()
+                    isStape && !selection.contains(SConstants.NAME_STAPE) -> return@parallelCatchingFlatMapBlocking emptyList()
+                }
             }
-            if (t.isBlank()) continue
 
-            // Resolve hoster URL via POST to /r
-            val hosterUrl = try {
-                val formBody = FormBody.Builder()
-                    .add("_token", formToken.ifEmpty { csrfToken })
-                    .add("t", t)
-                    .build()
-                val req = Request.Builder()
-                    .url("$baseUrl/r")
-                    .post(formBody)
-                    .addHeader("Referer", response.request.url.toString())
-                    .addHeader("X-CSRF-TOKEN", csrfToken)
-                    .addHeader("X-Requested-With", "XMLHttpRequest")
-                    .addHeader("Origin", baseUrl)
-                    .build()
-                val res = client.newCall(req).execute()
-                // Try Location header first
-                var loc = res.header("Location")
-                if (loc.isNullOrBlank()) {
-                    // Try to parse meta refresh from body
-                    val body = res.body.string()
-                    val meta = Regex("""url='([^']+)'""").find(body)?.groupValues?.get(1)
-                        ?: Regex("""URL='([^']+)'""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)
-                    loc = meta ?: res.request.url.toString()
-                    // If still /r, fallback to request url
-                    if (loc.contains("/r?") || loc == "$baseUrl/r") {
-                        // Try GET fallback
-                        val getRes = client.newCall(GET(baseUrl + playUrl)).execute()
+            when {
+                hosterUrl.contains("voe", true) && (selection.isEmpty() || selection.contains(SConstants.NAME_VOE)) -> voeExtractor.videosFromUrl(hosterUrl, "($language) ")
+                hosterUrl.contains("dood", true) || hosterUrl.contains("myvidplay", true) -> {
+                    if (selection.isEmpty() || selection.contains(SConstants.NAME_DOOD)) {
+                        doodExtractor.videoFromUrl(hosterUrl, "Doodstream $language")?.let(::listOf) ?: emptyList()
+                    } else {
+                        emptyList()
+                    }
+                }
+                hosterUrl.contains("streamtape", true) -> {
+                    if (selection.isEmpty() || selection.contains(SConstants.NAME_STAPE)) {
+                        streamTapeExtractor.videoFromUrl(hosterUrl, "Streamtape $language")?.let(::listOf) ?: emptyList()
+                    } else {
+                        emptyList()
+                    }
+                }
+                provider.equals("VOE", true) -> voeExtractor.videosFromUrl(hosterUrl, "($language) ")
+                else -> emptyList()
+            }
+        }
+    }
+
+    private fun resolveHosterUrl(t: String, csrfToken: String, formToken: String, referer: String, playUrl: String): String? = try {
+        val formBody = FormBody.Builder()
+            .add("_token", formToken.ifEmpty { csrfToken })
+            .add("t", t)
+            .build()
+        val req = Request.Builder()
+            .url("$baseUrl/r")
+            .post(formBody)
+            .addHeader("Referer", referer)
+            .addHeader("X-CSRF-TOKEN", csrfToken)
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .addHeader("Origin", baseUrl)
+            .build()
+        client.newCall(req).execute().use { res ->
+            var loc = res.header("Location")
+            if (loc.isNullOrBlank()) {
+                val body = res.bodyString()
+                val meta = Regex("""url='([^']+)'""").find(body)?.groupValues?.get(1)
+                    ?: Regex("""URL='([^']+)'""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)
+                loc = meta ?: res.request.url.toString()
+                if (loc.contains("/r?") || loc == "$baseUrl/r") {
+                    client.newCall(GET(baseUrl + playUrl)).execute().use { getRes ->
                         loc = getRes.header("Location") ?: getRes.request.url.toString()
                         if (loc.contains("/r?")) {
-                            val b = getRes.body.string()
+                            val b = getRes.bodyString()
                             loc = Regex("""url='([^']+)'""").find(b)?.groupValues?.get(1) ?: loc
                         }
                     }
                 }
-                res.close()
-                loc ?: ""
-            } catch (e: Exception) {
-                continue
             }
-            if (hosterUrl.isBlank() || hosterUrl.contains("/r?") || hosterUrl == "$baseUrl/r" || hosterUrl == baseUrl) continue
-            // Post-filter for generic Provider after resolving
-            if (hosterSelection != null && hosterSelection.isNotEmpty() && provider.equals("Provider", ignoreCase = true)) {
-                val isVoe = hosterUrl.contains("voe", ignoreCase = true)
-                val isDood = hosterUrl.contains("dood", ignoreCase = true) || hosterUrl.contains("myvidplay", ignoreCase = true)
-                val isStape = hosterUrl.contains("streamtape", ignoreCase = true)
-                when {
-                    isVoe && !hosterSelection.contains(SConstants.NAME_VOE) -> continue
-                    isDood && !hosterSelection.contains(SConstants.NAME_DOOD) -> continue
-                    isStape && !hosterSelection.contains(SConstants.NAME_STAPE) -> continue
-                    !isVoe && !isDood && !isStape -> {
-                        // Unknown hoster, skip if user filtered
-                        // If user selected all, we will try to include via generic handling below
-                    }
-                }
-            }
-            // Extract via appropriate extractor
-            when {
-                hosterUrl.contains("voe", ignoreCase = true) && (hosterSelection == null || hosterSelection.contains(SConstants.NAME_VOE)) -> {
-                    val vids = try {
-                        VoeExtractor(client, headers).videosFromUrl(hosterUrl, "($language) ")
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                    videoList.addAll(vids)
-                }
-                (hosterUrl.contains("dood", ignoreCase = true) || hosterUrl.contains("myvidplay", ignoreCase = true)) && (hosterSelection == null || hosterSelection.contains(SConstants.NAME_DOOD)) -> {
-                    val quality = "Doodstream $language"
-                    try {
-                        val v = DoodExtractor(client).videoFromUrl(hosterUrl, quality)
-                        if (v != null) videoList.add(v)
-                    } catch (_: Exception) {}
-                }
-                hosterUrl.contains("streamtape", ignoreCase = true) && (hosterSelection == null || hosterSelection.contains(SConstants.NAME_STAPE)) -> {
-                    val quality = "Streamtape $language"
-                    try {
-                        val v = StreamTapeExtractor(client).videoFromUrl(hosterUrl, quality)
-                        if (v != null) videoList.add(v)
-                    } catch (_: Exception) {}
-                }
-                else -> {
-                    // Fallback: try VOE if provider was VOE
-                    if (provider.equals("VOE", ignoreCase = true) && (hosterSelection == null || hosterSelection.contains(SConstants.NAME_VOE))) {
-                        try {
-                            videoList.addAll(VoeExtractor(client, headers).videosFromUrl(hosterUrl, "($language) "))
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
+            loc
         }
-        return videoList
+    } catch (_: Exception) {
+        null
     }
 
-    private fun getLanguage(langKey: String): String? {
-        val k = langKey.trim()
-        return when {
-            k == SConstants.KEY_GER_SUB.toString() || k.equals("Ger-Sub", ignoreCase = true) || k.equals("3", ignoreCase = true) -> SConstants.LANG_GER_SUB
-            k == SConstants.KEY_GER_DUB.toString() || k.equals("Deutsch", ignoreCase = true) || k.equals("1", ignoreCase = true) -> SConstants.LANG_GER_DUB
-            k == SConstants.KEY_ENG_SUB.toString() || k.equals("Englisch", ignoreCase = true) || k.equals("English", ignoreCase = true) || k.equals("2", ignoreCase = true) -> SConstants.LANG_ENG_SUB
-            k.contains(SConstants.KEY_GER_SUB.toString()) -> SConstants.LANG_GER_SUB
-            k.contains(SConstants.KEY_GER_DUB.toString()) -> SConstants.LANG_GER_DUB
-            k.contains(SConstants.KEY_ENG_SUB.toString()) -> SConstants.LANG_ENG_SUB
-            else -> null
-        }
+    private fun thumbUrl(img: Element): String? {
+        val url = img.attr("abs:data-src").ifBlank { img.attr("abs:src") }
+            .ifBlank {
+                val raw = img.attr("data-src").ifBlank { img.attr("src") }
+                when {
+                    raw.startsWith("http") -> raw
+                    raw.isNotBlank() -> baseUrl + raw
+                    else -> ""
+                }
+            }
+        return url.ifBlank { null }
+    }
+
+    private val langMap = mapOf(
+        "1" to SConstants.LANG_GER_DUB,
+        "Deutsch" to SConstants.LANG_GER_DUB,
+        "3" to SConstants.LANG_GER_SUB,
+        "Ger-Sub" to SConstants.LANG_GER_SUB,
+        "2" to SConstants.LANG_ENG_SUB,
+        "Englisch" to SConstants.LANG_ENG_SUB,
+        "English" to SConstants.LANG_ENG_SUB,
+    )
+
+    private fun getLanguage(key: String): String? {
+        val k = key.trim()
+        return langMap[k] ?: langMap.entries.firstOrNull { k.contains(it.key, true) }?.value
     }
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
-        val hoster = preferences.getString(SConstants.PREFERRED_HOSTER, null)
-        val subPreference = preferences.getString(SConstants.PREFERRED_LANG, "Sub")!!
-        val hosterList = mutableListOf<Video>()
-        val otherList = mutableListOf<Video>()
-        if (hoster != null) {
-            for (video in this) {
-                if (video.url.contains(hoster)) {
-                    hosterList.add(video)
-                } else {
-                    otherList.add(video)
-                }
-            }
-        } else {
-            otherList += this
-        }
-        val newList = mutableListOf<Video>()
-        var preferred = 0
-        for (video in hosterList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-        for (video in otherList) {
-            if (video.quality.contains(subPreference)) {
-                newList.add(preferred, video)
-                preferred++
-            } else {
-                newList.add(video)
-            }
-        }
-
-        return newList
+        val hoster = preferredHoster.takeIf { it.isNotBlank() }
+        val lang = preferredLang
+        return sortedWith(
+            compareByDescending<Video> { hoster != null && it.url.contains(hoster, true) }
+                .thenByDescending { it.quality.contains(lang, true) },
+        )
     }
 
     override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
-    // ===== PREFERENCES ======
-    @Suppress("UNCHECKED_CAST")
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val hosterPref = ListPreference(screen.context).apply {
-            key = SConstants.PREFERRED_HOSTER
-            title = "Standard-Hoster"
-            entries = SConstants.HOSTER_NAMES
-            entryValues = SConstants.HOSTER_URLS
-            setDefaultValue(SConstants.URL_STAPE)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val subPref = ListPreference(screen.context).apply {
-            key = SConstants.PREFERRED_LANG
-            title = "Bevorzugte Sprache"
-            entries = SConstants.LANGS
-            entryValues = SConstants.LANGS
-            setDefaultValue(SConstants.LANG_GER_SUB)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        val hosterSelection = MultiSelectListPreference(screen.context).apply {
-            key = SConstants.HOSTER_SELECTION
-            title = "Hoster auswählen"
-            entries = SConstants.HOSTER_NAMES
-            entryValues = SConstants.HOSTER_NAMES
-            setDefaultValue(SConstants.HOSTER_NAMES.toSet())
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }
-        screen.addPreference(subPref)
-        screen.addPreference(hosterPref)
-        screen.addPreference(hosterSelection)
+        screen.addListPreference(
+            key = SConstants.PREFERRED_LANG,
+            default = SConstants.LANG_GER_SUB,
+            title = "Bevorzugte Sprache",
+            entries = SConstants.LANGS.toList(),
+            entryValues = SConstants.LANGS.toList(),
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = SConstants.PREFERRED_HOSTER,
+            default = SConstants.URL_STAPE,
+            title = "Standard-Hoster",
+            entries = SConstants.HOSTER_NAMES.toList(),
+            entryValues = SConstants.HOSTER_URLS.toList(),
+            summary = "%s",
+        )
+        screen.addSetPreference(
+            key = SConstants.HOSTER_SELECTION,
+            default = SConstants.HOSTER_NAMES.toSet(),
+            title = "Hoster auswählen",
+            summary = "",
+            entries = SConstants.HOSTER_NAMES.toList(),
+            entryValues = SConstants.HOSTER_NAMES.toList(),
+        )
     }
 }
