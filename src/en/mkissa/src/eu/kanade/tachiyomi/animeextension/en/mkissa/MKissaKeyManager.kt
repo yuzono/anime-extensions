@@ -122,31 +122,33 @@ class MKissaKeyManager(
     private class BootstrapResult(
         val bootstrap: AaCryptoBootstrap?,
         val stale: Boolean,
+        val mask: ByteArray? = null,
     )
 
     /** Re-scraping starts at the Cloudflare-gated HTML, so cheaper causes are ruled out first. */
     private suspend fun handshake(): Handshake? {
         val cached = cachedBuild()
-        val mask = cached?.let { MKissaCrypto.deriveMask(it.buildId, it.seeds) }
+        val cachedMasks = cached?.let { MKissaCrypto.maskCandidates(it.buildId, it.seeds) }
 
-        if (cached != null && mask != null) {
-            val first = bootstrap(cached.buildId, mask, MKissaCrypto.epochCandidates())
-            first.bootstrap?.let { return Handshake(cached, mask, it) }
+        if (cached != null && cachedMasks != null && cachedMasks.isNotEmpty()) {
+            val first = bootstrap(cached.buildId, cachedMasks, MKissaCrypto.epochCandidates())
+            first.bootstrap?.let { return Handshake(cached, first.mask!!, it) }
             if (!first.stale) return null
 
             // A clock off by more than the grace window looks exactly like a stale build.
-            bootstrap(cached.buildId, mask, MKissaCrypto.skewedEpochCandidates()).bootstrap
-                ?.let { return Handshake(cached, mask, it) }
+            val second = bootstrap(cached.buildId, cachedMasks, MKissaCrypto.skewedEpochCandidates())
+            second.bootstrap?.let { return Handshake(cached, second.mask!!, it) }
         }
 
         val fresh = resolveBuild() ?: return null
-        val freshMask = MKissaCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
-        return bootstrap(fresh.buildId, freshMask, MKissaCrypto.epochCandidates())
-            .bootstrap?.let { Handshake(fresh, freshMask, it) }
+        val freshMasks = MKissaCrypto.maskCandidates(fresh.buildId, fresh.seeds)
+        if (freshMasks.isEmpty()) return null
+        val freshResult = bootstrap(fresh.buildId, freshMasks, MKissaCrypto.epochCandidates())
+        return freshResult.bootstrap?.let { Handshake(fresh, freshResult.mask!!, it) }
     }
 
     /** `GET /client-crypto/v1/bootstrap?buildId=&k=`, gated by an HMAC of the client mask. */
-    private suspend fun bootstrap(buildId: String, mask: ByteArray, epochs: List<Long>): BootstrapResult {
+    private suspend fun bootstrap(buildId: String, masks: List<ByteArray>, epochs: List<Long>): BootstrapResult {
         val host = siteUrl.toHttpUrl().host
         val url = "${apiUrl.trimEnd('/')}$BOOTSTRAP_PATH".toHttpUrl().newBuilder()
             .addQueryParameter("buildId", buildId)
@@ -154,35 +156,36 @@ class MKissaKeyManager(
             .build()
 
         var sawStale = false
-        for (epoch in epochs) {
-            var epochStale = false
-            var epochSucceeded = false
-            for (bootToken in MKissaCrypto.bootTokenCandidates(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE)) {
-                val requestHeaders = headers.newBuilder()
-                    .set("x-build-id", buildId)
-                    .set("x-aa-boot", bootToken)
-                    .set("Origin", siteUrl)
-                    .set("Referer", "$siteUrl/")
-                    .build()
+        for (mask in masks) {
+            for (epoch in epochs) {
+                var epochStale = false
+                for (bootToken in MKissaCrypto.bootTokenCandidates(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE)) {
+                    val requestHeaders = headers.newBuilder()
+                        .set("x-build-id", buildId)
+                        .set("x-aa-boot", bootToken)
+                        .set("Origin", siteUrl)
+                        .set("Referer", "$siteUrl/")
+                        .build()
 
-                val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
-                    ?: return BootstrapResult(null, stale = false)
+                    val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
+                        ?: return BootstrapResult(null, stale = false)
 
-                if (!response.isSuccessful) {
-                    response.close()
-                    if (response.code in STALE_CODES) epochStale = true
-                    continue
+                    if (!response.isSuccessful) {
+                        response.close()
+                        if (response.code in STALE_CODES) epochStale = true
+                        continue
+                    }
+
+                    val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
+                        ?: continue
+
+                    // A partB from another lane would silently derive the wrong key.
+                    if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
+
+                    return BootstrapResult(bootstrap, stale = false, mask = mask)
                 }
-
-                val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
-                    ?: return BootstrapResult(null, stale = false)
-
-                // A partB from another lane would silently derive the wrong key.
-                if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
-
-                return BootstrapResult(bootstrap, stale = false)
+                if (epochStale) sawStale = true
             }
-            if (epochStale) sawStale = true
         }
         return BootstrapResult(null, stale = sawStale)
     }

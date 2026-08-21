@@ -41,25 +41,23 @@ object MKissaCrypto {
         .digest(value.toByteArray(Charsets.UTF_8))
         .toHex()
 
+    private data class MaskParams(val saltMul: Int, val saltAdd: Int, val fragMul: Int, val fragAdd: Int)
+
+    private val MASK_PARAMS = listOf(
+        MaskParams(211, 222, 200, 176),
+        MaskParams(17, 31, 41, 7),
+    )
+
     /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild.
      *  2025-08: site rotated salts from 17/31/41/7 to 211/222/200/176 (see kd={saltMul:211,...} in chunk).
      *  Keep old constants as fallback for a brief grace window.
      */
-    fun deriveMask(buildId: String, seeds: List<String>): ByteArray? {
-        if (buildId.isEmpty() || seeds.size != SEED_COUNT) return null
-
-        // Try new salts first (current site: 211/222/200/176), then legacy 17/31/41/7
-        for (params in listOf(
-            intArrayOf(211, 222, 200, 176),
-            intArrayOf(17, 31, 41, 7),
-        )) {
-            val saltMul = params[0]
-            val saltAdd = params[1]
-            val fragMul = params[2]
-            val fragAdd = params[3]
-
+    fun maskCandidates(buildId: String, seeds: List<String>): List<ByteArray> {
+        if (buildId.isEmpty() || seeds.size != SEED_COUNT) return emptyList()
+        val candidates = mutableListOf<ByteArray>()
+        for (params in MASK_PARAMS) {
             val stream = ByteArray(KEY_SIZE) { i ->
-                (buildId[i % buildId.length].code xor ((i * saltMul + saltAdd) and 0xFF)).toByte()
+                (buildId[i % buildId.length].code xor ((i * params.saltMul + params.saltAdd) and 0xFF)).toByte()
             }
 
             val mask = ByteArray(KEY_SIZE)
@@ -75,14 +73,16 @@ object MKissaCrypto {
                     mask[base + offset] = (
                         (bytes[offset].toInt() and 0xFF) xor
                             (stream[base + offset].toInt() and 0xFF) xor
-                            ((index * fragMul + offset * fragAdd) and 0xFF)
+                            ((index * params.fragMul + offset * params.fragAdd) and 0xFF)
                         ).toByte()
                 }
             }
-            if (ok && mask.any { it != 0.toByte() }) return mask
+            if (ok && mask.any { it != 0.toByte() }) candidates.add(mask)
         }
-        return null
+        return candidates
     }
+
+    fun deriveMask(buildId: String, seeds: List<String>): ByteArray? = maskCandidates(buildId, seeds).firstOrNull()
 
     fun deriveKey(mask: ByteArray, partB: ByteArray): SecretKeySpec {
         val keyBytes = ByteArray(KEY_SIZE) { i ->
@@ -97,15 +97,6 @@ object MKissaCrypto {
      *  "epoch.group.host.buildId.lane" ("."-joined, epoch first, see kd={join:".",parts:[epoch,group,host,buildId,lane]}).
      *  We keep the legacy format as fallback for the brief window after a site rebuild.
      */
-    fun bootToken(
-        mask: ByteArray,
-        buildId: String,
-        epoch: Long,
-        keyGroup: String,
-        refererHost: String,
-        lane: String,
-    ): String = bootTokenNew(mask, buildId, epoch, keyGroup, refererHost, lane)
-
     fun bootTokenNew(
         mask: ByteArray,
         buildId: String,
