@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.de.serienstream
 
+import android.util.Base64
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
@@ -23,8 +24,10 @@ import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
@@ -32,6 +35,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
+import java.security.MessageDigest
 
 class Serienstream :
     ParsedAnimeHttpSource(),
@@ -290,6 +294,11 @@ class Serienstream :
             .ifEmpty { document.select("div.link-wrapper button[data-play-url]") }
             .ifEmpty { document.select("button[data-play-url]") }
         val selection = hosterSelection
+        val altcha = try {
+            fetchAltcha(response.request.url.toString(), csrfToken)
+        } catch (_: Exception) {
+            null
+        }
 
         return buttons.parallelCatchingFlatMapBlocking { btn ->
             val provider = btn.attr("data-provider-name").trim()
@@ -311,7 +320,7 @@ class Serienstream :
             val t = if (playUrl.contains("t=")) playUrl.substringAfter("t=").substringBefore("&") else playUrl
             if (t.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
 
-            val hosterUrl = resolveHosterUrl(t, csrfToken, formToken, response.request.url.toString(), playUrl) ?: return@parallelCatchingFlatMapBlocking emptyList()
+            val hosterUrl = resolveHosterUrl(t, csrfToken, formToken, response.request.url.toString(), playUrl, altcha) ?: return@parallelCatchingFlatMapBlocking emptyList()
             if (hosterUrl.isBlank() || hosterUrl.contains("/r?") || hosterUrl == "$baseUrl/r" || hosterUrl == baseUrl) return@parallelCatchingFlatMapBlocking emptyList()
 
             if (provider.equals("Provider", true)) {
@@ -347,11 +356,12 @@ class Serienstream :
         }
     }
 
-    private fun resolveHosterUrl(t: String, csrfToken: String, formToken: String, referer: String, playUrl: String): String? = try {
-        val formBody = FormBody.Builder()
+    private fun resolveHosterUrl(t: String, csrfToken: String, formToken: String, referer: String, playUrl: String, altcha: String?): String? = try {
+        val formBuilder = FormBody.Builder()
             .add("_token", formToken.ifEmpty { csrfToken })
             .add("t", t)
-            .build()
+        if (!altcha.isNullOrBlank()) formBuilder.add("altcha", altcha)
+        val formBody = formBuilder.build()
         val req = Request.Builder()
             .url("$baseUrl/r")
             .post(formBody)
@@ -381,6 +391,51 @@ class Serienstream :
         }
     } catch (_: Exception) {
         null
+    }
+
+    private fun fetchAltcha(referer: String, csrfToken: String): String? {
+        val req = Request.Builder()
+            .url("$baseUrl/api/inline/verify-init")
+            .get()
+            .addHeader("Referer", referer)
+            .addHeader("X-CSRF-TOKEN", csrfToken)
+            .addHeader("X-Requested-With", "XMLHttpRequest")
+            .build()
+        return client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) return null
+            val body = res.bodyString()
+            val obj = json.decodeFromString<JsonObject>(body)
+            val algorithm = obj["algorithm"]?.jsonPrimitive?.content ?: return null
+            val challenge = obj["challenge"]?.jsonPrimitive?.content ?: return null
+            val salt = obj["salt"]?.jsonPrimitive?.content ?: return null
+            val signature = obj["signature"]?.jsonPrimitive?.content ?: return null
+            val maxnumber = obj["maxnumber"]?.jsonPrimitive?.content?.toIntOrNull() ?: 100000
+            val number = solveAltcha(challenge, salt, algorithm, maxnumber) ?: return null
+            val payload = buildJsonObject {
+                put("algorithm", algorithm)
+                put("challenge", challenge)
+                put("salt", salt)
+                put("signature", signature)
+                put("number", number)
+            }
+            val jsonStr = json.encodeToString(JsonObject.serializer(), payload)
+            Base64.encodeToString(jsonStr.toByteArray(), Base64.NO_WRAP)
+        }
+    }
+
+    private fun solveAltcha(challenge: String, salt: String, algorithm: String, maxnumber: Int): Int? {
+        val md = try {
+            MessageDigest.getInstance(algorithm)
+        } catch (_: Exception) {
+            return null
+        }
+        for (i in 0..maxnumber) {
+            val hash = md.digest((salt + i.toString()).toByteArray())
+            val hex = hash.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            if (hex == challenge) return i
+            md.reset()
+        }
+        return null
     }
 
     private fun thumbUrl(img: Element): String? {
