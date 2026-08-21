@@ -101,7 +101,7 @@ class Serienstream :
                 title = link.text().trim()
             }
         }
-        return AnimesPage(animes, false)
+        return AnimesPage(animes.distinctBy { it.url }, false)
     }
 
     override fun latestUpdatesFromElement(element: Element): SAnime {
@@ -216,7 +216,7 @@ class Serienstream :
             val rows = document.select("table.episode-table tbody tr.episode-row")
             if (rows.isNotEmpty()) {
                 val baseSeasonUrl = response.request.url.toString()
-                rows.forEach { row -> episodeList.add(parseEpisodeRow(row, baseSeasonUrl)) }
+                episodeList.addAll(rows.mapNotNull { parseEpisodeRow(it, baseSeasonUrl) })
                 return episodeList.reversed()
             }
             return emptyList()
@@ -236,7 +236,7 @@ class Serienstream :
             }
             val rows = seasonDoc.select("table.episode-table tbody tr.episode-row")
             if (rows.isNotEmpty()) {
-                rows.forEach { row -> episodeList.add(parseEpisodeRow(row, seasonHref)) }
+                episodeList.addAll(rows.mapNotNull { parseEpisodeRow(it, seasonHref) })
             } else {
                 val epLinks = seasonDoc.select("nav#episode-nav a[href*=\"/episode-\"]")
                 epLinks.forEach { el ->
@@ -254,12 +254,13 @@ class Serienstream :
         return episodeList.reversed()
     }
 
-    private fun parseEpisodeRow(element: Element, seasonUrl: String): SEpisode {
+    private fun parseEpisodeRow(element: Element, seasonUrl: String): SEpisode? {
         val episode = SEpisode.create()
         val onclick = element.attr("onclick")
         val href = Regex("""window\.location='([^']+)'""").find(onclick)?.groupValues?.get(1)
             ?: element.selectFirst("a[href*=\"/episode-\"]")?.attr("href")
             ?: ""
+        if (href.isBlank()) return null
         episode.url = href
         val seasonNumRaw = seasonUrl.substringAfter("/staffel-", "").takeWhile(Char::isDigit).ifEmpty { "1" }
         val isFilm = seasonNumRaw == "0" || seasonUrl.contains("/staffel-0")
@@ -283,7 +284,9 @@ class Serienstream :
         return episode
     }
 
-    override fun episodeFromElement(element: Element): SEpisode = parseEpisodeRow(element, element.attr("abs:href").substringBefore("/episode"))
+    // Unreachable: episodeListParse is overridden and episodeListSelector throws, but the base
+    // class requires a non-null episode here.
+    override fun episodeFromElement(element: Element): SEpisode = parseEpisodeRow(element, element.attr("abs:href").substringBefore("/episode")) ?: SEpisode.create()
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 
