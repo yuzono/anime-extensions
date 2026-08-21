@@ -459,12 +459,12 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
          * * The negative lookahead checks that what follows the newlines is NOT the start of legitimate WebVTT content. It accepts:
          *     - A VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000`).
          *     - A `NOTE` block start (`NOTE` followed by whitespace, newline, or end of line).
-         *     - A `STYLE` block start (`STYLE` followed by whitespace, newline, or end of line).
+         *     - A `STYLE` or `REGION` block start (followed by whitespace, newline, or end of line).
          *     - Any single non-blank cue identifier line immediately followed by a cue timing line on the next line (a valid WebVTT cue with an identifier).
          *
-         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, `NOTE`/`STYLE` block, or an identifier line leading into a timing line, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
+         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, `NOTE`/`STYLE`/`REGION` block, or an identifier line leading into a timing line, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
          */
-        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?|(?:NOTE|STYLE)(?:[ \t\n]|$)|[^\n]+\n(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s)))""", RegexOption.MULTILINE)
+        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?|(?:NOTE|STYLE|REGION)(?:[ \t\n]|$)|[^\n]+\n(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s)))""", RegexOption.MULTILINE)
 
         /**
          * Matches a SubRip cue timing line, e.g. `00:00:03,520 --> 00:00:05,240`.
