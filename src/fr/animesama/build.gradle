@@ -1,7 +1,7 @@
 ext {
     extName = 'Anime-Sama'
     extClass = '.AnimeSama'
-    extVersionCode = 29
+    extVersionCode = 30
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -11,4 +11,9 @@ dependencies {
     implementation(project(':lib:vkextractor'))
     implementation(project(':lib:sendvidextractor'))
     implementation(project(':lib:vidmolyextractor'))
+    implementation(project(':lib:vidhideextractor'))
+    implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:youruploadextractor'))
+    implementation(project(':lib:universalextractor'))
+    implementation(project(':lib:embed4meextractor'))
 }

@@ -5,10 +5,15 @@ import android.webkit.URLUtil
 import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.embed4meextractor.Embed4MeExtractor
 import aniyomi.lib.sendvidextractor.SendvidExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
+import aniyomi.lib.uqloadextractor.UqloadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import aniyomi.lib.vkextractor.VkExtractor
+import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -195,29 +200,91 @@ class AnimeSama :
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val sendvidExtractor by lazy { SendvidExtractor(client, headers) }
     private val vidmolyExtractor by lazy { VidMolyExtractor(client, headers) }
+    private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
+    private val uqloadExtractor by lazy { UqloadExtractor(client) }
+    private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
+    private val embed4MeExtractor by lazy { Embed4MeExtractor(client, headers) }
+    private val universalExtractor by lazy { UniversalExtractor(client) }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val playerUrls = episode.url.parseAs<List<List<String>>>()
         val voiceNames = episode.scanlator?.split(", ") ?: emptyList()
-        val videos = playerUrls.filter { it.isNotEmpty() }.flatMapIndexed { i, it ->
+
+        // Filter empty voice groups first to keep voice index aligned with scanlator
+        // (playersToEpisodes stores outer=voice, scanlator skips empty voices)
+        val filteredPlayerUrls = playerUrls.filter { it.isNotEmpty() }
+        val allPairs = filteredPlayerUrls.flatMapIndexed { i, list ->
             val prefix = "(${voiceNames.getOrElse(i) { "" }}) "
-            it.parallelCatchingFlatMap { playerUrl ->
-                with(playerUrl) {
-                    when {
-                        contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
+            // Guard against empty voice name (should not happen after filter, but fallback)
+            val safePrefix = if (prefix.trim() == "()") "" else prefix
+            list.filter { it.isNotEmpty() }.map { it to safePrefix }
+        }.filter { it.second.isNotEmpty() || voiceNames.isEmpty() }
+        if (allPairs.isEmpty()) return emptyList()
 
-                        contains("vk.") -> vkExtractor.videosFromUrl(playerUrl, prefix)
+        // Partition known hosts (parallel) vs fallback (sequential WebView)
+        val (knownPairs, unknownPairs) = allPairs.partition { (url, _) ->
+            url.contains("sibnet.ru") ||
+                url.contains("vidmoly") || url.contains("ansembed") ||
+                url.contains("vk.") || url.contains("vkvideo") ||
+                url.contains("sendvid.com") ||
+                VIDHIDE_DOMAINS.any { url.contains(it, ignoreCase = true) } ||
+                url.contains("uqload") ||
+                url.contains("yourupload") ||
+                url.contains(".mp4") ||
+                url.contains("embed4me")
+        }
 
-                        contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
+        val knownVideos = knownPairs.parallelCatchingFlatMap { (playerUrl, prefix) ->
+            with(playerUrl) {
+                when {
+                    contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
 
-                        contains("vidmoly") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
+                    contains("vk.") || contains("vkvideo") -> vkExtractor.videosFromUrl(playerUrl, prefix)
 
-                        else -> emptyList()
+                    contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
+
+                    contains("vidmoly") || contains("ansembed") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
+
+                    VIDHIDE_DOMAINS.any { contains(it, ignoreCase = true) } -> vidHideExtractor.videosFromUrl(playerUrl, videoNameGen = { quality -> "${prefix.trim()} VidHide - $quality" })
+
+                    contains("uqload") -> uqloadExtractor.videosFromUrl(playerUrl, prefix)
+
+                    contains("yourupload") -> yourUploadExtractor.videoFromUrl(playerUrl, headers, prefix = prefix)
+
+                    contains(".mp4") -> listOf(Video(playerUrl, "$prefix Direct", playerUrl, headers))
+
+                    contains("embed4me") -> {
+                        val vids = try {
+                            embed4MeExtractor.videosFromUrl(playerUrl, prefix)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                        if (vids.isNotEmpty()) {
+                            vids
+                        } else {
+                            try {
+                                universalExtractor.videosFromUrl(playerUrl, headers, prefix = prefix.trim())
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
                     }
+
+                    else -> emptyList()
                 }
             }
-        }.sort()
-        return videos
+        }
+
+        // UniversalExtractor uses WebView on main looper with CountDownLatch — must be sequential
+        val fallbackVideos = unknownPairs.flatMap { (playerUrl, prefix) ->
+            try {
+                universalExtractor.videosFromUrl(playerUrl, headers, prefix = prefix.trim())
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        return (knownVideos + fallbackVideos).sort()
     }
 
     // ============================ Utils =============================
@@ -434,9 +501,18 @@ class AnimeSama :
             "Sibnet" to "sibnet",
             "VK" to "vk",
             "VidMoly" to "vidmoly",
+            "VidHide" to "vidhide",
+            "Uqload" to "uqload",
+            "YourUpload" to "yourupload",
+            "Myvi" to "myvi",
+            "Oneupload" to "oneupload",
+            "Direct" to "direct",
+            "Embed4Me" to "embed4me",
         )
         private val PLAYERS = playersMap.keys.toTypedArray()
         private val PLAYERS_VALUES = playersMap.values.toTypedArray()
+
+        private val VIDHIDE_DOMAINS = listOf("smoothpre", "movearnpre", "minochinos", "morencius")
 
         private const val PREF_VOICES_KEY = "voices_preference"
         private const val PREF_VOICES_DEFAULT = "vostfr"
