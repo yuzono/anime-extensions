@@ -4,17 +4,17 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.commonEmptyHeaders
 import keiyoushi.utils.decodeHex
 import keiyoushi.utils.parallelCatchingFlatMap
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -162,42 +162,41 @@ class Embed4MeExtractor(
 
     private fun buildCandidates(jsonStr: String, embedOrigin: String): List<String>? {
         val root = try {
-            json.parseToJsonElement(jsonStr).jsonObject
+            json.parseToJsonElement(jsonStr)
         } catch (_: Exception) {
             return null
-        }
+        } as? JsonObject ?: return null
 
-        val streamingConfig = root["streamingConfig"]?.jsonObject
-        val order = streamingConfig?.get("order")?.jsonArray
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+        val streamingConfig = root["streamingConfig"].toJsonObject()
+        val order = (streamingConfig?.get("order") as? JsonArray)
+            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
             ?: emptyList()
 
-        val adjustMap = streamingConfig?.get("adjust")?.jsonObject
-            ?.mapValues { (_, v) ->
-                val obj = v.jsonObject
-                Adjust(
-                    disabled = obj["disabled"]?.jsonPrimitive?.booleanOrNull ?: false,
-                    domain = obj["domain"]?.jsonPrimitive?.contentOrNull,
-                    params = obj["params"]?.jsonObject
-                        ?.mapValues { it.value.jsonPrimitive.contentOrNull ?: "" }
+        val adjustMap = (streamingConfig?.get("adjust") as? JsonObject)
+            ?.mapNotNull { entry ->
+                val obj = entry.value as? JsonObject ?: return@mapNotNull null
+                entry.key to Adjust(
+                    disabled = (obj["disabled"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                    domain = (obj["domain"] as? JsonPrimitive)?.contentOrNull,
+                    params = (obj["params"] as? JsonObject)
+                        ?.mapValues { p -> (p.value as? JsonPrimitive)?.contentOrNull ?: "" }
                         ?.filterValues { it.isNotEmpty() }
                         ?: emptyMap(),
                 )
-            } ?: emptyMap()
+            }?.toMap() ?: emptyMap()
 
-        val pkObj = root["pk"]?.jsonObject
-            ?: root["PK"]?.jsonObject
+        val pkObj = (root["pk"] ?: root["PK"]).toJsonObject()
         val pk = pkObj?.let {
             Pk(
-                k = it["k"]?.jsonPrimitive?.contentOrNull,
-                kx = it["kx"]?.jsonPrimitive?.contentOrNull,
+                k = (it["k"] as? JsonPrimitive)?.contentOrNull,
+                kx = (it["kx"] as? JsonPrimitive)?.contentOrNull,
             )
         }
 
         // Source fields
         val sourceKeys = listOf("cf", "cfNative", "hlsVideoTiktok", "hlsVideoGoogle", "source")
         val sourceMap = sourceKeys.mapNotNull { key ->
-            val value = root[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            val value = (root[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             if (value != null) key to value else null
         }.toMap()
 
@@ -205,7 +204,7 @@ class Embed4MeExtractor(
         if (namesInOrder.isEmpty() && sourceMap.isEmpty()) {
             // Fallback: any string value that looks like http
             val fallback = root.entries.mapNotNull { (k, v) ->
-                val s = v.jsonPrimitive.contentOrNull ?: return@mapNotNull null
+                val s = (v as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
                 if (s.startsWith("http") && ("/hls/" in s || ".m3u8" in s || "/v4/" in s)) k to s else null
             }.toMap()
             if (fallback.isEmpty()) return emptyList()
@@ -213,6 +212,20 @@ class Embed4MeExtractor(
         }
 
         return buildUrlsFromMap(sourceMap, adjustMap, pk, embedOrigin, namesInOrder)
+    }
+
+    private fun JsonElement?.toJsonObject(): JsonObject? = when (this) {
+        is JsonObject -> this
+        is JsonPrimitive -> if (isString && content.startsWith("{")) {
+            try {
+                json.parseToJsonElement(content) as? JsonObject
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        else -> null
     }
 
     private fun buildUrlsFromMap(
@@ -243,13 +256,8 @@ class Embed4MeExtractor(
 
             // Resolve against embed origin if relative
             if (!url.startsWith("http")) {
-                url = UrlUtils.fixUrl(url, embedOrigin) ?: "$embedOrigin/$url".replace("//", "/").let {
-                    // ensure scheme preserved
-                    if (embedOrigin.startsWith("https")) it.replace("http:/", "https://") else it
-                }
-            } else {
-                // If URL is already absolute but contains /hls/ rewritten, ensure still resolved
-                // No-op
+                val base = embedOrigin.toHttpUrlOrNull() ?: continue
+                url = base.resolve(url)?.toString() ?: continue
             }
 
             // Append pk token for /v4/
@@ -257,9 +265,8 @@ class Embed4MeExtractor(
                 url = appendParams(url, mapOf("k" to pk.k!!, "kx" to pk.kx!!))
             }
 
-            // Fix url via UrlUtils for consistency
-            val fixed = UrlUtils.fixUrl(url, embedOrigin) ?: url
-            result.add(fixed)
+            val fixed = url.toHttpUrlOrNull() ?: continue
+            result.add(fixed.toString())
         }
         return result.distinct()
     }

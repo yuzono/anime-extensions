@@ -218,7 +218,7 @@ class AnimeSama :
             // Guard against empty voice name (should not happen after filter, but fallback)
             val safePrefix = if (prefix.trim() == "()") "" else prefix
             list.filter { it.isNotEmpty() }.map { it to safePrefix }
-        }.filter { it.second.isNotEmpty() || voiceNames.isEmpty() }
+        }
         if (allPairs.isEmpty()) return emptyList()
 
         // Partition known hosts (parallel) vs fallback (sequential WebView)
@@ -234,8 +234,9 @@ class AnimeSama :
                 url.contains("embed4me")
         }
 
-        val knownVideos = knownPairs.parallelCatchingFlatMap { (playerUrl, prefix) ->
-            with(playerUrl) {
+        val knownResults = knownPairs.parallelCatchingFlatMap { pair ->
+            val (playerUrl, prefix) = pair
+            val vids = with(playerUrl) {
                 when {
                     contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
 
@@ -253,30 +254,24 @@ class AnimeSama :
 
                     contains(".mp4") -> listOf(Video(playerUrl, "$prefix Direct", playerUrl, headers))
 
-                    contains("embed4me") -> {
-                        val vids = try {
-                            embed4MeExtractor.videosFromUrl(playerUrl, prefix)
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                        if (vids.isNotEmpty()) {
-                            vids
-                        } else {
-                            try {
-                                universalExtractor.videosFromUrl(playerUrl, headers, prefix = prefix.trim())
-                            } catch (_: Exception) {
-                                emptyList()
-                            }
-                        }
+                    contains("embed4me") -> try {
+                        embed4MeExtractor.videosFromUrl(playerUrl, prefix)
+                    } catch (_: Exception) {
+                        emptyList()
                     }
 
                     else -> emptyList()
                 }
             }
+            listOf(pair to vids)
         }
+        val knownVideos = knownResults.flatMap { (_, vids) -> vids }
 
         // UniversalExtractor uses WebView on main looper with CountDownLatch — must be sequential
-        val fallbackVideos = unknownPairs.flatMap { (playerUrl, prefix) ->
+        val fallbackPairs = unknownPairs + knownResults.mapNotNull { (pair, vids) ->
+            if (vids.isEmpty()) pair else null
+        }
+        val fallbackVideos = fallbackPairs.flatMap { (playerUrl, prefix) ->
             try {
                 universalExtractor.videosFromUrl(playerUrl, headers, prefix = prefix.trim())
             } catch (_: Exception) {
