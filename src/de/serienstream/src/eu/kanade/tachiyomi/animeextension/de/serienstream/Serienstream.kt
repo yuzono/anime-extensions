@@ -199,9 +199,9 @@ class Serienstream :
 
     private fun parseStatus(document: Document): Int {
         val yearBlock = document.selectFirst("p.small.text-muted.mb-2")?.text() ?: return SAnime.UNKNOWN
-        if (yearBlock.contains("NA")) return SAnime.ONGOING
-        val years = Regex("""\b(19|20)\d{2}\b""").findAll(yearBlock).toList()
-        return if (years.size >= 2) SAnime.COMPLETED else SAnime.UNKNOWN
+        val yearRange = Regex("""((?:19|20)\d{2})\s*[-–]\s*((?:19|20)\d{2}|NA)""").find(yearBlock)
+            ?: return SAnime.UNKNOWN
+        return if (yearRange.groupValues[2] == "NA") SAnime.ONGOING else SAnime.COMPLETED
     }
 
     override fun episodeListSelector() = throw UnsupportedOperationException()
@@ -242,7 +242,7 @@ class Serienstream :
                 epLinks.forEach { el ->
                     val ep = SEpisode.create()
                     val href = el.attr("abs:href")
-                    ep.url = href.ifEmpty { el.attr("href") }
+                    ep.url = href.ifEmpty { el.attr("href") }.removePrefix(baseUrl)
                     val epNum = el.text().trim().toIntOrNull() ?: 1
                     val seasonNum = seasonHref.substringAfter("/staffel-").substringBefore("/").ifEmpty { "1" }
                     ep.name = "Staffel $seasonNum Folge $epNum"
@@ -389,7 +389,8 @@ class Serienstream :
                     ?: Regex("""URL='([^']+)'""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)
                 loc = meta ?: res.request.url.toString()
                 if (loc.contains("/r?") || loc == "$baseUrl/r") {
-                    client.newCall(GET(baseUrl + playUrl)).execute().use { getRes ->
+                    val play = UrlUtils.fixUrl(playUrl, baseUrl) ?: return null
+                    client.newCall(GET(play)).execute().use { getRes ->
                         loc = getRes.header("Location") ?: getRes.request.url.toString()
                         if (loc.contains("/r?")) {
                             val b = getRes.bodyString()
