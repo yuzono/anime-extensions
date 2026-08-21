@@ -45,6 +45,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
             val link = match.groupValues[1]
             val videoUrl = when {
                 link.startsWith("http") -> link
+                link.startsWith("//") -> "https:$link"
                 else -> BASE_URL.dropLast(1) + link
             }.takeIf { it.toHttpUrlOrNull() != null } ?: return@mapNotNull null
             Video(videoUrl, quality, videoUrl, videoHeaders)

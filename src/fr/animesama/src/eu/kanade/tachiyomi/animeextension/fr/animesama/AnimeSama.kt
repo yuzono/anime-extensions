@@ -218,7 +218,7 @@ class AnimeSama :
             // Guard against empty voice name (should not happen after filter, but fallback)
             val safePrefix = if (prefix.trim() == "()") "" else prefix
             list.filter { it.isNotEmpty() }.map { it to safePrefix }
-        }
+        }.distinctBy { it.first }
         if (allPairs.isEmpty()) return emptyList()
 
         // Partition known hosts (parallel) vs fallback (sequential WebView)
@@ -279,7 +279,7 @@ class AnimeSama :
             }
         }
 
-        return (knownVideos + fallbackVideos).sort()
+        return (knownVideos + fallbackVideos).distinctBy { it.quality }.sort()
     }
 
     // ============================ Utils =============================
