@@ -317,7 +317,13 @@ class Serienstream :
             }
             if (!preFilterPass) return@parallelCatchingFlatMapBlocking emptyList()
 
-            val t = if (playUrl.contains("t=")) playUrl.substringAfter("t=").substringBefore("&") else playUrl
+            val rawT = if (playUrl.contains("t=")) playUrl.substringAfter("t=").substringBefore("&") else playUrl
+            if (rawT.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
+            val t = try {
+                java.net.URLDecoder.decode(rawT.replace("+", "%2B"), "UTF-8")
+            } catch (_: Exception) {
+                rawT
+            }
             if (t.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
 
             val hosterUrl = resolveHosterUrl(t, csrfToken, formToken, response.request.url.toString(), playUrl, altcha) ?: return@parallelCatchingFlatMapBlocking emptyList()
@@ -370,7 +376,8 @@ class Serienstream :
             .addHeader("X-Requested-With", "XMLHttpRequest")
             .addHeader("Origin", baseUrl)
             .build()
-        client.newCall(req).execute().use { res ->
+        val noRedirectClient = client.newBuilder().followRedirects(false).build()
+        noRedirectClient.newCall(req).execute().use { res ->
             var loc = res.header("Location")
             if (loc.isNullOrBlank()) {
                 val body = res.bodyString()
