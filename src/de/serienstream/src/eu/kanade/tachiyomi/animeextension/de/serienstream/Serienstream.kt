@@ -472,7 +472,11 @@ class Serienstream :
 
     private fun getLanguage(key: String): String? {
         val k = key.trim()
-        return langMap[k] ?: langMap.entries.firstOrNull { k.contains(it.key, true) }?.value
+        langMap[k]?.let { return it }
+        // Only exact matches are meaningful for numeric IDs ("10" must not match "1");
+        // fuzzy matching is reserved for textual labels.
+        if (k.isNotEmpty() && k.all(Char::isDigit)) return null
+        return langMap.entries.firstOrNull { k.contains(it.key, true) }?.value
     }
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
