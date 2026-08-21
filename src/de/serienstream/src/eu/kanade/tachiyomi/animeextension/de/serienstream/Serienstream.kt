@@ -87,24 +87,14 @@ class Serienstream :
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.useAsJsoup()
         val elements = document.select(latestUpdatesSelector())
-        val animes = elements.parallelMapNotNullBlocking { element ->
-            val link = element.selectFirst("td a[href*=\"/serie/\"]") ?: return@parallelMapNotNullBlocking null
+        val animes = elements.mapNotNull { element ->
+            val link = element.selectFirst("td a[href*=\"/serie/\"]") ?: return@mapNotNull null
             val href = link.attr("href")
             val serieHref = if (href.contains("/staffel")) href.substringBefore("/staffel") else href.substringBefore("/episode")
-            val anime = SAnime.create().apply {
+            SAnime.create().apply {
                 url = serieHref
                 title = link.text().trim()
             }
-            try {
-                val doc = client.newCall(GET(baseUrl + serieHref)).execute().useAsJsoup()
-                val img = doc.selectFirst("div.show-cover-mobile img")
-                    ?: doc.selectFirst("div.col-5 picture img")
-                    ?: doc.selectFirst("img[data-src*=\"/media/images/channel/\"]")
-                    ?: doc.selectFirst("picture img")
-                anime.thumbnail_url = img?.let { thumbUrl(it) }
-            } catch (_: Exception) {
-            }
-            anime
         }
         return AnimesPage(animes, false)
     }
