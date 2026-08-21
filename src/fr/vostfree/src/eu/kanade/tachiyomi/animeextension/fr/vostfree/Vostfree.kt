@@ -187,7 +187,7 @@ class Vostfree :
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy { it.quality.contains(quality, ignoreCase = true) },
         ).reversed()
     }
 
