@@ -46,7 +46,13 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
         val m3u8 = decryptedJson["source"]?.jsonPrimitive?.content
         val mp4 = decryptedJson["direct_access_url"]?.jsonPrimitive?.content
 
-        val cleanPrefix = prefix.trim().removePrefix("(").removeSuffix(")").removeSuffix("-").trim()
+        var cleanPrefix = prefix.trim()
+        if (cleanPrefix.startsWith("(") && cleanPrefix.endsWith(")")) {
+            cleanPrefix = cleanPrefix.substring(1, cleanPrefix.length - 1).trim()
+        }
+        if (cleanPrefix.endsWith("-")) {
+            cleanPrefix = cleanPrefix.removeSuffix("-").trim()
+        }
         val displayPrefix = if (cleanPrefix.isNotBlank()) cleanPrefix else "VOE"
         // The caption files are SubRip served from a `.srt` url behind a `text/vtt` content type,
         // which a player will refuse to parse, so they are converted before being handed over.
