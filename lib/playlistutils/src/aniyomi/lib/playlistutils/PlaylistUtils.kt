@@ -1,6 +1,7 @@
 package aniyomi.lib.playlistutils
 
 import android.net.Uri
+import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -405,9 +406,9 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
      * Fix a common issue in VTT (WebVTT) subtitle files where extra or unexpected newline characters break the subtitle format,
      * potentially causing players to fail to render them correctly.
      */
-    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.parallelMapNotNullBlocking {
+    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.parallelMapNotNullBlocking { track ->
         runCatching {
-            val subData = client.newCall(GET(it.url))
+            val subData = client.newCall(GET(track.url))
                 .awaitSuccess().bodyString()
 
             val file = File.createTempFile("subs", ".vtt")
@@ -417,7 +418,9 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             file.writeText(FIX_SUBTITLE_REGEX.replace(vttData, ::cleanSubtitleData))
             val uri = Uri.fromFile(file)
 
-            Track(uri.toString(), it.lang)
+            Track(uri.toString(), track.lang)
+        }.onFailure { e ->
+            Log.w("PlaylistUtils", "Failed to process subtitle track ${track.url}: ${e.message}")
         }.getOrNull()
     }
 
@@ -453,11 +456,15 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
          *
          * * `$`: Matches the end of a line.
          * * `(\n{2,})`: Captures a group of two or more consecutive newline characters. In VTT files, a double newline usually indicates the end of one "cue" (subtitle block) and the start of another.
-         * * `(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)`: This is a negative lookahead. It checks that what follows the newlines is NOT a VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000)`.
+         * * The negative lookahead checks that what follows the newlines is NOT the start of legitimate WebVTT content. It accepts:
+         *     - A VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000`).
+         *     - A `NOTE` block start (`NOTE` followed by whitespace, newline, or end of line).
+         *     - A `STYLE` block start (`STYLE` followed by whitespace, newline, or end of line).
+         *     - Any single non-blank cue identifier line immediately followed by a cue timing line on the next line (a valid WebVTT cue with an identifier).
          *
-         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
+         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, `NOTE`/`STYLE` block, or an identifier line leading into a timing line, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
          */
-        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)""", RegexOption.MULTILINE)
+        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?|(?:NOTE|STYLE)(?:[ \t\n]|$)|[^\n]+\n(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s)))""", RegexOption.MULTILINE)
 
         /**
          * Matches a SubRip cue timing line, e.g. `00:00:03,520 --> 00:00:05,240`.
