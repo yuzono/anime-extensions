@@ -257,14 +257,11 @@ class Serienstream :
     private fun parseEpisodeRow(element: Element, seasonUrl: String): SEpisode {
         val episode = SEpisode.create()
         val onclick = element.attr("onclick")
-        val href = when {
-            onclick.isNotBlank() -> {
-                Regex("""window\.location='([^']+)'""").find(onclick)?.groupValues?.get(1) ?: ""
-            }
-            else -> element.selectFirst("a[href*=\"/episode-\"]")?.attr("href") ?: ""
-        }
+        val href = Regex("""window\.location='([^']+)'""").find(onclick)?.groupValues?.get(1)
+            ?: element.selectFirst("a[href*=\"/episode-\"]")?.attr("href")
+            ?: ""
         episode.url = href
-        val seasonNumRaw = seasonUrl.substringAfter("/staffel-").substringBefore("/").substringBefore("?").ifEmpty { "1" }
+        val seasonNumRaw = seasonUrl.substringAfter("/staffel-", "").takeWhile(Char::isDigit).ifEmpty { "1" }
         val isFilm = seasonNumRaw == "0" || seasonUrl.contains("/staffel-0")
         val epNumText = element.selectFirst("th.episode-number-cell")?.text()?.trim()
             ?: Regex("""episode-(\d+)""").find(href)?.groupValues?.get(1) ?: "1"
@@ -338,9 +335,9 @@ class Serienstream :
                 val isDood = hosterUrl.contains("dood", true) || hosterUrl.contains("myvidplay", true)
                 val isStape = hosterUrl.contains("streamtape", true)
                 when {
-                    isVoe && !selection.contains(SConstants.NAME_VOE) -> return@parallelCatchingFlatMapBlocking emptyList()
-                    isDood && !selection.contains(SConstants.NAME_DOOD) -> return@parallelCatchingFlatMapBlocking emptyList()
-                    isStape && !selection.contains(SConstants.NAME_STAPE) -> return@parallelCatchingFlatMapBlocking emptyList()
+                    isVoe && selection.isNotEmpty() && !selection.contains(SConstants.NAME_VOE) -> return@parallelCatchingFlatMapBlocking emptyList()
+                    isDood && selection.isNotEmpty() && !selection.contains(SConstants.NAME_DOOD) -> return@parallelCatchingFlatMapBlocking emptyList()
+                    isStape && selection.isNotEmpty() && !selection.contains(SConstants.NAME_STAPE) -> return@parallelCatchingFlatMapBlocking emptyList()
                 }
             }
 
