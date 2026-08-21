@@ -2,8 +2,8 @@ ext {
     extName = 'AnimeQ'
     extClass = '.AnimeQ'
     themePkg = 'dooplay'
-    baseUrl = 'https://animeq.net'
-    overrideVersionCode = 2
+    baseUrl = 'https://animeq.blog'
+    overrideVersionCode = 3
     isNsfw = true
 }
 
