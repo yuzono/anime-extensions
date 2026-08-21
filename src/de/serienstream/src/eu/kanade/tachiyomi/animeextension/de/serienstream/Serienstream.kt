@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.bodyString
@@ -130,7 +131,8 @@ class Serienstream :
                 val jo = elem.jsonObject
                 val link = jo["url"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
                 val title = jo["name"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
-                animeFromSearch(title, link)
+                val thumb = jo["image"]?.jsonPrimitive?.content ?: jo["cover"]?.jsonPrimitive?.content ?: jo["thumbnail"]?.jsonPrimitive?.content
+                animeFromSearch(title, link, thumb?.let { UrlUtils.fixUrl(it, baseUrl) })
             }
             AnimesPage(animes, false)
         } catch (_: Exception) {
@@ -140,7 +142,8 @@ class Serienstream :
                     val jo = elem.jsonObject
                     val link = jo["link"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
                     val title = jo["title"]?.jsonPrimitive?.content ?: return@parallelMapNotNullBlocking null
-                    animeFromSearch(title, link)
+                    val thumb = jo["image"]?.jsonPrimitive?.content ?: jo["cover"]?.jsonPrimitive?.content ?: jo["thumbnail"]?.jsonPrimitive?.content
+                    animeFromSearch(title, link, thumb?.let { UrlUtils.fixUrl(it, baseUrl) })
                 }
                 AnimesPage(animes, false)
             } catch (_: Exception) {
@@ -149,20 +152,14 @@ class Serienstream :
         }
     }
 
-    private fun animeFromSearch(title: String, link: String): SAnime {
-        val anime = SAnime.create()
-        anime.title = title.replace("<em>", "").replace("</em>", "")
-        anime.url = link
-        try {
-            val doc = client.newCall(GET(baseUrl + link)).execute().useAsJsoup()
-            val img = doc.selectFirst("div.show-cover-mobile img")
-                ?: doc.selectFirst("div.col-5 picture img")
-                ?: doc.selectFirst("img[data-src*=\"/media/images/channel/\"]")
-                ?: doc.selectFirst("picture img")
-            anime.thumbnail_url = img?.let { thumbUrl(it) }
-        } catch (_: Exception) {
-        }
-        return anime
+    private fun animeFromSearch(
+        title: String,
+        link: String,
+        thumbnailUrl: String? = null,
+    ): SAnime = SAnime.create().apply {
+        this.title = title.replace("<em>", "").replace("</em>", "")
+        url = link
+        thumbnail_url = thumbnailUrl
     }
 
     override fun searchAnimeFromElement(element: Element) = throw UnsupportedOperationException()
