@@ -39,7 +39,7 @@ class Serienstream :
 
     override val name = "Serienstream"
 
-    override val baseUrl = "https://s.to"
+    override val baseUrl = "https://serienstream.to"
 
     override val lang = "de"
 
