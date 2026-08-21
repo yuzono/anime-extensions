@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.multisrc.anikototheme
 
 import android.util.Base64
 import android.util.Log
+import aniyomi.lib.m3u8server.M3u8Integration
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -16,21 +17,23 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 
-private data class ExtractionResult(
-    val videos: List<Video>,
-    val requiresProxy: Boolean,
-)
-
 class AnikotoExtractor(private val theme: AnikotoTheme) {
+    private val m3u8Integration by lazy { M3u8Integration(theme.playlistClient) }
 
     suspend fun extractVideos(document: Document, episode: SEpisode, epUrl: String): List<Video> {
         val serverData = theme.parseServerListData(document).toMutableList()
         val mapperServers = fetchMapperServers(episode)
         serverData.addAll(mapperServers)
 
-        return serverData.parallelCatchingFlatMap { server ->
+        val videos = serverData.parallelCatchingFlatMap { server ->
             extractVideo(server, epUrl)
         }
+
+        // Some Anikoto CDNs return HLS segments with an image wrapper and require
+        // the player request to carry the embed referer. Route HLS through the
+        // shared local proxy so both the headers and the segment byte cleanup are
+        // preserved during playback.
+        return m3u8Integration.processVideoList(videos)
     }
 
     private suspend fun getEmbedLink(serverId: String, epUrl: String): String {
@@ -112,7 +115,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             getEmbedLink(server.serverId, epUrl)
         }
 
-        val result = when {
+        when {
             embedLink.contains("mewcdn.online/player/plyr.php") ->
                 extractFromMewcdnPlayer(embedLink, server)
             embedLink.endsWith(".m3u8") || (embedLink.contains(".m3u8") && !embedLink.contains("/stream/")) ->
@@ -120,10 +123,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             else ->
                 extractFromPlayer(embedLink, server)
         }
-
-        val needsProxy = result.requiresProxy || theme.alwaysNeedsProxy(server.serverName)
-
-        if (needsProxy) proxyVideoList(result.videos) else result.videos
     } catch (e: Exception) {
         Log.e("AnikotoExtractor", "Failed to extract from ${server.serverName}: ${e.message}")
         emptyList()
@@ -133,11 +132,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         embedUrl: String,
         server: AnikotoTheme.VideoData,
         pageReferer: String = "${theme.baseUrl}/",
-    ): ExtractionResult {
+    ): List<Video> {
         val host = try {
             embedUrl.toHttpUrl().host
         } catch (_: Exception) {
-            return ExtractionResult(emptyList(), false)
+            return emptyList()
         }
 
         val pageHeaders = theme.headers.newBuilder()
@@ -187,7 +186,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
 
         Log.e("AnikotoExtractor", "No extraction strategy matched for ${server.serverName} at $embedUrl")
-        return ExtractionResult(emptyList(), false)
+        return emptyList()
     }
 
     private suspend fun fetchSourcesFromApi(
@@ -195,7 +194,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         host: String,
         embedUrl: String,
         server: AnikotoTheme.VideoData,
-    ): ExtractionResult {
+    ): List<Video> {
         val streamType = try {
             embedUrl.toHttpUrl().pathSegments.lastOrNull()
                 ?.takeIf { it == "sub" || it == "dub" }
@@ -210,7 +209,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             add("Origin", "https://$host")
         }.build()
 
-        val (data, usedGetSourcesNew) = fetchSourceData(dataId, host, apiHeaders, streamType)
+        val data = fetchSourceData(dataId, host, apiHeaders, streamType)
 
         val m3u8 = data.sources.takeIf { it.startsWith("http") }
             ?: throw Exception("No valid m3u8 found")
@@ -228,7 +227,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .set("Origin", "https://$host")
             .build()
 
-        val videos = theme.playlistUtils.extractFromHls(
+        return theme.playlistUtils.extractFromHls(
             m3u8,
             videoNameGen = { quality ->
                 "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
@@ -238,8 +237,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             masterHeaders = vidHeaders,
             videoHeaders = vidHeaders,
         )
-
-        return ExtractionResult(videos, usedGetSourcesNew)
     }
 
     private suspend fun fetchSourceData(
@@ -247,40 +244,44 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         host: String,
         apiHeaders: Headers,
         streamType: String,
-    ): Pair<SourceResponseDto, Boolean> {
+    ): SourceResponseDto {
+        // Primary endpoint
+        val primaryUrl = if (streamType.isNotEmpty()) {
+            "https://$host/stream/getSources?id=$dataId&type=$streamType"
+        } else {
+            "https://$host/stream/getSources?id=$dataId"
+        }
         val primaryResult = try {
-            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId&id=$dataId", apiHeaders))
+            theme.client.newCall(GET(primaryUrl, apiHeaders))
                 .awaitSuccess().use { response ->
                     if (!response.isSuccessful) throw Exception("getSources failed: HTTP ${response.code}")
                     response.parseAs<SourceResponseDto>()
                 }
-            data to false
         } catch (_: Exception) {
             null
         }
 
         if (primaryResult != null) return primaryResult
 
+        // Fallback endpoint
         val newUrl = if (streamType.isNotEmpty()) {
-            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId&type=$streamType&type=$streamType"
+            "https://$host/stream/getSourcesNew?id=$dataId&type=$streamType"
         } else {
-            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId"
+            "https://$host/stream/getSourcesNew?id=$dataId"
         }
 
-        val data = theme.client.newCall(GET(newUrl, apiHeaders))
+        return theme.client.newCall(GET(newUrl, apiHeaders))
             .awaitSuccess().use { response ->
                 if (!response.isSuccessful) throw Exception("getSourcesNew failed: HTTP ${response.code}")
                 response.parseAs<SourceResponseDto>()
             }
-
-        return data to true
     }
 
     private suspend fun fetchSourcesFromPage(
         url: String,
         server: AnikotoTheme.VideoData,
         referer: String,
-    ): ExtractionResult {
+    ): List<Video> {
         val pageHeaders = theme.headers.newBuilder()
             .add("Referer", referer)
             .build()
@@ -304,7 +305,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         m3u8Url: String,
         server: AnikotoTheme.VideoData,
         referer: String = "${theme.baseUrl}/",
-    ): ExtractionResult {
+    ): List<Video> {
         val displayName = theme.getServerDisplayName(server.serverName)
         val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
 
@@ -312,7 +313,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .set("Referer", referer)
             .build()
 
-        val videos = theme.playlistUtils.extractFromHls(
+        return theme.playlistUtils.extractFromHls(
             m3u8Url,
             videoNameGen = { quality ->
                 "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
@@ -321,11 +322,9 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             masterHeaders = vidHeaders,
             videoHeaders = vidHeaders,
         )
-
-        return ExtractionResult(videos, false)
     }
 
-    private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: AnikotoTheme.VideoData): ExtractionResult {
+    private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: AnikotoTheme.VideoData): List<Video> {
         val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
             ?: throw Exception("No fragment found in mewcdn player URL")
 
@@ -352,7 +351,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .set("Origin", "https://mewcdn.online")
             .build()
 
-        val videos = theme.playlistUtils.extractFromHls(
+        return theme.playlistUtils.extractFromHls(
             m3u8,
             videoNameGen = { quality ->
                 "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
@@ -361,38 +360,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             masterHeaders = vidHeaders,
             videoHeaders = vidHeaders,
         )
-
-        return ExtractionResult(videos, true)
-    }
-
-    private suspend fun proxyVideoList(videos: List<Video>): List<Video> {
-        if (!theme.m3u8ServerManager.isRunning()) {
-            Log.e("AnikotoExtractor", "M3U8 server not running, dropping ${videos.size} videos")
-            return emptyList()
-        }
-        return videos.mapNotNull { video ->
-            val processedUrl = proxyThroughM3u8Server(video.url)
-            if (processedUrl == null) {
-                Log.w("AnikotoExtractor", "Proxy failed for: ${video.quality}")
-            }
-            processedUrl?.let {
-                Video(
-                    url = it,
-                    quality = video.quality,
-                    videoUrl = it,
-                    headers = video.headers,
-                    subtitleTracks = video.subtitleTracks,
-                    audioTracks = video.audioTracks,
-                )
-            }
-        }
-    }
-
-    private fun proxyThroughM3u8Server(originalUrl: String): String? = try {
-        theme.m3u8ServerManager.processM3u8Url(originalUrl)
-    } catch (e: Exception) {
-        Log.e("AnikotoExtractor", "Proxy process failed: ${e.message}")
-        null
     }
 
     private fun parseHostMap(html: String): Map<String, String> {
