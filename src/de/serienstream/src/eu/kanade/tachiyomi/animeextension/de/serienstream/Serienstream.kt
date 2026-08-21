@@ -341,22 +341,22 @@ class Serienstream :
             }
 
             when {
-                hosterUrl.contains("voe", true) && (selection.isEmpty() || selection.contains(SConstants.NAME_VOE)) -> voeExtractor.videosFromUrl(hosterUrl, "($language) ")
+                hosterUrl.contains("voe", true) && (selection.isEmpty() || selection.contains(SConstants.NAME_VOE)) -> voeExtractor.videosFromUrl(hosterUrl, language)
                 hosterUrl.contains("dood", true) || hosterUrl.contains("myvidplay", true) -> {
                     if (selection.isEmpty() || selection.contains(SConstants.NAME_DOOD)) {
-                        doodExtractor.videoFromUrl(hosterUrl, "Doodstream $language")?.let(::listOf) ?: emptyList()
+                        doodExtractor.videoFromUrl(hosterUrl, language)?.let(::listOf) ?: emptyList()
                     } else {
                         emptyList()
                     }
                 }
                 hosterUrl.contains("streamtape", true) -> {
                     if (selection.isEmpty() || selection.contains(SConstants.NAME_STAPE)) {
-                        streamTapeExtractor.videoFromUrl(hosterUrl, "Streamtape $language")?.let(::listOf) ?: emptyList()
+                        streamTapeExtractor.videoFromUrl(hosterUrl, "$language - Streamtape")?.let(::listOf) ?: emptyList()
                     } else {
                         emptyList()
                     }
                 }
-                provider.equals("VOE", true) -> voeExtractor.videosFromUrl(hosterUrl, "($language) ")
+                provider.equals("VOE", true) -> voeExtractor.videosFromUrl(hosterUrl, language)
                 else -> emptyList()
             }
         }
@@ -477,9 +477,15 @@ class Serienstream :
 
     override fun List<Video>.sort(): List<Video> {
         val hoster = preferredHoster.takeIf { it.isNotBlank() }
+        val hosterName = when (hoster) {
+            SConstants.URL_VOE -> SConstants.NAME_VOE
+            SConstants.URL_DOOD -> SConstants.NAME_DOOD
+            SConstants.URL_STAPE -> SConstants.NAME_STAPE
+            else -> hoster
+        }
         val lang = preferredLang
         return sortedWith(
-            compareByDescending<Video> { hoster != null && it.url.contains(hoster, true) }
+            compareByDescending<Video> { hosterName != null && (it.url.contains(hoster ?: "", true) || it.quality.contains(hosterName, true)) }
                 .thenByDescending { it.quality.contains(lang, true) },
         )
     }
