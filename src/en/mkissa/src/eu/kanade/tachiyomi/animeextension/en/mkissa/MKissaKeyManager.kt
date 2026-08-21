@@ -155,29 +155,34 @@ class MKissaKeyManager(
 
         var sawStale = false
         for (epoch in epochs) {
-            val requestHeaders = headers.newBuilder()
-                .set("x-build-id", buildId)
-                .set("x-aa-boot", MKissaCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE))
-                .set("Origin", siteUrl)
-                .set("Referer", "$siteUrl/")
-                .build()
+            var epochStale = false
+            var epochSucceeded = false
+            for (bootToken in MKissaCrypto.bootTokenCandidates(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE)) {
+                val requestHeaders = headers.newBuilder()
+                    .set("x-build-id", buildId)
+                    .set("x-aa-boot", bootToken)
+                    .set("Origin", siteUrl)
+                    .set("Referer", "$siteUrl/")
+                    .build()
 
-            val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
-                ?: return BootstrapResult(null, stale = false)
+                val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
+                    ?: return BootstrapResult(null, stale = false)
 
-            if (!response.isSuccessful) {
-                response.close()
-                if (response.code in STALE_CODES) sawStale = true
-                continue
+                if (!response.isSuccessful) {
+                    response.close()
+                    if (response.code in STALE_CODES) epochStale = true
+                    continue
+                }
+
+                val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
+                    ?: return BootstrapResult(null, stale = false)
+
+                // A partB from another lane would silently derive the wrong key.
+                if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
+
+                return BootstrapResult(bootstrap, stale = false)
             }
-
-            val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
-                ?: return BootstrapResult(null, stale = false)
-
-            // A partB from another lane would silently derive the wrong key.
-            if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
-
-            return BootstrapResult(bootstrap, stale = false)
+            if (epochStale) sawStale = true
         }
         return BootstrapResult(null, stale = sawStale)
     }
