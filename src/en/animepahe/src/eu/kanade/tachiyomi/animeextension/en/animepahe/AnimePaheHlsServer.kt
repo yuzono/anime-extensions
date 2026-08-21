@@ -1,13 +1,17 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
 import eu.kanade.tachiyomi.animesource.model.Video
-import fi.iki.elonen.NanoHTTPD
-import fi.iki.elonen.NanoHTTPD.Response.Status
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.nanohttpd.protocols.http.IHTTPSession
+import org.nanohttpd.protocols.http.NanoHTTPD
+import org.nanohttpd.protocols.http.response.Response
+import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
+import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
+import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
 import java.io.IOException
@@ -70,7 +74,7 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
     }
 
-    override fun serve(session: IHTTPSession): Response = when {
+    override fun handle(session: IHTTPSession): Response = when {
         session.uri.startsWith("/m3u8") -> handleM3u8Request(session)
         session.uri.startsWith("/segment") -> handleSegmentRequest(session)
         session.uri.startsWith("/mp4") -> handleMp4Request(session)
@@ -118,10 +122,8 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
             val status = Status.lookup(upstream.code) ?: Status.OK
             val stream = object : FilterInputStream(body.byteStream()) {
                 override fun close() {
-                    try {
+                    upstream.use { _ ->
                         super.close()
-                    } finally {
-                        upstream.close()
                     }
                 }
             }
@@ -241,7 +243,7 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         val baseHttpUrl = originalUrl.toHttpUrlOrNull()
         val modifiedLines = mutableListOf<String>()
         var mediaSequence = 0L
-        var segmentSequence = mediaSequence
+        var segmentSequence = 0L
         var currentKey: HlsKey? = null
 
         content.lines().forEach { line ->
