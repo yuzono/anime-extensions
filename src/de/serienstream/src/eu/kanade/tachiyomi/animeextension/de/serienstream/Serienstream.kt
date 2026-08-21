@@ -271,16 +271,10 @@ class Serienstream :
         }
         if (isFilm) {
             episode.name = "Film $epNum : $displayTitle"
-            episode.episode_number = epNum.toFloat()
         } else {
             episode.name = "Staffel $seasonNumRaw Folge $epNum : $displayTitle"
-            episode.episode_number = try {
-                val s = seasonNumRaw.toIntOrNull() ?: 1
-                (s * 1000 + epNum).toFloat()
-            } catch (_: Exception) {
-                epNum.toFloat()
-            }
         }
+        episode.episode_number = epNum.toFloat()
         return episode
     }
 
