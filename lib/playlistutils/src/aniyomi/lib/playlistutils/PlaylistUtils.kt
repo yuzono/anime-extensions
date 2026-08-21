@@ -410,14 +410,41 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
             val subData = client.newCall(GET(it.url))
                 .awaitSuccess().bodyString()
 
-            val file = File.createTempFile("subs", "vtt")
+            val file = File.createTempFile("subs", ".vtt")
                 .also(File::deleteOnExit)
 
-            file.writeText(FIX_SUBTITLE_REGEX.replace(subData, ::cleanSubtitleData))
+            val vttData = toWebVtt(subData)
+            file.writeText(FIX_SUBTITLE_REGEX.replace(vttData, ::cleanSubtitleData))
             val uri = Uri.fromFile(file)
 
             Track(uri.toString(), it.lang)
         }.getOrNull()
+    }
+
+    /**
+     * Converts SubRip subtitle data to WebVTT, leaving anything else unchanged.
+     *
+     * Some hosters serve SubRip content from a `.vtt` URL or behind a `text/vtt` content type.
+     * Players that sniff the format from the content cope with that, but ones that trust the
+     * declared type do not, so the data is normalized to match what it claims to be: WebVTT
+     * requires the `WEBVTT` header, and its cue timings use a dot as the decimal separator
+     * instead of SubRip's comma.
+     *
+     * SubRip's numeric cue indexes are dropped, because a WebVTT cue identifier is optional and
+     * keeping them breaks [FIX_SUBTITLE_REGEX], which runs next: its lookahead only accepts a cue
+     * timing directly after a blank line, so an index line in between makes it treat every single
+     * cue boundary as an illegal gap and replace it with a `&nbsp;` line. That collapses the blank
+     * lines WebVTT needs to separate cues and leaves a file a player loads but cannot render.
+     *
+     * Data that already is WebVTT, and data in a format that carries no SubRip cue timing at all
+     * (SubStation Alpha, for instance), is returned as-is rather than being given a header it
+     * cannot back up.
+     */
+    private fun toWebVtt(subData: String): String {
+        val data = subData.removePrefix("\uFEFF").replace("\r\n", "\n").trimStart()
+        if (data.startsWith("WEBVTT") || !SRT_TIMECODE_REGEX.containsMatchIn(data)) return data
+        val cues = SRT_TIMECODE_REGEX.replace(data, "$1.$2 --> $3.$4")
+        return "WEBVTT\n\n" + SRT_CUE_INDEX_REGEX.replace(cues, "")
     }
 
     companion object {
@@ -431,6 +458,27 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
          * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
          */
         private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)""", RegexOption.MULTILINE)
+
+        /**
+         * Matches a SubRip cue timing line, e.g. `00:00:03,520 --> 00:00:05,240`.
+         *
+         * The hour part is optional, and either a comma or a dot is accepted as the decimal
+         * separator so that partly converted data is matched too. Commas inside dialogue are never
+         * touched, because a match has to contain the `-->` arrow, and anything trailing the end
+         * timestamp (WebVTT cue settings) is left in place.
+         */
+        private val SRT_TIMECODE_REGEX by lazy {
+            Regex("""((?:\d{1,3}:)?\d{1,3}:\d{2})[,.](\d{1,3})[ \t]*-->[ \t]*((?:\d{1,3}:)?\d{1,3}:\d{2})[,.](\d{1,3})""")
+        }
+
+        /**
+         * Matches a SubRip numeric cue index on its own line, immediately followed by the cue
+         * timing line. Applied after [SRT_TIMECODE_REGEX] has already converted the timings, so
+         * only the dot form needs matching here.
+         */
+        private val SRT_CUE_INDEX_REGEX by lazy {
+            Regex("""^\d+[ \t]*\n(?=(?:\d{1,3}:)?\d{1,3}:\d{2}\.\d{1,3}[ \t]*-->)""", RegexOption.MULTILINE)
+        }
 
         private const val PLAYLIST_SEPARATOR = "#EXT-X-STREAM-INF:"
 

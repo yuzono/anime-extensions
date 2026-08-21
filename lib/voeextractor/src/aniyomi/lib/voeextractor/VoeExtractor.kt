@@ -48,18 +48,18 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
 
         val cleanPrefix = prefix.trim().removePrefix("(").removeSuffix(")").removeSuffix("-").trim()
         val displayPrefix = if (cleanPrefix.isNotBlank()) cleanPrefix else "VOE"
-        val tracks = mutableListOf<Track>()
-        try {
-            val captions = decryptedJson["captions"] as? JsonArray
-            captions?.forEach { elem ->
-                val obj = elem as? JsonObject ?: return@forEach
-                val file = obj["file"]?.jsonPrimitive?.content ?: return@forEach
-                val label = obj["label"]?.jsonPrimitive?.content ?: "Subtitle"
-                val absolute = UrlUtils.fixUrl(file, baseUrl) ?: file
-                if (absolute.isNotBlank()) tracks.add(Track(absolute, label))
-            }
-        } catch (_: Exception) {
-        }
+        // The caption files are SubRip served from a `.srt` url behind a `text/vtt` content type,
+        // which a player will refuse to parse, so they are converted before being handed over.
+        val tracks = runCatching {
+            (decryptedJson["captions"] as? JsonArray).orEmpty()
+                .mapNotNull { caption ->
+                    val obj = caption as? JsonObject ?: return@mapNotNull null
+                    val file = obj["file"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    val url = UrlUtils.fixUrl(file, baseUrl) ?: return@mapNotNull null
+                    Track(url, obj["label"]?.jsonPrimitive?.content ?: "Subtitle")
+                }
+                .let(playlistUtils::fixSubtitles)
+        }.getOrDefault(emptyList())
         val subHint = if (tracks.isNotEmpty()) " [CC ${tracks.size}]" else ""
 
         if (m3u8 != null) {
