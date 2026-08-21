@@ -415,12 +415,19 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 .also(File::deleteOnExit)
 
             val vttData = toWebVtt(subData)
-            file.writeText(FIX_SUBTITLE_REGEX.replace(vttData, ::cleanSubtitleData))
+            // Only WebVTT (or data converted to it) gets the gap cleanup; formats like ASS/SSA
+            // legitimately use blank lines between sections and must not be touched by it.
+            val cleanedData = if (vttData.startsWith("WEBVTT")) {
+                FIX_SUBTITLE_REGEX.replace(vttData, ::cleanSubtitleData)
+            } else {
+                vttData
+            }
+            file.writeText(cleanedData)
             val uri = Uri.fromFile(file)
 
             Track(uri.toString(), track.lang)
         }.onFailure { e ->
-            Log.w("PlaylistUtils", "Failed to process subtitle track ${track.url}: ${e.message}")
+            Log.w("PlaylistUtils", "Failed to process subtitle track (${track.lang}): ${e.javaClass.simpleName}: ${e.message}")
         }.getOrNull()
     }
 
@@ -444,7 +451,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
      * cannot back up.
      */
     private fun toWebVtt(subData: String): String {
-        val data = subData.removePrefix("\uFEFF").replace("\r\n", "\n").trimStart()
+        val data = subData.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').trimStart()
         if (data.startsWith("WEBVTT") || !SRT_TIMECODE_REGEX.containsMatchIn(data)) return data
         val cues = SRT_TIMECODE_REGEX.replace(data, "$1.$2 --> $3.$4")
         return "WEBVTT\n\n" + SRT_CUE_INDEX_REGEX.replace(cues, "")
