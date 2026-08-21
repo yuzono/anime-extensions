@@ -230,7 +230,7 @@ class AniSama :
         val server = preferences.server
         return sortedWith(
             compareBy(
-                { it.quality.contains(server) },
+                { it.quality.contains(server, ignoreCase = true) },
                 { it.quality.contains(language) },
                 { it.quality.contains(quality) },
             ),
