@@ -279,7 +279,9 @@ class AnimeSama :
             }
         }
 
-        return (knownVideos + fallbackVideos).distinctBy { it.quality }.sort()
+        return (knownVideos + fallbackVideos)
+            .distinctBy { it.quality to it.url.substringBefore("?") }
+            .sort()
     }
 
     // ============================ Utils =============================
