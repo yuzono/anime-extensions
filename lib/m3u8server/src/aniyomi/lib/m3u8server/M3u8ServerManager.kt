@@ -65,7 +65,12 @@ class M3u8ServerManager(
      * @param userAgent optional User-Agent to encode alongside the referer.
      * @return Processed M3U8 content as a local URL string
      */
-    fun processM3u8Url(m3u8Url: String, referer: String? = null, userAgent: String? = null): String? = server?.createLocalUrl(m3u8Url, referer, userAgent)
+    fun processM3u8Url(
+        m3u8Url: String,
+        referer: String? = null,
+        userAgent: String? = null,
+        origin: String? = null,
+    ): String? = server?.createLocalUrl(m3u8Url, referer, userAgent, origin)
 
     /**
      * Processes a segment through the server

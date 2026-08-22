@@ -106,7 +106,7 @@ object AutoDetector {
      *         Empty list if no junk is detected.
      */
     fun detectInterleavedSkips(data: ByteArray): List<IntRange> {
-        if (data.isEmpty()) return emptyList()
+        if (data.isEmpty() || isMpegTsPacketAligned(data)) return emptyList()
 
         val regions = mutableListOf<IntRange>()
 
@@ -124,6 +124,19 @@ object AutoDetector {
         }
 
         return mergeRegions(regions)
+    }
+
+    /**
+     * Returns true when the complete buffer is an intact MPEG-TS packet grid.
+     * A full-grid check avoids treating JPEG-like bytes inside normal TS
+     * payloads as injected disguise blocks.
+     */
+    private fun isMpegTsPacketAligned(data: ByteArray): Boolean {
+        if (data.size < MPEG_TS_PACKET_SIZE * 3 || data.size % MPEG_TS_PACKET_SIZE != 0) return false
+        for (offset in data.indices step MPEG_TS_PACKET_SIZE) {
+            if (data[offset] != MPEG_TS_SYNC) return false
+        }
+        return true
     }
 
     /**
