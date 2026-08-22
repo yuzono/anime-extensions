@@ -270,11 +270,16 @@ class AnimeSama :
                     else -> emptyList()
                 }
             }
-            // One embed can expose the same stream through several urls: VidHide pages ship
-            // both a cdn master.m3u8 and a proxied /stream/ one, which shows up as duplicated
-            // entries with an identical label. Labels carry the quality, so this only drops
-            // same-label mirrors of one player, never a distinct quality.
-            listOf(pair to vids.distinctBy { it.quality })
+            // VidHide pages ship the same stream twice, as a cdn master.m3u8 and as a proxied
+            // /stream/ one, which shows up as duplicated entries with an identical label that
+            // the url-aware dedupe below cannot collapse. Restricted to those hosts: other
+            // players can return distinct files under one label, and must not lose them.
+            val dedupedVids = if (VIDHIDE_DOMAINS.any { playerUrl.contains(it, ignoreCase = true) }) {
+                vids.distinctBy { it.quality }
+            } else {
+                vids
+            }
+            listOf(pair to dedupedVids)
         }
         val knownVideos = knownResults.flatMap { (_, vids) -> vids }
 

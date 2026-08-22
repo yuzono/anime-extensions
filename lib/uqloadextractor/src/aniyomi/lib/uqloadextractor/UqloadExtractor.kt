@@ -1,5 +1,6 @@
 package aniyomi.lib.uqloadextractor
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -10,6 +11,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
 class UqloadExtractor(private val client: OkHttpClient) {
+
+    private val playlistUtils by lazy { PlaylistUtils(client) }
 
     companion object {
         const val BASE_URL = "https://uqload.is/"
@@ -31,7 +34,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
                 .takeIf(String::isNotBlank)
                 ?.takeIf { it.startsWith("http") }
             if (videoUrl != null) {
-                return listOf(Video(videoUrl, quality, videoUrl, videoHeaders))
+                return videosFromSource(videoUrl, quality, fixedUrl, videoHeaders)
             }
         }
 
@@ -41,14 +44,40 @@ class UqloadExtractor(private val client: OkHttpClient) {
             ?.let(::autoUnpacker)
             ?: return emptyList()
 
-        return packedSourceRegex.findAll(packed).mapNotNull { match ->
+        val sources = packedSourceRegex.findAll(packed).mapNotNull { match ->
             val link = match.groupValues[1]
-            val videoUrl = when {
+            when {
                 link.startsWith("http") -> link
                 link.startsWith("//") -> "https:$link"
                 else -> BASE_URL.dropLast(1) + link
-            }.takeIf { it.toHttpUrlOrNull() != null } ?: return@mapNotNull null
-            Video(videoUrl, quality, videoUrl, videoHeaders)
-        }.distinctBy { it.url }.toList()
+            }.takeIf { it.toHttpUrlOrNull() != null }
+        }.distinct().toList()
+
+        return sources.flatMap { videosFromSource(it, quality, fixedUrl, videoHeaders) }
+            .distinctBy { it.url }
+    }
+
+    /**
+     * Multi-quality streams are served as a single `_,l,n,h,.urlset/master.m3u8` playlist, so the
+     * variants have to be extracted to expose anything more than one unlabelled entry. Falls back
+     * to the master playlist itself when it cannot be read.
+     */
+    private fun videosFromSource(
+        videoUrl: String,
+        quality: String,
+        referer: String,
+        videoHeaders: Headers,
+    ): List<Video> {
+        if (!videoUrl.contains(".m3u8")) {
+            return listOf(Video(videoUrl, quality, videoUrl, videoHeaders))
+        }
+
+        return playlistUtils.extractFromHls(
+            videoUrl,
+            referer = referer,
+            // A single-stream playlist has no resolution to report and is named "Video";
+            // keep the plain label there so those entries read as they did before.
+            videoNameGen = { variant -> if (variant == "Video") quality else "$quality - $variant" },
+        ).ifEmpty { listOf(Video(videoUrl, quality, videoUrl, videoHeaders)) }
     }
 }
