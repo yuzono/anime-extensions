@@ -37,6 +37,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -69,15 +70,21 @@ class AnimeSama :
                 val newUrl = response.header("Location") ?: break
                 val newUrlHttp = request.url.resolve(newUrl) ?: break
                 val redirectedDomain = newUrlHttp.run { "$scheme://$host" }
-                if (redirectedDomain != baseUrl) {
+                // This client is shared with the video extractors, and hosts like uqload.is
+                // permanently redirect to another domain. Only a redirect on the source's own
+                // domain is a domain migration; anything else must not touch baseUrl/headers.
+                val isSourceDomain = request.url.host == baseUrl.toHttpUrlOrNull()?.host
+                if (isSourceDomain && redirectedDomain != baseUrl) {
                     updateDomain(redirectedDomain)
                 }
                 response.close()
                 request = request.newBuilder()
                     .url(newUrlHttp)
                     .apply {
-                        header("Origin", redirectedDomain)
-                        header("Referer", "$redirectedDomain/")
+                        if (isSourceDomain) {
+                            header("Origin", redirectedDomain)
+                            header("Referer", "$redirectedDomain/")
+                        }
                     }
                     .build()
                 response = chain.proceed(request)
@@ -263,7 +270,11 @@ class AnimeSama :
                     else -> emptyList()
                 }
             }
-            listOf(pair to vids)
+            // One embed can expose the same stream through several urls: VidHide pages ship
+            // both a cdn master.m3u8 and a proxied /stream/ one, which shows up as duplicated
+            // entries with an identical label. Labels carry the quality, so this only drops
+            // same-label mirrors of one player, never a distinct quality.
+            listOf(pair to vids.distinctBy { it.quality })
         }
         val knownVideos = knownResults.flatMap { (_, vids) -> vids }
 
