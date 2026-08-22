@@ -1,0 +1,15 @@
+ext {
+      extName = 'AnimeSaga'
+      extClass = '.AnimeSaga'
+      extVersionCode = 1
+      isNsfw = false
+    }
+
+    apply plugin: "kei.plugins.extension.legacy"
+
+    dependencies {
+      implementation(project(":lib:playlistutils"))
+      implementation(project(":lib:doodextractor"))
+      implementation(project(":lib:vidhideextractor"))
+    }
+    
