@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.anilist
 
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
@@ -18,14 +19,20 @@ import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
@@ -48,6 +55,7 @@ class AniList :
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
+        .addInterceptor(::authInterceptor)
         .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1L, TimeUnit.SECONDS)
         .build()
 
@@ -59,6 +67,22 @@ class AniList :
         client.newCall(
             GET("https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json", headers),
         ).execute().parseAs<List<Mapping>>()
+    }
+
+    private fun authInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val authToken = preferences.getString(PREF_AUTH_TOKEN_KEY, "")?.trim() ?: ""
+
+        if (authToken.isNotBlank() && request.url.toString().startsWith(apiUrl)) {
+            val newRequest = request.newBuilder()
+
+            val token = if (authToken.startsWith("Bearer", ignoreCase = true)) authToken else "Bearer $authToken"
+            newRequest.header("Authorization", token)
+
+            return chain.proceed(newRequest.build())
+        }
+
+        return chain.proceed(request)
     }
 
     // ============================== Popular ===============================
@@ -83,7 +107,7 @@ class AniList :
             add("variables", variables)
         }.build()
 
-        return POST(apiUrl, body = body)
+        return POST(apiUrl, headers, body)
     }
 
     override fun popularAnimeRequest(page: Int): Request = createSortRequest("TRENDING_DESC", page)
@@ -106,6 +130,61 @@ class AniList :
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val listFilter = filters.firstOrNull { it is Filters.AniListListFilter } as? Filters.AniListListFilter
+
+        // 1. Intercept for Personal Collections
+        if (listFilter != null && listFilter.isActive()) {
+            val username = preferences.getString(PREF_USERNAME_KEY, "")?.trim() ?: ""
+            if (username.isBlank()) {
+                throw Exception("Please set your AniList username in the extension settings to use personal lists.")
+            }
+
+            val status = listFilter.getStatus()
+
+            val graphqlQuery = """
+                query (${'$'}userName: String, ${'$'}type: MediaType, ${'$'}status: MediaListStatus, ${'$'}page: Int, ${'$'}perPage: Int) {
+                  Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+                    pageInfo {
+                      hasNextPage
+                    }
+                    mediaList(userName: ${'$'}userName, type: ${'$'}type, status: ${'$'}status) {
+                      media {
+                        id
+                        isAdult
+                        title {
+                          romaji
+                          english
+                          native
+                        }
+                        coverImage {
+                          large
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent().replace("\n", "")
+
+            val variablesObject = buildJsonObject {
+                put("userName", username)
+                put("type", "ANIME")
+                put("page", page)
+                put("perPage", 50)
+                if (status != null) {
+                    put("status", status)
+                }
+            }
+            val variables = json.encodeToString(variablesObject)
+
+            val body = FormBody.Builder().apply {
+                add("query", graphqlQuery)
+                add("variables", variables)
+            }.build()
+
+            return POST(apiUrl, headers, body)
+        }
+
+        // 2. Standard Search Execution
         val params = Filters.getSearchParameters(filters)
 
         val variablesObject = buildJsonObject {
@@ -157,10 +236,67 @@ class AniList :
             add("variables", variables)
         }.build()
 
-        return POST(apiUrl, body = body)
+        return POST(apiUrl, headers, body)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val responseBody = response.body.string()
+
+        return try {
+            val jsonElement = json.parseToJsonElement(responseBody).jsonObject
+            val data = jsonElement["data"]?.jsonObject
+
+            // Check if the payload is a paginated personal list query
+            if (data?.containsKey("Page") == true && data["Page"]?.jsonObject?.containsKey("mediaList") == true) {
+                val titleLang = preferences.titleLang
+                val allowAdult = preferences.allowAdult
+                val animeList = mutableListOf<SAnime>()
+
+                val pageObj = data["Page"]?.jsonObject
+                val hasNextPage = pageObj?.get("pageInfo")?.jsonObject?.get("hasNextPage")?.jsonPrimitive?.booleanOrNull == true
+                val mediaListArray = pageObj?.get("mediaList")?.jsonArray
+
+                mediaListArray?.forEach { entryElement ->
+                    val media = entryElement.jsonObject["media"]?.jsonObject ?: return@forEach
+
+                    // Check adult content filter against the media's metadata
+                    val isAdult = media["isAdult"]?.jsonPrimitive?.booleanOrNull == true
+                    if (!allowAdult && isAdult) return@forEach
+
+                    animeList.add(
+                        SAnime.create().apply {
+                            url = media["id"]?.jsonPrimitive?.content ?: ""
+
+                            val titleObj = media["title"]?.jsonObject
+                            val english = titleObj?.get("english")?.jsonPrimitive?.content?.takeIf { it != "null" }
+                            val romaji = titleObj?.get("romaji")?.jsonPrimitive?.content?.takeIf { it != "null" }
+                            val native = titleObj?.get("native")?.jsonPrimitive?.content?.takeIf { it != "null" }
+
+                            title = when (titleLang) {
+                                "english" -> english ?: romaji ?: native
+                                "native" -> native ?: romaji ?: english
+                                else -> romaji ?: english ?: native
+                            } ?: "Unknown Title"
+
+                            thumbnail_url = media["coverImage"]?.jsonObject?.get("large")?.jsonPrimitive?.content
+                        },
+                    )
+                }
+                return AnimesPage(animeList, hasNextPage)
+            }
+
+            // Fallback to original parsing using custom Dto
+            val pagesResponse = json.decodeFromString<PagesResponse>(responseBody)
+            val titleLang = preferences.titleLang
+            val page = pagesResponse.data.page
+            val hasNextPage = page.pageInfo.hasNextPage
+            val animeList = page.media.map { it.toSAnime(titleLang) }
+            AnimesPage(animeList, hasNextPage)
+        } catch (e: Exception) {
+            Log.e("AniList", "Error parsing search/list response", e)
+            AnimesPage(emptyList(), false)
+        }
+    }
 
     // ============================== Filters ===============================
 
@@ -172,7 +308,7 @@ class AniList :
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val currentTime = System.currentTimeMillis() / 1000L
-        val lastRefresh = lastRefreshed.getOrDefault(anime.url, 0L)
+        val lastRefresh = lastRefreshed[anime.url] ?: 0L
 
         val newAnime = if (currentTime - lastRefresh < refreshInterval) {
             anime.apply {
@@ -198,7 +334,7 @@ class AniList :
             add("variables", variables)
         }.build()
 
-        return POST(apiUrl, body = body)
+        return POST(apiUrl, headers, body)
     }
 
     private var coverList = emptyList<String>()
@@ -242,10 +378,10 @@ class AniList :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val currentTime = System.currentTimeMillis() / 1000L
-        val lastRefresh = lastRefreshed.getOrDefault(anime.url, 0L)
+        val lastRefresh = lastRefreshed[anime.url] ?: 0L
 
         val episodeList = if (currentTime - lastRefresh < refreshInterval) {
-            episodeListMap.getOrDefault(anime.url, emptyList())
+            episodeListMap[anime.url] ?: emptyList()
         } else {
             super.getEpisodeList(anime)
         }
@@ -266,7 +402,7 @@ class AniList :
             add("variables", variables)
         }.build()
 
-        return POST(apiUrl, body = body)
+        return POST(apiUrl, headers, body)
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -319,7 +455,13 @@ class AniList :
             add("variables", variables)
         }.build()
 
-        return POST(apiUrl, body = body)
+        return POST(apiUrl, headers, body)
+    }
+
+    private fun parseDate(dateString: String?): Long {
+        if (dateString.isNullOrBlank()) return 0L
+        val cleanDate = if (dateString.length >= 19) dateString.substring(0, 19) else dateString
+        return DATE_FORMAT.tryParse(cleanDate)
     }
 
     private fun getSingleEpisodeFromMal(malId: Int): List<SEpisode> {
@@ -331,7 +473,7 @@ class AniList :
             SEpisode.create().apply {
                 name = "Episode 1"
                 episode_number = 1F
-                date_upload = DATE_FORMAT.tryParse(animeData.aired.from)
+                date_upload = parseDate(animeData.aired.from)
                 url = "1"
             },
         )
@@ -354,7 +496,7 @@ class AniList :
 
             episodeList.addAll(
                 data.data.map { ep ->
-                    val airedOn = DATE_FORMAT.tryParse(ep.aired)
+                    val airedOn = parseDate(ep.aired)
                     val fullName = ep.title?.let { "Ep. ${ep.number} - $it" } ?: "Episode ${ep.number}"
                     val scanlatorText = if (markFillers && ep.filler) "Filler episode" else null
 
@@ -387,9 +529,9 @@ class AniList :
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request = throw UnsupportedOperationException()
+    override fun videoListRequest(episode: SEpisode): Request = throw java.lang.UnsupportedOperationException("AniList is a tracker, not a streaming service.")
 
-    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
+    override fun videoListParse(response: Response): List<Video> = throw java.lang.UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 
@@ -407,7 +549,10 @@ class AniList :
         private const val PREF_TITLE_LANG_KEY = "preferred_title"
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
 
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH)
+        private const val PREF_USERNAME_KEY = "pref_anilist_username"
+        private const val PREF_AUTH_TOKEN_KEY = "pref_anilist_auth_token"
+
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH)
     }
 
     private val SharedPreferences.markFiller
@@ -422,6 +567,25 @@ class AniList :
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = PREF_USERNAME_KEY
+            title = "AniList Username"
+            summary = "Enter your AniList username to fetch your lists."
+            setDefaultValue("")
+        }.also(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = PREF_AUTH_TOKEN_KEY
+            title = "AniList API Token"
+            summary = """
+                Generate an AniList API token by creating a new client in. Settings → Developer with Redirect URL:
+                https://anilist.co/api/v2/oauth/pin
+                Then open:
+                https://anilist.co/api/v2/oauth/authorize?client_id=[CLIENT_ID]&response_type=token
+                Approve access and paste the generated token here.
+            """.trimIndent()
+        }.also(screen::addPreference)
+
         SwitchPreferenceCompat(screen.context).apply {
             key = PREF_ALLOW_ADULT_KEY
             title = "Allow adult content"
