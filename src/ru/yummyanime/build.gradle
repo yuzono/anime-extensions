@@ -10,4 +10,5 @@ apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:sibnetextractor'))
+    implementation(project(':lib:vkextractor'))
 }
