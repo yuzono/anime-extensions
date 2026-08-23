@@ -1,7 +1,7 @@
 ext {
     extName = 'Anizm'
     extClass = '.Anizm'
-    extVersionCode = 43
+    extVersionCode = 45
 }
 
 apply plugin: "kei.plugins.extension.legacy"

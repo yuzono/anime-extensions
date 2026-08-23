@@ -3,7 +3,7 @@ ext {
     extClass = '.DesuOnline'
     themePkg = 'animestream'
     baseUrl = 'https://desu-online.pl'
-    overrideVersionCode = 11
+    overrideVersionCode = 12
 }
 
 apply plugin: "kei.plugins.extension.legacy"

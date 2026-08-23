@@ -10,15 +10,116 @@ object MKissaBundle {
     class BuildInfo(val buildId: String, val seeds: List<String>)
 
     fun parse(js: String): BuildInfo? {
-        val buildId = BUILD_ID_REGEX.find(js)?.groupValues?.get(1) ?: return null
-        val seeds = extractSeeds(js) ?: return null
+        // Legacy path: literal buildId like `!== "string" ? "12345" : ""`
+        BUILD_ID_REGEX.find(js)?.groupValues?.get(1)?.let { legacyId ->
+            extractSeeds(js)?.let { seeds -> return BuildInfo(legacyId, seeds) }
+        }
+
+        // New obfuscation: buildId is a decoded string via the same table rotation as seeds,
+        // e.g. `const Mm=zt(520,520)` where the call resolves to "132" after rotation.
+        // We reuse the same table/bases/aliases machinery and brute-force the rotation.
+        val (tables, bases, aliases) = decodersFrom(js)
+
+        val buildId = extractBuildIdNew(js, tables, bases, aliases) ?: return null
+        val seeds = extractSeedsWithTables(js, tables, bases, aliases) ?: return null
         return BuildInfo(buildId, seeds)
+    }
+
+    private fun extractBuildIdNew(
+        js: String,
+        tables: Map<String, List<String>>,
+        bases: Map<String, Base>,
+        aliases: Map<String, Alias>,
+    ): String? {
+        // Strategy 1: look for the variable used as default param for the mask function F_(e=Mm).
+        // The mask function is the one that takes buildId as default and is later called as F_(_r).
+        // Its name is minified (F_, U_, etc.) but we can find `function F_(e=Mm)` pattern.
+        val maskDefaultVar = Regex("""function\s+($IDENT)\s*\(\s*\w+\s*=\s*(\w+)\s*[,)]""").findAll(js)
+            .mapNotNull { it.groupValues[2].takeIf(String::isNotEmpty) }
+            .firstOrNull { varName ->
+                // The variable should be assigned via a single decoder call near the seed array
+                Regex("""\b${Regex.escape(varName)}\s*=\s*$CALL_PATTERN""").containsMatchIn(js)
+            }
+
+        val candidates = mutableListOf<String>()
+
+        if (maskDefaultVar != null) {
+            val assignRegex = Regex("""\b${Regex.escape(maskDefaultVar)}\s*=\s*($CALL_PATTERN)""")
+            assignRegex.findAll(js).forEach { m ->
+                candidates.add(m.groupValues[1])
+            }
+        }
+
+        // Fallback: look near `sf=` (seed array) for a preceding single-call assignment
+        val sfIndex = js.indexOf("sf=")
+        if (sfIndex != -1) {
+            val windowStart = (sfIndex - 2000).coerceAtLeast(0)
+            val window = js.substring(windowStart, sfIndex)
+            val assignRegex = Regex("""\b\w+\s*=\s*($CALL_PATTERN)\s*(?:,|;|\n)""")
+            assignRegex.findAll(window).forEach { m ->
+                val call = m.groupValues[1]
+                // Exclude the seed array itself which is `=[call+call, ...]`
+                if (!call.contains("+")) {
+                    candidates.add(call)
+                }
+            }
+        }
+
+        // Last resort: any single CALL assignment that resolves to digits
+        if (candidates.isEmpty()) {
+            val assignRegex = Regex("""\b\w+\s*=\s*($CALL_PATTERN)\b""")
+            assignRegex.findAll(js).forEach { m ->
+                val call = m.groupValues[1]
+                if (!call.contains("+")) candidates.add(call)
+            }
+        }
+
+        // Try each candidate call with every rotation, looking for a numeric buildId
+        for (call in candidates) {
+            // Find which table this call belongs to
+            val aliasName = CALL_REGEX.find(call)?.groupValues?.get(1) ?: continue
+            val alias = aliases[aliasName] ?: continue
+            val base = bases[alias.base] ?: continue
+            val table = tables[base.table] ?: continue
+
+            for (rotation in table.indices) {
+                val decoded = resolve(call, rotation, tables, bases, aliases) ?: continue
+                if (decoded.matches(BUILD_ID_DIGITS_REGEX)) {
+                    // Require that the same rotation also yields valid seeds, to avoid false positives
+                    // (e.g. "211" salt value). Check that seeds resolve under this rotation.
+                    val seedsOk = extractSeedsWithTables(js, tables, bases, aliases, forcedRotation = rotation) != null
+                    if (seedsOk) return decoded
+                }
+            }
+        }
+
+        // Final fallback: brute-force any CALL that decodes to digits, even if not an assignment
+        for (match in CALL_REGEX.findAll(js)) {
+            val call = match.value
+            if (call.contains("+")) continue
+            val aliasName = match.groupValues[1]
+            val alias = aliases[aliasName] ?: continue
+            val base = bases[alias.base] ?: continue
+            val table = tables[base.table] ?: continue
+            for (rotation in table.indices) {
+                val decoded = resolve(call, rotation, tables, bases, aliases) ?: continue
+                if (decoded.matches(BUILD_ID_DIGITS_REGEX) && decoded.length in 2..8) {
+                    // Heuristic: buildId is 2-8 digits, seeds are base64 12 chars with =
+                    // Ensure this call is not part of the seed array (seed array calls are in a `=[...]` context)
+                    val before = js.substring((match.range.first - 20).coerceAtLeast(0), match.range.first)
+                    if (before.contains("sf=") || before.contains("kd=")) continue
+                    if (extractSeedsWithTables(js, tables, bases, aliases, forcedRotation = rotation) == null) continue
+                    return decoded
+                }
+            }
+        }
+        return null
     }
 
     private class Base(val table: String, val offset: Int)
     private class Alias(val base: String, val argIndex: Int, val delta: Int)
 
-    private fun extractSeeds(js: String): List<String>? {
+    private fun decodersFrom(js: String): Triple<Map<String, List<String>>, Map<String, Base>, Map<String, Alias>> {
         val tables = readTables(js)
         val bases = BASE_DECODER_REGEX.findAll(js).associate { m ->
             m.groupValues[1] to Base(m.groupValues[4], fold(m.groupValues[3]))
@@ -33,7 +134,21 @@ object MKissaBundle {
                 put(name, Alias(callee, if (arg == firstParam) 0 else 1, if (delta.isEmpty()) 0 else fold(delta)))
             }
         }
+        return Triple(tables, bases, aliases)
+    }
 
+    private fun extractSeeds(js: String): List<String>? {
+        val (tables, bases, aliases) = decodersFrom(js)
+        return extractSeedsWithTables(js, tables, bases, aliases)
+    }
+
+    private fun extractSeedsWithTables(
+        js: String,
+        tables: Map<String, List<String>>,
+        bases: Map<String, Base>,
+        aliases: Map<String, Alias>,
+        forcedRotation: Int? = null,
+    ): List<String>? {
         for (match in SEED_ARRAY_REGEX.findAll(js)) {
             val calls = CALL_REGEX.findAll(match.groupValues[1]).map(MatchResult::value).toList()
             if (calls.size != MKissaCrypto.SEED_COUNT * 2) continue
@@ -42,6 +157,11 @@ object MKissaBundle {
                 ?.let { aliases[it.groupValues[1]] }
                 ?.let { tables[bases[it.base]?.table] }
                 ?: continue
+
+            if (forcedRotation != null) {
+                seedsAt(calls, forcedRotation, tables, bases, aliases)?.let { return it }
+                continue
+            }
 
             val matches = table.indices.mapNotNull { rotation ->
                 seedsAt(calls, rotation, tables, bases, aliases)
@@ -143,6 +263,7 @@ object MKissaBundle {
     }
 
     private val BUILD_ID_REGEX = Regex("""!==\s*["']string["']\s*\?\s*["'](\d+)["']\s*:\s*["']["']""")
+    private val BUILD_ID_DIGITS_REGEX = Regex("""\d{2,10}""")
 
     // The obfuscator names functions with `$` too (`$l`, `Cr`), which `\w` excludes. The `${'$'}`
     // interpolation yields the literal dollar sign without starting a template.

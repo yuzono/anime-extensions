@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.util.Log
-import fi.iki.elonen.NanoHTTPD
 import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -11,6 +10,12 @@ import okio.Buffer
 import okio.ForwardingSource
 import okio.Source
 import okio.buffer
+import org.nanohttpd.protocols.http.IHTTPSession
+import org.nanohttpd.protocols.http.NanoHTTPD
+import org.nanohttpd.protocols.http.response.Response
+import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
+import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
+import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
@@ -80,9 +85,9 @@ class FlixProxyServer(
         segmentUrl
     }
 
-    override fun serve(session: IHTTPSession): Response? {
+    override fun handle(session: IHTTPSession): Response {
         val params = session.parameters
-        val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing url")
+        val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
         val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
         return try {
@@ -119,9 +124,9 @@ class FlixProxyServer(
         } catch (e: Exception) {
             // Return 503 for timeouts so the player retries the segment instead of failing completely
             val status = if (e is java.net.SocketTimeoutException) {
-                Response.Status.SERVICE_UNAVAILABLE
+                Status.SERVICE_UNAVAILABLE
             } else {
-                Response.Status.INTERNAL_ERROR
+                Status.INTERNAL_ERROR
             }
 
             newFixedLengthResponse(status, "text/plain", e.toString())
@@ -150,7 +155,7 @@ class FlixProxyServer(
             val code = response.code
             response.close()
             return newFixedLengthResponse(
-                Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                Status.lookup(code) ?: Status.INTERNAL_ERROR,
                 "text/plain",
                 "CDN Error: $code",
             )
@@ -196,9 +201,9 @@ class FlixProxyServer(
         val inputStream = xorSource.buffer().inputStream()
 
         return if (outputLength > 0) {
-            newFixedLengthResponse(Response.Status.OK, "video/mp2t", inputStream, outputLength)
+            newFixedLengthResponse(Status.OK, "video/mp2t", inputStream, outputLength)
         } else {
-            newChunkedResponse(Response.Status.OK, "video/mp2t", inputStream)
+            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
         }
     }
 
@@ -226,7 +231,7 @@ class FlixProxyServer(
             val errorBody = response.body.string()
             response.close()
             return newFixedLengthResponse(
-                Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR,
+                Status.lookup(response.code) ?: Status.INTERNAL_ERROR,
                 "text/plain",
                 "Manifest Error: $errorBody",
             )
@@ -290,7 +295,7 @@ class FlixProxyServer(
         }
 
         // Use application/vnd.apple.mpegurl to match the CDN exactly
-        return newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
+        return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", modifiedText)
     }
 
     companion object {

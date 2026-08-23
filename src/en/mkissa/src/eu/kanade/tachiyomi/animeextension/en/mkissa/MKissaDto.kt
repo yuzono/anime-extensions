@@ -157,6 +157,7 @@ class AaApiError(
 ) {
     @Serializable
     class GraphQlError(
+        val message: String? = null,
         val extensions: Extensions? = null,
     ) {
         @Serializable

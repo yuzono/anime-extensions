@@ -1,7 +1,7 @@
 ext {
     extName = 'WIT ANIME'
     extClass = '.WitAnime'
-    extVersionCode = 61
+    extVersionCode = 62
 }
 
 apply plugin: "kei.plugins.extension.legacy"
