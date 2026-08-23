@@ -98,6 +98,9 @@ class FlixProxyServer(
         return try {
             val isSubtitle = url.contains("/subtitles/")
             if (isSubtitle) {
+                if (!url.startsWith("https://")) {
+                    return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Subtitle URL must be https")
+                }
                 val proxyHeaders = headers.newBuilder()
                     .set("Accept", "*/*")
                     .removeAll("Origin").removeAll("Referer")
@@ -231,15 +234,15 @@ class FlixProxyServer(
         return proxyClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val code = response.code
-                val body = try {
-                    response.body.string().take(300)
+                val errorSnippet = try {
+                    response.peekBody(1024).string().take(300)
                 } catch (_: Exception) {
                     ""
                 }
                 return@use newFixedLengthResponse(
                     Status.lookup(code) ?: Status.INTERNAL_ERROR,
                     "text/plain",
-                    "Subtitle Error: $code $body",
+                    "Subtitle Error: $code $errorSnippet",
                 )
             }
             val body = response.body
@@ -249,7 +252,29 @@ class FlixProxyServer(
                 subtitleUrl.endsWith(".vtt") -> "text/vtt"
                 else -> body.contentType()?.toString() ?: "text/plain"
             }
-            val bytes = body.bytes()
+            val maxSubtitleBytes = 512 * 1024
+            val contentLength = body.contentLength()
+            if (contentLength != -1L && contentLength > maxSubtitleBytes) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            }
+            val bytes: ByteArray = try {
+                body.byteStream().use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    var n: Int
+                    while (input.read(buffer).also { n = it } != -1) {
+                        total += n
+                        if (total > maxSubtitleBytes) throw IllegalStateException("too large")
+                        out.write(buffer, 0, n)
+                    }
+                    out.toByteArray()
+                }
+            } catch (e: IllegalStateException) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            } catch (_: Exception) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle read error")
+            }
             val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
             resp.addHeader("Access-Control-Allow-Origin", "*")
             resp.addHeader("Access-Control-Allow-Headers", "*")
