@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 class FlixProxyServer(
     private val headers: Headers,
     private var segmentMask: ByteArray,
-) : NanoHTTPD(0) {
+) : NanoHTTPD("127.0.0.1", 0) {
 
     fun updateSegmentMask(newMask: ByteArray) {
         if (!newMask.contentEquals(segmentMask)) {
@@ -36,8 +36,8 @@ class FlixProxyServer(
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
-            .followRedirects(true)
-            .followSslRedirects(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .retryOnConnectionFailure(true)
             .build()
     }
