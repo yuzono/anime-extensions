@@ -49,6 +49,11 @@ class FlixProxyServer(
         return "http://127.0.0.1:$listeningPort/proxy?$params"
     }
 
+    fun createSubtitleProxyUrl(originalUrl: String): String {
+        val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload="
+        return "http://127.0.0.1:$listeningPort/proxy?$params"
+    }
+
     fun wrapInDecApi(originalUrl: String, wPayload: String): String {
         if (originalUrl.contains(encDecUrl)) return originalUrl
         val encodedUrl = URLEncoder.encode(originalUrl, "UTF-8").replace("+", "%20")
@@ -91,6 +96,17 @@ class FlixProxyServer(
         val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
         return try {
+            val isSubtitle = url.contains("/subtitles/")
+            if (isSubtitle) {
+                val proxyHeaders = headers.newBuilder()
+                    .set("Accept", "*/*")
+                    .removeAll("Origin").removeAll("Referer")
+                    .apply {
+                        add("Origin", flixCloudUrl)
+                        add("Referer", "$flixCloudUrl/")
+                    }.build()
+                return serveSubtitle(url, proxyHeaders)
+            }
             val isManifest = url.contains(".m3u8")
             val isMasterManifest = isManifest && (
                 url.contains("master.m3u8") ||
@@ -205,6 +221,41 @@ class FlixProxyServer(
         } else {
             newChunkedResponse(Status.OK, "video/mp2t", inputStream)
         }
+    }
+
+    private fun serveSubtitle(
+        subtitleUrl: String,
+        proxyHeaders: Headers,
+    ): Response {
+        val request = Request.Builder().url(subtitleUrl).headers(proxyHeaders).build()
+        val response = proxyClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            val code = response.code
+            val body = try {
+                response.body.string().take(300)
+            } catch (_: Exception) {
+                ""
+            }
+            response.close()
+            return newFixedLengthResponse(
+                Status.lookup(code) ?: Status.INTERNAL_ERROR,
+                "text/plain",
+                "Subtitle Error: $code $body",
+            )
+        }
+        val body = response.body
+        val contentType = when {
+            subtitleUrl.endsWith(".ass") -> "text/x-ass"
+            subtitleUrl.endsWith(".srt") -> "application/x-subrip"
+            subtitleUrl.endsWith(".vtt") -> "text/vtt"
+            else -> body.contentType()?.toString() ?: "text/plain"
+        }
+        val bytes = body.bytes()
+        response.close()
+        val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
+        resp.addHeader("Access-Control-Allow-Origin", "*")
+        resp.addHeader("Access-Control-Allow-Headers", "*")
+        return resp
     }
 
     private fun serveManifest(

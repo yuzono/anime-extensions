@@ -70,11 +70,14 @@ class ReAnime :
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
 
-    private val preferredAudio: String
-        get() = preferences.getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT) ?: PREF_AUDIO_DEFAULT
+    private val preferredQuality: String
+        get() = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
 
     private val preferredServer: String
         get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+
+    private val preferredAudio: String
+        get() = preferences.getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT) ?: PREF_AUDIO_DEFAULT
 
     private val hideFiller: Boolean
         get() = preferences.getBoolean(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
@@ -643,8 +646,12 @@ class ReAnime :
             extractFromServer(dataLink, label, referer)
         }
 
+        val quality = preferredQuality
+        val qualitiesList = PREF_QUALITY_VALUES.reversed()
         return videos.sortedWith(
-            compareByDescending<Video> { it.quality.contains(preferredServer, ignoreCase = true) }
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
+                .thenByDescending { it.quality.contains(preferredServer, ignoreCase = true) }
                 .thenByDescending { it.quality.contains(audioTag) },
         )
     }
@@ -775,6 +782,9 @@ class ReAnime :
             // Cache skip times for this episode (keyed by the local proxy URL)
             skipTimesCache.put(localManifestUrl, skipTimes)
 
+            // Subtitles need to be routed through proxy server so that servers like HD-2 load its subtitles
+            val proxiedSubtitles = subtitleTracks.map { Track(server.createSubtitleProxyUrl(it.url), it.lang) }
+
             // Step 6: Pass to PlaylistUtils
             return playlistUtils.extractFromHls(
                 playlistUrl = localManifestUrl,
@@ -784,7 +794,7 @@ class ReAnime :
                 videoNameGen = { quality ->
                     "$label - $quality"
                 },
-                subtitleList = subtitleTracks,
+                subtitleList = proxiedSubtitles,
             )
         } catch (_: Exception) {
             emptyList()
@@ -879,6 +889,15 @@ class ReAnime :
         )
 
         screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred Quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_VALUES,
+            default = preferredQuality,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
             key = PREF_SERVER_KEY,
             title = "Preferred Server",
             entries = PREF_SERVER_ENTRIES,
@@ -926,6 +945,11 @@ class ReAnime :
         private val PREF_SERVER_ENTRIES = listOf("HD-1", "HD-2")
         private val PREF_SERVER_VALUES = listOf("HD-1", "HD-2")
         private const val PREF_SERVER_DEFAULT = "HD-1"
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "360")
+        private const val PREF_QUALITY_DEFAULT = "1080"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
