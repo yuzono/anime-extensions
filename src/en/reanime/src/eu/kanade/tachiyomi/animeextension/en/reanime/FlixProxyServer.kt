@@ -228,34 +228,33 @@ class FlixProxyServer(
         proxyHeaders: Headers,
     ): Response {
         val request = Request.Builder().url(subtitleUrl).headers(proxyHeaders).build()
-        val response = proxyClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            val code = response.code
-            val body = try {
-                response.body.string().take(300)
-            } catch (_: Exception) {
-                ""
+        return proxyClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                val body = try {
+                    response.body.string().take(300)
+                } catch (_: Exception) {
+                    ""
+                }
+                return@use newFixedLengthResponse(
+                    Status.lookup(code) ?: Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Subtitle Error: $code $body",
+                )
             }
-            response.close()
-            return newFixedLengthResponse(
-                Status.lookup(code) ?: Status.INTERNAL_ERROR,
-                "text/plain",
-                "Subtitle Error: $code $body",
-            )
+            val body = response.body
+            val contentType = when {
+                subtitleUrl.endsWith(".ass") -> "text/x-ass"
+                subtitleUrl.endsWith(".srt") -> "application/x-subrip"
+                subtitleUrl.endsWith(".vtt") -> "text/vtt"
+                else -> body.contentType()?.toString() ?: "text/plain"
+            }
+            val bytes = body.bytes()
+            val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
+            resp.addHeader("Access-Control-Allow-Origin", "*")
+            resp.addHeader("Access-Control-Allow-Headers", "*")
+            resp
         }
-        val body = response.body
-        val contentType = when {
-            subtitleUrl.endsWith(".ass") -> "text/x-ass"
-            subtitleUrl.endsWith(".srt") -> "application/x-subrip"
-            subtitleUrl.endsWith(".vtt") -> "text/vtt"
-            else -> body.contentType()?.toString() ?: "text/plain"
-        }
-        val bytes = body.bytes()
-        response.close()
-        val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
-        resp.addHeader("Access-Control-Allow-Origin", "*")
-        resp.addHeader("Access-Control-Allow-Headers", "*")
-        return resp
     }
 
     private fun serveManifest(
