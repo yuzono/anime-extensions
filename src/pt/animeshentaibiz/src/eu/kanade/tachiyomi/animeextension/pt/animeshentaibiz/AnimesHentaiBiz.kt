@@ -261,8 +261,10 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 }
 
                 val videoHeaders = Headers.headersOf(
-                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer", "https://www.blogger.com/",
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer",
+                    "https://www.blogger.com/",
                 )
 
                 val label = if (language.isNotBlank()) "$language - Blogger $quality" else "Blogger $quality"
@@ -275,8 +277,10 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     val cleanUrl = sanitizeUrl(match.groupValues[1])
                     val label = if (language.isNotBlank()) "$language - Blogger SD ${index + 1}" else "Blogger SD ${index + 1}"
                     val videoHeaders = Headers.headersOf(
-                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Referer", "https://www.blogger.com/",
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Referer",
+                        "https://www.blogger.com/",
                     )
                     videos.add(Video(cleanUrl, label, cleanUrl, videoHeaders))
                 }
