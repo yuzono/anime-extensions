@@ -29,14 +29,12 @@ class WatchAnimeHentai : AnimeHttpSource() {
     // ===================== UTILITÁRIO =====================
     private fun absoluteUrl(url: String): String = if (url.startsWith("http")) url else baseUrl + url
 
-    private fun hasNextPage(doc: Document): Boolean {
-        return doc.select(
-            "a.next, a.nextpostslink, a[rel=next], " +
-                ".pagination a.next, .pagination .next, " +
-                "ul.pagination li.next, div.pagination a.next, " +
-                "a[href*='/page/']:contains(Next), a[href*='/page/']:contains(Próximo)",
-        ).isNotEmpty()
-    }
+    private fun hasNextPage(doc: Document): Boolean = doc.select(
+        "a.next, a.nextpostslink, a[rel=next], " +
+            ".pagination a.next, .pagination .next, " +
+            "ul.pagination li.next, div.pagination a.next, " +
+            "a[href*='/page/']:contains(Next), a[href*='/page/']:contains(Próximo)",
+    ).isNotEmpty()
 
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
@@ -75,7 +73,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
         if (animes.isNotEmpty()) {
             return AnimesPage(animes, hasNextPage(doc))
         }
-        // Fallback para listagem padrão
         val fallback = parseAnimeList(doc)
         return AnimesPage(fallback, hasNextPage(doc))
     }
@@ -320,20 +317,18 @@ class WatchAnimeHentai : AnimeHttpSource() {
         return animes
     }
 
-    private fun parseSearchResults(doc: Document): List<SAnime> {
-        return doc.select("article.search-result").mapNotNull { article ->
-            val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
-            val animeUrl = linkEl.attr("href")
-            val title = article.selectFirst("h2.search-result-title a")?.text()?.trim()
-                ?: article.selectFirst("h2 a")?.text()?.trim()
-                ?: linkEl.attr("title") ?: ""
-            val thumbnail = article.selectFirst("img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
+    private fun parseSearchResults(doc: Document): List<SAnime> = doc.select("article.search-result").mapNotNull { article ->
+        val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
+        val animeUrl = linkEl.attr("href")
+        val title = article.selectFirst("h2.search-result-title a")?.text()?.trim()
+            ?: article.selectFirst("h2 a")?.text()?.trim()
+            ?: linkEl.attr("title") ?: ""
+        val thumbnail = article.selectFirst("img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
 
-            SAnime.create().apply {
-                url = animeUrl
-                this.title = title
-                thumbnail_url = thumbnail
-            }
+        SAnime.create().apply {
+            url = animeUrl
+            this.title = title
+            thumbnail_url = thumbnail
         }
     }
 
