@@ -257,18 +257,16 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .replace("%3D", "=")
         .replace("%26", "&")
 
-    private fun getRedirectedUrl(url: String, headers: Headers): String? {
-        return try {
-            val request = Request.Builder()
-                .url(url)
-                .headers(headers)
-                .build()
-            client.newCall(request).execute().use { response ->
-                response.request.url.toString()
-            }
-        } catch (e: Exception) {
-            null
+    private fun getRedirectedUrl(url: String, headers: Headers): String? = try {
+        val request = Request.Builder()
+            .url(url)
+            .headers(headers)
+            .build()
+        client.newCall(request).execute().use { response ->
+            response.request.url.toString()
         }
+    } catch (e: Exception) {
+        null
     }
 
     // ===================== FUNÇÕES AUXILIARES =====================
