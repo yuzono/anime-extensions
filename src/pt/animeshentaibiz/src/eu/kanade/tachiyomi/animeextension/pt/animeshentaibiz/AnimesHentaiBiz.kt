@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
