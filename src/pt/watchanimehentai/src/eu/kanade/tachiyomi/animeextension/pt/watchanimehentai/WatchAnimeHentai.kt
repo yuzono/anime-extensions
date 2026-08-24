@@ -29,6 +29,15 @@ class WatchAnimeHentai : AnimeHttpSource() {
     // ===================== UTILITÁRIO =====================
     private fun absoluteUrl(url: String): String = if (url.startsWith("http")) url else baseUrl + url
 
+    private fun hasNextPage(doc: Document): Boolean {
+        return doc.select(
+            "a.next, a.nextpostslink, a[rel=next], " +
+                ".pagination a.next, .pagination .next, " +
+                "ul.pagination li.next, div.pagination a.next, " +
+                "a[href*='/page/']:contains(Next), a[href*='/page/']:contains(Próximo)",
+        ).isNotEmpty()
+    }
+
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
 
@@ -46,35 +55,29 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override fun popularAnimeParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
         val animes = parseAnimeList(doc)
-        val hasNextPage = doc.select("a.next, .pagination .next, ul.pagination li.next").isNotEmpty()
-        return AnimesPage(animes, hasNextPage)
+        return AnimesPage(animes, hasNextPage(doc))
     }
 
     // ===================== BUSCA =====================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = query.trim().replace(" ", "+")
-        val url = "$baseUrl/search/$encodedQuery"
+        val url = if (page == 1) {
+            "$baseUrl/search/$encodedQuery"
+        } else {
+            "$baseUrl/search/$encodedQuery/page/$page/"
+        }
         return GET(url, headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
-        val animes = parseAnimeList(doc)
+        val animes = parseSearchResults(doc)
         if (animes.isNotEmpty()) {
-            return AnimesPage(animes, false)
+            return AnimesPage(animes, hasNextPage(doc))
         }
-        val fallbackAnimes = doc.select("article.item, div.item").mapNotNull { article ->
-            val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
-            val animeUrl = linkEl.attr("href")
-            val title = article.selectFirst("h3, h2, .title")?.text()?.trim() ?: linkEl.attr("title") ?: ""
-            val thumbnail = article.selectFirst("img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
-            SAnime.create().apply {
-                url = animeUrl
-                this.title = title
-                thumbnail_url = thumbnail
-            }
-        }
-        return AnimesPage(fallbackAnimes, false)
+        // Fallback para listagem padrão
+        val fallback = parseAnimeList(doc)
+        return AnimesPage(fallback, hasNextPage(doc))
     }
 
     // ===================== DETALHES =====================
@@ -315,6 +318,23 @@ class WatchAnimeHentai : AnimeHttpSource() {
         }
 
         return animes
+    }
+
+    private fun parseSearchResults(doc: Document): List<SAnime> {
+        return doc.select("article.search-result").mapNotNull { article ->
+            val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
+            val animeUrl = linkEl.attr("href")
+            val title = article.selectFirst("h2.search-result-title a")?.text()?.trim()
+                ?: article.selectFirst("h2 a")?.text()?.trim()
+                ?: linkEl.attr("title") ?: ""
+            val thumbnail = article.selectFirst("img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
+
+            SAnime.create().apply {
+                url = animeUrl
+                this.title = title
+                thumbnail_url = thumbnail
+            }
+        }
     }
 
     private fun qualityFromItag(itag: String): String = when (itag) {
