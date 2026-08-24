@@ -121,6 +121,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
+        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -137,6 +138,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
+        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -184,6 +186,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
         return when {
             "blogger.com/video.g" in absoluteSrc -> {
+                // Usa BloggerExtractor diretamente, que já trata os cabeçalhos corretamente
                 bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
             }
             "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
