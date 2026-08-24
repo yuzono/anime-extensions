@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
-import eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz.extractors.UniversalExtractor
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -9,11 +11,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 class AnimesHentaiBiz : AnimeHttpSource() {
 
@@ -162,81 +167,41 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     override fun videoListRequest(episode: SEpisode): Request = GET(absoluteUrl(episode.url), headers)
 
     override fun videoListParse(response: Response): List<Video> {
-        val doc = Jsoup.parse(response.body.string())
-        val videos = mutableListOf<Video>()
-
-        val optionLinks = doc.select("ul.idTabs.sourceslist a[href^=#option-], div.player-options a[href^=#option-]")
-        if (optionLinks.isNotEmpty()) {
-            for (link in optionLinks) {
-                val optionId = link.attr("href").removePrefix("#")
-                val languageLabel = link.text().trim()
-                val iframe = doc.selectFirst("div#$optionId iframe, #$optionId iframe") ?: continue
-                var iframeSrc = iframe.attr("src")
-                if (iframeSrc.isBlank()) continue
-                if (iframeSrc.startsWith("/")) iframeSrc = baseUrl + iframeSrc
-
-                // Tenta decodificar parâmetro padrao (Base64) se existir
-                val padrao = iframeSrc.substringAfter("padrao=", "")
-                if (padrao.isNotBlank()) {
-                    val decoded = decodePadrao(padrao)
-                    if (decoded != null) {
-                        val videosFromDecoded = extractVideosFromText(decoded, languageLabel, iframeSrc)
-                        if (videosFromDecoded.isNotEmpty()) {
-                            videos.addAll(videosFromDecoded)
-                            continue
-                        }
-                    }
-                }
-
-                // Tenta extração direta no HTML do iframe
-                try {
-                    val iframeResponse = client.newCall(GET(iframeSrc, headers)).execute()
-                    val iframeBody = iframeResponse.body.string()
-                    val directVideos = extractVideosFromHtml(iframeBody, languageLabel, iframeSrc)
-                    if (directVideos.isNotEmpty()) {
-                        videos.addAll(directVideos)
-                        continue
-                    }
-
-                    // Fallback para UniversalExtractor (WebView)
-                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
-                    videos.addAll(universalVideos)
-                } catch (e: Exception) {
-                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
-                    videos.addAll(universalVideos)
-                }
-            }
-        } else {
-            // Sem abas, tenta todos os iframes
-            doc.select("iframe").forEach { iframe ->
-                val src = iframe.attr("src")
-                if (src.isNotBlank()) {
-                    val absoluteSrc = absoluteUrl(src)
-                    try {
-                        val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
-                        val iframeBody = iframeResponse.body.string()
-                        val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
-                        if (directVideos.isNotEmpty()) {
-                            videos.addAll(directVideos)
-                        } else {
-                            val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
-                            videos.addAll(universalVideos)
-                        }
-                    } catch (e: Exception) {
-                        val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
-                        videos.addAll(universalVideos)
-                    }
-                }
-            }
+        val document = response.useAsJsoup()
+        val iframes = document.select("iframe")
+        return iframes.parallelCatchingFlatMapBlocking { iframe ->
+            getPlayerVideos(iframe)
         }
+    }
 
-        return videos
+    private suspend fun getPlayerVideos(iframe: Element): List<Video> {
+        val src = iframe.attr("src")
+        if (src.isBlank()) return emptyList()
+
+        val absoluteSrc = if (src.startsWith("http")) src else baseUrl + src
+        val id = iframe.parent()?.attr("id") ?: ""
+        val language = iframe.ownerDocument()!!
+            .selectFirst("a.options[href=\"#$id\"]")
+            ?.text()
+            ?.trim()
+            ?.takeIf { it.equals("Legendado", true) || it.equals("Dublado", true) }
+            ?: ""
+
+        return when {
+            "blogger.com/video.g" in absoluteSrc -> {
+                bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
+            }
+            "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
+                listOf(Video(absoluteSrc, "Player", absoluteSrc))
+            }
+            else -> emptyList()
+        }
     }
 
     override fun videoUrlParse(response: Response): String = response.request.url.toString()
 
     // ===================== UTILITÁRIOS =====================
-    private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
     private fun decodePadrao(padrao: String): String? = try {
         val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
@@ -245,65 +210,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         null
     }
 
-    private fun extractVideosFromText(text: String, prefix: String, referer: String): List<Video> = extractVideosFromHtml(text, prefix, referer)
-
-    private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
-        val videos = mutableListOf<Video>()
-
-        val googlevideoRegex = Regex(
-            """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
-            RegexOption.IGNORE_CASE,
-        )
-        googlevideoRegex.findAll(html).forEach { match ->
-            val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
-            val itag = Regex("""[?&]itag=(\d+)""").find(videoUrl)?.groupValues?.get(1) ?: "?"
-            val qualityLabel = qualityFromItag(itag)
-            val videoHeaders = Headers.headersOf(
-                "Referer",
-                referer,
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            )
-            videos.add(Video(videoUrl, "$prefix - $qualityLabel", videoUrl, videoHeaders))
-        }
-
-        val m3u8Regex = Regex(
-            """https?://[^"'\\s<>]+\.m3u8[^"'\\s<>]*""",
-            RegexOption.IGNORE_CASE,
-        )
-        m3u8Regex.findAll(html).forEach { match ->
-            val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
-            val videoHeaders = Headers.headersOf(
-                "Referer",
-                referer,
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            )
-            videos.add(Video(videoUrl, "$prefix - HLS", videoUrl, videoHeaders))
-        }
-
-        if (videos.isEmpty()) {
-            val mp4Regex = Regex(
-                """https?://[^"'\\s<>]+\.mp4[^"'\\s<>]*""",
-                RegexOption.IGNORE_CASE,
-            )
-            mp4Regex.findAll(html).forEach { match ->
-                val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
-                val videoHeaders = Headers.headersOf(
-                    "Referer",
-                    referer,
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                )
-                videos.add(Video(videoUrl, prefix, videoUrl, videoHeaders))
-            }
-        }
-
-        return videos
-    }
-
-    // ===================== FUNÇÕES AUXILIARES PARA RECENTES =====================
-
+    // ===================== FUNÇÕES AUXILIARES =====================
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
         val grouped = episodes.groupBy { extractSeriesName(it.title) }
         return grouped.values.mapNotNull { seriesEpisodes ->
@@ -318,8 +225,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         ?.groupValues
         ?.get(1)
         ?.toIntOrNull()
-
-    // ===================== PARSERS =====================
 
     private fun parseSeriesList(doc: Document): List<SAnime> {
         val animes = mutableListOf<SAnime>()
