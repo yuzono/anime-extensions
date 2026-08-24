@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
-import android.util.Base64
 import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -185,14 +184,54 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             ?.takeIf { it.equals("Legendado", true) || it.equals("Dublado", true) }
             ?: ""
 
-        return when {
-            "blogger.com/video.g" in absoluteSrc -> {
-                bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
+        // 1) Tenta extrair o link direto do HTML do iframe
+        try {
+            val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
+            val html = iframeResponse.body?.string() ?: ""
+            val videoUrl = extractVideoUrlFromHtml(html)
+            if (videoUrl != null) {
+                val videoHeaders = Headers.headersOf(
+                    "Referer", absoluteSrc,
+                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+                )
+                val quality = extractQualityFromUrl(videoUrl)
+                return listOf(Video(videoUrl, "$language $quality".trim(), videoUrl, videoHeaders))
             }
-            "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
-                listOf(Video(absoluteSrc, "Player", absoluteSrc))
-            }
-            else -> emptyList()
+        } catch (e: Exception) {
+            // continua
+        }
+
+        // 2) Fallback para BloggerExtractor
+        if ("blogger.com/video.g" in absoluteSrc) {
+            return bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
+        }
+
+        return emptyList()
+    }
+
+    private fun extractVideoUrlFromHtml(html: String): String? {
+        val googlevideoRegex = Regex(
+            """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
+            RegexOption.IGNORE_CASE,
+        )
+        googlevideoRegex.find(html)?.let { return it.value.replace("&amp;", "&").replace("\\/", "/") }
+
+        val genericRegex = Regex(
+            """https?://[^"'\\s<>]+\.(?:mp4|m3u8)[^"'\\s<>]*""",
+            RegexOption.IGNORE_CASE,
+        )
+        genericRegex.find(html)?.let { return it.value.replace("&amp;", "&").replace("\\/", "/") }
+
+        return null
+    }
+
+    private fun extractQualityFromUrl(url: String): String {
+        val itag = Regex("""[?&]itag=(\d+)""").find(url)?.groupValues?.get(1)
+        return when (itag) {
+            "18" -> "360p"
+            "22" -> "720p"
+            "37" -> "1080p"
+            else -> ""
         }
     }
 
@@ -200,13 +239,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     // ===================== UTILITÁRIOS =====================
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-
-    private fun decodePadrao(padrao: String): String? = try {
-        val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
-        String(decodedBytes, Charsets.UTF_8)
-    } catch (e: Exception) {
-        null
-    }
 
     // ===================== FUNÇÕES AUXILIARES =====================
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
@@ -264,17 +296,5 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         }
 
         return episodes
-    }
-
-    private fun qualityFromItag(itag: String): String = when (itag) {
-        "17" -> "144p"
-        "18" -> "360p"
-        "22" -> "720p"
-        "37" -> "1080p"
-        "36" -> "180p"
-        "43" -> "360p WebM"
-        "44" -> "480p WebM"
-        "45" -> "720p WebM"
-        else -> "Qualidade $itag"
     }
 }
