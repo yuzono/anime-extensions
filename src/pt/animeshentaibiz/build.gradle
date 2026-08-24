@@ -1,7 +1,6 @@
 ext {
     extName = 'AnimesHentaiBiz'
     extClass = '.AnimesHentaiBiz'
-    baseUrl = 'https://animeshentai.biz'
     extVersionCode = 1
     isNsfw = true
 }
@@ -9,7 +8,6 @@ ext {
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":core"))
-    implementation(libs.bundles.common)
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+    // Nenhuma dependência extra necessária para esta extensão.
+    // O plugin legado já inclui OkHttp, Jsoup, Kotlin stdlib e a API do Aniyomi.
 }
