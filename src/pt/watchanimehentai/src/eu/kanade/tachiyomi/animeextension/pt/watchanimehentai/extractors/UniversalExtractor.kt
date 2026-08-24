@@ -97,9 +97,9 @@ class UniversalExtractor(private val client: OkHttpClient) {
     }
 
     companion object {
-        private const val TIMEOUT_SEC = 10L
+        private const val TIMEOUT_SEC = 15L
 
-        // Regex expandido para capturar googlevideo e outros formatos
+        // Regex ampliado para capturar googlevideo e formatos comuns
         private val VIDEO_REGEX by lazy {
             Regex(
                 "(https?://[^\\s\"']*\\.(?:mp4|m3u8|mpd)(?:\\?[^\\s\"']*)?)|(https?://[^\\s\"']*googlevideo\\.com/videoplayback[^\\s\"']*)",
@@ -110,25 +110,31 @@ class UniversalExtractor(private val client: OkHttpClient) {
         private val CHECK_SCRIPT by lazy {
             """
             setInterval(() => {
-                // Tenta clicar em botões comuns de play
-                var playButtons = document.querySelectorAll('button, .play-button, .play, .jw-play, .vjs-play-control')
-                for (var i = 0; i < playButtons.length; i++) {
-                    try { playButtons[i].click(); } catch (e) {}
-                }
+                // Clica em qualquer botão que possa iniciar o vídeo
+                document.querySelectorAll('button, .play-button, .play, .jw-play, .vjs-play-control, .player-button-container, .downloader-button').forEach(el => {
+                    try { el.click(); } catch (e) {}
+                });
 
-                // Tenta executar players conhecidos
+                // Tenta iniciar players conhecidos
                 try { jwplayer(0).play(); } catch (e) {}
                 try { videojs.getPlayers().forEach(p => p.play()); } catch (e) {}
 
-                // Tenta clicar em links de download
-                var downloadLinks = document.querySelectorAll('a[href*=".mp4"], a[href*=".m3u8"], a[href*="videoplayback"]')
-                for (var i = 0; i < downloadLinks.length; i++) {
-                    var href = downloadLinks[i].href;
+                // Tenta obter src de tags de vídeo
+                document.querySelectorAll('video, source').forEach(el => {
+                    var src = el.src || el.getAttribute('src');
+                    if (src) {
+                        window.location.href = src;
+                    }
+                });
+
+                // Tenta links de download
+                document.querySelectorAll('a[href*=".mp4"], a[href*=".m3u8"], a[href*="videoplayback"]').forEach(el => {
+                    var href = el.href;
                     if (href) {
                         window.location.href = href;
                     }
-                }
-            }, 2500)
+                });
+            }, 1500)
             """.trimIndent()
         }
     }
