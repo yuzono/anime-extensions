@@ -28,7 +28,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .add("Referer", baseUrl)
 
-    // ===================== UTILITÁRIO =====================
+    // ===================== UTILITÁRIOS =====================
     private fun absoluteUrl(url: String): String = when {
         url.startsWith("http://") || url.startsWith("https://") -> url
         url.startsWith("//") -> "https:$url"
@@ -39,13 +39,9 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .replace(Regex("""\s*Todos os Episodios Online\s*"""), "")
         .trim()
 
-    // ===================== LISTAGEM DE SÉRIES (POPULAR) =====================
+    // ===================== POPULAR / LATEST / SEARCH =====================
     override fun popularAnimeRequest(page: Int): Request {
-        val url = if (page == 1) {
-            "$baseUrl/hentai/"
-        } else {
-            "$baseUrl/hentai/page/$page/"
-        }
+        val url = if (page == 1) "$baseUrl/hentai/" else "$baseUrl/hentai/page/$page/"
         return GET(url, headers)
     }
 
@@ -55,13 +51,8 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return AnimesPage(animes, animes.isNotEmpty())
     }
 
-    // ===================== EPISÓDIOS RECENTES (LATEST) =====================
     override fun latestUpdatesRequest(page: Int): Request {
-        val url = if (page == 1) {
-            "$baseUrl/episodio/"
-        } else {
-            "$baseUrl/episodio/page/$page/"
-        }
+        val url = if (page == 1) "$baseUrl/episodio/" else "$baseUrl/episodio/page/$page/"
         return GET(url, headers)
     }
 
@@ -72,53 +63,39 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return AnimesPage(latestBySeries, latestBySeries.isNotEmpty())
     }
 
-    // ===================== BUSCA =====================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = query.trim().replace(" ", "+")
-        val url = "$baseUrl/?s=$encodedQuery"
-        return GET(url, headers)
+        return GET("$baseUrl/?s=$encodedQuery", headers)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
         val series = parseSeriesList(doc)
-        if (series.isNotEmpty()) {
-            return AnimesPage(series, false)
-        }
+        if (series.isNotEmpty()) return AnimesPage(series, false)
         val episodes = parseEpisodeList(doc)
         return AnimesPage(episodes, false)
     }
 
-    // ===================== DETALHES =====================
+    // ===================== DETALHES E EPISÓDIOS =====================
     override fun animeDetailsRequest(anime: SAnime): Request = GET(absoluteUrl(anime.url), headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = Jsoup.parse(response.body.string())
-        val url = response.request.url.toString()
-
         return SAnime.create().apply {
-            this.url = url
+            url = response.request.url.toString()
             title = doc.selectFirst("div.sheader .data h1")?.text()?.let { cleanTitle(it) }
                 ?: doc.selectFirst("h1")?.text()?.let { cleanTitle(it) }
                 ?: doc.selectFirst("meta[property=og:title]")?.attr("content")?.let { cleanTitle(it) }
-                ?: doc.title()?.let { cleanTitle(it) }
                 ?: ""
-
             description = doc.selectFirst("div.resumotemp .wp-content p")?.text()?.trim()
                 ?: doc.selectFirst("div.wp-content p")?.text()?.trim()
-                ?: doc.selectFirst("meta[property=og:description]")?.attr("content")
                 ?: ""
-
-            thumbnail_url = doc.selectFirst("div.sheader .poster img")?.attr("src")?.let { absoluteUrl(it) }
-                ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-                ?: ""
-
+            thumbnail_url = doc.selectFirst("div.sheader .poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
             genre = doc.select("div.sgeneros a[href*='/genero/']").joinToString(", ") { it.text().trim() }
             status = SAnime.UNKNOWN
         }
     }
 
-    // ===================== EPISÓDIOS =====================
     override fun episodeListRequest(anime: SAnime): Request = GET(absoluteUrl(anime.url), headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -134,9 +111,9 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
             episodes.add(
                 SEpisode.create().apply {
-                    episode_number = episodeNumber
-                    name = episodeName
-                    url = episodeUrl
+                    this.episode_number = episodeNumber
+                    this.name = episodeName
+                    this.url = episodeUrl
                 },
             )
         }
@@ -145,46 +122,37 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
                 if (href.isNotBlank() && !episodes.any { it.url == href }) {
-                    val name = link.text().trim()
-                    if (name.isNotEmpty()) {
-                        episodes.add(
-                            SEpisode.create().apply {
-                                episode_number = (episodes.size + 1).toFloat()
-                                this.name = name
-                                url = href
-                            },
-                        )
-                    }
+                    episodes.add(
+                        SEpisode.create().apply {
+                            this.episode_number = (episodes.size + 1).toFloat()
+                            this.name = link.text().trim()
+                            this.url = href
+                        },
+                    )
                 }
             }
         }
-
         return episodes
     }
 
-    // ===================== VÍDEOS =====================
+    // ===================== EXTRAÇÃO DE VÍDEOS =====================
     override fun videoListRequest(episode: SEpisode): Request = GET(absoluteUrl(episode.url), headers)
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
 
-        // 1. Tenta extrair os vídeos através do sistema AJAX do DooPlay
         val videosFromAjax = getVideosFromDooPlayOptions(document)
         if (videosFromAjax.isNotEmpty()) return videosFromAjax
 
-        // 2. Fallback: Procura se existem iframes diretos na página
-        val iframes = document.select("iframe")
+        val iframes = document.select("iframe[src], iframe[data-src], iframe[data-lazy-src]")
         return iframes.parallelCatchingFlatMapBlocking { iframe ->
-            val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
-            if (src.isNotBlank()) {
-                fetchVideosFromEmbedUrl(src, "")
-            } else {
-                emptyList()
-            }
+            val src = iframe.attr("src")
+                .ifEmpty { iframe.attr("data-src") }
+                .ifEmpty { iframe.attr("data-lazy-src") }
+            if (src.isNotBlank()) fetchVideosFromEmbedUrl(src, "") else emptyList()
         }
     }
 
-    // Extrai vídeos fazendo requisições POST para a API do DooPlay (/wp-admin/admin-ajax.php)
     private fun getVideosFromDooPlayOptions(document: Document): List<Video> {
         val options = document.select("li[data-post][data-type][data-nume], ul#playeroptionsul li, div.optionsbox ul li, ul.options li")
 
@@ -224,16 +192,11 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 }
             } else {
                 val dataUrl = option.attr("data-url")
-                if (dataUrl.isNotBlank()) {
-                    fetchVideosFromEmbedUrl(dataUrl, language)
-                } else {
-                    emptyList()
-                }
+                if (dataUrl.isNotBlank()) fetchVideosFromEmbedUrl(dataUrl, language) else emptyList()
             }
         }
     }
 
-    // Extrai a URL do iframe contida na resposta JSON ou HTML do AJAX
     private fun extractEmbedUrlFromResponse(responseBody: String): String? = try {
         val json = JSONObject(responseBody)
         val embedHtml = json.optString("embed_url", "")
@@ -241,18 +204,13 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             embedHtml
         } else {
             val doc = Jsoup.parse(embedHtml)
-            doc.selectFirst("iframe")?.let {
-                it.attr("src").ifEmpty { it.attr("data-src") }
-            } ?: embedHtml.ifBlank { null }
+            doc.selectFirst("iframe")?.let { it.attr("src").ifEmpty { it.attr("data-src") } } ?: embedHtml.ifBlank { null }
         }
     } catch (e: Exception) {
         val doc = Jsoup.parse(responseBody)
-        doc.selectFirst("iframe")?.let {
-            it.attr("src").ifEmpty { it.attr("data-src") }
-        }
+        doc.selectFirst("iframe")?.let { it.attr("src").ifEmpty { it.attr("data-src") } }
     }
 
-    // Abre a página de embed/player intermediário se necessário e busca a URL do Blogger
     private fun fetchVideosFromEmbedUrl(embedUrl: String, language: String): List<Video> {
         val cleanEmbedUrl = absoluteUrl(embedUrl)
 
@@ -263,10 +221,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return try {
             val response = client.newCall(GET(cleanEmbedUrl, headers)).execute()
             val doc = Jsoup.parse(response.body?.string() ?: "")
-
-            val bloggerIframe = doc.selectFirst("iframe[src*='blogger.com/video.g']")
-                ?: doc.selectFirst("iframe[data-src*='blogger.com/video.g']")
-
+            val bloggerIframe = doc.selectFirst("iframe[src*='blogger.com/video.g'], iframe[data-src*='blogger.com/video.g']")
             val bloggerUrl = bloggerIframe?.let { it.attr("src").ifEmpty { it.attr("data-src") } }
 
             if (!bloggerUrl.isNullOrEmpty()) {
@@ -281,50 +236,56 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun videoUrlParse(response: Response): String = response.request.url.toString()
 
-    // ===================== EXTRATOR DO BLOGGER =====================
+    // ===================== EXTRATOR REGEX DO BLOGGER =====================
     private fun extractBloggerVideos(url: String, language: String): List<Video> {
-        val videos = mutableListOf<Video>()
-
-        try {
+        return try {
             val response = client.newCall(GET(url, headers)).execute()
             val body = response.body?.string() ?: return emptyList()
 
-            val configJsonString = body
-                .substringAfter("var VIDEO_CONFIG = ")
-                .substringBefore(";")
-            if (configJsonString.isBlank()) return emptyList()
+            val videos = mutableListOf<Video>()
+            val playUrlRegex = Regex(""" "play_url"\s*:\s*"([^"]+)" """)
+            val formatIdRegex = Regex(""" "format_id"\s*:\s*(\d+) """)
 
-            val json = JSONObject(configJsonString)
-            val streams = json.optJSONArray("streams") ?: return emptyList()
+            val streamBlocks = body.split("{\"format_id\"").drop(1)
 
-            for (i in 0 until streams.length()) {
-                val stream = streams.getJSONObject(i)
-                val rawUrl = stream.optString("play_url", "")
-                if (rawUrl.isBlank()) continue
-
+            for (block in streamBlocks) {
+                val rawUrl = playUrlRegex.find(block)?.groupValues?.get(1) ?: continue
+                val formatId = formatIdRegex.find(block)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                 val cleanUrl = sanitizeUrl(rawUrl)
-                val formatId = stream.optInt("format_id", 0)
+
                 val quality = when (formatId) {
                     22 -> "720p"
                     18 -> "360p"
+                    37 -> "1080p"
                     else -> "SD"
                 }
 
                 val videoHeaders = Headers.headersOf(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer",
-                    "https://www.blogger.com/",
+                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer", "https://www.blogger.com/",
                 )
 
                 val label = if (language.isNotBlank()) "$language - Blogger $quality" else "Blogger $quality"
-                videos.add(Video(cleanUrl, label.trim(), cleanUrl, videoHeaders))
+                videos.add(Video(cleanUrl, label, cleanUrl, videoHeaders))
             }
-        } catch (e: Exception) {
-            return emptyList()
-        }
 
-        return videos
+            // Fallback genérico caso a estrutura por blocos mude
+            if (videos.isEmpty()) {
+                playUrlRegex.findAll(body).forEachIndexed { index, match ->
+                    val cleanUrl = sanitizeUrl(match.groupValues[1])
+                    val label = if (language.isNotBlank()) "$language - Blogger SD ${index + 1}" else "Blogger SD ${index + 1}"
+                    val videoHeaders = Headers.headersOf(
+                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Referer", "https://www.blogger.com/",
+                    )
+                    videos.add(Video(cleanUrl, label, cleanUrl, videoHeaders))
+                }
+            }
+
+            videos
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     private fun sanitizeUrl(url: String): String = url
@@ -335,7 +296,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .replace("%3D", "=")
         .replace("%26", "&")
 
-    // ===================== FUNÇÕES AUXILIARES =====================
+    // ===================== AUXILIARES DE PARSE =====================
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
         val grouped = episodes.groupBy { extractSeriesName(it.title) }
         return grouped.values.mapNotNull { seriesEpisodes ->
@@ -346,50 +307,27 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     private fun extractSeriesName(title: String): String = title.replace(Regex("""\s*Episodio\s+\d+.*""", RegexOption.IGNORE_CASE), "").trim()
 
     private fun extractEpisodeNumber(title: String): Int? = Regex("""Episodio\s+(\d+)""", RegexOption.IGNORE_CASE)
-        .find(title)
-        ?.groupValues
-        ?.get(1)
-        ?.toIntOrNull()
+        .find(title)?.groupValues?.get(1)?.toIntOrNull()
 
     private fun parseSeriesList(doc: Document): List<SAnime> {
-        val animes = mutableListOf<SAnime>()
-
-        doc.select("article.item.tvshows").forEach { article ->
-            val linkEl = article.selectFirst("div.poster a[href*='/hentai/']") ?: return@forEach
-            val animeUrl = linkEl.attr("href")
-            val title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
-            val thumbnail = article.selectFirst("div.poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
-
-            animes.add(
-                SAnime.create().apply {
-                    url = animeUrl
-                    this.title = title
-                    thumbnail_url = thumbnail
-                },
-            )
+        return doc.select("article.item.tvshows").mapNotNull { article ->
+            val linkEl = article.selectFirst("div.poster a[href*='/hentai/']") ?: return@mapNotNull null
+            SAnime.create().apply {
+                url = linkEl.attr("href")
+                title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
+                thumbnail_url = article.selectFirst("div.poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
+            }
         }
-
-        return animes
     }
 
     private fun parseEpisodeList(doc: Document): List<SAnime> {
-        val episodes = mutableListOf<SAnime>()
-
-        doc.select("article.item.se.episodes").forEach { article ->
-            val linkEl = article.selectFirst("div.poster a[href*='/episodio/']") ?: return@forEach
-            val episodeUrl = linkEl.attr("href")
-            val title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
-            val thumbnail = article.selectFirst("div.poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
-
-            episodes.add(
-                SAnime.create().apply {
-                    url = episodeUrl
-                    this.title = title
-                    thumbnail_url = thumbnail
-                },
-            )
+        return doc.select("article.item.se.episodes").mapNotNull { article ->
+            val linkEl = article.selectFirst("div.poster a[href*='/episodio/']") ?: return@mapNotNull null
+            SAnime.create().apply {
+                url = linkEl.attr("href")
+                title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
+                thumbnail_url = article.selectFirst("div.poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
+            }
         }
-
-        return episodes
     }
 }
