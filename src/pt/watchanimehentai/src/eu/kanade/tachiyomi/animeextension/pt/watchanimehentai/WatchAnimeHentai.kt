@@ -178,13 +178,26 @@ class WatchAnimeHentai : AnimeHttpSource() {
                             val itag = Regex("""[?&]itag=(\d+)""").find(videoUrl)?.groupValues?.get(1) ?: "?"
                             val qualityLabel = qualityFromItag(itag)
 
-                            videos.add(Video(videoUrl, "$languageLabel - $qualityLabel", videoUrl))
+                            val videoHeaders = Headers.headersOf(
+                                "Referer", iframeSrc,
+                                "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                            )
+
+                            videos.add(Video(videoUrl, "$languageLabel - $qualityLabel", videoUrl, videoHeaders))
                         }
                     } else {
-                        videos.add(Video(iframeSrc, languageLabel, iframeSrc))
+                        val videoHeaders = Headers.headersOf(
+                            "Referer", iframeSrc,
+                            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                        )
+                        videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
                     }
                 } catch (e: Exception) {
-                    videos.add(Video(iframeSrc, languageLabel, iframeSrc))
+                    val videoHeaders = Headers.headersOf(
+                        "Referer", iframeSrc,
+                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                    )
+                    videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
                 }
             }
         } else {
@@ -193,7 +206,11 @@ class WatchAnimeHentai : AnimeHttpSource() {
                 val src = iframe.attr("src")
                 if (src.isNotBlank()) {
                     val absoluteSrc = if (src.startsWith("http")) src else baseUrl + src
-                    videos.add(Video(absoluteSrc, "Player", absoluteSrc))
+                    val videoHeaders = Headers.headersOf(
+                        "Referer", absoluteSrc,
+                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                    )
+                    videos.add(Video(absoluteSrc, "Player", absoluteSrc, videoHeaders))
                 }
             }
         }
