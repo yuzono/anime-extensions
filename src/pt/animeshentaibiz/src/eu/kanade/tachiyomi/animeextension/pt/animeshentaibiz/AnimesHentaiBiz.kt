@@ -29,7 +29,11 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .add("Referer", baseUrl)
 
     // ===================== UTILITÁRIO =====================
-    private fun absoluteUrl(url: String): String = if (url.startsWith("http")) url else baseUrl + url
+    private fun absoluteUrl(url: String): String = when {
+        url.startsWith("http://") || url.startsWith("https://") -> url
+        url.startsWith("//") -> "https:$url"
+        else -> baseUrl + (if (url.startsWith("/")) url else "/$url")
+    }
 
     private fun cleanTitle(title: String): String = title
         .replace(Regex("""\s*Todos os Episodios Online\s*"""), "")
@@ -168,7 +172,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val videosFromAjax = getVideosFromDooPlayOptions(document)
         if (videosFromAjax.isNotEmpty()) return videosFromAjax
 
-        // 2. Fallback: Procura se existem iframes diretos na página (checando src e data-src)
+        // 2. Fallback: Procura se existem iframes diretos na página
         val iframes = document.select("iframe")
         return iframes.parallelCatchingFlatMapBlocking { iframe ->
             val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
@@ -182,7 +186,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     // Extrai vídeos fazendo requisições POST para a API do DooPlay (/wp-admin/admin-ajax.php)
     private fun getVideosFromDooPlayOptions(document: Document): List<Video> {
-        val options = document.select("ul#playeroptionsul li, div.optionsbox ul li, ul.options li")
+        val options = document.select("li[data-post][data-type][data-nume], ul#playeroptionsul li, div.optionsbox ul li, ul.options li")
 
         return options.parallelCatchingFlatMapBlocking { option ->
             val post = option.attr("data-post")
@@ -233,9 +237,13 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     private fun extractEmbedUrlFromResponse(responseBody: String): String? = try {
         val json = JSONObject(responseBody)
         val embedHtml = json.optString("embed_url", "")
-        val doc = Jsoup.parse(embedHtml)
-        doc.selectFirst("iframe")?.let {
-            it.attr("src").ifEmpty { it.attr("data-src") }
+        if (embedHtml.startsWith("http://") || embedHtml.startsWith("https://") || embedHtml.startsWith("//")) {
+            embedHtml
+        } else {
+            val doc = Jsoup.parse(embedHtml)
+            doc.selectFirst("iframe")?.let {
+                it.attr("src").ifEmpty { it.attr("data-src") }
+            } ?: embedHtml.ifBlank { null }
         }
     } catch (e: Exception) {
         val doc = Jsoup.parse(responseBody)
@@ -309,10 +317,8 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     "https://www.blogger.com/",
                 )
 
-                val finalUrl = getRedirectedUrl(cleanUrl, videoHeaders) ?: cleanUrl
                 val label = if (language.isNotBlank()) "$language - Blogger $quality" else "Blogger $quality"
-
-                videos.add(Video(finalUrl, label.trim(), finalUrl, videoHeaders))
+                videos.add(Video(cleanUrl, label.trim(), cleanUrl, videoHeaders))
             }
         } catch (e: Exception) {
             return emptyList()
@@ -328,18 +334,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         .replace("&amp;", "&")
         .replace("%3D", "=")
         .replace("%26", "&")
-
-    private fun getRedirectedUrl(url: String, headers: Headers): String? = try {
-        val request = Request.Builder()
-            .url(url)
-            .headers(headers)
-            .build()
-        client.newCall(request).execute().use { response ->
-            response.request.url.toString()
-        }
-    } catch (e: Exception) {
-        null
-    }
 
     // ===================== FUNÇÕES AUXILIARES =====================
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
