@@ -28,6 +28,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.delay
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -480,7 +481,7 @@ abstract class AnikotoTheme(
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-    fun episodeListSelector() = "div.episodes ul > li > a"
+    open fun episodeListSelector() = "div.episodes ul > li > a"
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.substringAfter("#", "")
@@ -610,7 +611,7 @@ abstract class AnikotoTheme(
             m3u8ServerManager.startServer()
             val deadline = System.currentTimeMillis() + 2000L
             while (!m3u8ServerManager.isRunning() && System.currentTimeMillis() < deadline) {
-                kotlinx.coroutines.delay(50L)
+                delay(50L)
             }
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "M3U8 server start failed: ${e.message}")
