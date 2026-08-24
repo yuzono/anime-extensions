@@ -16,16 +16,17 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class UniversalExtractor(private val client: OkHttpClient) {
-
     private val tag by lazy { javaClass.simpleName }
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Synchronized
     fun videosFromUrl(origRequestUrl: String, origRequestHeader: Headers, name: String?): List<Video> {
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var resultUrl = ""
 
-        Handler(Looper.getMainLooper()).post {
+        handler.post {
             val newView = WebView(applicationContext)
             webView = newView
             with(newView.settings) {
@@ -36,6 +37,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 loadWithOverviewMode = false
                 userAgentString = origRequestHeader["User-Agent"]
             }
+
             newView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     Log.d(tag, "Page loaded, injecting script")
@@ -61,7 +63,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
 
         latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
 
-        Handler(Looper.getMainLooper()).post {
+        handler.post {
             webView?.stopLoading()
             webView?.destroy()
             webView = null
@@ -70,18 +72,25 @@ class UniversalExtractor(private val client: OkHttpClient) {
         val prefix = name ?: "Player"
 
         return when {
+            "googlevideo" in resultUrl -> {
+                Log.d(tag, "googlevideo URL: $resultUrl")
+                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
+                listOf(Video(resultUrl, "$prefix: MP4", resultUrl, videoHeaders))
+            }
             "m3u8" in resultUrl -> {
                 Log.d(tag, "m3u8 URL: $resultUrl")
-                // Para HLS, normalmente retornamos a URL diretamente; o player suporta.
-                listOf(Video(resultUrl, "$prefix: HLS", resultUrl))
+                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
+                listOf(Video(resultUrl, "$prefix: HLS", resultUrl, videoHeaders))
+            }
+            "mpd" in resultUrl -> {
+                Log.d(tag, "mpd URL: $resultUrl")
+                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
+                listOf(Video(resultUrl, "$prefix: DASH", resultUrl, videoHeaders))
             }
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
-                listOf(Video(resultUrl, "$prefix: MP4", resultUrl))
-            }
-            "googlevideo" in resultUrl -> {
-                Log.d(tag, "googlevideo URL: $resultUrl")
-                listOf(Video(resultUrl, "$prefix: MP4", resultUrl))
+                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
+                listOf(Video(resultUrl, "$prefix: MP4", resultUrl, videoHeaders))
             }
             else -> emptyList()
         }
@@ -89,24 +98,36 @@ class UniversalExtractor(private val client: OkHttpClient) {
 
     companion object {
         private const val TIMEOUT_SEC = 10L
-        private val VIDEO_REGEX by lazy { Regex(".*\\.(mp4|m3u8|mpd)(\\?.*)?$", RegexOption.IGNORE_CASE) }
+
+        // Regex expandido para capturar googlevideo e outros formatos
+        private val VIDEO_REGEX by lazy {
+            Regex(
+                "(https?://[^\\s\"']*\\.(?:mp4|m3u8|mpd)(?:\\?[^\\s\"']*)?)|(https?://[^\\s\"']*googlevideo\\.com/videoplayback[^\\s\"']*)",
+                RegexOption.IGNORE_CASE,
+            )
+        }
+
         private val CHECK_SCRIPT by lazy {
             """
             setInterval(() => {
-                var playButton = document.getElementById('player-button-container')
-                if (playButton) {
-                    playButton.click()
+                // Tenta clicar em botões comuns de play
+                var playButtons = document.querySelectorAll('button, .play-button, .play, .jw-play, .vjs-play-control')
+                for (var i = 0; i < playButtons.length; i++) {
+                    try { playButtons[i].click(); } catch (e) {}
                 }
-                var downloadButton = document.querySelector(".downloader-button")
-                if (downloadButton) {
-                    if (downloadButton.href) {
-                        location.href = downloadButton.href
-                    } else {
-                        downloadButton.click()
+
+                // Tenta executar players conhecidos
+                try { jwplayer(0).play(); } catch (e) {}
+                try { videojs.getPlayers().forEach(p => p.play()); } catch (e) {}
+
+                // Tenta clicar em links de download
+                var downloadLinks = document.querySelectorAll('a[href*=".mp4"], a[href*=".m3u8"], a[href*="videoplayback"]')
+                for (var i = 0; i < downloadLinks.length; i++) {
+                    var href = downloadLinks[i].href;
+                    if (href) {
+                        window.location.href = href;
                     }
                 }
-                // Default jwplayer instance
-                try { jwplayer(0).play(); } catch {}
             }, 2500)
             """.trimIndent()
         }
