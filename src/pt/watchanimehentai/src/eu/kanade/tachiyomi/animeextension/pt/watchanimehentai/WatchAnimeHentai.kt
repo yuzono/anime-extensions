@@ -179,23 +179,29 @@ class WatchAnimeHentai : AnimeHttpSource() {
                             val qualityLabel = qualityFromItag(itag)
 
                             val videoHeaders = Headers.headersOf(
-                                "Referer", iframeSrc,
-                                "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                                "Referer",
+                                iframeSrc,
+                                "User-Agent",
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                             )
 
                             videos.add(Video(videoUrl, "$languageLabel - $qualityLabel", videoUrl, videoHeaders))
                         }
                     } else {
                         val videoHeaders = Headers.headersOf(
-                            "Referer", iframeSrc,
-                            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                            "Referer",
+                            iframeSrc,
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                         )
                         videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
                     }
                 } catch (e: Exception) {
                     val videoHeaders = Headers.headersOf(
-                        "Referer", iframeSrc,
-                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                        "Referer",
+                        iframeSrc,
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                     )
                     videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
                 }
@@ -207,8 +213,10 @@ class WatchAnimeHentai : AnimeHttpSource() {
                 if (src.isNotBlank()) {
                     val absoluteSrc = if (src.startsWith("http")) src else baseUrl + src
                     val videoHeaders = Headers.headersOf(
-                        "Referer", absoluteSrc,
-                        "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                        "Referer",
+                        absoluteSrc,
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                     )
                     videos.add(Video(absoluteSrc, "Player", absoluteSrc, videoHeaders))
                 }
