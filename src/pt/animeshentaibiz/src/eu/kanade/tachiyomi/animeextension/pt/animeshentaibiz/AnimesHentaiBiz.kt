@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
-import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -121,6 +120,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
+        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -137,6 +137,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
+        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -182,56 +183,15 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             ?.takeIf { it.equals("Legendado", true) || it.equals("Dublado", true) }
             ?: ""
 
-        // 1) Tenta extrair o link direto do HTML do iframe
-        try {
-            val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
-            val html = iframeResponse.body?.string() ?: ""
-            val videoUrl = extractVideoUrlFromHtml(html)
-            if (videoUrl != null) {
-                val videoHeaders = Headers.headersOf(
-                    "Referer",
-                    absoluteSrc,
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                )
-                val quality = extractQualityFromUrl(videoUrl)
-                return listOf(Video(videoUrl, "$language $quality".trim(), videoUrl, videoHeaders))
+        return when {
+            "blogger.com/video.g" in absoluteSrc -> {
+                // Usa BloggerExtractor diretamente, que já trata os cabeçalhos corretamente
+                bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
             }
-        } catch (e: Exception) {
-            // continua
-        }
-
-        // 2) Fallback para BloggerExtractor
-        if ("blogger.com/video.g" in absoluteSrc) {
-            return bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
-        }
-
-        return emptyList()
-    }
-
-    private fun extractVideoUrlFromHtml(html: String): String? {
-        val googlevideoRegex = Regex(
-            """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
-            RegexOption.IGNORE_CASE,
-        )
-        googlevideoRegex.find(html)?.let { return it.value.replace("&amp;", "&").replace("\\/", "/") }
-
-        val genericRegex = Regex(
-            """https?://[^"'\\s<>]+\.(?:mp4|m3u8)[^"'\\s<>]*""",
-            RegexOption.IGNORE_CASE,
-        )
-        genericRegex.find(html)?.let { return it.value.replace("&amp;", "&").replace("\\/", "/") }
-
-        return null
-    }
-
-    private fun extractQualityFromUrl(url: String): String {
-        val itag = Regex("""[?&]itag=(\d+)""").find(url)?.groupValues?.get(1)
-        return when (itag) {
-            "18" -> "360p"
-            "22" -> "720p"
-            "37" -> "1080p"
-            else -> ""
+            "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
+                listOf(Video(absoluteSrc, "Player", absoluteSrc))
+            }
+            else -> emptyList()
         }
     }
 
