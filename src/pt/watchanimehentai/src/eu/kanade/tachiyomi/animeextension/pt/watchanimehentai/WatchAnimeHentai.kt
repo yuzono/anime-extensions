@@ -29,23 +29,17 @@ class WatchAnimeHentai : AnimeHttpSource() {
     // ===================== UTILITÁRIO =====================
     private fun absoluteUrl(url: String): String = if (url.startsWith("http")) url else baseUrl + url
 
-    private fun hasNextPage(doc: Document): Boolean = doc.select(
-        "a.next, a.nextpostslink, a[rel=next], " +
-            ".pagination a.next, .pagination .next, " +
-            "ul.pagination li.next, div.pagination a.next, " +
-            "a[href*='/page/']:contains(Next), a[href*='/page/']:contains(Próximo)",
-    ).isNotEmpty()
-
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun popularAnimeRequest(page: Int): Request {
+        // URL correta da paginação: /hentai/2/ (sem "page")
         val url = if (page == 1) {
             "$baseUrl/hentai/"
         } else {
-            "$baseUrl/hentai/page/$page/"
+            "$baseUrl/hentai/$page/"
         }
         return GET(url, headers)
     }
@@ -53,7 +47,8 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override fun popularAnimeParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
         val animes = parseAnimeList(doc)
-        return AnimesPage(animes, hasNextPage(doc))
+        // Assume que há próxima página se a lista não estiver vazia
+        return AnimesPage(animes, animes.isNotEmpty())
     }
 
     // ===================== BUSCA =====================
@@ -71,10 +66,10 @@ class WatchAnimeHentai : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val animes = parseSearchResults(doc)
         if (animes.isNotEmpty()) {
-            return AnimesPage(animes, hasNextPage(doc))
+            return AnimesPage(animes, false)
         }
         val fallback = parseAnimeList(doc)
-        return AnimesPage(fallback, hasNextPage(doc))
+        return AnimesPage(fallback, false)
     }
 
     // ===================== DETALHES =====================
