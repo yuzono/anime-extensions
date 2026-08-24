@@ -239,9 +239,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
         null
     }
 
-    private fun extractVideosFromText(text: String, prefix: String, referer: String): List<Video> {
-        return extractVideosFromHtml(text, prefix, referer)
-    }
+    private fun extractVideosFromText(text: String, prefix: String, referer: String): List<Video> = extractVideosFromHtml(text, prefix, referer)
 
     private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
         val videos = mutableListOf<Video>()
