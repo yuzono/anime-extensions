@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
@@ -121,6 +122,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
+        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -137,6 +139,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
+        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -163,40 +166,113 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
+
+        // 1. Tenta extrair os vídeos através do sistema AJAX do DooPlay
+        val videosFromAjax = getVideosFromDooPlayOptions(document)
+        if (videosFromAjax.isNotEmpty()) return videosFromAjax
+
+        // 2. Fallback: Procura se existem iframes diretos na página (checando src e data-src)
         val iframes = document.select("iframe")
         return iframes.parallelCatchingFlatMapBlocking { iframe ->
-            getPlayerVideos(iframe)
+            val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
+            if (src.isNotBlank()) {
+                fetchVideosFromEmbedUrl(src, "")
+            } else {
+                emptyList()
+            }
         }
     }
 
-    private suspend fun getPlayerVideos(iframe: Element): List<Video> {
-        val src = iframe.attr("src")
-        if (src.isBlank()) return emptyList()
+    // Extrai vídeos fazendo requisições POST para a API do DooPlay (/wp-admin/admin-ajax.php)
+    private fun getVideosFromDooPlayOptions(document: Document): List<Video> {
+        val options = document.select("ul#playeroptionsul li, div.optionsbox ul li, ul.options li")
 
-        val absoluteSrc = if (src.startsWith("http")) src else baseUrl + src
-        val id = iframe.parent()?.attr("id") ?: ""
-        val language = iframe.ownerDocument()!!
-            .selectFirst("a.options[href=\"#$id\"]")
-            ?.text()
-            ?.trim()
-            ?.takeIf { it.equals("Legendado", true) || it.equals("Dublado", true) }
-            ?: ""
+        return options.parallelCatchingFlatMapBlocking { option ->
+            val post = option.attr("data-post")
+            val type = option.attr("data-type")
+            val nume = option.attr("data-nume")
+            val language = option.selectFirst("span.title")?.text()?.trim() ?: ""
 
-        return when {
-            "blogger.com/video.g" in absoluteSrc -> {
-                extractBloggerVideos(absoluteSrc, language)
+            if (post.isNotBlank() && type.isNotBlank() && nume.isNotBlank()) {
+                val body = FormBody.Builder()
+                    .add("action", "doo_player_ajax")
+                    .add("post", post)
+                    .add("type", type)
+                    .add("nume", nume)
+                    .build()
+
+                val request = Request.Builder()
+                    .url("$baseUrl/wp-admin/admin-ajax.php")
+                    .post(body)
+                    .headers(
+                        headersBuilder()
+                            .add("X-Requested-With", "XMLHttpRequest")
+                            .add("Referer", document.location())
+                            .build(),
+                    )
+                    .build()
+
+                try {
+                    client.newCall(request).execute().use { response ->
+                        val responseBody = response.body?.string() ?: return@use emptyList()
+                        val embedUrl = extractEmbedUrlFromResponse(responseBody) ?: return@use emptyList()
+                        fetchVideosFromEmbedUrl(embedUrl, language)
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                val dataUrl = option.attr("data-url")
+                if (dataUrl.isNotBlank()) {
+                    fetchVideosFromEmbedUrl(dataUrl, language)
+                } else {
+                    emptyList()
+                }
             }
-            "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
-                val cleanUrl = sanitizeUrl(absoluteSrc)
-                val videoHeaders = Headers.headersOf(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer",
-                    "https://www.blogger.com/",
-                )
-                listOf(Video(cleanUrl, "Player", cleanUrl, videoHeaders))
+        }
+    }
+
+    // Extrai a URL do iframe contida na resposta JSON ou HTML do AJAX
+    private fun extractEmbedUrlFromResponse(responseBody: String): String? {
+        return try {
+            val json = JSONObject(responseBody)
+            val embedHtml = json.optString("embed_url", "")
+            val doc = Jsoup.parse(embedHtml)
+            doc.selectFirst("iframe")?.let {
+                it.attr("src").ifEmpty { it.attr("data-src") }
             }
-            else -> emptyList()
+        } catch (e: Exception) {
+            val doc = Jsoup.parse(responseBody)
+            doc.selectFirst("iframe")?.let {
+                it.attr("src").ifEmpty { it.attr("data-src") }
+            }
+        }
+    }
+
+    // Abre a página de embed/player intermediário se necessário e busca a URL do Blogger
+    private fun fetchVideosFromEmbedUrl(embedUrl: String, language: String): List<Video> {
+        val cleanEmbedUrl = absoluteUrl(embedUrl)
+
+        if ("blogger.com/video.g" in cleanEmbedUrl) {
+            return extractBloggerVideos(cleanEmbedUrl, language)
+        }
+
+        return try {
+            val response = client.newCall(GET(cleanEmbedUrl, headers)).execute()
+            val doc = Jsoup.parse(response.body?.string() ?: "")
+
+            val bloggerIframe = doc.selectFirst("iframe[src*='blogger.com/video.g']")
+                ?: doc.selectFirst("iframe[data-src*='blogger.com/video.g']")
+
+            val bloggerUrl = bloggerIframe?.let { it.attr("src").ifEmpty { it.attr("data-src") } }
+
+            if (!bloggerUrl.isNullOrEmpty()) {
+                extractBloggerVideos(absoluteUrl(bloggerUrl), language)
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
@@ -239,8 +315,9 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 )
 
                 val finalUrl = getRedirectedUrl(cleanUrl, videoHeaders) ?: cleanUrl
+                val label = if (language.isNotBlank()) "$language - Blogger $quality" else "Blogger $quality"
 
-                videos.add(Video(finalUrl, "$language $quality".trim(), finalUrl, videoHeaders))
+                videos.add(Video(finalUrl, label.trim(), finalUrl, videoHeaders))
             }
         } catch (e: Exception) {
             return emptyList()
