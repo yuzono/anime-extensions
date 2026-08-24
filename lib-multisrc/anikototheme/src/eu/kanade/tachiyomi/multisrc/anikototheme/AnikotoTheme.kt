@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
@@ -55,7 +55,7 @@ abstract class AnikotoTheme(
     override val name: String,
     private val domainEntries: List<String>,
     private val hosterNames: List<String>,
-) : ParsedAnimeHttpSource(),
+) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -80,6 +80,8 @@ abstract class AnikotoTheme(
     protected open val rateLimit = 5
 
     open val mapperUrl = "https://mapper.nekostream.site/api"
+
+    override val disableRelatedAnimesBySearch = true
 
     // ============================ Headers & Client =========================
 
@@ -258,7 +260,6 @@ abstract class AnikotoTheme(
     protected open fun getTypeDisplayName(typeKey: String): String = when (typeKey) {
         "Sub" -> "Sub"
         "H-Sub" -> "H-Sub"
-        "HSub" -> "Hard Sub"
         "S-Sub" -> "Soft Sub"
         "Dub" -> "Dub"
         "A-Dub" -> "A-Dub"
@@ -285,9 +286,9 @@ abstract class AnikotoTheme(
         cacheControl,
     )
 
-    override fun popularAnimeSelector(): String = "div.ani.items > div.item"
+    fun popularAnimeSelector(): String = "div.ani.items > div.item"
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
+    fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         element.selectFirst("a.name")?.let { a ->
             setUrlWithoutDomain(EP_URL_SUFFIX_REGEX.replace(a.attr("href").substringBefore("?"), ""))
             title = getTitle(a)
@@ -297,7 +298,7 @@ abstract class AnikotoTheme(
         }
     }
 
-    override fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
+    fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -320,9 +321,9 @@ abstract class AnikotoTheme(
         cacheControl,
     )
 
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+    fun latestUpdatesSelector() = popularAnimeSelector()
+    fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
+    fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -352,15 +353,18 @@ abstract class AnikotoTheme(
             addListQueryParameter("status", params.statuses)
             addListQueryParameter("language", params.languages)
             addListQueryParameter("rating", params.ratings)
+            addListQueryParameter("source", params.sources)
+            addQueryParameterIfNotEmpty("ep_min", params.episodesMin)
+            addQueryParameterIfNotEmpty("ep_max", params.episodesMax)
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
 
         return GET(url, docHeaders, cacheControl)
     }
 
-    override fun searchAnimeSelector() = popularAnimeSelector()
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+    fun searchAnimeSelector() = popularAnimeSelector()
+    fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+    fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -375,7 +379,9 @@ abstract class AnikotoTheme(
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime = parseAnimeDetails(response.asJsoup())
+
+    fun parseAnimeDetails(document: Document): SAnime {
         val newDocument = resolveSearchAnime(document)
         val titleElement = newDocument.selectFirst("h1.title, h2.title")
         val animeId = newDocument.selectFirst("[data-id]")?.attr("data-id")
@@ -474,7 +480,7 @@ abstract class AnikotoTheme(
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-    override fun episodeListSelector() = "div.episodes ul > li > a"
+    fun episodeListSelector() = "div.episodes ul > li > a"
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.substringAfter("#", "")
@@ -517,7 +523,7 @@ abstract class AnikotoTheme(
         }
     }
 
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
+    fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     private fun episodeFromElement(element: Element, animeUrl: String): SEpisode {
         val title = element.parent()?.attr("title") ?: ""
@@ -611,10 +617,6 @@ abstract class AnikotoTheme(
         }
     }
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     // ============================ Video Sort ==============================
 
     override fun List<Video>.sort(): List<Video> {
@@ -643,8 +645,7 @@ abstract class AnikotoTheme(
 
     protected open fun buildTypeFallbackChain(type: String): List<String> = when (type) {
         "Sub" -> listOf("Sub", "H-Sub", "HSub")
-        "H-Sub" -> listOf("H-Sub", "Sub")
-        "HSub" -> listOf("HSub", "Sub")
+        "H-Sub", "HSub" -> listOf("H-Sub", "HSub")
         "S-Sub" -> listOf("S-Sub", "Sub")
         "Dub" -> listOf("Dub", "A-Dub")
         "A-Dub" -> listOf("A-Dub", "Dub")
