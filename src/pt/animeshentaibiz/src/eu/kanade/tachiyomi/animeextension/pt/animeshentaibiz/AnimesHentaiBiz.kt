@@ -121,7 +121,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
-        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -138,7 +137,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
-        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -191,8 +189,10 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             val videoUrl = extractVideoUrlFromHtml(html)
             if (videoUrl != null) {
                 val videoHeaders = Headers.headersOf(
-                    "Referer", absoluteSrc,
-                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+                    "Referer",
+                    absoluteSrc,
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                 )
                 val quality = extractQualityFromUrl(videoUrl)
                 return listOf(Video(videoUrl, "$language $quality".trim(), videoUrl, videoHeaders))
