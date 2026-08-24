@@ -302,7 +302,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return videos
     }
 
-    // Funções para agrupar episódios recentes por série
+    // ===================== FUNÇÕES AUXILIARES PARA RECENTES =====================
 
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
         val grouped = episodes.groupBy { extractSeriesName(it.title) }
@@ -311,19 +311,15 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         }
     }
 
-    private fun extractSeriesName(title: String): String {
-        return title.replace(Regex("""\s*Episodio\s+\d+.*""", RegexOption.IGNORE_CASE), "").trim()
-    }
+    private fun extractSeriesName(title: String): String = title.replace(Regex("""\s*Episodio\s+\d+.*""", RegexOption.IGNORE_CASE), "").trim()
 
-    private fun extractEpisodeNumber(title: String): Int? {
-        return Regex("""Episodio\s+(\d+)""", RegexOption.IGNORE_CASE)
-            .find(title)
-            ?.groupValues
-            ?.get(1)
-            ?.toIntOrNull()
-    }
+    private fun extractEpisodeNumber(title: String): Int? = Regex("""Episodio\s+(\d+)""", RegexOption.IGNORE_CASE)
+        .find(title)
+        ?.groupValues
+        ?.get(1)
+        ?.toIntOrNull()
 
-    // Parsers de listagem
+    // ===================== PARSERS =====================
 
     private fun parseSeriesList(doc: Document): List<SAnime> {
         val animes = mutableListOf<SAnime>()
