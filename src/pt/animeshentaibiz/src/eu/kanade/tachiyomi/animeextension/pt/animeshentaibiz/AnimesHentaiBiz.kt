@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
-import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -62,8 +61,9 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
-        val episodes = parseEpisodeList(doc) // converte episódios em SAnime
-        return AnimesPage(episodes, episodes.isNotEmpty())
+        val allEpisodes = parseEpisodeList(doc)
+        val latestBySeries = groupLatestBySeries(allEpisodes)
+        return AnimesPage(latestBySeries, latestBySeries.isNotEmpty())
     }
 
     // ===================== BUSCA =====================
@@ -182,28 +182,28 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     if (decoded != null) {
                         val videosFromDecoded = extractVideosFromText(decoded, languageLabel, iframeSrc)
                         if (videosFromDecoded.isNotEmpty()) {
-                            videos.addAll(expandM3u8(videosFromDecoded, languageLabel, iframeSrc))
+                            videos.addAll(videosFromDecoded)
                             continue
                         }
                     }
                 }
 
-                // Extração direta
+                // Tenta extração direta no HTML do iframe
                 try {
                     val iframeResponse = client.newCall(GET(iframeSrc, headers)).execute()
                     val iframeBody = iframeResponse.body.string()
                     val directVideos = extractVideosFromHtml(iframeBody, languageLabel, iframeSrc)
                     if (directVideos.isNotEmpty()) {
-                        videos.addAll(expandM3u8(directVideos, languageLabel, iframeSrc))
+                        videos.addAll(directVideos)
                         continue
                     }
 
-                    // Fallback para UniversalExtractor (WebView) - funciona para Blogger também
+                    // Fallback para UniversalExtractor (WebView)
                     val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
-                    videos.addAll(expandM3u8(universalVideos, languageLabel, iframeSrc))
+                    videos.addAll(universalVideos)
                 } catch (e: Exception) {
                     val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
-                    videos.addAll(expandM3u8(universalVideos, languageLabel, iframeSrc))
+                    videos.addAll(universalVideos)
                 }
             }
         } else {
@@ -217,21 +217,18 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                         val iframeBody = iframeResponse.body.string()
                         val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
                         if (directVideos.isNotEmpty()) {
-                            videos.addAll(expandM3u8(directVideos, "Player", absoluteSrc))
+                            videos.addAll(directVideos)
                         } else {
                             val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
-                            videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
+                            videos.addAll(universalVideos)
                         }
                     } catch (e: Exception) {
                         val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
-                        videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
+                        videos.addAll(universalVideos)
                     }
                 }
             }
         }
-
-        // Ordena por qualidade (maior primeiro)
-        sortVideos(videos)
 
         return videos
     }
@@ -240,7 +237,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private fun decodePadrao(padrao: String): String? = try {
         val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
@@ -306,26 +302,28 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return videos
     }
 
-    private fun expandM3u8(videos: List<Video>, prefix: String, referer: String): List<Video> = videos.flatMap { video ->
-        if (video.url.endsWith(".m3u8")) {
-            try {
-                playlistUtils.extractFromHls(video.url, referer, videoNameGen = { "$prefix: $it" })
-            } catch (e: Exception) {
-                listOf(video)
-            }
-        } else {
-            listOf(video)
+    // Funções para agrupar episódios recentes por série
+
+    private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
+        val grouped = episodes.groupBy { extractSeriesName(it.title) }
+        return grouped.values.mapNotNull { seriesEpisodes ->
+            seriesEpisodes.maxByOrNull { extractEpisodeNumber(it.title) ?: -1 }
         }
     }
 
-    private fun sortVideos(videos: MutableList<Video>) {
-        val regex = Regex("""(\d+)p""")
-        videos.sortWith(
-            compareByDescending<Video> {
-                regex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            },
-        )
+    private fun extractSeriesName(title: String): String {
+        return title.replace(Regex("""\s*Episodio\s+\d+.*""", RegexOption.IGNORE_CASE), "").trim()
     }
+
+    private fun extractEpisodeNumber(title: String): Int? {
+        return Regex("""Episodio\s+(\d+)""", RegexOption.IGNORE_CASE)
+            .find(title)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    }
+
+    // Parsers de listagem
 
     private fun parseSeriesList(doc: Document): List<SAnime> {
         val animes = mutableListOf<SAnime>()
