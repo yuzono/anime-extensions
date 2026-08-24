@@ -1,7 +1,0 @@
-ext {
-    extName = 'NoobSubs'
-    extClass = '.NoobSubs'
-    extVersionCode = 1
-}
-
-apply plugin: "kei.plugins.extension.legacy"
