@@ -144,7 +144,15 @@ class M3u8HttpServer(
             }
             Log.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
             val inputStream = ByteArrayInputStream(segmentData)
-            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
+            newFixedLengthResponse(
+                Status.OK,
+                "video/mp2t",
+                inputStream,
+                segmentData.size.toLong(),
+            ).apply {
+                addHeader("Accept-Ranges", "bytes")
+                addHeader("Access-Control-Allow-Origin", "*")
+            }
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
