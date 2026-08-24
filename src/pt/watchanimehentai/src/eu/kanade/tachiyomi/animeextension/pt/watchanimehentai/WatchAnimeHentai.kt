@@ -31,6 +31,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
 
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
+
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun popularAnimeRequest(page: Int): Request {
@@ -62,7 +63,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
         if (animes.isNotEmpty()) {
             return AnimesPage(animes, false)
         }
-        // Fallback genérico
         val fallbackAnimes = doc.select("article.item, div.item").mapNotNull { article ->
             val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
             val animeUrl = linkEl.attr("href")
@@ -171,7 +171,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
                     iframeSrc = baseUrl + iframeSrc
                 }
 
-                // 1. Tenta decodificar o parâmetro padrao (Base64) para obter link direto
+                // 1. Tenta decodificar o parâmetro padrao (Base64)
                 val padrao = iframeSrc.substringAfter("padrao=", "")
                 if (padrao.isNotBlank()) {
                     val decoded = decodePadrao(padrao)
@@ -194,7 +194,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
                         continue
                     }
 
-                    // 3. Fallback para UniversalExtractor (WebView)
+                    // 3. Fallback para UniversalExtractor
                     val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
                     videos.addAll(universalVideos)
                 } catch (e: Exception) {
@@ -232,24 +232,20 @@ class WatchAnimeHentai : AnimeHttpSource() {
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
-    private fun decodePadrao(padrao: String): String? {
-        return try {
-            val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
-            String(decodedBytes, Charsets.UTF_8)
-        } catch (e: Exception) {
-            null
-        }
+    private fun decodePadrao(padrao: String): String? = try {
+        val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
+        String(decodedBytes, Charsets.UTF_8)
+    } catch (e: Exception) {
+        null
     }
 
     private fun extractVideosFromText(text: String, prefix: String, referer: String): List<Video> {
-        // Tenta extrair URLs de vídeo de um texto (decodificado) ou de um JSON
         return extractVideosFromHtml(text, prefix, referer)
     }
 
     private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
         val videos = mutableListOf<Video>()
 
-        // Regex para googlevideo (MP4)
         val googlevideoRegex = Regex(
             """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
             RegexOption.IGNORE_CASE,
@@ -267,7 +263,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
             videos.add(Video(videoUrl, "$prefix - $qualityLabel", videoUrl, videoHeaders))
         }
 
-        // Regex para m3u8
         val m3u8Regex = Regex(
             """https?://[^"'\\s<>]+\.m3u8[^"'\\s<>]*""",
             RegexOption.IGNORE_CASE,
@@ -283,7 +278,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
             videos.add(Video(videoUrl, "$prefix - HLS", videoUrl, videoHeaders))
         }
 
-        // Se não achou nenhum dos dois, tenta mp4 genérico
         if (videos.isEmpty()) {
             val mp4Regex = Regex(
                 """https?://[^"'\\s<>]+\.mp4[^"'\\s<>]*""",
