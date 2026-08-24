@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
 import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -30,17 +28,14 @@ class AnimesHentaiBiz : ParsedAnimeHttpSource() {
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.item.tvshows, article.item.movies"
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET(if (page == 1) "$baseUrl/hentai/" else "$baseUrl/hentai/page/$page/", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET(if (page == 1) "$baseUrl/hentai/" else "$baseUrl/hentai/page/$page/", headers)
 
-    override fun popularAnimeFromElement(element: Element): SAnime {
-        return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
-            title = element.selectFirst("h3")?.text()
-                ?: element.selectFirst("span")?.text() ?: ""
-            thumbnail_url = element.selectFirst("img")?.attr("abs:src")
-                ?.ifEmpty { element.selectFirst("img")?.attr("abs:data-src") }
-        }
+    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
+        title = element.selectFirst("h3")?.text()
+            ?: element.selectFirst("span")?.text() ?: ""
+        thumbnail_url = element.selectFirst("img")?.attr("abs:src")
+            ?.ifEmpty { element.selectFirst("img")?.attr("abs:data-src") }
     }
 
     override fun popularAnimeNextPageSelector() = "div.pagination a.next, div.nav-links a.next"
@@ -48,8 +43,7 @@ class AnimesHentaiBiz : ParsedAnimeHttpSource() {
     // =============================== Latest ===============================
     override fun latestUpdatesSelector() = "article.item.se.episodes"
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET(if (page == 1) "$baseUrl/episodio/" else "$baseUrl/episodio/page/$page/", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET(if (page == 1) "$baseUrl/episodio/" else "$baseUrl/episodio/page/$page/", headers)
 
     override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
@@ -58,40 +52,34 @@ class AnimesHentaiBiz : ParsedAnimeHttpSource() {
     // =============================== Search ===============================
     override fun searchAnimeSelector() = popularAnimeSelector()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        return GET("$baseUrl/page/$page/?s=$query", headers)
-    }
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/page/$page/?s=$query", headers)
 
     override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
-        return SAnime.create().apply {
-            title = document.selectFirst("h1")?.text() ?: ""
-            thumbnail_url = document.selectFirst("div.poster img")?.attr("abs:src")
-            genre = document.select("div.sgeneros a").joinToString { it.text() }
-            description = document.selectFirst("div.wp-content p")?.text()
-        }
+    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
+        title = document.selectFirst("h1")?.text() ?: ""
+        thumbnail_url = document.selectFirst("div.poster img")?.attr("abs:src")
+        genre = document.select("div.sgeneros a").joinToString { it.text() }
+        description = document.selectFirst("div.wp-content p")?.text()
     }
 
     // ============================== Episodes ==============================
     override fun episodeListSelector() = "ul.episodios li"
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        return SEpisode.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
-            name = element.selectFirst("div.episodiotitle a")?.text()
-                ?: element.selectFirst("a")?.text() ?: "Episódio"
-            episode_number = REGEX_EPISODE.find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
-        }
+    override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a")?.attr("href") ?: "")
+        name = element.selectFirst("div.episodiotitle a")?.text()
+            ?: element.selectFirst("a")?.text() ?: "Episódio"
+        episode_number = REGEX_EPISODE.find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
     }
 
     // ============================ Video Links =============================
     override fun videoListSelector() = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
+    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
     override fun videoNextPageSelector() = throw UnsupportedOperationException()
 
