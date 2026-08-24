@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
 import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -62,7 +63,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
-        val episodes = parseEpisodeList(doc)  // converte episódios em SAnime
+        val episodes = parseEpisodeList(doc) // converte episódios em SAnime
         return AnimesPage(episodes, episodes.isNotEmpty())
     }
 
@@ -191,7 +192,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     if (decoded != null) {
                         val videosFromDecoded = extractVideosFromText(decoded, languageLabel, iframeSrc)
                         if (videosFromDecoded.isNotEmpty()) {
-                            videos.addAll(videosFromDecoded)
+                            videos.addAll(expandM3u8(videosFromDecoded, languageLabel, iframeSrc))
                             continue
                         }
                     }
@@ -203,14 +204,16 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     val iframeBody = iframeResponse.body.string()
                     val directVideos = extractVideosFromHtml(iframeBody, languageLabel, iframeSrc)
                     if (directVideos.isNotEmpty()) {
-                        videos.addAll(directVideos)
+                        videos.addAll(expandM3u8(directVideos, languageLabel, iframeSrc))
                         continue
                     }
 
                     // Fallback para UniversalExtractor (WebView)
-                    videos.addAll(universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel))
+                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
+                    videos.addAll(expandM3u8(universalVideos, languageLabel, iframeSrc))
                 } catch (e: Exception) {
-                    videos.addAll(universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel))
+                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
+                    videos.addAll(expandM3u8(universalVideos, languageLabel, iframeSrc))
                 }
             }
         } else {
@@ -228,17 +231,22 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                             val iframeBody = iframeResponse.body.string()
                             val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
                             if (directVideos.isNotEmpty()) {
-                                videos.addAll(directVideos)
+                                videos.addAll(expandM3u8(directVideos, "Player", absoluteSrc))
                             } else {
-                                videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
+                                val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
+                                videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
                             }
                         } catch (e: Exception) {
-                            videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
+                            val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
+                            videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
                         }
                     }
                 }
             }
         }
+
+        // Ordena por qualidade (maior primeiro)
+        sortVideos(videos)
 
         return videos
     }
@@ -248,6 +256,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private fun decodePadrao(padrao: String): String? = try {
         val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
@@ -311,6 +320,29 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         }
 
         return videos
+    }
+
+    private fun expandM3u8(videos: List<Video>, prefix: String, referer: String): List<Video> {
+        return videos.flatMap { video ->
+            if (video.url.endsWith(".m3u8")) {
+                try {
+                    playlistUtils.extractFromHls(video.url, referer, videoNameGen = { "$prefix: $it" })
+                } catch (e: Exception) {
+                    listOf(video)
+                }
+            } else {
+                listOf(video)
+            }
+        }
+    }
+
+    private fun sortVideos(videos: MutableList<Video>) {
+        val regex = Regex("""(\d+)p""")
+        videos.sortWith(
+            compareByDescending<Video> {
+                regex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            },
+        )
     }
 
     private fun parseSeriesList(doc: Document): List<SAnime> {
