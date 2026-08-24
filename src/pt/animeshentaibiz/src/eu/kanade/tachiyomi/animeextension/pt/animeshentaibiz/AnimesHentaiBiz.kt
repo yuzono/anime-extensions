@@ -16,7 +16,6 @@ import okhttp3.Response
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 
 class AnimesHentaiBiz : AnimeHttpSource() {
 
@@ -122,7 +121,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
-        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -139,7 +137,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
-        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -233,19 +230,17 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     }
 
     // Extrai a URL do iframe contida na resposta JSON ou HTML do AJAX
-    private fun extractEmbedUrlFromResponse(responseBody: String): String? {
-        return try {
-            val json = JSONObject(responseBody)
-            val embedHtml = json.optString("embed_url", "")
-            val doc = Jsoup.parse(embedHtml)
-            doc.selectFirst("iframe")?.let {
-                it.attr("src").ifEmpty { it.attr("data-src") }
-            }
-        } catch (e: Exception) {
-            val doc = Jsoup.parse(responseBody)
-            doc.selectFirst("iframe")?.let {
-                it.attr("src").ifEmpty { it.attr("data-src") }
-            }
+    private fun extractEmbedUrlFromResponse(responseBody: String): String? = try {
+        val json = JSONObject(responseBody)
+        val embedHtml = json.optString("embed_url", "")
+        val doc = Jsoup.parse(embedHtml)
+        doc.selectFirst("iframe")?.let {
+            it.attr("src").ifEmpty { it.attr("data-src") }
+        }
+    } catch (e: Exception) {
+        val doc = Jsoup.parse(responseBody)
+        doc.selectFirst("iframe")?.let {
+            it.attr("src").ifEmpty { it.attr("data-src") }
         }
     }
 
