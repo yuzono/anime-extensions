@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.watchanimehentai
 
+import android.util.Base64
 import eu.kanade.tachiyomi.animeextension.pt.watchanimehentai.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -19,7 +20,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override val name = "WatchAnimeHentai"
     override val baseUrl = "https://www.watchanimehentai.com"
     override val lang = "pt"
-    override val supportsLatest = true // Habilitado para mostrar a aba Recentes
+    override val supportsLatest = true
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
@@ -30,7 +31,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
 
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
-
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun popularAnimeRequest(page: Int): Request {
@@ -171,19 +171,33 @@ class WatchAnimeHentai : AnimeHttpSource() {
                     iframeSrc = baseUrl + iframeSrc
                 }
 
+                // 1. Tenta decodificar o parâmetro padrao (Base64) para obter link direto
+                val padrao = iframeSrc.substringAfter("padrao=", "")
+                if (padrao.isNotBlank()) {
+                    val decoded = decodePadrao(padrao)
+                    if (decoded != null) {
+                        val videosFromDecoded = extractVideosFromText(decoded, languageLabel, iframeSrc)
+                        if (videosFromDecoded.isNotEmpty()) {
+                            videos.addAll(videosFromDecoded)
+                            continue
+                        }
+                    }
+                }
+
+                // 2. Tenta extração direta no HTML do iframe
                 try {
                     val iframeResponse = client.newCall(GET(iframeSrc, headers)).execute()
                     val iframeBody = iframeResponse.body.string()
                     val directVideos = extractVideosFromHtml(iframeBody, languageLabel, iframeSrc)
                     if (directVideos.isNotEmpty()) {
                         videos.addAll(directVideos)
-                    } else {
-                        // Fallback para WebView
-                        val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
-                        videos.addAll(universalVideos)
+                        continue
                     }
+
+                    // 3. Fallback para UniversalExtractor (WebView)
+                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
+                    videos.addAll(universalVideos)
                 } catch (e: Exception) {
-                    // Em caso de erro, tenta WebView
                     val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
                     videos.addAll(universalVideos)
                 }
@@ -218,9 +232,24 @@ class WatchAnimeHentai : AnimeHttpSource() {
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
+    private fun decodePadrao(padrao: String): String? {
+        return try {
+            val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
+            String(decodedBytes, Charsets.UTF_8)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun extractVideosFromText(text: String, prefix: String, referer: String): List<Video> {
+        // Tenta extrair URLs de vídeo de um texto (decodificado) ou de um JSON
+        return extractVideosFromHtml(text, prefix, referer)
+    }
+
     private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
         val videos = mutableListOf<Video>()
 
+        // Regex para googlevideo (MP4)
         val googlevideoRegex = Regex(
             """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
             RegexOption.IGNORE_CASE,
@@ -238,12 +267,29 @@ class WatchAnimeHentai : AnimeHttpSource() {
             videos.add(Video(videoUrl, "$prefix - $qualityLabel", videoUrl, videoHeaders))
         }
 
+        // Regex para m3u8
+        val m3u8Regex = Regex(
+            """https?://[^"'\\s<>]+\.m3u8[^"'\\s<>]*""",
+            RegexOption.IGNORE_CASE,
+        )
+        m3u8Regex.findAll(html).forEach { match ->
+            val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
+            val videoHeaders = Headers.headersOf(
+                "Referer",
+                referer,
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            )
+            videos.add(Video(videoUrl, "$prefix - HLS", videoUrl, videoHeaders))
+        }
+
+        // Se não achou nenhum dos dois, tenta mp4 genérico
         if (videos.isEmpty()) {
-            val genericRegex = Regex(
-                """https?://[^"'\\s<>]+\.(?:mp4|m3u8)[^"'\\s<>]*""",
+            val mp4Regex = Regex(
+                """https?://[^"'\\s<>]+\.mp4[^"'\\s<>]*""",
                 RegexOption.IGNORE_CASE,
             )
-            genericRegex.findAll(html).forEach { match ->
+            mp4Regex.findAll(html).forEach { match ->
                 val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
                 val videoHeaders = Headers.headersOf(
                     "Referer",
