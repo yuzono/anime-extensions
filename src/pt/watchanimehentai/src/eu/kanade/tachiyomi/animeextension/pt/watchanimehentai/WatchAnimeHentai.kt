@@ -18,15 +18,14 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override val name = "WatchAnimeHentai"
     override val baseUrl = "https://www.watchanimehentai.com"
     override val lang = "pt"
-    override val supportsLatest = true   // Habilitado para mostrar a aba Recentes
+    override val supportsLatest = true // Habilitado para mostrar a aba Recentes
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
         .add("Referer", baseUrl)
 
     // ===================== UTILITÁRIO =====================
-    private fun absoluteUrl(url: String): String =
-        if (url.startsWith("http")) url else baseUrl + url
+    private fun absoluteUrl(url: String): String = if (url.startsWith("http")) url else baseUrl + url
 
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
@@ -113,13 +112,12 @@ class WatchAnimeHentai : AnimeHttpSource() {
                     episode_number = (index + 1).toFloat()
                     name = episodeName
                     url = episodeUrl
-                }
+                },
             )
         }
 
         // 2. Se não encontrou, tenta outros formatos comuns
         if (episodes.isEmpty()) {
-            // Links diretos para /episodes/ dentro de listas (ul/ol/div)
             doc.select("a[href*='/episodes/']").forEach { link ->
                 val href = link.attr("href")
                 if (href.isNotBlank() && !episodes.any { it.url == href }) {
@@ -131,7 +129,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
                             episode_number = (episodes.size + 1).toFloat()
                             this.name = name
                             url = href
-                        }
+                        },
                     )
                 }
             }
