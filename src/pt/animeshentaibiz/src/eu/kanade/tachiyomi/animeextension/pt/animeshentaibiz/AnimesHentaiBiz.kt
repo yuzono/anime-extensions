@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -50,9 +51,20 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     }
 
     // ===================== EPISÓDIOS RECENTES (LATEST) =====================
-    override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
+    override fun latestUpdatesRequest(page: Int): Request {
+        val url = if (page == 1) {
+            "$baseUrl/episodio/"
+        } else {
+            "$baseUrl/episodio/page/$page/"
+        }
+        return GET(url, headers)
+    }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val doc = Jsoup.parse(response.body.string())
+        val episodes = parseEpisodeList(doc)  // converte episódios em SAnime
+        return AnimesPage(episodes, episodes.isNotEmpty())
+    }
 
     // ===================== BUSCA =====================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -163,6 +175,15 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 if (iframeSrc.isBlank()) continue
                 if (iframeSrc.startsWith("/")) iframeSrc = baseUrl + iframeSrc
 
+                // Se for Blogger, usa BloggerExtractor diretamente
+                if ("blogger.com/video.g" in iframeSrc) {
+                    val bloggerVideos = bloggerExtractor.videosFromUrl(iframeSrc, headers)
+                    if (bloggerVideos.isNotEmpty()) {
+                        videos.addAll(bloggerVideos)
+                        continue
+                    }
+                }
+
                 // Tenta decodificar parâmetro padrao (Base64) se existir
                 val padrao = iframeSrc.substringAfter("padrao=", "")
                 if (padrao.isNotBlank()) {
@@ -198,17 +219,22 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 val src = iframe.attr("src")
                 if (src.isNotBlank()) {
                     val absoluteSrc = absoluteUrl(src)
-                    try {
-                        val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
-                        val iframeBody = iframeResponse.body.string()
-                        val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
-                        if (directVideos.isNotEmpty()) {
-                            videos.addAll(directVideos)
-                        } else {
+                    if ("blogger.com/video.g" in absoluteSrc) {
+                        val bloggerVideos = bloggerExtractor.videosFromUrl(absoluteSrc, headers)
+                        videos.addAll(bloggerVideos)
+                    } else {
+                        try {
+                            val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
+                            val iframeBody = iframeResponse.body.string()
+                            val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
+                            if (directVideos.isNotEmpty()) {
+                                videos.addAll(directVideos)
+                            } else {
+                                videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
+                            }
+                        } catch (e: Exception) {
                             videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
                         }
-                    } catch (e: Exception) {
-                        videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
                     }
                 }
             }
@@ -221,6 +247,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
     private fun decodePadrao(padrao: String): String? = try {
         val decodedBytes = Base64.decode(padrao, Base64.DEFAULT)
