@@ -11,7 +11,6 @@ import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
