@@ -18,11 +18,15 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override val name = "WatchAnimeHentai"
     override val baseUrl = "https://www.watchanimehentai.com"
     override val lang = "pt"
-    override val supportsLatest = false
+    override val supportsLatest = true   // Habilitado para mostrar a aba Recentes
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
         .add("Referer", baseUrl)
+
+    // ===================== UTILITÁRIO =====================
+    private fun absoluteUrl(url: String): String =
+        if (url.startsWith("http")) url else baseUrl + url
 
     // ===================== LISTAGEM =====================
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
@@ -59,7 +63,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
     }
 
     // ===================== DETALHES =====================
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(absoluteUrl(anime.url), headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = Jsoup.parse(response.body.string())
@@ -68,12 +72,17 @@ class WatchAnimeHentai : AnimeHttpSource() {
         return SAnime.create().apply {
             this.url = url
             title = doc.selectFirst("div.sheader .data h1")?.text()?.trim()
+                ?: doc.selectFirst("h1")?.text()?.trim()
                 ?: doc.selectFirst("meta[property=og:title]")?.attr("content")
                 ?: doc.title()
                 ?: ""
 
+            // Descrição com múltiplos seletores alternativos
             description = doc.selectFirst("div.wp-content p")?.text()?.trim()
                 ?: doc.selectFirst("div.wp-content")?.text()?.trim()
+                ?: doc.selectFirst("div.info1 .wp-content")?.text()?.trim()
+                ?: doc.selectFirst("div.sinopse")?.text()?.trim()
+                ?: doc.selectFirst("div.descricao")?.text()?.trim()
                 ?: doc.selectFirst("meta[property=og:description]")?.attr("content")
                 ?: ""
 
@@ -87,27 +96,52 @@ class WatchAnimeHentai : AnimeHttpSource() {
     }
 
     // ===================== EPISÓDIOS =====================
-    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
+    override fun episodeListRequest(anime: SAnime): Request = GET(absoluteUrl(anime.url), headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = Jsoup.parse(response.body.string())
+        val episodes = mutableListOf<SEpisode>()
+
+        // 1. Tenta o seletor original (cards de episódios)
         val episodeElements = doc.select("article.item.se.episodes")
-
-        return episodeElements.mapIndexed { index, article ->
-            val linkEl = article.selectFirst("a[href^='/episodes/']") ?: return@mapIndexed null
-            val episodeUrl = linkEl.attr("href")?.let { if (it.startsWith("http")) it else baseUrl + it } ?: return@mapIndexed null
+        episodeElements.forEachIndexed { index, article ->
+            val linkEl = article.selectFirst("a[href^='/episodes/']") ?: return@forEachIndexed
+            val episodeUrl = linkEl.attr("href")
             val episodeName = article.selectFirst("h3")?.text()?.trim() ?: "Episode ${index + 1}"
+            episodes.add(
+                SEpisode.create().apply {
+                    episode_number = (index + 1).toFloat()
+                    name = episodeName
+                    url = episodeUrl
+                }
+            )
+        }
 
-            SEpisode.create().apply {
-                episode_number = (index + 1).toFloat()
-                name = episodeName
-                url = episodeUrl
+        // 2. Se não encontrou, tenta outros formatos comuns
+        if (episodes.isEmpty()) {
+            // Links diretos para /episodes/ dentro de listas (ul/ol/div)
+            doc.select("a[href*='/episodes/']").forEach { link ->
+                val href = link.attr("href")
+                if (href.isNotBlank() && !episodes.any { it.url == href }) {
+                    val name = link.selectFirst("h3")?.text()?.trim()
+                        ?: link.text().trim()
+                        ?: "Episode ${episodes.size + 1}"
+                    episodes.add(
+                        SEpisode.create().apply {
+                            episode_number = (episodes.size + 1).toFloat()
+                            this.name = name
+                            url = href
+                        }
+                    )
+                }
             }
-        }.filterNotNull()
+        }
+
+        return episodes
     }
 
     // ===================== VÍDEOS =====================
-    override fun videoListRequest(episode: SEpisode): Request = GET(baseUrl + episode.url, headers)
+    override fun videoListRequest(episode: SEpisode): Request = GET(absoluteUrl(episode.url), headers)
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = Jsoup.parse(response.body.string())
@@ -175,9 +209,10 @@ class WatchAnimeHentai : AnimeHttpSource() {
     private fun parseAnimeList(doc: Document): List<SAnime> {
         val animes = mutableListOf<SAnime>()
 
-        doc.select("article.item.tvshows").forEach { article ->
-            val linkEl = article.selectFirst("a[href^='/info/']") ?: return@forEach
-            val animeUrl = linkEl.attr("href")?.let { if (it.startsWith("http")) it else baseUrl + it } ?: return@forEach
+        // Seletores abrangentes para séries e episódios (caso a busca misture)
+        doc.select("article.item.tvshows, article.item.se.episodes").forEach { article ->
+            val linkEl = article.selectFirst("a[href*='/info/']") ?: return@forEach
+            val animeUrl = linkEl.attr("href") // mantém relativo
             val title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
             val thumbnail = article.selectFirst("div.poster img")?.attr("src")?.let {
                 if (it.startsWith("http")) it else baseUrl + it
