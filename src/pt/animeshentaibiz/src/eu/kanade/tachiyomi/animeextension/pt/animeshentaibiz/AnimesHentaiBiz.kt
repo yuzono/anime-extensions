@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
-import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -11,8 +10,10 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -25,7 +26,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     override val supportsLatest = true
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .add("Referer", baseUrl)
 
     // ===================== UTILITÁRIO =====================
@@ -121,7 +122,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
-        // Seletor específico da lista de episódios na página da série
         doc.select("div.tempep ul.episodios li").forEach { li ->
             val linkEl = li.selectFirst("div.episodiotitle a[href*='/episodio/']") ?: return@forEach
             val episodeUrl = linkEl.attr("href")
@@ -138,7 +138,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             )
         }
 
-        // Fallback: tenta links genéricos para /episodio/
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodio/']").forEach { link ->
                 val href = link.attr("href")
@@ -186,11 +185,16 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
         return when {
             "blogger.com/video.g" in absoluteSrc -> {
-                // Usa BloggerExtractor diretamente, que já trata os cabeçalhos corretamente
-                bloggerExtractor.videosFromUrl(absoluteSrc, headers, language)
+                // Usa nosso extrator local (headers corretos + sanitização)
+                extractBloggerVideos(absoluteSrc, language)
             }
             "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
-                listOf(Video(absoluteSrc, "Player", absoluteSrc))
+                val cleanUrl = sanitizeUrl(absoluteSrc)
+                val videoHeaders = Headers.headersOf(
+                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer", "https://www.blogger.com/",
+                )
+                listOf(Video(cleanUrl, "Player", cleanUrl, videoHeaders))
             }
             else -> emptyList()
         }
@@ -198,8 +202,78 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun videoUrlParse(response: Response): String = response.request.url.toString()
 
-    // ===================== UTILITÁRIOS =====================
-    private val bloggerExtractor by lazy { BloggerExtractor(client) }
+    // ===================== EXTRATOR DO BLOGGER =====================
+    private fun extractBloggerVideos(url: String, language: String): List<Video> {
+        val videos = mutableListOf<Video>()
+
+        try {
+            val response = client.newCall(GET(url, headers)).execute()
+            val body = response.body?.string() ?: return emptyList()
+
+            // Extrai o JSON do VIDEO_CONFIG
+            val configJsonString = body
+                .substringAfter("var VIDEO_CONFIG = ")
+                .substringBefore(";")
+            if (configJsonString.isBlank()) return emptyList()
+
+            val json = JSONObject(configJsonString)
+            val streams = json.optJSONArray("streams") ?: return emptyList()
+
+            for (i in 0 until streams.length()) {
+                val stream = streams.getJSONObject(i)
+                val rawUrl = stream.optString("play_url", "")
+                if (rawUrl.isBlank()) continue
+
+                val cleanUrl = sanitizeUrl(rawUrl)
+                val formatId = stream.optInt("format_id", 0)
+                val quality = when (formatId) {
+                    22 -> "720p"
+                    18 -> "360p"
+                    else -> "SD"
+                }
+
+                // Headers adequados
+                val videoHeaders = Headers.headersOf(
+                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer", "https://www.blogger.com/",
+                )
+
+                // Segue redirecionamento para obter URL final
+                val finalUrl = getRedirectedUrl(cleanUrl, videoHeaders) ?: cleanUrl
+
+                videos.add(Video(finalUrl, "$language $quality".trim(), finalUrl, videoHeaders))
+            }
+        } catch (e: Exception) {
+            // Em caso de erro, retorna vazio
+            return emptyList()
+        }
+
+        return videos
+    }
+
+    private fun sanitizeUrl(url: String): String {
+        return url
+            .replace("\\u0026", "&")
+            .replace("\\u003d", "=")
+            .replace("\\/", "/")
+            .replace("&amp;", "&")
+            .replace("%3D", "=")
+            .replace("%26", "&")
+    }
+
+    private fun getRedirectedUrl(url: String, headers: Headers): String? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .headers(headers)
+                .build()
+            client.newCall(request).execute().use { response ->
+                response.request.url.toString()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     // ===================== FUNÇÕES AUXILIARES =====================
     private fun groupLatestBySeries(episodes: List<SAnime>): List<SAnime> {
