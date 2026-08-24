@@ -59,7 +59,7 @@ object AnikotoThemeFilters {
 
     class EpisodesMaxFilter : AnimeFilter.Text("Maximum episodes")
 
-    val FILTER_LIST get() = AnimeFilterList(
+    fun getFilterList(hasSource: Boolean, hasEpisodes: Boolean): AnimeFilterList = AnimeFilterList(
         SortFilter(),
         GenreFilter(),
         SeasonFilter(),
@@ -68,10 +68,11 @@ object AnikotoThemeFilters {
         StatusFilter(),
         LanguageFilter(),
         RatingFilter(),
-        SourceFilter(),
-        EpisodesMinFilter(),
-        EpisodesMaxFilter(),
+        *(if (hasSource) arrayOf(SourceFilter()) else emptyArray()),
+        *(if (hasEpisodes) arrayOf(EpisodesMinFilter(), EpisodesMaxFilter()) else emptyArray()),
     )
+
+    val FILTER_LIST get() = getFilterList(hasSource = true, hasEpisodes = true)
 
     // ============================== Search Parameters ==============================
 
