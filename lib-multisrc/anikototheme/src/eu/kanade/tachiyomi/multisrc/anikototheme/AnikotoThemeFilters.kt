@@ -53,6 +53,12 @@ object AnikotoThemeFilters {
 
     class RatingFilter : CheckBoxFilterList("Rating", AniKotoThemeFiltersData.RATING)
 
+    class SourceFilter : CheckBoxFilterList("Source", AniKotoThemeFiltersData.SOURCE)
+
+    class EpisodesMinFilter : AnimeFilter.Text("Minimum episodes")
+
+    class EpisodesMaxFilter : AnimeFilter.Text("Maximum episodes")
+
     val FILTER_LIST get() = AnimeFilterList(
         SortFilter(),
         GenreFilter(),
@@ -62,6 +68,9 @@ object AnikotoThemeFilters {
         StatusFilter(),
         LanguageFilter(),
         RatingFilter(),
+        SourceFilter(),
+        EpisodesMinFilter(),
+        EpisodesMaxFilter(),
     )
 
     // ============================== Search Parameters ==============================
@@ -75,10 +84,15 @@ object AnikotoThemeFilters {
         val statuses: List<String> = emptyList(),
         val languages: List<String> = emptyList(),
         val ratings: List<String> = emptyList(),
+        val sources: List<String> = emptyList(),
+        val episodesMin: String = "",
+        val episodesMax: String = "",
     )
 
     fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
+
+        fun AnimeFilter.Text.toDigits() = state.trim().filter { it.isDigit() }
 
         return FilterSearchParams(
             sort = filters.filterIsInstance<SortFilter>().firstOrNull()?.toQueryPart() ?: "",
@@ -89,6 +103,9 @@ object AnikotoThemeFilters {
             statuses = filters.filterIsInstance<StatusFilter>().firstOrNull()?.toQueryPart() ?: emptyList(),
             languages = filters.filterIsInstance<LanguageFilter>().firstOrNull()?.toQueryPart() ?: emptyList(),
             ratings = filters.filterIsInstance<RatingFilter>().firstOrNull()?.toQueryPart() ?: emptyList(),
+            sources = filters.filterIsInstance<SourceFilter>().firstOrNull()?.toQueryPart() ?: emptyList(),
+            episodesMin = filters.filterIsInstance<EpisodesMinFilter>().firstOrNull()?.toDigits().orEmpty(),
+            episodesMax = filters.filterIsInstance<EpisodesMaxFilter>().firstOrNull()?.toDigits().orEmpty(),
         )
     }
 
@@ -202,6 +219,27 @@ object AnikotoThemeFilters {
             Pair("R - 17+, Violence & Profanity", "R"),
             Pair("R+ - Profanity & Mild Nudity", "R+"),
             Pair("Rx - Hentai", "Rx"),
+        )
+
+        val SOURCE = listOf(
+            Pair("4-koma Manga", "4-koma_manga"),
+            Pair("Book", "book"),
+            Pair("Card Game", "card_game"),
+            Pair("Game", "game"),
+            Pair("Light Novel", "light_novel"),
+            Pair("Manga", "manga"),
+            Pair("Mixed Media", "mixed_media"),
+            Pair("Music", "music"),
+            Pair("Novel", "novel"),
+            Pair("Original", "original"),
+            Pair("Other", "other"),
+            Pair("Picture Book", "picture_book"),
+            Pair("Radio", "radio"),
+            Pair("Unknown", "unknown"),
+            Pair("Video Game", "video_game"),
+            Pair("Visual Novel", "visual_novel"),
+            Pair("Web Manga", "web_manga"),
+            Pair("Web Novel", "web_novel"),
         )
     }
 }
