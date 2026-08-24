@@ -26,7 +26,6 @@ class UniversalExtractor(private val client: OkHttpClient) {
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var resultUrl = ""
-        val playlistUtils by lazy { PlaylistUtils(client, origRequestHeader) }
 
         handler.post {
             val newView = WebView(applicationContext)
@@ -72,24 +71,23 @@ class UniversalExtractor(private val client: OkHttpClient) {
         }
 
         val prefix = name ?: "Player"
+        val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
 
         return when {
             "googlevideo" in resultUrl -> {
                 Log.d(tag, "googlevideo URL: $resultUrl")
-                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
                 listOf(Video(resultUrl, "$prefix: MP4", resultUrl, videoHeaders))
             }
             "m3u8" in resultUrl -> {
                 Log.d(tag, "m3u8 URL: $resultUrl")
-                playlistUtils.extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
+                PlaylistUtils(client, origRequestHeader).extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
             }
             "mpd" in resultUrl -> {
                 Log.d(tag, "mpd URL: $resultUrl")
-                playlistUtils.extractFromDash(resultUrl, { "$prefix: $it" }, referer = origRequestUrl)
+                PlaylistUtils(client, origRequestHeader).extractFromDash(resultUrl, { "$prefix: $it" }, referer = origRequestUrl)
             }
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
-                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
                 listOf(Video(resultUrl, "$prefix: MP4", resultUrl, videoHeaders))
             }
             else -> emptyList()
