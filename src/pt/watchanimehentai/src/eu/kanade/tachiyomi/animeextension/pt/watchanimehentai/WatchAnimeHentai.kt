@@ -30,8 +30,11 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun popularAnimeRequest(page: Int): Request {
-        val url = if (page == 1) "$baseUrl/hentai/"
-                  else "$baseUrl/hentai/page/$page/"
+        val url = if (page == 1) {
+            "$baseUrl/hentai/"
+        } else {
+            "$baseUrl/hentai/page/$page/"
+        }
         return GET(url, headers)
     }
 
@@ -130,7 +133,7 @@ class WatchAnimeHentai : AnimeHttpSource() {
 
                     val googlevideoRegex = Regex(
                         """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
-                        RegexOption.IGNORE_CASE
+                        RegexOption.IGNORE_CASE,
                     )
                     val matches = googlevideoRegex.findAll(iframeBody).toList()
 
@@ -185,24 +188,22 @@ class WatchAnimeHentai : AnimeHttpSource() {
                     url = animeUrl
                     this.title = title
                     thumbnail_url = thumbnail
-                }
+                },
             )
         }
 
         return animes
     }
 
-    private fun qualityFromItag(itag: String): String {
-        return when (itag) {
-            "17" -> "144p"
-            "18" -> "360p"
-            "22" -> "720p"
-            "37" -> "1080p"
-            "36" -> "180p"
-            "43" -> "360p WebM"
-            "44" -> "480p WebM"
-            "45" -> "720p WebM"
-            else -> "Qualidade $itag"
-        }
+    private fun qualityFromItag(itag: String): String = when (itag) {
+        "17" -> "144p"
+        "18" -> "360p"
+        "22" -> "720p"
+        "37" -> "1080p"
+        "36" -> "180p"
+        "43" -> "360p WebM"
+        "44" -> "480p WebM"
+        "45" -> "720p WebM"
+        else -> "Qualidade $itag"
     }
 }
