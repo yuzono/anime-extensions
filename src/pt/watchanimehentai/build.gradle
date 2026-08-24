@@ -1,7 +1,6 @@
 ext {
     extName = 'WatchAnimeHentai'
     extClass = '.WatchAnimeHentai'
-    baseUrl = 'https://www.watchanimehentai.com'
     extVersionCode = 1
     isNsfw = true
 }
@@ -9,7 +8,5 @@ ext {
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(":core"))
-    implementation(libs.bundles.common)
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+    // Nenhuma dependência extra é necessária para esta extensão.
 }
