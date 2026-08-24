@@ -14,7 +14,6 @@ import keiyoushi.utils.applicationContext
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jsoup.Jsoup
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -22,14 +21,10 @@ class UniversalExtractor(private val client: OkHttpClient) {
     private val tag by lazy { javaClass.simpleName }
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
-    /**
-     * Extrai vídeos de uma URL de iframe, tentando primeiro uma extração direta via OkHttp e Jsoup.
-     * Se não encontrar, recorre ao WebView com script de clique.
-     */
     fun videosFromUrl(origRequestUrl: String, origRequestHeader: Headers, name: String?): List<Video> {
         val prefix = name ?: "Player"
 
-        // 1) Tenta extração direta (funciona para Blogger, por exemplo)
+        // 1) Tenta extração direta (funciona para Blogger)
         runCatching {
             val request = Request.Builder()
                 .url(origRequestUrl)
@@ -37,7 +32,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
                 .build()
             val response = client.newCall(request).execute()
             val html = response.body?.string() ?: ""
-            val directVideos = extractVideosFromHtml(html, prefix, origRequestUrl, origRequestHeader)
+            val directVideos = extractVideosFromHtml(html, prefix, origRequestUrl)
             if (directVideos.isNotEmpty()) {
                 return directVideos
             }
@@ -47,15 +42,9 @@ class UniversalExtractor(private val client: OkHttpClient) {
         return extractVideosWithWebView(origRequestUrl, origRequestHeader, prefix)
     }
 
-    private fun extractVideosFromHtml(
-        html: String,
-        prefix: String,
-        referer: String,
-        headers: Headers,
-    ): List<Video> {
+    private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
         val videos = mutableListOf<Video>()
 
-        // Regex para googlevideo (mp4 do Blogger)
         val googlevideoRegex = Regex(
             """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
             RegexOption.IGNORE_CASE,
@@ -68,7 +57,6 @@ class UniversalExtractor(private val client: OkHttpClient) {
             videos.add(Video(videoUrl, "$prefix - $qualityLabel", videoUrl, videoHeaders))
         }
 
-        // Regex para m3u8
         val m3u8Regex = Regex(
             """https?://[^"'\\s<>]+\.m3u8[^"'\\s<>]*""",
             RegexOption.IGNORE_CASE,
@@ -79,7 +67,6 @@ class UniversalExtractor(private val client: OkHttpClient) {
             videos.add(Video(videoUrl, "$prefix - HLS", videoUrl, videoHeaders))
         }
 
-        // Regex para mp4 genérico
         if (videos.isEmpty()) {
             val mp4Regex = Regex(
                 """https?://[^"'\\s<>]+\.mp4[^"'\\s<>]*""",
@@ -183,6 +170,18 @@ class UniversalExtractor(private val client: OkHttpClient) {
         }
     }
 
+    private fun qualityFromItag(itag: String): String = when (itag) {
+        "17" -> "144p"
+        "18" -> "360p"
+        "22" -> "720p"
+        "37" -> "1080p"
+        "36" -> "180p"
+        "43" -> "360p WebM"
+        "44" -> "480p WebM"
+        "45" -> "720p WebM"
+        else -> "Qualidade $itag"
+    }
+
     companion object {
         private const val TIMEOUT_SEC = 20L
 
@@ -196,17 +195,14 @@ class UniversalExtractor(private val client: OkHttpClient) {
         private val CHECK_SCRIPT by lazy {
             """
             setInterval(() => {
-                // Clica em qualquer elemento com classes ou ids que contenham play/video
                 var all = document.querySelectorAll('[class*="play"], [class*="video"], [id*="play"], [id*="video"]');
                 for (var i = 0; i < all.length; i++) {
                     try { all[i].click(); } catch (e) {}
                 }
 
-                // Tenta players conhecidos
                 try { jwplayer(0).play(); } catch (e) {}
                 try { videojs.getPlayers().forEach(p => p.play()); } catch (e) {}
 
-                // Tenta obter src de tags de vídeo
                 var videos = document.querySelectorAll('video, source');
                 for (var j = 0; j < videos.length; j++) {
                     var src = videos[j].src || videos[j].getAttribute('src');
@@ -215,7 +211,6 @@ class UniversalExtractor(private val client: OkHttpClient) {
                     }
                 }
 
-                // Tenta links de download
                 var links = document.querySelectorAll('a[href*=".mp4"], a[href*=".m3u8"], a[href*="videoplayback"]');
                 for (var k = 0; k < links.length; k++) {
                     var href = links[k].href;
@@ -226,17 +221,5 @@ class UniversalExtractor(private val client: OkHttpClient) {
             }, 1500)
             """.trimIndent()
         }
-    }
-
-    private fun qualityFromItag(itag: String): String = when (itag) {
-        "17" -> "144p"
-        "18" -> "360p"
-        "22" -> "720p"
-        "37" -> "1080p"
-        "36" -> "180p"
-        "43" -> "360p WebM"
-        "44" -> "480p WebM"
-        "45" -> "720p WebM"
-        else -> "Qualidade $itag"
     }
 }
