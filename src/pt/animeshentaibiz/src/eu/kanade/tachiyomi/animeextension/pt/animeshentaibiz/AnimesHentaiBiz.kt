@@ -322,17 +322,15 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         return videos
     }
 
-    private fun expandM3u8(videos: List<Video>, prefix: String, referer: String): List<Video> {
-        return videos.flatMap { video ->
-            if (video.url.endsWith(".m3u8")) {
-                try {
-                    playlistUtils.extractFromHls(video.url, referer, videoNameGen = { "$prefix: $it" })
-                } catch (e: Exception) {
-                    listOf(video)
-                }
-            } else {
+    private fun expandM3u8(videos: List<Video>, prefix: String, referer: String): List<Video> = videos.flatMap { video ->
+        if (video.url.endsWith(".m3u8")) {
+            try {
+                playlistUtils.extractFromHls(video.url, referer, videoNameGen = { "$prefix: $it" })
+            } catch (e: Exception) {
                 listOf(video)
             }
+        } else {
+            listOf(video)
         }
     }
 
