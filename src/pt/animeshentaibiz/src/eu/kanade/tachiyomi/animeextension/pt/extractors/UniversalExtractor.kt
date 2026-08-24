@@ -8,6 +8,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.applicationContext
 import okhttp3.Headers
@@ -25,6 +26,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var resultUrl = ""
+        val playlistUtils by lazy { PlaylistUtils(client, origRequestHeader) }
 
         handler.post {
             val newView = WebView(applicationContext)
@@ -79,13 +81,11 @@ class UniversalExtractor(private val client: OkHttpClient) {
             }
             "m3u8" in resultUrl -> {
                 Log.d(tag, "m3u8 URL: $resultUrl")
-                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
-                listOf(Video(resultUrl, "$prefix: HLS", resultUrl, videoHeaders))
+                playlistUtils.extractFromHls(resultUrl, origRequestUrl, videoNameGen = { "$prefix: $it" })
             }
             "mpd" in resultUrl -> {
                 Log.d(tag, "mpd URL: $resultUrl")
-                val videoHeaders = Headers.headersOf("Referer", origRequestUrl)
-                listOf(Video(resultUrl, "$prefix: DASH", resultUrl, videoHeaders))
+                playlistUtils.extractFromDash(resultUrl, { "$prefix: $it" }, referer = origRequestUrl)
             }
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
