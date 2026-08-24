@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
 import android.util.Base64
-import aniyomi.lib.bloggerextractor.BloggerExtractor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -176,15 +175,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 if (iframeSrc.isBlank()) continue
                 if (iframeSrc.startsWith("/")) iframeSrc = baseUrl + iframeSrc
 
-                // Se for Blogger, usa BloggerExtractor diretamente
-                if ("blogger.com/video.g" in iframeSrc) {
-                    val bloggerVideos = bloggerExtractor.videosFromUrl(iframeSrc, headers)
-                    if (bloggerVideos.isNotEmpty()) {
-                        videos.addAll(bloggerVideos)
-                        continue
-                    }
-                }
-
                 // Tenta decodificar parâmetro padrao (Base64) se existir
                 val padrao = iframeSrc.substringAfter("padrao=", "")
                 if (padrao.isNotBlank()) {
@@ -208,7 +198,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                         continue
                     }
 
-                    // Fallback para UniversalExtractor (WebView)
+                    // Fallback para UniversalExtractor (WebView) - funciona para Blogger também
                     val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
                     videos.addAll(expandM3u8(universalVideos, languageLabel, iframeSrc))
                 } catch (e: Exception) {
@@ -222,24 +212,19 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                 val src = iframe.attr("src")
                 if (src.isNotBlank()) {
                     val absoluteSrc = absoluteUrl(src)
-                    if ("blogger.com/video.g" in absoluteSrc) {
-                        val bloggerVideos = bloggerExtractor.videosFromUrl(absoluteSrc, headers)
-                        videos.addAll(bloggerVideos)
-                    } else {
-                        try {
-                            val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
-                            val iframeBody = iframeResponse.body.string()
-                            val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
-                            if (directVideos.isNotEmpty()) {
-                                videos.addAll(expandM3u8(directVideos, "Player", absoluteSrc))
-                            } else {
-                                val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
-                                videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
-                            }
-                        } catch (e: Exception) {
+                    try {
+                        val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
+                        val iframeBody = iframeResponse.body.string()
+                        val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
+                        if (directVideos.isNotEmpty()) {
+                            videos.addAll(expandM3u8(directVideos, "Player", absoluteSrc))
+                        } else {
                             val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
                             videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
                         }
+                    } catch (e: Exception) {
+                        val universalVideos = universalExtractor.videosFromUrl(absoluteSrc, headers, "Player")
+                        videos.addAll(expandM3u8(universalVideos, "Player", absoluteSrc))
                     }
                 }
             }
@@ -255,7 +240,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     // ===================== UTILITÁRIOS =====================
     private val universalExtractor by lazy { UniversalExtractor(client) }
-    private val bloggerExtractor by lazy { BloggerExtractor(client) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private fun decodePadrao(padrao: String): String? = try {
