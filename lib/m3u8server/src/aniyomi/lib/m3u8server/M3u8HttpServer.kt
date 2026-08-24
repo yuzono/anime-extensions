@@ -590,7 +590,7 @@ class M3u8HttpServer(
         it.groupValues[1] to it.groupValues[2].trim('"')
     }
 
-    private fun resolveHlsUrl(baseHttpUrl: okhttp3.HttpUrl?, uri: String): String = baseHttpUrl?.resolve(uri)?.toString() ?: uri
+    private fun resolveHlsUrl(baseHttpUrl: HttpUrl?, uri: String): String = baseHttpUrl?.resolve(uri)?.toString() ?: uri
 
     private fun createLocalSegmentUrl(
         serverPort: Int,
