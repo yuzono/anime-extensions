@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
@@ -185,14 +184,15 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
         return when {
             "blogger.com/video.g" in absoluteSrc -> {
-                // Usa nosso extrator local (headers corretos + sanitização)
                 extractBloggerVideos(absoluteSrc, language)
             }
             "googlevideo.com" in absoluteSrc || absoluteSrc.endsWith(".mp4") -> {
                 val cleanUrl = sanitizeUrl(absoluteSrc)
                 val videoHeaders = Headers.headersOf(
-                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer", "https://www.blogger.com/",
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer",
+                    "https://www.blogger.com/",
                 )
                 listOf(Video(cleanUrl, "Player", cleanUrl, videoHeaders))
             }
@@ -210,7 +210,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             val response = client.newCall(GET(url, headers)).execute()
             val body = response.body?.string() ?: return emptyList()
 
-            // Extrai o JSON do VIDEO_CONFIG
             val configJsonString = body
                 .substringAfter("var VIDEO_CONFIG = ")
                 .substringBefore(";")
@@ -232,34 +231,31 @@ class AnimesHentaiBiz : AnimeHttpSource() {
                     else -> "SD"
                 }
 
-                // Headers adequados
                 val videoHeaders = Headers.headersOf(
-                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer", "https://www.blogger.com/",
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer",
+                    "https://www.blogger.com/",
                 )
 
-                // Segue redirecionamento para obter URL final
                 val finalUrl = getRedirectedUrl(cleanUrl, videoHeaders) ?: cleanUrl
 
                 videos.add(Video(finalUrl, "$language $quality".trim(), finalUrl, videoHeaders))
             }
         } catch (e: Exception) {
-            // Em caso de erro, retorna vazio
             return emptyList()
         }
 
         return videos
     }
 
-    private fun sanitizeUrl(url: String): String {
-        return url
-            .replace("\\u0026", "&")
-            .replace("\\u003d", "=")
-            .replace("\\/", "/")
-            .replace("&amp;", "&")
-            .replace("%3D", "=")
-            .replace("%26", "&")
-    }
+    private fun sanitizeUrl(url: String): String = url
+        .replace("\\u0026", "&")
+        .replace("\\u003d", "=")
+        .replace("\\/", "/")
+        .replace("&amp;", "&")
+        .replace("%3D", "=")
+        .replace("%26", "&")
 
     private fun getRedirectedUrl(url: String, headers: Headers): String? {
         return try {
