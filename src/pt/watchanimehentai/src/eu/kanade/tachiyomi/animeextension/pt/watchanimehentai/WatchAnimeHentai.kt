@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.watchanimehentai
 
+import eu.kanade.tachiyomi.animeextension.pt.watchanimehentai.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -58,7 +59,22 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = Jsoup.parse(response.body.string())
         val animes = parseAnimeList(doc)
-        return AnimesPage(animes, false)
+        if (animes.isNotEmpty()) {
+            return AnimesPage(animes, false)
+        }
+        // Fallback genérico
+        val fallbackAnimes = doc.select("article.item, div.item").mapNotNull { article ->
+            val linkEl = article.selectFirst("a[href*='/info/']") ?: return@mapNotNull null
+            val animeUrl = linkEl.attr("href")
+            val title = article.selectFirst("h3, h2, .title")?.text()?.trim() ?: linkEl.attr("title") ?: ""
+            val thumbnail = article.selectFirst("img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
+            SAnime.create().apply {
+                url = animeUrl
+                this.title = title
+                thumbnail_url = thumbnail
+            }
+        }
+        return AnimesPage(fallbackAnimes, false)
     }
 
     // ===================== DETALHES =====================
@@ -76,7 +92,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
                 ?: doc.title()
                 ?: ""
 
-            // Descrição com múltiplos seletores alternativos
             description = doc.selectFirst("div.wp-content p")?.text()?.trim()
                 ?: doc.selectFirst("div.wp-content")?.text()?.trim()
                 ?: doc.selectFirst("div.info1 .wp-content")?.text()?.trim()
@@ -85,9 +100,8 @@ class WatchAnimeHentai : AnimeHttpSource() {
                 ?: doc.selectFirst("meta[property=og:description]")?.attr("content")
                 ?: ""
 
-            thumbnail_url = doc.selectFirst("div.sheader .poster img")?.attr("src")?.let {
-                if (it.startsWith("http")) it else baseUrl + it
-            } ?: doc.selectFirst("meta[property=og:image]")?.attr("content") ?: ""
+            thumbnail_url = doc.selectFirst("div.sheader .poster img")?.attr("src")?.let { absoluteUrl(it) }
+                ?: doc.selectFirst("meta[property=og:image]")?.attr("content") ?: ""
 
             genre = doc.select("a[href*='/genre/']").joinToString(", ") { it.text().trim() }
             status = SAnime.UNKNOWN
@@ -101,7 +115,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
         val doc = Jsoup.parse(response.body.string())
         val episodes = mutableListOf<SEpisode>()
 
-        // 1. Tenta o seletor original (cards de episódios)
         val episodeElements = doc.select("article.item.se.episodes")
         episodeElements.forEachIndexed { index, article ->
             val linkEl = article.selectFirst("a[href^='/episodes/']") ?: return@forEachIndexed
@@ -116,7 +129,6 @@ class WatchAnimeHentai : AnimeHttpSource() {
             )
         }
 
-        // 2. Se não encontrou, tenta outros formatos comuns
         if (episodes.isEmpty()) {
             doc.select("a[href*='/episodes/']").forEach { link ->
                 val href = link.attr("href")
@@ -162,48 +174,18 @@ class WatchAnimeHentai : AnimeHttpSource() {
                 try {
                     val iframeResponse = client.newCall(GET(iframeSrc, headers)).execute()
                     val iframeBody = iframeResponse.body.string()
-
-                    val googlevideoRegex = Regex(
-                        """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
-                        RegexOption.IGNORE_CASE,
-                    )
-                    val matches = googlevideoRegex.findAll(iframeBody).toList()
-
-                    if (matches.isNotEmpty()) {
-                        matches.forEach { match ->
-                            val videoUrl = match.value
-                                .replace("&amp;", "&")
-                                .replace("\\/", "/")
-
-                            val itag = Regex("""[?&]itag=(\d+)""").find(videoUrl)?.groupValues?.get(1) ?: "?"
-                            val qualityLabel = qualityFromItag(itag)
-
-                            val videoHeaders = Headers.headersOf(
-                                "Referer",
-                                iframeSrc,
-                                "User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                            )
-
-                            videos.add(Video(videoUrl, "$languageLabel - $qualityLabel", videoUrl, videoHeaders))
-                        }
+                    val directVideos = extractVideosFromHtml(iframeBody, languageLabel, iframeSrc)
+                    if (directVideos.isNotEmpty()) {
+                        videos.addAll(directVideos)
                     } else {
-                        val videoHeaders = Headers.headersOf(
-                            "Referer",
-                            iframeSrc,
-                            "User-Agent",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                        )
-                        videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
+                        // Fallback para WebView
+                        val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
+                        videos.addAll(universalVideos)
                     }
                 } catch (e: Exception) {
-                    val videoHeaders = Headers.headersOf(
-                        "Referer",
-                        iframeSrc,
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                    )
-                    videos.add(Video(iframeSrc, languageLabel, iframeSrc, videoHeaders))
+                    // Em caso de erro, tenta WebView
+                    val universalVideos = universalExtractor.videosFromUrl(iframeSrc, headers, languageLabel)
+                    videos.addAll(universalVideos)
                 }
             }
         } else {
@@ -211,14 +193,19 @@ class WatchAnimeHentai : AnimeHttpSource() {
             iframes.forEach { iframe ->
                 val src = iframe.attr("src")
                 if (src.isNotBlank()) {
-                    val absoluteSrc = if (src.startsWith("http")) src else baseUrl + src
-                    val videoHeaders = Headers.headersOf(
-                        "Referer",
-                        absoluteSrc,
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                    )
-                    videos.add(Video(absoluteSrc, "Player", absoluteSrc, videoHeaders))
+                    val absoluteSrc = absoluteUrl(src)
+                    try {
+                        val iframeResponse = client.newCall(GET(absoluteSrc, headers)).execute()
+                        val iframeBody = iframeResponse.body.string()
+                        val directVideos = extractVideosFromHtml(iframeBody, "Player", absoluteSrc)
+                        if (directVideos.isNotEmpty()) {
+                            videos.addAll(directVideos)
+                        } else {
+                            videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
+                        }
+                    } catch (e: Exception) {
+                        videos.addAll(universalExtractor.videosFromUrl(absoluteSrc, headers, "Player"))
+                    }
                 }
             }
         }
@@ -229,17 +216,56 @@ class WatchAnimeHentai : AnimeHttpSource() {
     override fun videoUrlParse(response: Response): String = response.request.url.toString()
 
     // ===================== UTILITÁRIOS =====================
+    private val universalExtractor by lazy { UniversalExtractor(client) }
+
+    private fun extractVideosFromHtml(html: String, prefix: String, referer: String): List<Video> {
+        val videos = mutableListOf<Video>()
+
+        val googlevideoRegex = Regex(
+            """https?://[^"'\\s<>]+googlevideo\.com/videoplayback[^"'\\s<>]*""",
+            RegexOption.IGNORE_CASE,
+        )
+        googlevideoRegex.findAll(html).forEach { match ->
+            val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
+            val itag = Regex("""[?&]itag=(\d+)""").find(videoUrl)?.groupValues?.get(1) ?: "?"
+            val qualityLabel = qualityFromItag(itag)
+            val videoHeaders = Headers.headersOf(
+                "Referer",
+                referer,
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            )
+            videos.add(Video(videoUrl, "$prefix - $qualityLabel", videoUrl, videoHeaders))
+        }
+
+        if (videos.isEmpty()) {
+            val genericRegex = Regex(
+                """https?://[^"'\\s<>]+\.(?:mp4|m3u8)[^"'\\s<>]*""",
+                RegexOption.IGNORE_CASE,
+            )
+            genericRegex.findAll(html).forEach { match ->
+                val videoUrl = match.value.replace("&amp;", "&").replace("\\/", "/")
+                val videoHeaders = Headers.headersOf(
+                    "Referer",
+                    referer,
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                )
+                videos.add(Video(videoUrl, prefix, videoUrl, videoHeaders))
+            }
+        }
+
+        return videos
+    }
+
     private fun parseAnimeList(doc: Document): List<SAnime> {
         val animes = mutableListOf<SAnime>()
 
-        // Seletores abrangentes para séries e episódios (caso a busca misture)
         doc.select("article.item.tvshows, article.item.se.episodes").forEach { article ->
             val linkEl = article.selectFirst("a[href*='/info/']") ?: return@forEach
-            val animeUrl = linkEl.attr("href") // mantém relativo
+            val animeUrl = linkEl.attr("href")
             val title = article.selectFirst("h3 a")?.text()?.trim() ?: linkEl.attr("title") ?: ""
-            val thumbnail = article.selectFirst("div.poster img")?.attr("src")?.let {
-                if (it.startsWith("http")) it else baseUrl + it
-            } ?: ""
+            val thumbnail = article.selectFirst("div.poster img")?.attr("src")?.let { absoluteUrl(it) } ?: ""
 
             animes.add(
                 SAnime.create().apply {
