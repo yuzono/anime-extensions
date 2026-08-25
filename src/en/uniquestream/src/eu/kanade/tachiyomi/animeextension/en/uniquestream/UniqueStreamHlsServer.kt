@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
 import android.util.Base64
+import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -13,7 +14,11 @@ import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.URLEncoder
+import java.net.UnknownHostException
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
@@ -283,7 +288,9 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
     }
 
     // Outbound requests are restricted to public HTTPS hosts so the local
-    // proxy cannot be abused to reach private or internal addresses.
+    // proxy cannot be abused to reach private or internal addresses. Host
+    // strings are checked up front, and resolved addresses are re-checked in
+    // the DNS layer so hostnames that resolve to private IPs are rejected too.
     private fun String.toValidatedHttpUrl(): HttpUrl = toHttpUrlOrNull()
         ?.takeIf { it.isHttps && !it.host.isPrivateHost() }
         ?: throw IOException("Blocked URL: $this")
@@ -292,8 +299,13 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
         endsWith(".local") ||
         endsWith(".localhost") ||
         PRIVATE_HOST_REGEX.matches(this) ||
-        startsWith("[::1]") ||
-        startsWith("[fc") || startsWith("[fd") || startsWith("[fe80")
+        (contains(':') && isPrivateIpv6(this))
+
+    private fun isPrivateIpv6(host: String): Boolean = host == "::1" ||
+        host == "0:0:0:0:0:0:0:1" ||
+        host.startsWith("fc") ||
+        host.startsWith("fd") ||
+        host.startsWith("fe8") || host.startsWith("fe9") || host.startsWith("fea") || host.startsWith("feb")
 
     private val PRIVATE_HOST_REGEX = Regex(
         "^(127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}" +
@@ -302,7 +314,31 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
             "|100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\.\\d{1,3}\\.\\d{1,3})$",
     )
 
-    private fun requireClient(): OkHttpClient = client ?: throw IOException("UniqueStream HLS server is not initialized")
+    private fun InetAddress.isPublicAddress(): Boolean = when (this) {
+        is Inet4Address ->
+            !isLoopbackAddress && !isLinkLocalAddress && !isSiteLocalAddress && !isAnyLocalAddress &&
+                !(address[0].toInt() == 100 && address[1].toInt() in 64..127)
+        is Inet6Address ->
+            !isLoopbackAddress && !isLinkLocalAddress && !isSiteLocalAddress && !isAnyLocalAddress &&
+                address[0].toInt() !in 0xfc..0xfd
+        else -> false
+    }
+
+    private object PublicDns : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            if (hostname.isPrivateHost()) throw UnknownHostException("Blocked host: $hostname")
+            return Dns.SYSTEM.lookup(hostname)
+                .filter { it.isPublicAddress() }
+                .ifEmpty { throw UnknownHostException("No public address for: $hostname") }
+        }
+    }
+
+    private fun requireClient(): OkHttpClient = fetchClient ?: client?.let {
+        it.newBuilder().dns(PublicDns).build().also { c -> fetchClient = c }
+    } ?: throw IOException("UniqueStream HLS server is not initialized")
+
+    @Volatile
+    private var fetchClient: OkHttpClient? = null
 
     private fun parseHlsAttributes(line: String): Map<String, String> {
         val regex = Regex("""([A-Z0-9-]+)=("[^"]*"|[^,]*)""")
