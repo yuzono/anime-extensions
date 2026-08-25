@@ -218,8 +218,6 @@ class Anikage :
         val playlistUtils = PlaylistUtils(client, headers)
 
         return providers.toList().parallelCatchingFlatMap { (type, provider) ->
-            val url = videoListRequestUrl(episode, provider)
-            println(url)
             val episodeData = client.newCall(
                 GET(videoListRequestUrl(episode, provider), headers),
             )
