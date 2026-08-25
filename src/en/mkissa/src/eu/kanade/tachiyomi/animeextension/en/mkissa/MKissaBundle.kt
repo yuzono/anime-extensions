@@ -259,7 +259,16 @@ object MKissaBundle {
                 body = body.substring(1)
             }
             var value = 1
-            for (factor in body.split('*')) value *= factor.toIntOrNull() ?: return 0
+            for (factor in body.split('*')) {
+                // Factors carry their own stacked signs ("2*--4"); parity decides the sign.
+                var factorSign = 1
+                var digits = factor
+                while (digits.startsWith('+') || digits.startsWith('-')) {
+                    if (digits.startsWith('-')) factorSign = -factorSign
+                    digits = digits.substring(1)
+                }
+                value *= factorSign * (digits.toIntOrNull() ?: return 0)
+            }
             total += sign * value
         }
         return total
