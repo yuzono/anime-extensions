@@ -44,13 +44,14 @@ object MKissaCrypto {
     private data class MaskParams(val saltMul: Int, val saltAdd: Int, val fragMul: Int, val fragAdd: Int)
 
     private val MASK_PARAMS = listOf(
+        MaskParams(250, 54, 16, 217),
         MaskParams(211, 222, 200, 176),
         MaskParams(17, 31, 41, 7),
     )
 
     /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild.
-     *  2025-08: site rotated salts from 17/31/41/7 to 211/222/200/176 (see kd={saltMul:211,...} in chunk).
-     *  Keep old constants as fallback for a brief grace window.
+     *  2025-09: site rotated salts from 211/222/200/176 to 250/54/16/217 (see Fd={saltMul:250,...} in chunk).
+     *  Keep older constants as fallback for a brief grace window.
      */
     fun maskCandidates(buildId: String, seeds: List<String>): List<ByteArray> {
         if (buildId.isEmpty() || seeds.size != SEED_COUNT) return emptyList()
@@ -92,10 +93,10 @@ object MKissaCrypto {
     }
 
     /** `x-aa-boot`, checked by the bootstrap endpoint before it hands out `partB`.
-     *  2025-08: site changed bootPrefix from "aa-boot:" to "kNk1YgwkSI:" and message
-     *  from "buildId:group:host:epoch:lane" (":"-joined, buildId first) to
-     *  "epoch.group.host.buildId.lane" ("."-joined, epoch first, see kd={join:".",parts:[epoch,group,host,buildId,lane]}).
-     *  We keep the legacy format as fallback for the brief window after a site rebuild.
+     *  2025-09: site changed bootPrefix from "kNk1YgwkSI:" to "4X2PsZc2r:" and message
+     *  from "epoch.group.host.buildId.lane" to "group.host.lane.buildId.epoch"
+     *  (see Fd={bootPrefix:"4X2PsZc2r:",join:".",parts:[group,host,lane,buildId,epoch]}).
+     *  We keep the previous formats as fallback for the brief window after a site rebuild.
      */
     fun bootTokenNew(
         mask: ByteArray,
@@ -105,9 +106,23 @@ object MKissaCrypto {
         refererHost: String,
         lane: String,
     ): String {
-        val inner = hmac(mask, "kNk1YgwkSI:$buildId")
-        // kd.parts = ["epoch","group","host","buildId","lane"], kd.join = "."
+        val inner = hmac(mask, "4X2PsZc2r:$buildId")
+        // kd.parts = ["group","host","lane","buildId","epoch"], kd.join = "."
         // omitEmptyLane = false, so always include lane even if empty
+        val message = listOf(keyGroup, refererHost, lane, buildId, epoch.toString()).joinToString(".")
+        return hmac(inner, message).toHex()
+    }
+
+    /** 2025-08 scheme, kept for the grace window after a rebuild. */
+    fun bootTokenPrevious(
+        mask: ByteArray,
+        buildId: String,
+        epoch: Long,
+        keyGroup: String,
+        refererHost: String,
+        lane: String,
+    ): String {
+        val inner = hmac(mask, "kNk1YgwkSI:$buildId")
         val message = listOf(epoch.toString(), keyGroup, refererHost, buildId, lane).joinToString(".")
         return hmac(inner, message).toHex()
     }
@@ -138,6 +153,7 @@ object MKissaCrypto {
         lane: String,
     ): List<String> = listOf(
         bootTokenNew(mask, buildId, epoch, keyGroup, refererHost, lane),
+        bootTokenPrevious(mask, buildId, epoch, keyGroup, refererHost, lane),
         bootTokenLegacy(mask, buildId, epoch, keyGroup, refererHost, lane),
     )
 

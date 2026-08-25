@@ -245,7 +245,10 @@ object MKissaBundle {
         return null
     }
 
-    /** Folds the `2935+-1459*2` arithmetic every integer is hidden behind; signs stack. */
+    /** Folds the `2935+-1459*2` arithmetic every integer is hidden behind; signs stack.
+     *  2025-09: the obfuscator started emitting negative factors (`2461*-4`), which the old
+     *  term scan split mid-product and misread as additions, zeroing every decoder offset.
+     */
     private fun fold(expression: String): Int {
         var total = 0
         for (term in TERM_REGEX.findAll(expression.replace(" ", "")).map(MatchResult::value)) {
@@ -255,11 +258,29 @@ object MKissaBundle {
                 if (body.startsWith('-')) sign = -sign
                 body = body.substring(1)
             }
-            var value = 1
-            for (factor in body.split('*')) value *= factor.toIntOrNull() ?: return 0
-            total += sign * value
+
+            // The term sign folds into the first factor, so Int.MIN_VALUE survives parsing.
+            var value = parseFactor(sign, body.substringBefore('*')) ?: return 0
+            val rest = body.substringAfter('*', "")
+            if (rest.isNotEmpty()) {
+                for (factor in rest.split('*')) value *= parseFactor(1, factor) ?: return 0
+            }
+            total += value
         }
         return total
+    }
+
+    /** Signs stack before the digits; parity decides the sign ("2*--4"). */
+    private fun parseFactor(sign: Int, factor: String): Int? {
+        var negative = sign < 0
+        var digits = factor
+        while (digits.startsWith('+') || digits.startsWith('-')) {
+            if (digits.startsWith('-')) negative = !negative
+            digits = digits.substring(1)
+        }
+        val magnitude = digits.toLongOrNull() ?: return null
+        val signed = if (negative) -magnitude else magnitude
+        return if (signed in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) signed.toInt() else null
     }
 
     private val BUILD_ID_REGEX = Regex("""!==\s*["']string["']\s*\?\s*["'](\d+)["']\s*:\s*["']["']""")
@@ -283,6 +304,7 @@ object MKissaBundle {
 
     private val SEED_REGEX = Regex("""[A-Za-z0-9+/]{11}=""")
 
-    // Leading signs matched greedily; `fold` counts them.
-    private val TERM_REGEX = Regex("""[-+]*[^-+]+""")
+    // Leading signs matched greedily; `fold` counts them. Factors may be negative, so the
+    // product is kept inside one term (`2461*-4`) instead of splitting at every sign.
+    private val TERM_REGEX = Regex("""[-+]*\d+(?:\*[-+]*\d+)*""")
 }
