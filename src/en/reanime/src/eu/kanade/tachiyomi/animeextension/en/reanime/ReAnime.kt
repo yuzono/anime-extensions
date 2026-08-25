@@ -24,6 +24,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.tryParse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -34,10 +35,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
 import java.text.SimpleDateFormat
@@ -682,7 +681,7 @@ class ReAnime :
                         audioTagOf(server.dataType),
                     )
                 }
-                .distinctBy { it.first to it.second }
+                .distinct()
                 .parallelCatchingFlatMap { (aid, serverName, audioTag) ->
                     extractDirectDownload(aid, serverName, audioTag)?.let(::listOf) ?: emptyList()
                 }
@@ -869,7 +868,7 @@ class ReAnime :
             val tokenDto = client.newCall(
                 Request.Builder()
                     .url("$decApi/dec-flixcloud?type=token")
-                    .post(tokenPayload.toRequestBody("application/json".toMediaType()))
+                    .post(tokenPayload.toJsonBody())
                     .headers(decHeaders)
                     .build(),
             ).execute().use { it.parseAs<DecFlixCloudTokenResponseDto>() }
@@ -898,7 +897,7 @@ class ReAnime :
             val streamDto = client.newCall(
                 Request.Builder()
                     .url("$decApi/dec-flixcloud?type=stream")
-                    .post(streamPayload.toRequestBody("application/json".toMediaType()))
+                    .post(streamPayload.toJsonBody())
                     .headers(decHeaders)
                     .build(),
             ).execute().use { it.parseAs<DecFlixCloudStreamResponseDto>() }
