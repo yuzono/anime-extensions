@@ -29,7 +29,7 @@ class AnimeOnlineNinja :
     DooPlay(
         "es",
         "AnimeOnline.Ninja",
-        "https://ver.animeonline.ninja",
+        "https://ww3.animeonline.ninja",
     ) {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
@@ -47,6 +47,9 @@ class AnimeOnlineNinja :
     override fun popularAnimeSelector() = latestUpdatesSelector()
 
     override fun popularAnimeNextPageSelector() = latestUpdatesNextPageSelector()
+
+    // The site uses the DooPlay icon font instead of FontAwesome.
+    override val animeMenuSelector = "div.pag_episodes div.item a[href] i.icon-bars"
 
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
