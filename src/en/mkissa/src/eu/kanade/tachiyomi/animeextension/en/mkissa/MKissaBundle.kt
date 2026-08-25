@@ -258,20 +258,29 @@ object MKissaBundle {
                 if (body.startsWith('-')) sign = -sign
                 body = body.substring(1)
             }
-            var value = 1
-            for (factor in body.split('*')) {
-                // Factors carry their own stacked signs ("2*--4"); parity decides the sign.
-                var factorSign = 1
-                var digits = factor
-                while (digits.startsWith('+') || digits.startsWith('-')) {
-                    if (digits.startsWith('-')) factorSign = -factorSign
-                    digits = digits.substring(1)
-                }
-                value *= factorSign * (digits.toIntOrNull() ?: return 0)
+
+            // The term sign folds into the first factor, so Int.MIN_VALUE survives parsing.
+            var value = parseFactor(sign, body.substringBefore('*')) ?: return 0
+            val rest = body.substringAfter('*', "")
+            if (rest.isNotEmpty()) {
+                for (factor in rest.split('*')) value *= parseFactor(1, factor) ?: return 0
             }
-            total += sign * value
+            total += value
         }
         return total
+    }
+
+    /** Signs stack before the digits; parity decides the sign ("2*--4"). */
+    private fun parseFactor(sign: Int, factor: String): Int? {
+        var negative = sign < 0
+        var digits = factor
+        while (digits.startsWith('+') || digits.startsWith('-')) {
+            if (digits.startsWith('-')) negative = !negative
+            digits = digits.substring(1)
+        }
+        val magnitude = digits.toLongOrNull() ?: return null
+        val signed = if (negative) -magnitude else magnitude
+        return if (signed in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) signed.toInt() else null
     }
 
     private val BUILD_ID_REGEX = Regex("""!==\s*["']string["']\s*\?\s*["'](\d+)["']\s*:\s*["']["']""")
