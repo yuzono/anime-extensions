@@ -93,11 +93,11 @@ data class EpisodeSource(
     val subType: String,
     val sources: List<SourceData> = emptyList(),
     val subtitles: List<SubtitleData> = emptyList(),
-    val embeds: List<Embed>?,
+    val embeds: List<Embed>? = null,
     val intro: TimeStamp?,
     val outro: TimeStamp?,
     val headers: Map<String, String> = emptyMap(),
-    val embedOptions: List<EmbedOptions>?,
+    val embedOptions: List<EmbedOptions>? = null,
     val cached: Boolean,
     val stale: Boolean,
 )
