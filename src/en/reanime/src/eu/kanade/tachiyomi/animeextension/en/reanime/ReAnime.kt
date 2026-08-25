@@ -683,9 +683,10 @@ class ReAnime :
                     )
                 }
                 .distinctBy { it.first to it.second }
-                .forEach { (aid, serverName, audioTag) ->
-                    extractDirectDownload(aid, serverName, audioTag)?.let(videos::add)
+                .parallelCatchingFlatMap { (aid, serverName, audioTag) ->
+                    extractDirectDownload(aid, serverName, audioTag)?.let(::listOf) ?: emptyList()
                 }
+                .let(videos::addAll)
         }
 
         if (excluded.isNotEmpty() || excludedAudio.isNotEmpty()) {
@@ -1063,7 +1064,7 @@ class ReAnime :
             entries = AUDIO_EXCLUDE_ENTRIES.toTypedArray()
             entryValues = AUDIO_EXCLUDE_VALUES.toTypedArray()
             setDefaultValue(PREF_AUDIO_EXCLUDE_DEFAULT)
-            summary = "Hide videos of the selected audio types.\nNote: Hiding 'Sub' may hide dub 'Download' videos."
+            summary = "Hide videos of the selected audio types."
         }.also(screen::addPreference)
 
         screen.addPreference(
