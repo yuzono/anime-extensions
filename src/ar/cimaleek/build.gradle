@@ -1,7 +1,7 @@
 ext {
     extName = 'Cimaleek'
     extClass = '.Cimaleek'
-    extVersionCode = 10
+    extVersionCode = 11
 }
 
 apply plugin: "kei.plugins.extension.legacy"

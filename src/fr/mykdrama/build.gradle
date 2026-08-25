@@ -3,7 +3,7 @@ ext {
     extClass = '.MyKdrama'
     themePkg = 'animestream'
     baseUrl = 'https://mykdrama.co'
-    overrideVersionCode = 9
+    overrideVersionCode = 11
 }
 
 apply plugin: "kei.plugins.extension.legacy"

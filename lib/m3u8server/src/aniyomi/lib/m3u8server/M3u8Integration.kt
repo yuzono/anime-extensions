@@ -61,6 +61,8 @@ class M3u8Integration(
      * @return Processed video list
      */
     fun processVideoList(videos: List<Video>): List<Video> {
+        if (videos.none { isM3u8Url(it.url) }) return videos
+
         initializeServer()
         return videos.map { video ->
             if (isM3u8Url(video.url)) {

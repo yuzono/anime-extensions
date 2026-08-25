@@ -3,7 +3,7 @@ ext {
     extClass = '.Hds'
     themePkg = 'dooplay'
     baseUrl = 'https://www.hds.quest'
-    overrideVersionCode = 14
+    overrideVersionCode = 15
 }
 
 apply plugin: "kei.plugins.extension.legacy"

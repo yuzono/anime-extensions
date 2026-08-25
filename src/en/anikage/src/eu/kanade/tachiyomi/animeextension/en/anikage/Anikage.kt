@@ -40,7 +40,8 @@ class Anikage :
     override val lang: String = "en"
 
     override val supportsLatest: Boolean = true
-    override val supportsRelatedAnimes = false
+
+    override val disableRelatedAnimesBySearch = true
 
     override val name: String = "Anikage"
 
@@ -49,7 +50,7 @@ class Anikage :
         .set("Referer", "$baseUrl/")
 
     override val client = network.client.newBuilder()
-        .rateLimitHost(baseUrl.toHttpUrl(), 5, 1.seconds)
+        .rateLimitHost(baseUrl.toHttpUrl(), 3, 1.seconds)
         .build()
 
     private val preferences by getPreferencesLazy()
@@ -61,9 +62,9 @@ class Anikage :
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "popularity")
-        requestUrl.addQueryParameter("per_page", "25")
+        requestUrl.addQueryParameter("limit", "25")
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", "true")
+            requestUrl.addQueryParameter("adult", "true")
         }
 
         return buildGet(requestUrl.build())
@@ -80,8 +81,8 @@ class Anikage :
         val requestUrl = ANIKAGE_API_URL
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
-        requestUrl.addQueryParameter("per_page", "25")
-        if (query != "") requestUrl.addQueryParameter("query", query)
+        requestUrl.addQueryParameter("limit", "25")
+        if (query != "") requestUrl.addQueryParameter("q", query)
         if (searchParams.sortBy.isNotEmpty()) {
             requestUrl.addQueryParameter("sort", searchParams.sortBy)
         }
@@ -98,13 +99,13 @@ class Anikage :
             requestUrl.addQueryParameter("format", searchParams.types)
         }
         if (searchParams.releaseYear != "ALL") {
-            requestUrl.addQueryParameter("seasonYear", searchParams.releaseYear)
+            requestUrl.addQueryParameter("yearMin", searchParams.releaseYear)
         }
         if (searchParams.genres.isNotEmpty()) {
             requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
         }
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", true.toString())
+            requestUrl.addQueryParameter("adult", true.toString())
         }
 
         return buildGet(requestUrl.build())
@@ -117,9 +118,9 @@ class Anikage :
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "updated")
-        requestUrl.addQueryParameter("per_page", "25")
+        requestUrl.addQueryParameter("limit", "25")
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", true.toString())
+            requestUrl.addQueryParameter("adult", true.toString())
         }
 
         return buildGet(requestUrl.build())
@@ -127,28 +128,33 @@ class Anikage :
 
     override fun latestUpdatesParse(response: Response) = parseAnime(response)
 
+    /**
+     * Parses the response using Jsoup to extract the anime studio and status.
+     * It returns the [SAnime]
+     */
     override fun animeDetailsParse(response: Response): SAnime {
         val soup = response.useAsJsoup()
-        val studioTag = soup.selectFirst("div.flex.uppercase")
+        val studioTag = soup.selectFirst("div.flex.tracking-widest:contains(\"Studios\")")
         val studioNameDiv = studioTag?.nextElementSibling()
-
-        val englishName = soup.selectFirst("h1.text-center.tracking-tighter")?.text()?.takeIf(String::isNotBlank)
-        val romajiName = soup.selectFirst("h2.text-center.line-clamp-2")?.text()?.takeIf(String::isNotBlank)
-
-        val titleName = if (preferences.titleStyle == "english") {
-            englishName ?: romajiName
-        } else {
-            romajiName ?: englishName
-        }
 
         val authorName = studioNameDiv
             ?.select("span.cursor-default")
             ?.eachText()?.joinToString()
 
-        val statusName = soup.selectFirst("span.uppercase.font-semibold")?.text()
+        val statusName = soup.selectFirst("span.uppercase.tracking-wider")?.text()
+
+        val title = soup.selectFirst("""meta[property="og:title"]""")
+            ?.attr("content")
+            ?.removeSuffix(" - Watch on Anikage")
+        val description = soup.selectFirst("""meta[property="og:description"]""")?.attr("content")
+        val thumbnailUrl = soup.selectFirst("""meta[property="og:image"]""")?.attr("content")
 
         return SAnime.create().apply {
-            titleName?.let { title = it }
+            if (title != null) {
+                this.title = title
+            }
+            this.description = description
+            thumbnail_url = thumbnailUrl
             author = authorName
             update_strategy = if (statusName == "Finished") {
                 AnimeUpdateStrategy.ONLY_FETCH_ONCE
@@ -178,6 +184,10 @@ class Anikage :
 
         return GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
     }
+
+    /**
+     * Retrieves the list of [SEpisode] for the given [SAnime].
+     */
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
@@ -210,6 +220,13 @@ class Anikage :
 
     private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "$baseUrl${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
 
+    /**
+     * Retrieves available video sources for an episode.
+     *
+     * It checks each provider for an available video source and uses the provider name when creating the video quality label
+     *
+     * eg : https://anikage.cc/api/media/anime/oui9FXBSdF/episodes/1/sources?lang=sub&provider=megg
+     */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val providers = if (preferences.subOrDub == "dub") {
             DUB_PROVIDER
@@ -235,7 +252,7 @@ class Anikage :
                 .parseAs<EpisodeSource>()
 
             val tracks = episodeData.subtitles.map {
-                Track(it.file, it.label)
+                Track("https://gg.akage.lol/m3u8/${it.file}", it.label)
             }
 
             episodeData.sources.parallelCatchingFlatMap { source ->
@@ -263,14 +280,29 @@ class Anikage :
 
     // Utils
 
+    /**
+     * Builds the URL used to retrieve episode details for an anime.
+     *
+     * Example: https://anikage.cc/api/media/anime/oui9FXBSdF/episodes
+     */
+
     private fun String.animeEpisodeBuilder(): String = "$baseUrl/api/media/anime/$this/episodes"
+
+    /**
+     * Builds the URL used to retrieve source details for an episode.
+     *
+     * The episode number is used to identify the episode, and the returned
+     * source details can be used to obtain the available video URLs.
+     */
     private fun animeEpisodeUrlFormat(id: String, number: Int): String = "$baseUrl/api/media/anime/$id/episodes/$number/sources"
 
+    /**
+     * Parses the API response and converts the anime data into an [AnimesPage].
+     */
     private fun parseAnime(response: Response): AnimesPage {
         val jsonData = response.parseAs<AnikageResponse>()
-        val hasNextPage = jsonData.hasNextPage
 
-        val animes = jsonData.results.map {
+        val animes = jsonData.data.map {
             val id = it.slug
             val titleFormat = preferences.titleStyle
             val titleName = if (titleFormat == "english") {
@@ -294,9 +326,12 @@ class Anikage :
             }
         }
 
-        return AnimesPage(animes, hasNextPage)
+        return AnimesPage(animes, jsonData.hasNext)
     }
 
+    /**
+     * Builds a GET request with the headers required by the Anikage API.
+     */
     private fun buildGet(url: HttpUrl): Request {
         val postHeaders = headers.newBuilder().apply {
             set("Accept", "*/*")
@@ -371,31 +406,28 @@ class Anikage :
     companion object {
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
 
-        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/advanced-search"
+        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/browse"
         private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 
-        private val SUB_PROVIDER = listOf(
-            "megg",
-            "miko",
-            "anya",
-            "verse",
+        private val provider = listOf(
+            "koto",
             "neko",
-        )
-        private val DUB_PROVIDER = listOf(
+            "uwu",
+            "kiwi",
             "megg",
-            "miko",
-            "anya",
-            "verse",
-            "neko",
+            "dib",
+            "wave",
         )
+        private val SUB_PROVIDER = provider
+        private val DUB_PROVIDER = provider
 
         private const val PREF_SUB_SOURCE = "preferred_sub_source"
-        private const val PREF_SUB_DEFAULT = "megg"
+        private const val PREF_SUB_DEFAULT = "koto"
 
         private const val PREF_DUB_SOURCE = "preferred_dub_source"
-        private const val PREF_DUB_DEFAULT = "megg"
+        private const val PREF_DUB_DEFAULT = "koto"
 
         private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
         private const val PREF_ISSUBORDUB_DEFAULT = "sub"

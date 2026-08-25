@@ -107,7 +107,7 @@ jobs:
           distribution: temurin
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: ${{ matrix.chunk.number > 1 }}
 
@@ -144,7 +144,11 @@ jobs:
   publish:
     name: Publish extension repo
     needs: [prepare, build]
-    if: always() && github.repository == 'yuzono/anime-extensions'
+    if: >-
+      !cancelled()
+      && needs.prepare.result == 'success'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+      && github.repository == 'yuzono/anime-extensions'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -194,7 +198,7 @@ jobs:
           python ../${{ github.ref_name }}/.github/scripts/merge-repo.py "$DELETE" '${{ github.ref_name }}/repo'
 
       - name: Deploy repo
-        uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
+        uses: EndBug/add-and-commit@cc9c08ba6c8df3b93a8f2db63e89b98368ae2ae8 # v11.1.1
         with:
           message: "${{ needs.prepare.outputs.latestCommitMessage }}"
           cwd: "./repo"

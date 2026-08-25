@@ -1,7 +1,7 @@
 ext {
     extName = 'TioanimeH'
     extClass = '.TioanimeHFactory'
-    extVersionCode = 35
+    extVersionCode = 36
 }
 
 apply plugin: "kei.plugins.extension.legacy"

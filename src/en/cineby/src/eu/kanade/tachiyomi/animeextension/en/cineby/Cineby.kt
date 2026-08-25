@@ -632,6 +632,6 @@ class Cineby :
 
         private const val PREF_SERVERS_KEY = "pref_servers_v2"
         private val PREF_SERVERS_DEFAULT =
-            setOf("Yoru", "Breach", "Neon", "Vyse")
+            setOf("Yoru", "Cypher", "Breach", "Neon", "Vyse")
     }
 }
