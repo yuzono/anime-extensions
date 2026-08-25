@@ -240,7 +240,7 @@ class Anikage :
                 .parseAs<EpisodeSource>()
 
             val tracks = episodeData.subtitles.map {
-                Track(it.embedUrl, it.label)
+                Track("https://gg.akage.lol/m3u8/${it.file}", it.label)
             }
 
             episodeData.sources.parallelCatchingFlatMap { source ->

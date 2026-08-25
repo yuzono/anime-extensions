@@ -123,7 +123,7 @@ data class SubtitleData(
     val label: String,
     val kind: String,
     val default: Boolean,
-    val embedUrl: String,
+    val embedUrl: String? = null,
 )
 
 @Serializable
