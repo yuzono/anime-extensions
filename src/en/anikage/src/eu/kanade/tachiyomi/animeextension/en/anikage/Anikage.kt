@@ -127,6 +127,11 @@ class Anikage :
 
     override fun latestUpdatesParse(response: Response) = parseAnime(response)
 
+
+    /**
+     * Parses the response using Jsoup to extract the anime studio and status.
+     * It returns the [SAnime]
+     */
     override fun animeDetailsParse(response: Response): SAnime {
         val soup = response.useAsJsoup()
         val studioTag = soup.selectFirst("div.flex.tracking-widest:contains(\"Studios\")")
@@ -169,6 +174,10 @@ class Anikage :
         return GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
     }
 
+    /**
+     * Retrieves the list of [SEpisode] for the given [SAnime].
+     */
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
 
@@ -200,6 +209,14 @@ class Anikage :
 
     private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "$baseUrl${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
 
+
+    /**
+     * Retrieves available video sources for an episode.
+     *
+     * It checks each provider for an available video source and uses the provider name when creating the video quality label
+     *
+     * eg : https://anikage.cc/api/media/anime/oui9FXBSdF/episodes/1/sources?lang=sub&provider=megg
+     */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val providers = if (preferences.subOrDub == "dub") {
             DUB_PROVIDER
@@ -253,9 +270,26 @@ class Anikage :
 
     // Utils
 
+    /**
+     * Builds the URL used to retrieve episode details for an anime.
+     *
+     * Example: https://anikage.cc/api/media/anime/oui9FXBSdF/episodes
+     */
+
     private fun String.animeEpisodeBuilder(): String = "$baseUrl/api/media/anime/$this/episodes"
+
+    /**
+     * Builds the URL used to retrieve source details for an episode.
+     *
+     * The episode number is used to identify the episode, and the returned
+     * source details can be used to obtain the available video URLs.
+     */
     private fun animeEpisodeUrlFormat(id: String, number: Int): String = "$baseUrl/api/media/anime/$id/episodes/$number/sources"
 
+
+    /**
+     * Parses the API response and converts the anime data into an [AnimesPage].
+     */
     private fun parseAnime(response: Response): AnimesPage {
         val jsonData = response.parseAs<AnikageResponse>()
 
@@ -286,6 +320,9 @@ class Anikage :
         return AnimesPage(animes, jsonData.hasNext)
     }
 
+    /**
+     * Builds a GET request with the headers required by the Anikage API.
+     */
     private fun buildGet(url: HttpUrl): Request {
         val postHeaders = headers.newBuilder().apply {
             set("Accept", "*/*")
