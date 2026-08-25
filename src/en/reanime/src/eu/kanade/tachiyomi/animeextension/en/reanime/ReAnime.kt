@@ -43,6 +43,7 @@ import org.nanohttpd.protocols.http.NanoHTTPD
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone.getTimeZone
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.seconds
 
@@ -89,6 +90,10 @@ class ReAnime :
     private val excludedServers: Set<String>
         get() = preferences.getStringSet(PREF_SERVER_EXCLUDE_KEY, PREF_SERVER_EXCLUDE_DEFAULT)
             ?: PREF_SERVER_EXCLUDE_DEFAULT
+
+    private val excludedAudioTypes: Set<String>
+        get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, PREF_AUDIO_EXCLUDE_DEFAULT)
+            ?: PREF_AUDIO_EXCLUDE_DEFAULT
 
     private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
         .add("Accept", "application/json, text/plain, */*")
@@ -637,7 +642,22 @@ class ReAnime :
 
         if (!parsed.success || parsed.servers.isNullOrEmpty()) return emptyList()
 
+        // Skip excluded servers before doing any network work for them.
+        // HLS streams and downloads are excluded independently: blocking "HD-1"
+        // hides only its HLS videos, while "[Sub] HD-1 Download" stays available
+        // unless "HD-1 Download" is also selected.
+        val excluded = excludedServers
+        val excludedAudio = excludedAudioTypes
+        fun isExcluded(name: String?, suffix: String = ""): Boolean {
+            if (excluded.isEmpty()) return false
+            val n = name?.takeIf { it.isNotBlank() } ?: return false
+            return (n + suffix) in excluded
+        }
+        fun isAudioExcluded(dataType: String?): Boolean = excludedAudio.isNotEmpty() && audioTagOf(dataType) in excludedAudio
+
         val videos = parsed.servers.parallelCatchingFlatMap { server ->
+            if (isExcluded(server.serverName)) return@parallelCatchingFlatMap emptyList()
+            if (isAudioExcluded(server.dataType)) return@parallelCatchingFlatMap emptyList()
             val dataLink = server.dataLink ?: return@parallelCatchingFlatMap emptyList()
             val label = buildString {
                 append(audioTagOf(server.dataType))
@@ -650,11 +670,17 @@ class ReAnime :
 
         if (includeDirectDownloads) {
             parsed.servers
+                .filterNot { isExcluded(it.serverName, " Download") }
+                .filterNot { isAudioExcluded(it.dataType) }
                 .mapNotNull { server ->
                     val aid = server.dataLink?.let { EMBED_AID_REGEX.find(it)?.groupValues?.get(1) }
                         ?: return@mapNotNull null
-                    val serverName = server.serverName ?: return@mapNotNull null
-                    Triple(aid, serverName, audioTagOf(server.dataType))
+                    Triple(
+                        aid,
+                        server.serverName?.takeIf { it.isNotBlank() }
+                            ?: "Direct",
+                        audioTagOf(server.dataType),
+                    )
                 }
                 .distinctBy { it.first to it.second }
                 .forEach { (aid, serverName, audioTag) ->
@@ -662,8 +688,10 @@ class ReAnime :
                 }
         }
 
-        if (excludedServers.isNotEmpty()) {
-            videos.removeAll { video -> video.serverKey() in excludedServers }
+        if (excluded.isNotEmpty() || excludedAudio.isNotEmpty()) {
+            videos.removeAll { video ->
+                video.serverKey() in excluded || excludedAudio.any { video.quality.startsWith(it) }
+            }
         }
 
         val quality = preferredQuality
@@ -722,7 +750,7 @@ class ReAnime :
 
             var ready = false
             var attempts = 0
-            while (!ready && attempts < 3) {
+            while (!ready && attempts < 2) {
                 ready = pollDownloadReady(base, fileId, token, dlHeaders)
                 attempts++
             }
@@ -742,28 +770,24 @@ class ReAnime :
         }
     }
 
-    private fun pollDownloadReady(base: String, fileId: String, token: String, dlHeaders: Headers): Boolean {
-        return try {
-            client.newCall(
-                GET("$base/download/$fileId/progress?token=$token", dlHeaders),
-            ).execute().use { res ->
-                if (!res.isSuccessful) return false
-                // The progress endpoint is an SSE stream that stays open after
-                // sending an update; read line-by-line instead of buffering it all.
-                val source = res.body.source()
-                while (true) {
-                    val line = source.readUtf8Line() ?: break
-                    when (PROGRESS_STATUS_REGEX.find(line)?.groupValues?.get(1)) {
-                        "ready" -> return true
-                        "failed" -> return false
-                    }
-                }
-                false
-            }
-        } catch (_: Exception) {
-            false
-        }
+    /**
+     * Dedicated client for the SSE progress check with hard timeouts, so a
+     * stalled or endlessly-streaming progress endpoint can never block the
+     * video list for more than ~[PROGRESS_TIMEOUT_SECONDS] per attempt.
+     */
+    private val progressClient by lazy {
+        client.newBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(PROGRESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout((PROGRESS_TIMEOUT_SECONDS + 2L), TimeUnit.SECONDS)
+            .build()
     }
+
+    private fun pollDownloadReady(base: String, fileId: String, token: String, dlHeaders: Headers): Boolean = flixcloudProgressIsReady(
+        client = progressClient,
+        progressUrl = "$base/download/$fileId/progress?token=$token",
+        headers = dlHeaders,
+    )
 
     private val jsonParser = Json { ignoreUnknownKeys = true }
 
@@ -1021,7 +1045,7 @@ class ReAnime :
             entries = SERVER_EXCLUDE_ENTRIES.toTypedArray()
             entryValues = SERVER_EXCLUDE_ENTRIES.toTypedArray()
             setDefaultValue(PREF_SERVER_EXCLUDE_DEFAULT)
-            summary = "Hide videos from the selected servers"
+            summary = "Hide videos from the selected servers."
         }.also(screen::addPreference)
 
         screen.addListPreference(
@@ -1032,6 +1056,15 @@ class ReAnime :
             default = preferredAudio,
             summary = "%s",
         )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_AUDIO_EXCLUDE_KEY
+            title = "Exclude Audio Types"
+            entries = AUDIO_EXCLUDE_ENTRIES.toTypedArray()
+            entryValues = AUDIO_EXCLUDE_VALUES.toTypedArray()
+            setDefaultValue(PREF_AUDIO_EXCLUDE_DEFAULT)
+            summary = "Hide videos of the selected audio types.\nNote: Hiding 'Sub' may hide dub 'Download' videos."
+        }.also(screen::addPreference)
 
         screen.addPreference(
             SwitchPreferenceCompat(screen.context).apply {
@@ -1094,6 +1127,11 @@ class ReAnime :
         private val PREF_SERVER_EXCLUDE_DEFAULT = emptySet<String>()
         private val SERVER_NAME_REGEX = Regex("""(HD-\d+)""")
 
+        private const val PREF_AUDIO_EXCLUDE_KEY = "excluded_audio_types"
+        private val AUDIO_EXCLUDE_ENTRIES = listOf("Sub", "Dub")
+        private val AUDIO_EXCLUDE_VALUES = listOf("[Sub]", "[Dub]")
+        private val PREF_AUDIO_EXCLUDE_DEFAULT = emptySet<String>()
+
         private val MONTHS = arrayOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
@@ -1129,7 +1167,7 @@ class ReAnime :
         private val JWT_REGEX = Regex("""eyJ[\w-]+\.[\w-]+\.[\w-]+""")
         private val FETCH_BASE_REGEX = Regex("""https://fetch\d*\.flixcloud\.cc""")
         private val RESOLUTION_REGEX = Regex("""(\d{3,4}p)""")
-        private val PROGRESS_STATUS_REGEX = Regex(""""status":\s*"(\w+)"""")
+        private const val PROGRESS_TIMEOUT_SECONDS = 5L
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING
