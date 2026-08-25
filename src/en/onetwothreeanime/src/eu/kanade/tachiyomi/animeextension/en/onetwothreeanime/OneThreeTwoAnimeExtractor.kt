@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.onetwothreeanime
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -16,8 +17,9 @@ class OneThreeTwoAnimeExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
     private val baseUrl: String,
-    private val preferredPlayer: String = PLAYER_JW,
 ) {
+
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     // ------------------------------------------------------------------ //
     //  DTOs                                                              //
@@ -57,7 +59,7 @@ class OneThreeTwoAnimeExtractor(
 
         return serverIds.parallelCatchingFlatMapBlocking { (serverLabel, serverId) ->
             fetchVideoForServer(animeSlug, episodeNum, serverId, serverLabel)
-        }
+        }.distinctBy { it.videoUrl }
     }
 
     // ------------------------------------------------------------------ //
@@ -66,8 +68,8 @@ class OneThreeTwoAnimeExtractor(
 
     private fun fetchServerIds(animeSlug: String): List<Pair<String, String>> {
         val svUrl = "$baseUrl/ajax/film/sv?id=$animeSlug"
-        val svJson = client.newCall(GET(svUrl, headers())).execute()
-            .parseAs<SvResponseDto>()
+        val svJson = retry { client.newCall(GET(svUrl, headers())).execute().parseAs<SvResponseDto>() }
+            ?: return emptyList()
         val svDoc = Jsoup.parse(svJson.html)
         val tabs = svDoc.select("span.tab[data-name]").map { tab ->
             Pair(tab.text().trim(), tab.attr("data-name"))
@@ -79,10 +81,9 @@ class OneThreeTwoAnimeExtractor(
     //  Step 2 – episode info                                             //
     // ------------------------------------------------------------------ //
 
-    private suspend fun fetchEpisodeInfo(animeSlug: String, episodeNum: String, serverId: String): EpisodeInfoDto {
+    private suspend fun fetchEpisodeInfo(animeSlug: String, episodeNum: String, serverId: String): EpisodeInfoDto? {
         val infoUrl = "$baseUrl/ajax/episode/info?epr=$animeSlug/$episodeNum/$serverId"
-        return client.newCall(GET(infoUrl, headers())).awaitSuccess()
-            .parseAs<EpisodeInfoDto>()
+        return retry { client.newCall(GET(infoUrl, headers())).awaitSuccess().parseAs<EpisodeInfoDto>() }
     }
 
     // ------------------------------------------------------------------ //
@@ -95,62 +96,46 @@ class OneThreeTwoAnimeExtractor(
         serverId: String,
         serverLabel: String,
     ): List<Video> {
-        val info = fetchEpisodeInfo(animeSlug, episodeNum, serverId)
+        val info = fetchEpisodeInfo(animeSlug, episodeNum, serverId) ?: return emptyList()
 
         val embedUrl = info.target.takeIf { it.isNotBlank() } ?: return emptyList()
 
         val embedBase = embedUrl.toHttpBaseOrNull() ?: "https://play2.echovideo.ru"
         val embedHostReferer = "$embedBase/"
 
-        val innerToken = fetchInnerToken(embedUrl) ?: run {
-            return Video(
-                url = embedUrl,
-                quality = "[$serverLabel] Embed",
-                videoUrl = embedUrl,
-                headers = headers(embedHostReferer),
-            ).let(::listOf)
-        }
+        val innerToken = fetchInnerToken(embedUrl) ?: return emptyList()
 
-        val videos = mutableListOf<Video>()
         val streamUrl = resolvePlayerPage(embedBase, innerToken)
 
         if (streamUrl != null) {
-            val playerTag = if (preferredPlayer == PLAYER_JW) "JW" else "Legacy"
-            videos.add(
-                Video(
-                    url = streamUrl,
-                    quality = "[$serverLabel] $playerTag HLS",
-                    videoUrl = streamUrl,
-                    headers = hlsHeaders(embedHostReferer),
-                ),
-            )
+            val videoHeaders = hlsHeaders(embedHostReferer)
+
+            // The resolved m3u8 is usually a master playlist; expand it into
+            // per-quality videos. Falls back to the raw master URL when the
+            // playlist cannot be inspected.
+            val videos = runCatching {
+                playlistUtils.extractFromHls(
+                    playlistUrl = streamUrl,
+                    referer = embedHostReferer,
+                    masterHeaders = videoHeaders,
+                    videoHeaders = videoHeaders,
+                    videoNameGen = { quality -> "[$serverLabel] $quality" },
+                )
+            }.getOrElse { emptyList() }
+                .ifEmpty {
+                    listOf(
+                        Video(
+                            url = streamUrl,
+                            quality = "[$serverLabel] HLS",
+                            videoUrl = streamUrl,
+                            headers = videoHeaders,
+                        ),
+                    )
+                }
+            return videos
         }
 
-        val sbv2Url = resolveSubv2Player(embedBase, innerToken)
-
-        if (sbv2Url != null && sbv2Url != streamUrl) {
-            videos.add(
-                Video(
-                    url = sbv2Url,
-                    quality = "[$serverLabel] SBv2 HLS",
-                    videoUrl = sbv2Url,
-                    headers = hlsHeaders(embedHostReferer),
-                ),
-            )
-        }
-
-        if (videos.isEmpty()) {
-            videos.add(
-                Video(
-                    url = embedUrl,
-                    quality = "[$serverLabel] Embed",
-                    videoUrl = embedUrl,
-                    headers = headers(embedHostReferer),
-                ),
-            )
-        }
-
-        return videos
+        return emptyList()
     }
 
     // ------------------------------------------------------------------ //
@@ -158,11 +143,11 @@ class OneThreeTwoAnimeExtractor(
     // ------------------------------------------------------------------ //
 
     private suspend fun fetchInnerToken(embed3Url: String): String? {
-        val body = runCatching {
+        val body = retry {
             client.newCall(GET(embed3Url, headers("$baseUrl/")))
                 .awaitSuccess()
                 .bodyString()
-        }.getOrNull() ?: return null
+        } ?: return null
 
         val token = ZRPART2_REGEX.find(body)?.groupValues?.getOrNull(1)
 
@@ -173,11 +158,9 @@ class OneThreeTwoAnimeExtractor(
         return token
     }
 
-    private suspend fun resolvePlayerPage(embedBase: String, innerToken: String): String? = if (preferredPlayer == PLAYER_JW) {
-        resolveJwPlayer(embedBase, innerToken)
-    } else {
-        resolveLegacyPlayer(embedBase, innerToken)
-    }
+    private suspend fun resolvePlayerPage(embedBase: String, innerToken: String): String? = resolveJwPlayer(embedBase, innerToken)
+        ?: resolveLegacyPlayer(embedBase, innerToken)
+        ?: resolveSubv2Player(embedBase, innerToken)
 
     private suspend fun resolveJwPlayer(embedBase: String, innerToken: String): String? {
         val hsUrl = "$embedBase/hs/$innerToken"
@@ -264,14 +247,30 @@ class OneThreeTwoAnimeExtractor(
     //  HLS playback headers                                              //
     //  These are passed to the Video object so Aniyomi / ExoPlayer        //
     //  sends them with every HLS manifest and segment request.            //
-    //  The CDN (hlsx3cdn.burntburst45.store) requires the Referer to     //
-    //  point back to the embed player host, otherwise it 403s.           //
     // ------------------------------------------------------------------ //
 
     private fun hlsHeaders(embedReferer: String): Headers = headers.newBuilder()
         .set("Referer", embedReferer)
         .set("Origin", embedReferer.toHttpBaseOrNull() ?: "")
         .build()
+
+    // ------------------------------------------------------------------ //
+    //  The site's endpoints intermittently answer 5xx / drop; one retry   //
+    //  recovers most of them instead of failing the whole server.         //
+    // ------------------------------------------------------------------ //
+
+    private inline fun <T> retry(attempts: Int = 2, block: () -> T): T? {
+        repeat(attempts) {
+            try {
+                return block()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // fallthrough to next attempt
+            }
+        }
+        return null
+    }
 
     // ------------------------------------------------------------------ //
     //  URL helpers                                                        //
@@ -294,9 +293,6 @@ class OneThreeTwoAnimeExtractor(
     // ------------------------------------------------------------------ //
 
     companion object {
-        const val PLAYER_JW = "jw"
-        const val PLAYER_LEGACY = "legacy"
-
         // embed-3 wrapper page: var zrpart2 = '<base64>';
         private val ZRPART2_REGEX = Regex(
             """var\s+zrpart2\s*=\s*['"]([A-Za-z0-9+/=]+)['"]""",
