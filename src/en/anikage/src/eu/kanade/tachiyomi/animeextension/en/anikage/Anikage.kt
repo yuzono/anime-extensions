@@ -127,7 +127,6 @@ class Anikage :
 
     override fun latestUpdatesParse(response: Response) = parseAnime(response)
 
-
     /**
      * Parses the response using Jsoup to extract the anime studio and status.
      * It returns the [SAnime]
@@ -209,7 +208,6 @@ class Anikage :
 
     private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "$baseUrl${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
 
-
     /**
      * Retrieves available video sources for an episode.
      *
@@ -285,7 +283,6 @@ class Anikage :
      * source details can be used to obtain the available video URLs.
      */
     private fun animeEpisodeUrlFormat(id: String, number: Int): String = "$baseUrl/api/media/anime/$id/episodes/$number/sources"
-
 
     /**
      * Parses the API response and converts the anime data into an [AnimesPage].
