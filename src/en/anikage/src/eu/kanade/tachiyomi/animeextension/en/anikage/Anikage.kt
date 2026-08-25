@@ -48,6 +48,9 @@ class Anikage :
         .set("Origin", baseUrl)
         .set("Referer", "$baseUrl/")
 
+    fun episodeHeaderBuilder(): Headers.Builder = super.headersBuilder()
+        .set("Origin", baseUrl)
+
     override val client = network.client.newBuilder()
         .rateLimitHost(baseUrl.toHttpUrl(), 5, 1.seconds)
         .build()
@@ -129,26 +132,16 @@ class Anikage :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val soup = response.useAsJsoup()
-        val studioTag = soup.selectFirst("div.flex.uppercase")
+        val studioTag = soup.selectFirst("div.flex.tracking-widest:contains(\"Studios\")")
         val studioNameDiv = studioTag?.nextElementSibling()
-
-        val englishName = soup.selectFirst("h1.text-center.tracking-tighter")?.text()?.takeIf(String::isNotBlank)
-        val romajiName = soup.selectFirst("h2.text-center.line-clamp-2")?.text()?.takeIf(String::isNotBlank)
-
-        val titleName = if (preferences.titleStyle == "english") {
-            englishName ?: romajiName
-        } else {
-            romajiName ?: englishName
-        }
 
         val authorName = studioNameDiv
             ?.select("span.cursor-default")
             ?.eachText()?.joinToString()
 
-        val statusName = soup.selectFirst("span.uppercase.font-semibold")?.text()
+        val statusName = soup.selectFirst("span.uppercase.tracking-wider")?.text()
 
         return SAnime.create().apply {
-            titleName?.let { title = it }
             author = authorName
             update_strategy = if (statusName == "Finished") {
                 AnimeUpdateStrategy.ONLY_FETCH_ONCE
@@ -180,6 +173,8 @@ class Anikage :
     }
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        this.episodeHeaderBuilder()["Referer"] = anime.url
+
         val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
 
         val episodesData = client.newCall(episodeListRequest(anime))
@@ -225,11 +220,13 @@ class Anikage :
                     .map { "Dub" to it }
         }
 
-        val playlistUtils = PlaylistUtils(client, headers)
+        val episodeHeaders = this.episodeHeaderBuilder().build()
+
+        val playlistUtils = PlaylistUtils(client, episodeHeaders)
 
         return providers.toList().parallelCatchingFlatMap { (type, provider) ->
             val episodeData = client.newCall(
-                GET(videoListRequestUrl(episode, provider), headers),
+                GET(videoListRequestUrl(episode, provider), headers = episodeHeaders),
             )
                 .awaitSuccess()
                 .parseAs<EpisodeSource>()
@@ -243,8 +240,8 @@ class Anikage :
                 if (source.isM3U8 == true) {
                     playlistUtils.extractFromHls(
                         playlistUrl = videoUrl,
-                        masterHeaders = headers,
-                        videoHeaders = headers,
+                        masterHeaders = episodeHeaders,
+                        videoHeaders = episodeHeaders,
                         videoNameGen = { "$type - $provider - ${source.quality} - $it" },
                         subtitleList = tracks,
                     )
@@ -254,7 +251,7 @@ class Anikage :
                         quality = "$type - $provider - ${source.quality}",
                         videoUrl = videoUrl,
                         subtitleTracks = tracks,
-                        headers = headers,
+                        headers = episodeHeaders,
                     ).let(::listOf)
                 }
             }
@@ -268,9 +265,8 @@ class Anikage :
 
     private fun parseAnime(response: Response): AnimesPage {
         val jsonData = response.parseAs<AnikageResponse>()
-        val hasNextPage = jsonData.hasNextPage
 
-        val animes = jsonData.results.map {
+        val animes = jsonData.data.map {
             val id = it.slug
             val titleFormat = preferences.titleStyle
             val titleName = if (titleFormat == "english") {
@@ -294,7 +290,7 @@ class Anikage :
             }
         }
 
-        return AnimesPage(animes, hasNextPage)
+        return AnimesPage(animes, jsonData.hasNext)
     }
 
     private fun buildGet(url: HttpUrl): Request {
@@ -371,7 +367,7 @@ class Anikage :
     companion object {
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
 
-        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/advanced-search"
+        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/browse"
         private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false

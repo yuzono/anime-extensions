@@ -25,42 +25,57 @@ data class Title(
 
 @Serializable
 data class Result(
-    val slug: String,
     @SerialName("anilistId") val aniListId: Int,
-    val title: Title,
-    val coverImage: CoverImage,
-    val type: String,
-    val format: String,
-    val status: String,
-    val totalEpisodes: Int?,
-    val currentEpisode: Int?,
     val averageScore: Int?,
+    val coverColor: String?,
+    val coverImage: CoverImage,
+    val duration: Int?,
+    val format: String,
     val genres: List<String>,
-    val year: Int?,
+    val isAdult: Boolean,
+    val malScore: Float?,
+    val meanScore: Float?,
     val nextAiringEpisode: NextAiringEpisode?,
+    val popularity: Long,
+    val season: String?,
+    val slug: String,
+    val status: String,
+    val title: Title,
+    val totalEpisodes: Int?,
+    val type: String,
+    val year: Int?,
 
 )
 
 @Serializable
 data class AnikageResponse(
+    val count: Int,
+    val data: List<Result>,
+    val hasNext: Boolean,
+    val matchQuality: String,
     val page: Int,
-    val perPage: Int,
+    val relaxedBy: List<String>,
     val total: Int,
-    val hasNextPage: Boolean,
-    val results: List<Result>,
 )
 
 @Serializable
 data class EpisodeResult(
     val id: String,
+    val slug: String,
     val number: Int,
+    val seasonNumber: Int,
+    val episodeInSeason: Int,
+    val seasonName: String,
     val title: String?,
+    val titleRomaji: String?,
+    val titleNative: String?,
     val description: String?,
-    val img: String?,
+    val image: String?,
     val airDate: String?,
-    val isFiller: Boolean,
+    val runtime: Int,
     val rating: Float?,
-    val updatedAt: Long,
+    val isFiller: Boolean,
+    val isRecap: Boolean,
 )
 
 @Serializable
@@ -83,7 +98,7 @@ data class SourceData(
     val type: String?, // softsub,
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
-        "https://prox.anikage.cc",
+        "https://gg.akage.lol",
         isM3U8?.let { "m3u8" } ?: "stream",
         url,
     ).joinToString("/")
