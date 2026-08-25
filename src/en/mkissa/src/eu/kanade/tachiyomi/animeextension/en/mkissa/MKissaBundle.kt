@@ -245,7 +245,10 @@ object MKissaBundle {
         return null
     }
 
-    /** Folds the `2935+-1459*2` arithmetic every integer is hidden behind; signs stack. */
+    /** Folds the `2935+-1459*2` arithmetic every integer is hidden behind; signs stack.
+     *  2025-09: the obfuscator started emitting negative factors (`2461*-4`), which the old
+     *  term scan split mid-product and misread as additions, zeroing every decoder offset.
+     */
     private fun fold(expression: String): Int {
         var total = 0
         for (term in TERM_REGEX.findAll(expression.replace(" ", "")).map(MatchResult::value)) {
@@ -283,6 +286,7 @@ object MKissaBundle {
 
     private val SEED_REGEX = Regex("""[A-Za-z0-9+/]{11}=""")
 
-    // Leading signs matched greedily; `fold` counts them.
-    private val TERM_REGEX = Regex("""[-+]*[^-+]+""")
+    // Leading signs matched greedily; `fold` counts them. Factors may be negative, so the
+    // product is kept inside one term (`2461*-4`) instead of splitting at every sign.
+    private val TERM_REGEX = Regex("""[-+]*\d+(?:\*[-+]*\d+)*""")
 }
