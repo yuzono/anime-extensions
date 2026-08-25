@@ -83,8 +83,8 @@ class Anikage :
         val requestUrl = ANIKAGE_API_URL
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
-        requestUrl.addQueryParameter("per_page", "25")
-        if (query != "") requestUrl.addQueryParameter("query", query)
+        requestUrl.addQueryParameter("limit", "25")
+        if (query != "") requestUrl.addQueryParameter("q", query)
         if (searchParams.sortBy.isNotEmpty()) {
             requestUrl.addQueryParameter("sort", searchParams.sortBy)
         }
@@ -107,7 +107,7 @@ class Anikage :
             requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
         }
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", true.toString())
+            requestUrl.addQueryParameter("adult", true.toString())
         }
 
         return buildGet(requestUrl.build())
