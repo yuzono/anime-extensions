@@ -62,11 +62,17 @@ class UniqueStream : AnimeHttpSource() {
         // Totals stay constant on every page while lists paginate per type, so
         // comparing the total against the current page loops forever past the end.
         val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        val lastPage = maxOf(
-            ceil((result.totals?.series ?: 0) / PAGE_SIZE.toDouble()),
-            ceil((result.totals?.movies ?: 0) / PAGE_SIZE.toDouble()),
-        ).toInt()
-        return AnimesPage(animeList, animeList.isNotEmpty() && page < lastPage)
+        val totals = result.totals
+        val hasNextPage = if (totals == null) {
+            animeList.size >= PAGE_SIZE
+        } else {
+            val lastPage = maxOf(
+                ceil((totals.series ?: 0) / PAGE_SIZE.toDouble()),
+                ceil((totals.movies ?: 0) / PAGE_SIZE.toDouble()),
+            ).toInt()
+            animeList.isNotEmpty() && page < lastPage
+        }
+        return AnimesPage(animeList, hasNextPage)
     }
 
     // =========================== Anime Details ============================
@@ -124,7 +130,9 @@ class UniqueStream : AnimeHttpSource() {
     // ============================ Video Links =============================
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val (mediaPath, locale) = episode.url.split("|")
+        val parts = episode.url.split("|")
+        require(parts.size == 2) { "Outdated episode entry, refresh the entry" }
+        val (mediaPath, locale) = parts
         val media = client.newCall(
             GET("$apiUrl/$mediaPath/media/hls/$locale"),
         ).awaitSuccess().parseAs<MediaResponse>()

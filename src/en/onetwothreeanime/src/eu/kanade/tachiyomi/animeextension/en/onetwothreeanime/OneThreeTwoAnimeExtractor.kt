@@ -113,15 +113,17 @@ class OneThreeTwoAnimeExtractor(
             // The resolved m3u8 is usually a master playlist; expand it into
             // per-quality videos. Falls back to the raw master URL when the
             // playlist cannot be inspected.
-            val videos = runCatching {
-                playlistUtils.extractFromHls(
-                    playlistUrl = streamUrl,
-                    referer = embedHostReferer,
-                    masterHeaders = videoHeaders,
-                    videoHeaders = videoHeaders,
-                    videoNameGen = { quality -> "[$serverLabel] $quality" },
+            val videos = (
+                catching<List<Video>> {
+                    playlistUtils.extractFromHls(
+                        playlistUrl = streamUrl,
+                        referer = embedHostReferer,
+                        masterHeaders = videoHeaders,
+                        videoHeaders = videoHeaders,
+                        videoNameGen = { quality -> "[$serverLabel] $quality" },
+                    )
+                } ?: emptyList()
                 )
-            }.getOrElse { emptyList() }
                 .ifEmpty {
                     listOf(
                         Video(
@@ -165,11 +167,11 @@ class OneThreeTwoAnimeExtractor(
     private suspend fun resolveJwPlayer(embedBase: String, innerToken: String): String? {
         val hsUrl = "$embedBase/hs/$innerToken"
 
-        val body = runCatching {
+        val body = catching {
             client.newCall(GET(hsUrl, headers("$embedBase/")))
                 .awaitSuccess()
                 .bodyString()
-        }.getOrElse { "" }
+        } ?: ""
 
         val dataId = DATA_ID_REGEX.find(body)?.groupValues?.getOrNull(1)
             ?: DATA_ID_REGEX2.find(body)?.groupValues?.getOrNull(1)
@@ -187,15 +189,15 @@ class OneThreeTwoAnimeExtractor(
     private suspend fun resolveLegacyPlayer(embedBase: String, innerToken: String): String? {
         val hsUrl = "$embedBase/hs/$innerToken?pl_usn=1"
 
-        val body = runCatching {
+        val body = catching {
             client.newCall(GET(hsUrl, headers("$embedBase/")))
                 .awaitSuccess()
                 .bodyString()
-        }.getOrElse { "" }
+        } ?: ""
 
         val sourcesJson = DIV_SOURCES_REGEX.find(body)?.groupValues?.getOrNull(1)
         if (!sourcesJson.isNullOrBlank()) {
-            val streamUrl = runCatching { sourcesJson.parseAs<SourcesDto>().sources.trim() }.getOrNull()
+            val streamUrl = catching { sourcesJson.parseAs<SourcesDto>().sources.trim() }
             if (!streamUrl.isNullOrBlank()) {
                 return streamUrl
             }
@@ -213,11 +215,11 @@ class OneThreeTwoAnimeExtractor(
     private suspend fun resolveSubv2Player(embedBase: String, innerToken: String): String? {
         val sbv2Url = "$embedBase/sbv2/$innerToken"
 
-        val body = runCatching {
+        val body = catching {
             client.newCall(GET(sbv2Url, headers("$embedBase/")))
                 .awaitSuccess()
                 .bodyString()
-        }.getOrElse { "" }
+        } ?: ""
 
         val dataId = DATA_ID_REGEX.find(body)?.groupValues?.getOrNull(1)
             ?: DATA_ID_REGEX2.find(body)?.groupValues?.getOrNull(1)
@@ -235,13 +237,13 @@ class OneThreeTwoAnimeExtractor(
     //  → { "sources": "https://...m3u8" }                               //
     // ------------------------------------------------------------------ //
 
-    private suspend fun callGetSources(url: String, referer: String): String? = runCatching {
+    private suspend fun callGetSources(url: String, referer: String): String? = catching {
         client.newCall(GET(url, headers(referer)))
             .awaitSuccess()
             .parseAs<SourcesDto>()
             .sources.trim()
             .takeIf { it.isNotBlank() }
-    }.getOrNull()
+    }
 
     // ------------------------------------------------------------------ //
     //  HLS playback headers                                              //
@@ -270,6 +272,14 @@ class OneThreeTwoAnimeExtractor(
             }
         }
         return null
+    }
+
+    private inline fun <T> catching(block: () -> T): T? = try {
+        block()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     // ------------------------------------------------------------------ //

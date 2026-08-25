@@ -30,7 +30,7 @@ import javax.crypto.spec.SecretKeySpec
  * segments are all proxied here; segments are decrypted so the player receives
  * plain MPEG-TS.
  */
-object UniqueStreamHlsServer : NanoHTTPD(0) {
+object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
 
     val port: Int
         get() = super.getListeningPort()
@@ -62,7 +62,7 @@ object UniqueStreamHlsServer : NanoHTTPD(0) {
     }
 
     fun localPlaylistUrl(playlistUrl: String, mid: String, height: Int? = null): String = buildString {
-        append("http://localhost:$port/m3u8?url=${encode(playlistUrl)}&mid=${encode(mid)}")
+        append("http://127.0.0.1:$port/m3u8?url=${encode(playlistUrl)}&mid=${encode(mid)}")
         height?.let { append("&vheight=$it") }
     }
 
@@ -202,7 +202,7 @@ object UniqueStreamHlsServer : NanoHTTPD(0) {
     }
 
     private fun localSegmentUrl(url: String, key: HlsKey?, sequence: Long, mid: String): String = buildString {
-        append("http://localhost:$port/segment?url=${encode(url)}")
+        append("http://127.0.0.1:$port/segment?url=${encode(url)}")
         key?.let {
             append("&key=${encode(it.url)}")
             append("&iv=${encode(it.iv ?: sequence.toHlsIv())}")
@@ -223,7 +223,7 @@ object UniqueStreamHlsServer : NanoHTTPD(0) {
         keyCache[cacheKey]?.let { return it }
 
         val request = Request.Builder()
-            .url(keyUrl)
+            .url(keyUrl.toValidatedHttpUrl())
             .header("x-am-media-id", mid)
             .build()
         val body = requireClient().newCall(request).execute().use { response ->
@@ -268,19 +268,39 @@ object UniqueStreamHlsServer : NanoHTTPD(0) {
         }
     }
 
-    private fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url).build()).execute().use { response ->
+    private fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException("Failed to fetch playlist: ${response.code}")
         }
         response.body.string()
     }
 
-    private fun fetchBytes(url: String): ByteArray = requireClient().newCall(Request.Builder().url(url).build()).execute().use { response ->
+    private fun fetchBytes(url: String): ByteArray = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException("Failed to fetch resource: ${response.code}")
         }
         response.body.bytes()
     }
+
+    // Outbound requests are restricted to public HTTPS hosts so the local
+    // proxy cannot be abused to reach private or internal addresses.
+    private fun String.toValidatedHttpUrl(): HttpUrl = toHttpUrlOrNull()
+        ?.takeIf { it.isHttps && !it.host.isPrivateHost() }
+        ?: throw IOException("Blocked URL: $this")
+
+    private fun String.isPrivateHost(): Boolean = this == "localhost" ||
+        endsWith(".local") ||
+        endsWith(".localhost") ||
+        PRIVATE_HOST_REGEX.matches(this) ||
+        startsWith("[::1]") ||
+        startsWith("[fc") || startsWith("[fd") || startsWith("[fe80")
+
+    private val PRIVATE_HOST_REGEX = Regex(
+        "^(127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}" +
+            "|192\\.168\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}" +
+            "|172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}" +
+            "|100\\.(6[4-9]|[7-9]\\d|1[01]\\d|12[0-7])\\.\\d{1,3}\\.\\d{1,3})$",
+    )
 
     private fun requireClient(): OkHttpClient = client ?: throw IOException("UniqueStream HLS server is not initialized")
 
