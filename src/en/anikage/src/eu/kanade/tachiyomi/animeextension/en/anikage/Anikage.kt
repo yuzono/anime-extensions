@@ -240,7 +240,7 @@ class Anikage :
                 .parseAs<EpisodeSource>()
 
             val tracks = episodeData.subtitles.map {
-                Track(it.file, it.label)
+                Track(it.embedUrl, it.label)
             }
 
             episodeData.sources.parallelCatchingFlatMap { source ->
@@ -399,26 +399,17 @@ class Anikage :
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 
-        private val SUB_PROVIDER = listOf(
+        private val provider = listOf(
             "koto",
             "neko",
-            "ken",
             "uwu",
             "kiwi",
             "megg",
             "dib",
             "wave",
         )
-        private val DUB_PROVIDER = listOf(
-            "koto",
-            "neko",
-            "ken",
-            "uwu",
-            "kiwi",
-            "megg",
-            "dib",
-            "wave",
-        )
+        private val SUB_PROVIDER = provider
+        private val DUB_PROVIDER = provider
 
         private const val PREF_SUB_SOURCE = "preferred_sub_source"
         private const val PREF_SUB_DEFAULT = "koto"
