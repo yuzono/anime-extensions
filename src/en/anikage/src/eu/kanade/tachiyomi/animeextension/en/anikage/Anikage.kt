@@ -142,7 +142,18 @@ class Anikage :
 
         val statusName = soup.selectFirst("span.uppercase.tracking-wider")?.text()
 
+        val title = soup.selectFirst("""meta[property="og:title"]""")
+            ?.attr("content")
+            ?.removeSuffix(" - Watch on Anikage")
+        val description = soup.selectFirst("""meta[property="og:description"]""")?.attr("content")
+        val thumbnail_url = soup.selectFirst("""meta[property="og:image"]""")?.attr("content")
+
         return SAnime.create().apply {
+            if (title != null) {
+                this.title = title
+            }
+            this.description = description
+            this.thumbnail_url = thumbnail_url
             author = authorName
             update_strategy = if (statusName == "Finished") {
                 AnimeUpdateStrategy.ONLY_FETCH_ONCE
