@@ -48,9 +48,6 @@ class Anikage :
         .set("Origin", baseUrl)
         .set("Referer", "$baseUrl/")
 
-    fun episodeHeaderBuilder(): Headers.Builder = super.headersBuilder()
-        .set("Origin", baseUrl)
-
     override val client = network.client.newBuilder()
         .rateLimitHost(baseUrl.toHttpUrl(), 5, 1.seconds)
         .build()
@@ -173,8 +170,6 @@ class Anikage :
     }
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        this.episodeHeaderBuilder()["Referer"] = anime.url
-
         val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
 
         val episodesData = client.newCall(episodeListRequest(anime))
@@ -220,15 +215,13 @@ class Anikage :
                     .map { "Dub" to it }
         }
 
-        val episodeHeaders = this.episodeHeaderBuilder().build()
-
-        val playlistUtils = PlaylistUtils(client, episodeHeaders)
+        val playlistUtils = PlaylistUtils(client, headers)
 
         return providers.toList().parallelCatchingFlatMap { (type, provider) ->
             val url = videoListRequestUrl(episode, provider)
             println(url)
             val episodeData = client.newCall(
-                GET(videoListRequestUrl(episode, provider), headers = episodeHeaders),
+                GET(videoListRequestUrl(episode, provider), headers),
             )
                 .awaitSuccess()
                 .parseAs<EpisodeSource>()
@@ -242,8 +235,8 @@ class Anikage :
                 if (source.isM3U8 == true) {
                     playlistUtils.extractFromHls(
                         playlistUrl = videoUrl,
-                        masterHeaders = episodeHeaders,
-                        videoHeaders = episodeHeaders,
+                        masterHeaders = headers,
+                        videoHeaders = headers,
                         videoNameGen = { "$type - $provider - ${source.quality} - $it" },
                         subtitleList = tracks,
                     )
@@ -253,7 +246,7 @@ class Anikage :
                         quality = "$type - $provider - ${source.quality}",
                         videoUrl = videoUrl,
                         subtitleTracks = tracks,
-                        headers = episodeHeaders,
+                        headers = headers,
                     ).let(::listOf)
                 }
             }
