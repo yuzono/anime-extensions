@@ -49,7 +49,7 @@ class Anikage :
         .set("Referer", "$baseUrl/")
 
     override val client = network.client.newBuilder()
-        .rateLimitHost(baseUrl.toHttpUrl(), 5, 1.seconds)
+        .rateLimitHost(baseUrl.toHttpUrl(), 3, 1.seconds)
         .build()
 
     private val preferences by getPreferencesLazy()
