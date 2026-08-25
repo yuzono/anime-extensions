@@ -94,8 +94,8 @@ data class EpisodeSource(
     val sources: List<SourceData> = emptyList(),
     val subtitles: List<SubtitleData> = emptyList(),
     val embeds: List<Embed>? = null,
-    val intro: TimeStamp?,
-    val outro: TimeStamp?,
+    val intro: TimeStamp? = null,
+    val outro: TimeStamp? = null,
     val headers: Map<String, String> = emptyMap(),
     val embedOptions: List<EmbedOptions>? = null,
     val cached: Boolean,
@@ -106,8 +106,8 @@ data class EpisodeSource(
 data class SourceData(
     val url: String,
     val quality: String,
-    val isM3U8: Boolean?,
-    val embedUrl: String?,
+    val isM3U8: Boolean? = null,
+    val embedUrl: String? = null,
     val type: String?,
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
