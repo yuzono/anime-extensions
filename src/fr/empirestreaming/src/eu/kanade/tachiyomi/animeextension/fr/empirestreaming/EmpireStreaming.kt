@@ -179,7 +179,7 @@ class EmpireStreaming :
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return sortedWith(
             compareBy(
-                { it.quality.contains(hoster) },
+                { it.quality.contains(hoster, ignoreCase = true) },
                 { it.quality.contains(quality) },
             ),
         ).reversed()

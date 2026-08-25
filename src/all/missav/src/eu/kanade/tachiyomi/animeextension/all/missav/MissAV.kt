@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher
 import aniyomi.lib.javcoverfetcher.JavCoverFetcher.fetchHDCovers
+import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -57,6 +58,10 @@ class MissAV :
 
     private var playlistExtractor by LazyMutable {
         PlaylistUtils(client, docHeaders)
+    }
+
+    private val m3u8Integration by lazy {
+        M3u8Integration(client)
     }
 
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/en/today-hot?page=$page", docHeaders)
@@ -236,6 +241,7 @@ class MissAV :
         val masterPlaylist = playlists.substringAfter("source=\"").substringBefore("\";")
 
         return playlistExtractor.extractFromHls(masterPlaylist, referer = "$baseUrl/")
+            .let(m3u8Integration::processVideoList)
     }
 
     override fun List<Video>.sort(): List<Video> {

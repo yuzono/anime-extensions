@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeBalkan'
     themePkg = 'animestream'
     baseUrl = 'https://animebalkan.org'
-    overrideVersionCode = 8
+    overrideVersionCode = 9
 }
 
 apply plugin: "kei.plugins.extension.legacy"

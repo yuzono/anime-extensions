@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
+import org.jsoup.nodes.Document
 
 class AnimeXin :
     AnimeStream(
@@ -20,6 +21,25 @@ class AnimeXin :
         "https://animexin.dev",
     ) {
     override val id = 4620219025406449669
+
+    // =========================== Anime Details ============================
+    override fun getAnimeDescription(document: Document): String? {
+        val description = super.getAnimeDescription(document) ?: return null
+        val englishIdx = description.indexOf("English", ignoreCase = true)
+        val indonesiaIdx = description.indexOf("Indonesia", ignoreCase = true)
+
+        return if (englishIdx != -1 && indonesiaIdx != -1 && englishIdx < indonesiaIdx) {
+            val isIndo = preferences.langPref == "Indonesia"
+            val result = if (isIndo) {
+                description.substring(indonesiaIdx + "Indonesia".length)
+            } else {
+                description.substring(englishIdx + "English".length, indonesiaIdx)
+            }
+            result.trim().removePrefix(":").trim()
+        } else {
+            description
+        }
+    }
 
     // ============================ Video Links =============================
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }

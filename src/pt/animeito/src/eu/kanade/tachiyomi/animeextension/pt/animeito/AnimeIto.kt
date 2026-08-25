@@ -29,7 +29,8 @@ class AnimeIto :
     private val animeitoExtractor by lazy { AnimeItoExtractor(client, headers) }
 
     override suspend fun getVideoList(url: String, name: String): List<Video> = when {
-        "anidrive.click" in url -> animeitoExtractor.videosFromUrl(url)
+        // Embed = googlevideo/blogger MP4; Prime = HLS (.image segments via m3u8server)
+        "anidrive.click" in url -> animeitoExtractor.videosFromUrl(url, name.trim())
         else -> emptyList()
     }
 }

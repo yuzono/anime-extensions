@@ -1,7 +1,7 @@
 ext {
     extName = 'AsiaFlix'
     extClass = '.AsiaFlix'
-    extVersionCode = 30
+    extVersionCode = 31
 }
 
 apply plugin: "kei.plugins.extension.legacy"

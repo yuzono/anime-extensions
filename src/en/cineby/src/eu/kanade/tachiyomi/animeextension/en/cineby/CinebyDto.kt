@@ -133,6 +133,11 @@ data class EpisodeDto(
     val airDate: String? = null,
 )
 
+@Serializable
+data class SeedDto(
+    val seed: String,
+)
+
 // ============================ Videasy Decryption ============================
 @Serializable
 data class VideasyDecryptionDto(

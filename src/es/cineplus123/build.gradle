@@ -3,7 +3,7 @@ ext {
     extClass = '.Cineplus123'
     themePkg = 'dooplay'
     baseUrl = 'https://cineplus123.org'
-    overrideVersionCode = 17
+    overrideVersionCode = 19
 }
 
 apply plugin: "kei.plugins.extension.legacy"

@@ -4,7 +4,7 @@ plugins {
     alias(kei.plugins.multisrc)
 }
 
-baseVersionCode = 4
+baseVersionCode = 5
 
 dependencies {
     api(project(":lib:megaupextractor"))

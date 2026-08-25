@@ -1,7 +1,7 @@
 ext {
     extName = 'OtakuDesu'
     extClass = '.OtakuDesu'
-    extVersionCode = 42
+    extVersionCode = 43
 }
 
 apply plugin: "kei.plugins.extension.legacy"

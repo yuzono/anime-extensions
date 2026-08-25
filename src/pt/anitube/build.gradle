@@ -1,7 +1,7 @@
 ext {
     extName = 'Anitube'
     extClass = '.Anitube'
-    extVersionCode = 28
+    extVersionCode = 29
 }
 
 apply plugin: "kei.plugins.extension.legacy"

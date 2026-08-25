@@ -21,6 +21,8 @@ class AnimeSogo :
         hosterNames = listOf("HD-1", "HD-2", "HD-3", "VidPlay-1", "Kiwi-Stream"),
     ) {
 
+    override val useEpisodeTitles = false
+
     // =================== Selector Overrides ==============================
 
     override val metaContainerSelector = "div.bl-meta"
