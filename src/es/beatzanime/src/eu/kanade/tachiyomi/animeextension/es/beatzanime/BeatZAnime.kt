@@ -61,10 +61,10 @@ class BeatZAnime : ParsedAnimeHttpSource() {
     override fun latestUpdatesSelector(): String = ".row > div:has(a.titulo-largo)"
 
     override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
-        thumbnail_url = element.selectFirst("img")!!.imgAttr()
         with(element.selectFirst("a.titulo-largo")!!) {
             setUrlWithoutDomain(attr("abs:href"))
             title = text()
+            thumbnail_url = posterUrl(attr("href"))
         }
     }
 
@@ -155,7 +155,7 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         title = document.selectFirst("h1")!!.text()
-        thumbnail_url = document.selectFirst(".row > div > img")?.imgAttr()
+        thumbnail_url = document.selectFirst("div.poster-card img")?.attr("abs:src")
         genre = document.selectFirst("p.post-text span:has(b:contains(Generos))")?.ownText()
         status = document.selectFirst("div:has(>h5:contains(Estado)) a").parseStatus()
         description = buildString {
@@ -244,6 +244,15 @@ class BeatZAnime : ParsedAnimeHttpSource() {
             )
         }
 
+        // Movie pages label their single file after the release name, which
+        // often differs from the displayed title ("Gotoubun..." vs "5-toubun...",
+        // year suffixes); show the movie title instead.
+        if (isMovie(document) && episodes.size == 1) {
+            val movie = episodes[0]
+            document.selectFirst("h1")?.text()?.let { movie.name = it }
+            movie.episode_number = 1F
+        }
+
         return episodes.reversed()
     }
 
@@ -276,10 +285,21 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun Element.imgAttr(): String = when {
-        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-        hasAttr("data-src") -> attr("abs:data-src")
-        else -> attr("abs:src")
+    /**
+     * The "Tipo" stat on details pages marks the entry as a movie ("Pelicula").
+     */
+    private fun isMovie(document: Document): Boolean = document.selectFirst("div.stat-item:has(h5:contains(Tipo)) a")
+        ?.text()
+        ?.equals("Pelicula", ignoreCase = true)
+        ?: false
+
+    /**
+     * Card images are 16:9 episode stills; the poster art follows the site's
+     * slug convention at /img/img-anime/<slug>/<slug>-port.jpg.
+     */
+    private fun posterUrl(animeUrl: String): String {
+        val slug = animeUrl.substringAfterLast('/').removeSuffix(".html")
+        return "$baseUrl/img/img-anime/$slug/$slug-port.jpg"
     }
 
     /**
