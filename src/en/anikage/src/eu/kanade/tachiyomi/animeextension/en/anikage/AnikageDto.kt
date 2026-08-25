@@ -72,20 +72,32 @@ data class EpisodeResult(
     val description: String?,
     val image: String?,
     val airDate: String?,
-    val runtime: Int,
+    val runtime: Int?,
     val rating: Float?,
     val isFiller: Boolean,
     val isRecap: Boolean,
 )
 
 @Serializable
+data class EmbedOptions(
+    val key: String,
+    val label: String,
+    val url: String,
+)
+
+@Serializable
 data class EpisodeSource(
+    val slug: String,
+    val number: Int,
+    val providerId: String,
+    val subType: String,
     val sources: List<SourceData> = emptyList(),
     val subtitles: List<SubtitleData> = emptyList(),
     val embeds: List<Embed>?,
     val intro: TimeStamp?,
     val outro: TimeStamp?,
-    val headers: String,
+    val headers: Map<String, String> = emptyMap(),
+    val embedOptions: List<EmbedOptions>?,
     val cached: Boolean,
     val stale: Boolean,
 )
@@ -95,7 +107,8 @@ data class SourceData(
     val url: String,
     val quality: String,
     val isM3U8: Boolean?,
-    val type: String?, // softsub,
+    val embedUrl: String?,
+    val type: String?,
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
         "https://gg.akage.lol",
@@ -110,6 +123,7 @@ data class SubtitleData(
     val label: String,
     val kind: String,
     val default: Boolean,
+    val embedUrl: String,
 )
 
 @Serializable

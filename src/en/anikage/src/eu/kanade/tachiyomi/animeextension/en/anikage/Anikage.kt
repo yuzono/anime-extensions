@@ -225,6 +225,8 @@ class Anikage :
         val playlistUtils = PlaylistUtils(client, episodeHeaders)
 
         return providers.toList().parallelCatchingFlatMap { (type, provider) ->
+            val url = videoListRequestUrl(episode, provider)
+            println(url)
             val episodeData = client.newCall(
                 GET(videoListRequestUrl(episode, provider), headers = episodeHeaders),
             )
@@ -373,25 +375,31 @@ class Anikage :
         private const val PREF_ADULT_DEFAULT = false
 
         private val SUB_PROVIDER = listOf(
-            "megg",
-            "miko",
-            "anya",
-            "verse",
+            "koto",
             "neko",
+            "ken",
+            "uwu",
+            "kiwi",
+            "megg",
+            "dib",
+            "wave",
         )
         private val DUB_PROVIDER = listOf(
-            "megg",
-            "miko",
-            "anya",
-            "verse",
+            "koto",
             "neko",
+            "ken",
+            "uwu",
+            "kiwi",
+            "megg",
+            "dib",
+            "wave",
         )
 
         private const val PREF_SUB_SOURCE = "preferred_sub_source"
-        private const val PREF_SUB_DEFAULT = "megg"
+        private const val PREF_SUB_DEFAULT = "koto"
 
         private const val PREF_DUB_SOURCE = "preferred_dub_source"
-        private const val PREF_DUB_DEFAULT = "megg"
+        private const val PREF_DUB_DEFAULT = "koto"
 
         private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
         private const val PREF_ISSUBORDUB_DEFAULT = "sub"
