@@ -77,22 +77,22 @@ class ReAnime :
     private val preferredServer: String
         get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
 
+    private val excludedServers: Set<String>
+        get() = preferences.getStringSet(PREF_SERVER_EXCLUDE_KEY, PREF_SERVER_EXCLUDE_DEFAULT)
+            ?: PREF_SERVER_EXCLUDE_DEFAULT
+
     private val preferredAudio: String
         get() = preferences.getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT) ?: PREF_AUDIO_DEFAULT
+
+    private val excludedAudioTypes: Set<String>
+        get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, PREF_AUDIO_EXCLUDE_DEFAULT)
+            ?: PREF_AUDIO_EXCLUDE_DEFAULT
 
     private val hideFiller: Boolean
         get() = preferences.getBoolean(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     private val includeDirectDownloads: Boolean
         get() = preferences.getBoolean(PREF_DOWNLOAD_KEY, PREF_DOWNLOAD_DEFAULT)
-
-    private val excludedServers: Set<String>
-        get() = preferences.getStringSet(PREF_SERVER_EXCLUDE_KEY, PREF_SERVER_EXCLUDE_DEFAULT)
-            ?: PREF_SERVER_EXCLUDE_DEFAULT
-
-    private val excludedAudioTypes: Set<String>
-        get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, PREF_AUDIO_EXCLUDE_DEFAULT)
-            ?: PREF_AUDIO_EXCLUDE_DEFAULT
 
     private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
         .add("Accept", "application/json, text/plain, */*")
