@@ -64,9 +64,9 @@ class Anikage :
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "popularity")
-        requestUrl.addQueryParameter("per_page", "25")
+        requestUrl.addQueryParameter("limit", "25")
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", "true")
+            requestUrl.addQueryParameter("adult", "true")
         }
 
         return buildGet(requestUrl.build())
@@ -101,7 +101,7 @@ class Anikage :
             requestUrl.addQueryParameter("format", searchParams.types)
         }
         if (searchParams.releaseYear != "ALL") {
-            requestUrl.addQueryParameter("seasonYear", searchParams.releaseYear)
+            requestUrl.addQueryParameter("yearMin", searchParams.releaseYear)
         }
         if (searchParams.genres.isNotEmpty()) {
             requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
@@ -120,9 +120,9 @@ class Anikage :
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "updated")
-        requestUrl.addQueryParameter("per_page", "25")
+        requestUrl.addQueryParameter("limit", "25")
         if (preferences.isAdult) {
-            requestUrl.addQueryParameter("include_adult", true.toString())
+            requestUrl.addQueryParameter("adult", true.toString())
         }
 
         return buildGet(requestUrl.build())
