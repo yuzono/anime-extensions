@@ -40,7 +40,8 @@ class Anikage :
     override val lang: String = "en"
 
     override val supportsLatest: Boolean = true
-    override val supportsRelatedAnimes = false
+
+    override val disableRelatedAnimesBySearch = true
 
     override val name: String = "Anikage"
 
