@@ -2,58 +2,23 @@ package eu.kanade.tachiyomi.animeextension.en.aniwaves
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
+import keiyoushi.utils.firstInstanceOrNull
 import java.util.Calendar
 
-object AniWavesFilters {
+object Filters {
 
-    open class QueryPartFilter(
-        displayName: String,
-        val vals: Array<Pair<String, String>>,
-    ) : AnimeFilter.Select<String>(
-        displayName,
-        vals.map { it.first }.toTypedArray(),
-    ) {
-        fun toQueryPart() = vals[state].second
-    }
+    internal class SortFilter : QueryPartFilter("Sort order", Data.SORT)
+    internal class GenreFilter : CheckBoxFilterList("Genre", Data.GENRE)
+    internal class CountryFilter : CheckBoxFilterList("Country", Data.COUNTRY)
+    internal class SeasonFilter : CheckBoxFilterList("Season", Data.SEASON)
+    internal class YearFilter : CheckBoxFilterList("Year", Data.YEAR)
+    internal class TypeFilter : CheckBoxFilterList("Type", Data.TYPE)
+    internal class StatusFilter : CheckBoxFilterList("Status", Data.STATUS)
+    internal class LanguageFilter : QueryPartFilter("Language", Data.LANGUAGE)
+    internal class RatingFilter : CheckBoxFilterList("Rating", Data.RATING)
 
-    open class CheckBoxFilterList(
-        name: String,
-        values: List<CheckBox>,
-    ) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
-
-    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
-
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = this.filterIsInstance<R>().joinToString("") {
-        (it as QueryPartFilter).toQueryPart()
-    }
-
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
-
-    private inline fun <reified R> AnimeFilterList.parseCheckbox(
-        options: Array<Pair<String, String>>,
-        name: String,
-    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
-        .mapNotNull { checkbox ->
-            if (checkbox.state) {
-                options.find { it.first == checkbox.name }!!.second
-            } else {
-                null
-            }
-        }.joinToString("&$name[]=").let {
-            if (it.isBlank()) "" else "&$name[]=$it"
-        }
-
-    class SortFilter : QueryPartFilter("Sort order", AniWaveFiltersData.SORT)
-    class GenreFilter : CheckBoxFilterList("Genre", AniWaveFiltersData.GENRE.map { CheckBoxVal(it.first, false) })
-    class CountryFilter : CheckBoxFilterList("Country", AniWaveFiltersData.COUNTRY.map { CheckBoxVal(it.first, false) })
-    class SeasonFilter : CheckBoxFilterList("Season", AniWaveFiltersData.SEASON.map { CheckBoxVal(it.first, false) })
-    class YearFilter : CheckBoxFilterList("Year", AniWaveFiltersData.YEAR.map { CheckBoxVal(it.first, false) })
-    class TypeFilter : CheckBoxFilterList("Type", AniWaveFiltersData.TYPE.map { CheckBoxVal(it.first, false) })
-    class StatusFilter : CheckBoxFilterList("Status", AniWaveFiltersData.STATUS.map { CheckBoxVal(it.first, false) })
-    class LanguageFilter : QueryPartFilter("Language", AniWaveFiltersData.LANGUAGE)
-    class RatingFilter : CheckBoxFilterList("Rating", AniWaveFiltersData.RATING.map { CheckBoxVal(it.first, false) })
-
-    val FILTER_LIST get() = AnimeFilterList(
+    val FILTER_LIST: AnimeFilterList = AnimeFilterList(
         SortFilter(),
         AnimeFilter.Separator(),
         GenreFilter(),
@@ -68,32 +33,38 @@ object AniWavesFilters {
 
     data class FilterSearchParams(
         val sort: String = "",
-        val genre: String = "",
-        val country: String = "",
-        val season: String = "",
-        val year: String = "",
-        val type: String = "",
-        val status: String = "",
+        val genres: List<String> = emptyList(),
+        val countries: List<String> = emptyList(),
+        val seasons: List<String> = emptyList(),
+        val years: List<String> = emptyList(),
+        val types: List<String> = emptyList(),
+        val statuses: List<String> = emptyList(),
         val language: String = "",
-        val rating: String = "",
+        val ratings: List<String> = emptyList(),
     )
 
-    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
-        if (filters.isEmpty()) return FilterSearchParams()
-        return FilterSearchParams(
-            sort = filters.asQueryPart<SortFilter>(),
-            genre = filters.parseCheckbox<GenreFilter>(AniWaveFiltersData.GENRE, "genre"),
-            country = filters.parseCheckbox<CountryFilter>(AniWaveFiltersData.COUNTRY, "country"),
-            season = filters.parseCheckbox<SeasonFilter>(AniWaveFiltersData.SEASON, "season"),
-            year = filters.parseCheckbox<YearFilter>(AniWaveFiltersData.YEAR, "year"),
-            type = filters.parseCheckbox<TypeFilter>(AniWaveFiltersData.TYPE, "type"),
-            status = filters.parseCheckbox<StatusFilter>(AniWaveFiltersData.STATUS, "status"),
-            language = filters.asQueryPart<LanguageFilter>(),
-            rating = filters.parseCheckbox<RatingFilter>(AniWaveFiltersData.RATING, "rating"),
-        )
+    internal open class QueryPartFilter(
+        displayName: String,
+        val vals: Array<Pair<String, String>>,
+    ) : AnimeFilter.Select<String>(
+        displayName,
+        vals.map { it.first }.toTypedArray(),
+    ) {
+        fun toQueryPart() = vals[state].second
     }
 
-    private object AniWaveFiltersData {
+    internal open class CheckBoxFilterList(
+        name: String,
+        values: Array<Pair<String, String>>,
+    ) : AnimeFilter.Group<CheckBoxVal>(name, values.map { CheckBoxVal(it.first) }) {
+        fun selectedValues(vals: Array<Pair<String, String>>) = state
+            .filter { it.state }
+            .mapNotNull { box -> vals.find { it.first == box.name }?.second }
+    }
+
+    internal class CheckBoxVal(name: String) : AnimeFilter.CheckBox(name, false)
+
+    internal object Data {
         val SORT = arrayOf(
             Pair("Default", ""),
             Pair("Recently Updated", "last_updated"),
@@ -125,7 +96,6 @@ object AniWavesFilters {
             Pair("Childcare", "863"),
             Pair("Combat Sports", "1143"),
             Pair("Comedy", "4"),
-            Pair("Crossdressing", "455"),
             Pair("Delinquents", "307"),
             Pair("Detective", "593"),
             Pair("Drama", "30"),
@@ -147,7 +117,6 @@ object AniWavesFilters {
             Pair("Josei", "298"),
             Pair("Kids", "93"),
             Pair("Love Polygon", "1982"),
-            Pair("Magical Sex Shift", "264"),
             Pair("Mahou Shoujo", "241"),
             Pair("Martial Arts", "209"),
             Pair("Mecha", "45"),
@@ -206,7 +175,7 @@ object AniWavesFilters {
             Pair("Unknown", "null"),
         )
 
-        val YEAR = buildList {
+        val YEAR: Array<Pair<String, String>> = buildList {
             (Calendar.getInstance().get(Calendar.YEAR) + 1 downTo 2004).forEach {
                 add(Pair(it.toString(), it.toString()))
             }
@@ -246,4 +215,19 @@ object AniWavesFilters {
             Pair("R+ - Mild Nudity", "r"),
         )
     }
+}
+
+internal fun AnimeFilterList.getSearchParameters(): Filters.FilterSearchParams {
+    if (isEmpty()) return Filters.FilterSearchParams()
+    return Filters.FilterSearchParams(
+        sort = firstInstance<Filters.SortFilter>().toQueryPart(),
+        genres = firstInstanceOrNull<Filters.GenreFilter>()?.selectedValues(Filters.Data.GENRE).orEmpty(),
+        countries = firstInstanceOrNull<Filters.CountryFilter>()?.selectedValues(Filters.Data.COUNTRY).orEmpty(),
+        seasons = firstInstanceOrNull<Filters.SeasonFilter>()?.selectedValues(Filters.Data.SEASON).orEmpty(),
+        years = firstInstanceOrNull<Filters.YearFilter>()?.selectedValues(Filters.Data.YEAR).orEmpty(),
+        types = firstInstanceOrNull<Filters.TypeFilter>()?.selectedValues(Filters.Data.TYPE).orEmpty(),
+        statuses = firstInstanceOrNull<Filters.StatusFilter>()?.selectedValues(Filters.Data.STATUS).orEmpty(),
+        language = firstInstance<Filters.LanguageFilter>().toQueryPart(),
+        ratings = firstInstanceOrNull<Filters.RatingFilter>()?.selectedValues(Filters.Data.RATING).orEmpty(),
+    )
 }
