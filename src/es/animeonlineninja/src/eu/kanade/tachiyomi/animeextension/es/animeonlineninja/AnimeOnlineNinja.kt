@@ -257,6 +257,7 @@ class AnimeOnlineNinja :
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
+
     /**
      * `/episodio/` lists EPISODES, not series. Its cards are
      * `article.item se episodes`: `alt` is the episode name ("Yomi no Tsugai
