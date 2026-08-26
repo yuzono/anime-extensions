@@ -11,11 +11,6 @@ internal class VrfCodec {
         return URLEncoder.encode(base64, "UTF-8")
     }
 
-    fun decrypt(input: String): String {
-        val decoded = Base64.decode(input, Base64.DEFAULT)
-        return rc4(KEY, String(decoded, Charsets.ISO_8859_1))
-    }
-
     private fun rc4(key: String, data: String): String {
         val s = IntArray(256) { it }
         var j = 0

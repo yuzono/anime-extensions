@@ -493,34 +493,15 @@ class AniWaves :
     private suspend fun getEmbedUrl(serverLinkId: String, epUrl: String): String {
         val requestHeaders = ajaxHeaders(baseUrl + epUrl)
 
-        // Current API — data-link-id is already VRF-encoded, send as-is
-        var sourcesInfo = ""
-        client.newCall(
+        // Current API - data-link-id is already VRF-encoded, send as-is
+        val response = client.newCall(
             GET("$baseUrl/ajax/sources?id=$serverLinkId&asi=0&autoPlay=0", requestHeaders),
-        ).awaitSuccess().use { response ->
-            val raw = response.body.string()
-            sourcesInfo = "sources HTTP ${response.code}: ${raw.take(160)}"
-            if (response.isSuccessful) {
-                val url = raw.parseAs<SourcesResponse>().result?.url?.takeIf(String::isNotBlank)
-                if (url != null) return url
-            }
-        }
+        ).awaitSuccess()
 
-        // Legacy API — encrypted URL that needs a VRF round-trip
-        var legacyInfo = ""
-        client.newCall(
-            GET("$baseUrl/ajax/server/$serverLinkId?vrf=${vrf.encrypt(serverLinkId)}", requestHeaders),
-        ).execute().use { response ->
-            val raw = response.body.string()
-            legacyInfo = "server HTTP ${response.code}: ${raw.take(160)}"
-            if (response.isSuccessful) {
-                return vrf.decrypt(raw.parseAs<LegacyServerResponse>().result.url)
-            }
-        }
-
-        throw Exception("Embed resolve failed — $sourcesInfo | $legacyInfo")
+        return response.parseAs<SourcesResponse>().result?.url
+            ?.takeIf(String::isNotBlank)
+            ?: throw Exception("No embed URL returned for link id $serverLinkId")
     }
-
     // ==================== EchoVideo Family Extractor ======================
     // Vidplay / MyCloud / DatSaV — all resolve to play.echovideo.ru embeds.
 
@@ -771,13 +752,13 @@ class AniWaves :
 
     override fun List<Video>.sort(): List<Video> {
         val qualityTiers = PREF_QUALITY_VALUES.reversed()
-        val typeTag = " - $preferredType "
+        val typePattern = Regex(""" - ${Regex.escape(preferredType)}(?:\s|$)""", RegexOption.IGNORE_CASE)
 
         return sortedWith(
             compareByDescending<Video> { it.quality.contains(preferredQuality) }
                 .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.quality.contains(tier) } }
                 .thenByDescending { it.quality.contains(preferredServer, ignoreCase = true) }
-                .thenByDescending { it.quality.contains(typeTag, ignoreCase = true) },
+                .thenByDescending { typePattern.containsMatchIn(it.quality) },
         )
     }
 

@@ -9,7 +9,7 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
-import java.util.concurrent.ConcurrentHashMap
+import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
@@ -18,7 +18,13 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
     val port: Int
         get() = super.getListeningPort()
 
-    private val playlists = ConcurrentHashMap<String, String>()
+    /**
+     * Access-ordered and size-capped so repeated extractions can't grow the
+     * map without bound; the most recent playlists survive for seeks/reloads.
+     */
+    private val playlists = object : LinkedHashMap<String, String>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > MAX_PLAYLISTS
+    }
     private val counter = AtomicLong()
 
     init {
@@ -27,7 +33,7 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
 
     fun register(text: String): String {
         val id = counter.incrementAndGet().toString(Character.MAX_RADIX)
-        playlists[id] = text
+        synchronized(playlists) { playlists[id] = text }
         return "http://127.0.0.1:$port/pl/$id"
     }
 
@@ -50,7 +56,7 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
     }
 
     private fun servePlaylist(session: IHTTPSession): Response {
-        val text = playlists[session.uri.substringAfterLast('/')]
+        val text = synchronized(playlists) { playlists[session.uri.substringAfterLast('/')] }
             ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", text)
     }
@@ -83,12 +89,15 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
                     )
                 }
                 val bytes = upstream.body.bytes()
-                newFixedLengthResponse(
-                    Status.OK,
+                val response = newFixedLengthResponse(
+                    if (upstream.code == 206) Status.PARTIAL_CONTENT else Status.OK,
                     upstream.header("Content-Type") ?: "video/mp2t",
                     ByteArrayInputStream(bytes),
                     bytes.size.toLong(),
                 )
+                upstream.header("Content-Range")?.let { response.addHeader("Content-Range", it) }
+                upstream.header("Accept-Ranges")?.let { response.addHeader("Accept-Ranges", it) }
+                response
             }
         } catch (e: Exception) {
             Log.w(TAG, "seg proxy exception for $url: $e")
@@ -98,5 +107,8 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
 
     companion object {
         private const val TAG = "AniWavesSegProxy"
+
+        /** Bounded playlist cache; each entry is a few KB of m3u8 text. */
+        private const val MAX_PLAYLISTS = 25
     }
 }

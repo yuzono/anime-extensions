@@ -21,9 +21,6 @@ class AjaxHtmlResponse(val result: String) {
 }
 
 @Serializable
-class LegacyServerResponse(val result: EmbedResult)
-
-@Serializable
 class SourcesResponse(val result: EmbedResult? = null)
 
 @Serializable
