@@ -83,14 +83,14 @@ object AnikageFilters {
 
     private object AnikageFiltersData {
         val ORIGIN = arrayOf(
-            Pair("ALL", "ALL"),
+            Pair("All", "ALL"),
             Pair("Japan", "JP"),
             Pair("Korea", "KR"),
             Pair("China", "CN"),
             Pair("Taiwan", "TW"),
         )
         val SEASONS = arrayOf(
-            Pair("ALL", "ALL"),
+            Pair("All", "ALL"),
             Pair("Winter", "WINTER"),
             Pair("Spring", "SPRING"),
             Pair("Summer", "SUMMER"),
@@ -100,7 +100,7 @@ object AnikageFilters {
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
 
         val YEARS: Array<Pair<String, String>> = buildList {
-            add("ALL" to "ALL")
+            add("All" to "ALL")
             addAll(
                 (currentYear + 1 downTo 1940).map {
                     it.toString() to it.toString()
@@ -119,7 +119,7 @@ object AnikageFilters {
         )
 
         val TYPES = arrayOf(
-            Pair("ALL", "ALL"),
+            Pair("All", "ALL"),
             Pair("TV", "TV"),
             Pair("TV Short", "TV_SHORT"),
             Pair("Movie", "MOVIE"),
@@ -130,7 +130,7 @@ object AnikageFilters {
         )
 
         val STATUS = arrayOf(
-            Pair("ALL", "ALL"),
+            Pair("All", "ALL"),
             Pair("Finished", "FINISHED"),
             Pair("Releasing", "RELEASING"),
             Pair("Not Yet Released", "NOT_YET_RELEASED"),

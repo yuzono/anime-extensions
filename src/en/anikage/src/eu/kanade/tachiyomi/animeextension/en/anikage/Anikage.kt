@@ -21,14 +21,16 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
-import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.collections.associate
+import kotlin.collections.isNotEmpty
 import kotlin.time.Duration.Companion.seconds
 
 class Anikage :
@@ -100,6 +102,7 @@ class Anikage :
         }
         if (searchParams.releaseYear != "ALL") {
             requestUrl.addQueryParameter("yearMin", searchParams.releaseYear)
+            requestUrl.addQueryParameter("yearMax", searchParams.releaseYear)
         }
         if (searchParams.genres.isNotEmpty()) {
             requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
@@ -128,44 +131,95 @@ class Anikage :
 
     override fun latestUpdatesParse(response: Response) = parseAnime(response)
 
-    /**
-     * Parses the response using Jsoup to extract the anime studio and status.
-     * It returns the [SAnime]
-     */
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${anime.url}"
+
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
+        return buildGet("$baseUrl/api/media/anime/$animeId".toHttpUrl())
+    }
+
     override fun animeDetailsParse(response: Response): SAnime {
-        val soup = response.useAsJsoup()
-        val studioTag = soup.selectFirst("div.flex.tracking-widest:contains(\"Studios\")")
-        val studioNameDiv = studioTag?.nextElementSibling()
+        val info = response.parseAs<AnimeInfoResponse>().anime
 
-        val authorName = studioNameDiv
-            ?.select("span.cursor-default")
-            ?.eachText()?.joinToString()
-
-        val statusName = soup.selectFirst("span.uppercase.tracking-wider")?.text()
-
-        val title = soup.selectFirst("""meta[property="og:title"]""")
-            ?.attr("content")
-            ?.removeSuffix(" - Watch on Anikage")
-        val description = soup.selectFirst("""meta[property="og:description"]""")?.attr("content")
-        val thumbnailUrl = soup.selectFirst("""meta[property="og:image"]""")?.attr("content")
+        val titleName = if (preferences.titleStyle == "english") {
+            info.title.english ?: info.title.romaji!!
+        } else {
+            info.title.romaji!!
+        }
+        val studioNames = info.studios
+            .filter { it.isAnimationStudio }
+            .ifEmpty { info.studios }
+            .map { it.name }
 
         return SAnime.create().apply {
-            if (title != null) {
-                this.title = title
-            }
-            this.description = description
-            thumbnail_url = thumbnailUrl
-            author = authorName
-            update_strategy = if (statusName == "Finished") {
+            title = titleName
+            description = info.description?.cleanDescription()
+            thumbnail_url = info.coverImage?.let { it.extraLarge ?: it.large ?: it.medium }
+            author = studioNames.joinToString()
+            update_strategy = if (info.status == "FINISHED") {
                 AnimeUpdateStrategy.ONLY_FETCH_ONCE
             } else {
                 AnimeUpdateStrategy.ALWAYS_UPDATE
             }
-            status = when (statusName) {
-                "Finished" -> SAnime.COMPLETED
-                "Airing" -> SAnime.ONGOING
+            status = when (info.status) {
+                "FINISHED" -> SAnime.COMPLETED
+                "RELEASING" -> SAnime.ONGOING
+                "CANCELLED" -> SAnime.CANCELLED
                 else -> SAnime.UNKNOWN
             }
+        }
+    }
+
+    // Related Anime
+
+    override fun relatedAnimeListRequest(anime: SAnime): Request {
+        val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
+        return buildGet("$baseUrl/api/media/anime/$animeId".toHttpUrl())
+    }
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val info = response.parseAs<AnimeInfoResponse>().anime
+        val currentSlug = info.slug
+
+        fun RelatedAnimeTitle.preferred() = if (preferences.titleStyle == "english") {
+            english ?: romaji
+        } else {
+            romaji ?: english
+        }
+
+        fun relatedStatus(status: String?) = when (status) {
+            "FINISHED" -> SAnime.COMPLETED
+            "RELEASING" -> SAnime.ONGOING
+            "CANCELLED" -> SAnime.CANCELLED
+            else -> SAnime.UNKNOWN
+        }
+
+        return buildList {
+            info.relations.mapNotNull { rel ->
+                if (rel.slug == currentSlug) return@mapNotNull null
+                val title = rel.title.preferred() ?: return@mapNotNull null
+
+                SAnime.create().apply {
+                    setUrlWithoutDomain("/anime/info/${rel.slug}")
+                    this.title = title
+                    thumbnail_url = rel.coverImage
+                    status = relatedStatus(rel.status)
+                    genre = listOfNotNull(rel.format, rel.relationType).joinToString()
+                }
+            }.let(::addAll)
+
+            info.recommendations.mapNotNull { rec ->
+                if (rec.slug == currentSlug) return@mapNotNull null
+                val title = rec.title.preferred() ?: return@mapNotNull null
+
+                SAnime.create().apply {
+                    setUrlWithoutDomain("/anime/info/${rec.slug}")
+                    this.title = title
+                    thumbnail_url = rec.coverImage
+                    status = relatedStatus(rec.status)
+                    genre = rec.format
+                }
+            }.let(::addAll)
         }
     }
 
@@ -228,23 +282,29 @@ class Anikage :
      * eg : https://anikage.cc/api/media/anime/oui9FXBSdF/episodes/1/sources?lang=sub&provider=megg
      */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val providers = if (preferences.subOrDub == "dub") {
-            DUB_PROVIDER
-                .sortedByDescending { it.contains(preferences.dubSource) }
-                .map { "Dub" to it } +
-                SUB_PROVIDER
-                    .sortedByDescending { it.contains(preferences.subSource) }
-                    .map { "Sub" to it }
-        } else {
-            SUB_PROVIDER.sortedByDescending { it.contains(preferences.subSource) }
-                .map { "Sub" to it } +
-                DUB_PROVIDER.sortedByDescending { it.contains(preferences.dubSource) }
-                    .map { "Dub" to it }
-        }
+        val isDubPreferred = preferences.subOrDub == "dub"
+        val primaryLabel = if (isDubPreferred) "Dub" else "Sub"
+        val secondaryLabel = if (isDubPreferred) "Sub" else "Dub"
+        val preferredSource = if (isDubPreferred) preferences.dubSource else preferences.subSource
+        val otherSource = if (isDubPreferred) preferences.subSource else preferences.dubSource
+
+        val primaryProviders = SUB_PROVIDER.sortedByDescending { it.contains(preferredSource) }
+        val secondaryProviders = DUB_PROVIDER.sortedByDescending { it.contains(otherSource) }
+
+        val providers = getEpisodeServers(episode)
+            .takeIf { it.isNotEmpty() }
+            ?.associate { it.providerId to it.subTypes }
+            ?.let { availability ->
+                primaryProviders.filter { availability[it].orEmpty().contains(primaryLabel.lowercase()) }
+                    .map { primaryLabel to it } +
+                    secondaryProviders.filter { availability[it].orEmpty().contains(secondaryLabel.lowercase()) }
+                        .map { secondaryLabel to it }
+            }
+            ?: (primaryProviders.map(primaryLabel::to) + secondaryProviders.map(secondaryLabel::to))
 
         val playlistUtils = PlaylistUtils(client, headers)
 
-        return providers.toList().parallelCatchingFlatMap { (type, provider) ->
+        return providers.parallelCatchingFlatMap { (type, provider) ->
             val episodeData = client.newCall(
                 GET(videoListRequestUrl(episode, provider), headers),
             )
@@ -280,6 +340,21 @@ class Anikage :
 
     // Utils
 
+    private fun serversListUrl(episode: SEpisode): String = "$baseUrl${episode.url}".substringBefore("/sources") + "/servers"
+
+    private suspend fun getEpisodeServers(episode: SEpisode): List<ServerInfo> = try {
+        client.newCall(GET(serversListUrl(episode), headers))
+            .awaitSuccess()
+            .parseAs<EpisodeServers>()
+            .servers
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun String.cleanDescription(): String = Jsoup.parse(replace(DESCRIPTION_BR_REGEX, "\n"))
+        .wholeText()
+        .trim()
+
     /**
      * Builds the URL used to retrieve episode details for an anime.
      *
@@ -306,14 +381,15 @@ class Anikage :
             val id = it.slug
             val titleFormat = preferences.titleStyle
             val titleName = if (titleFormat == "english") {
-                it.title.english ?: it.title.romaji
+                it.title.english ?: it.title.romaji!!
             } else {
-                it.title.romaji
+                it.title.romaji!!
             }
+            val coverUrl = it.coverImage?.let { c -> c.extraLarge ?: c.large ?: c.medium }
 
             SAnime.create().apply {
                 setUrlWithoutDomain("/anime/info/$id")
-                thumbnail_url = it.coverImage.extraLarge
+                thumbnail_url = coverUrl
                 title = titleName
                 description = null
                 status = when (it.status) {
@@ -347,7 +423,7 @@ class Anikage :
         screen.addListPreference(
             key = PREF_SITE_TITLE_FORMAT,
             title = "Preferred Title Style",
-            entries = listOf("english", "romaji"),
+            entries = listOf("English", "Romaji"),
             entryValues = listOf("english", "romaji"),
             default = PREF_SITE_TITLE_DEFAULT,
             summary = "%s",
@@ -363,7 +439,7 @@ class Anikage :
         screen.addListPreference(
             key = PREF_ISSUBORDUB_SOURCE,
             title = "Sub or Dub?",
-            entries = listOf("sub", "dub"),
+            entries = listOf("Sub", "Dub"),
             entryValues = listOf("sub", "dub"),
             default = PREF_ISSUBORDUB_DEFAULT,
             summary = "%s",
@@ -405,6 +481,7 @@ class Anikage :
 
     companion object {
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
+        private val DESCRIPTION_BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 
         private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/browse"
         private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }

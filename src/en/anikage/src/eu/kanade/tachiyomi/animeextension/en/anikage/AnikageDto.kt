@@ -12,15 +12,16 @@ data class NextAiringEpisode(
 
 @Serializable
 data class CoverImage(
-    val medium: String,
-    val large: String,
-    val extraLarge: String,
+    val medium: String? = null,
+    val large: String? = null,
+    val extraLarge: String? = null,
 )
 
 @Serializable
 data class Title(
-    val romaji: String,
-    val english: String?,
+    val romaji: String? = null,
+    val english: String? = null,
+    val native: String? = null,
 )
 
 @Serializable
@@ -28,9 +29,9 @@ data class Result(
     @SerialName("anilistId") val aniListId: Int,
     val averageScore: Int?,
     val coverColor: String?,
-    val coverImage: CoverImage,
+    val coverImage: CoverImage?,
     val duration: Int?,
-    val format: String,
+    val format: String?,
     val genres: List<String>,
     val isAdult: Boolean,
     val malScore: Float?,
@@ -39,10 +40,10 @@ data class Result(
     val popularity: Long,
     val season: String?,
     val slug: String,
-    val status: String,
+    val status: String?,
     val title: Title,
     val totalEpisodes: Int?,
-    val type: String,
+    val type: String?,
     val year: Int?,
 
 )
@@ -56,6 +57,67 @@ data class AnikageResponse(
     val page: Int,
     val relaxedBy: List<String>,
     val total: Int,
+)
+
+@Serializable
+data class AnimeInfoTitle(
+    val romaji: String?,
+    val english: String?,
+    val native: String? = null,
+)
+
+@Serializable
+data class AnimeInfoStudio(
+    val name: String,
+    val isAnimationStudio: Boolean = false,
+)
+
+@Serializable
+data class AnimeInfo(
+    val slug: String,
+    val title: AnimeInfoTitle,
+    val description: String? = null,
+    val coverImage: CoverImage? = null,
+    val status: String,
+    val genres: List<String> = emptyList(),
+    val studios: List<AnimeInfoStudio> = emptyList(),
+    val relations: List<Relation> = emptyList(),
+    val recommendations: List<Recommendation> = emptyList(),
+)
+
+@Serializable
+data class RelatedAnimeTitle(
+    val romaji: String? = null,
+    val english: String? = null,
+    val native: String? = null,
+)
+
+@Serializable
+data class Relation(
+    val slug: String,
+    val title: RelatedAnimeTitle,
+    val format: String? = null,
+    val status: String? = null,
+    val anilistId: Int? = null,
+    val coverImage: String? = null,
+    val relationType: String? = null,
+)
+
+@Serializable
+data class Recommendation(
+    val slug: String,
+    val title: RelatedAnimeTitle,
+    val format: String? = null,
+    val status: String? = null,
+    val episodes: Int? = null,
+    val anilistId: Int? = null,
+    val coverImage: String? = null,
+)
+
+@Serializable
+data class AnimeInfoResponse(
+    val anime: AnimeInfo,
+    val banned: Boolean = false,
 )
 
 @Serializable
@@ -76,6 +138,19 @@ data class EpisodeResult(
     val rating: Float?,
     val isFiller: Boolean,
     val isRecap: Boolean,
+)
+
+@Serializable
+data class ServerInfo(
+    val id: String,
+    val providerId: String,
+    val default: Boolean = false,
+    val subTypes: List<String> = emptyList(),
+)
+
+@Serializable
+data class EpisodeServers(
+    val servers: List<ServerInfo> = emptyList(),
 )
 
 @Serializable
