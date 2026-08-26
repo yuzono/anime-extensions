@@ -9,7 +9,6 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
-import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOSTNAME, 0) {
@@ -18,13 +17,12 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOST
     val port: Int
         get() = super.getListeningPort()
 
+    private class PlaylistEntry(val text: String, val registeredAt: Long)
+
     /**
-     * Access-ordered and size-capped so repeated extractions can't grow the
-     * map without bound; the most recent playlists survive for seeks/reloads.
+     * All embed m3u8 have a time limit of 3 hours.
      */
-    private val playlists = object : LinkedHashMap<String, String>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > MAX_PLAYLISTS
-    }
+    private val playlists = HashMap<String, PlaylistEntry>()
     private val counter = AtomicLong()
 
     init {
@@ -33,7 +31,14 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOST
 
     fun register(text: String): String {
         val id = counter.incrementAndGet().toString(Character.MAX_RADIX)
-        synchronized(playlists) { playlists[id] = text }
+        val now = System.currentTimeMillis()
+        synchronized(playlists) {
+            playlists.entries.removeAll { now - it.value.registeredAt >= PLAYLIST_TTL_MS }
+            while (playlists.size >= MAX_PLAYLISTS) {
+                playlists.remove(playlists.minByOrNull { it.value.registeredAt }!!.key)
+            }
+            playlists[id] = PlaylistEntry(text, now)
+        }
         return "http://127.0.0.1:$port/pl/$id"
     }
 
@@ -56,9 +61,11 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOST
     }
 
     private fun servePlaylist(session: IHTTPSession): Response {
-        val text = synchronized(playlists) { playlists[session.uri.substringAfterLast('/')] }
+        val now = System.currentTimeMillis()
+        val entry = synchronized(playlists) { playlists[session.uri.substringAfterLast('/')] }
+            ?.takeIf { now - it.registeredAt < PLAYLIST_TTL_MS }
             ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
-        return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", text)
+        return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", entry.text)
     }
 
     private fun serveSegment(session: IHTTPSession): Response {
@@ -109,7 +116,8 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOST
         private const val TAG = "AniWavesSegProxy"
 
         /** Bounded playlist cache; each entry is a few KB of m3u8 text. */
-        private const val MAX_PLAYLISTS = 100
+        private const val PLAYLIST_TTL_MS = 3 * 60 * 60 * 1000L
+        private const val MAX_PLAYLISTS = 500
         private const val LOOPBACK_HOSTNAME = "127.0.0.1"
     }
 }
