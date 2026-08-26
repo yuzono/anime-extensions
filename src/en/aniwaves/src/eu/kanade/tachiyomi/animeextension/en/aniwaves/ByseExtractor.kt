@@ -175,7 +175,7 @@ class ByseExtractor(private val client: OkHttpClient) {
             input.version == null -> input.keyParts.concatDecoded()
             else -> {
                 val version = input.version.toIntOrNull() ?: 1
-                if (input.keyParts.size >= version) {
+                if (version in 1..input.keyParts.size) {
                     listOf(input.keyParts[version - 1], input.keyParts[input.keyParts.size - version]).concatDecoded()
                 } else {
                     input.keyParts.concatDecoded()

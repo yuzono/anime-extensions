@@ -66,7 +66,7 @@ class VideoSources private constructor(
             is JsonObject -> if ("file" in element) {
                 fromSingle(element)
             } else {
-                VideoSources(qualityFiles = element.mapValues { (_, value) -> value.toStringList() })
+                VideoSources(qualityFiles = element.mapValues { (_, value) -> value.toStringList() }.filterValues { it.isNotEmpty() })
             }
         }
 

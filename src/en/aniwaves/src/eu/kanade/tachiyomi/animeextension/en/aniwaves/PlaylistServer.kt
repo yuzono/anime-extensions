@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.aniwaves
+﻿package eu.kanade.tachiyomi.animeextension.en.aniwaves
 
 import android.util.Log
 import okhttp3.OkHttpClient
@@ -12,7 +12,7 @@ import java.io.ByteArrayInputStream
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
+class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOSTNAME, 0) {
 
     @Suppress("OVERRIDE_DEPRECATION")
     val port: Int
@@ -109,6 +109,7 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(0) {
         private const val TAG = "AniWavesSegProxy"
 
         /** Bounded playlist cache; each entry is a few KB of m3u8 text. */
-        private const val MAX_PLAYLISTS = 25
+        private const val MAX_PLAYLISTS = 100
+        private const val LOOPBACK_HOSTNAME = "127.0.0.1"
     }
 }

@@ -318,7 +318,7 @@ class AniWaves :
 
         val result = mutableListOf<SAnime>()
         var page = 1
-        while (true) {
+        while (page <= MAX_RECOMMENDATION_PAGES) {
             val data = client.newCall(
                 GET("$baseUrl/ajax/v2/recommendations?page=$page&mov_id=$animeId", recHeaders),
             ).execute().use { recResponse ->
@@ -665,7 +665,9 @@ class AniWaves :
         if (trimmed.isEmpty() || !trimmed[0].isDigit()) return text
         val bytes = ArrayList<Byte>(text.length / 3)
         for (raw in text.split('\n', '\r')) {
-            val value = raw.trim().toIntOrNull() ?: return text
+            val token = raw.trim()
+            if (token.isEmpty()) continue
+            val value = token.toIntOrNull() ?: return text
             if (value !in 0..255) return text
             bytes.add(value.toByte())
         }
@@ -782,6 +784,8 @@ class AniWaves :
         private const val EPISODE_ITEM_SELECTOR = "div.episodes ul li a"
         private const val SERVER_TYPE_SELECTOR = "div.servers div.type[data-type]"
         private const val RELATED_ITEM_SELECTOR = "#w-related .scaff.side.items a.item"
+
+        private const val MAX_RECOMMENDATION_PAGES = 10
 
         /** DatSaV quality tiers on its direct-file endpoints. */
         private val DATSAV_QUALITY_LABELS = mapOf(
