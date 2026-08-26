@@ -4,17 +4,18 @@ import android.net.Uri
 import android.util.Base64
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.net.InetAddress.getByName
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.concurrent.Executors
+import java.util.concurrent.Executors.newFixedThreadPool
 import kotlin.math.min
 
-class LocalProxy(private val client: okhttp3.OkHttpClient) {
+class LocalProxy(private val client: OkHttpClient) {
     private var serverSocket: ServerSocket? = null
-    private val executor = Executors.newFixedThreadPool(
+    private val executor = newFixedThreadPool(
         maxOf(2, Runtime.getRuntime().availableProcessors() * 2),
     )
     var port: Int = 0
