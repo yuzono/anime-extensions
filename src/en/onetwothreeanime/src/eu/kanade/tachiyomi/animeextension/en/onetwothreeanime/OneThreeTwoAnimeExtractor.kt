@@ -258,6 +258,10 @@ class OneThreeTwoAnimeExtractor(
     private fun hlsHeaders(embedReferer: String): Headers = headers.newBuilder()
         .set("Referer", embedReferer)
         .set("Origin", embedReferer.toHttpBaseOrNull() ?: "")
+        // Explicit browser UA so playback does not depend on the app's
+        // user-configurable default (can be empty or non-browser), which
+        // Cloudflare-fronted stream hosts are known to treat differently.
+        .set("User-Agent", PLAYER_USER_AGENT)
         .build()
 
     // ------------------------------------------------------------------ //
@@ -307,6 +311,10 @@ class OneThreeTwoAnimeExtractor(
     // ------------------------------------------------------------------ //
 
     companion object {
+        // Sent on every Video so the player requests look browser-made.
+        private const val PLAYER_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
         // embed-3 wrapper page: var zrpart2 = '<base64>';
         private val ZRPART2_REGEX = Regex(
             """var\s+zrpart2\s*=\s*['"]([A-Za-z0-9+/=]+)['"]""",
