@@ -6,9 +6,9 @@ import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.Response
+import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
-import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicLong
 
 class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOSTNAME, 0) {
@@ -84,32 +84,39 @@ class PlaylistServer(private val client: OkHttpClient) : NanoHTTPD(LOOPBACK_HOST
             requestBuilder.header("Range", it)
         }
 
-        return try {
-            client.newCall(requestBuilder.build()).execute().use { upstream ->
-                if (!upstream.isSuccessful) {
-                    val errBody = runCatching { upstream.body.string() }.getOrNull().orEmpty().take(200)
-                    Log.w(TAG, "seg proxy <- upstream ${upstream.code} for $url | $errBody")
-                    return newFixedLengthResponse(
-                        Status.INTERNAL_ERROR,
-                        MIME_PLAINTEXT,
-                        "Upstream ${upstream.code} for $url | $errBody",
-                    )
-                }
-                val bytes = upstream.body.bytes()
-                val response = newFixedLengthResponse(
-                    if (upstream.code == 206) Status.PARTIAL_CONTENT else Status.OK,
-                    upstream.header("Content-Type") ?: "video/mp2t",
-                    ByteArrayInputStream(bytes),
-                    bytes.size.toLong(),
-                )
-                upstream.header("Content-Range")?.let { response.addHeader("Content-Range", it) }
-                upstream.header("Accept-Ranges")?.let { response.addHeader("Accept-Ranges", it) }
-                response
-            }
+        val upstream = try {
+            client.newCall(requestBuilder.build()).execute()
         } catch (e: Exception) {
+            // 503 so the player retries the segment instead of failing outright
+            val status = if (e is java.net.SocketTimeoutException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
             Log.w(TAG, "seg proxy exception for $url: $e")
-            newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Segment fetch failed: $e")
+            return newFixedLengthResponse(status, MIME_PLAINTEXT, "Segment fetch failed: $e")
         }
+
+        if (!upstream.isSuccessful) {
+            val errBody = runCatching { upstream.body.string() }.getOrNull().orEmpty().take(200)
+            upstream.close()
+            Log.w(TAG, "seg proxy <- upstream ${upstream.code} for $url | $errBody")
+            return newFixedLengthResponse(
+                Status.INTERNAL_ERROR,
+                MIME_PLAINTEXT,
+                "Upstream ${upstream.code} for $url | $errBody",
+            )
+        }
+
+        val body = upstream.body
+        val contentLength = body.contentLength()
+        val contentType = upstream.header("Content-Type") ?: "video/mp2t"
+        val status = if (upstream.code == 206) Status.PARTIAL_CONTENT else Status.OK
+
+        val response = if (contentLength > 0) {
+            newFixedLengthResponse(status, contentType, body.byteStream(), contentLength)
+        } else {
+            newChunkedResponse(status, contentType, body.byteStream())
+        }
+        upstream.header("Content-Range")?.let { response.addHeader("Content-Range", it) }
+        upstream.header("Accept-Ranges")?.let { response.addHeader("Accept-Ranges", it) }
+        return response
     }
 
     companion object {
