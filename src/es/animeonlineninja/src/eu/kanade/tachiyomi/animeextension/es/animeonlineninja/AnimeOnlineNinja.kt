@@ -42,7 +42,9 @@ class AnimeOnlineNinja :
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page")
+    // The trending section paginates as /tendencias/page/N/ (its own pager
+    // links); /tendencias/N is a WordPress 404.
+    override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page")
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
 
@@ -241,6 +243,17 @@ class AnimeOnlineNinja :
     override fun Document.getDescription(): String = select("$additionalInfoSelector div.wp-content p")
         .eachText()
         .joinToString("\n")
+
+    /**
+     * Grids lazy-load with an inline SVG placeholder in `src`; never return
+     * one as a cover when the lazyload attributes are missing.
+     */
+    override fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }?.takeUnless { it.startsWith("data:") }
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
