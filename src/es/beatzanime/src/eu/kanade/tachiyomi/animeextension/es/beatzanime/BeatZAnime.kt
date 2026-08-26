@@ -253,6 +253,13 @@ class BeatZAnime : ParsedAnimeHttpSource() {
             movie.episode_number = 1F
         }
 
+        // The site does not keep rows in numeric order (e.g. Slime S1 lists
+        // eps 03-24, specials and OVAs first, then appends eps 01-02 at the
+        // end); sort by episode number so the reversed list stays coherent
+        // no matter where a row sits in the table. Stable sort keeps each
+        // special next to its number-twin.
+        episodes.sortBy { it.episode_number }
+
         return episodes.reversed()
     }
 
