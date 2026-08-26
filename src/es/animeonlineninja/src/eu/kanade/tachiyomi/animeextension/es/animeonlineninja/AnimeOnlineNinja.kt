@@ -251,8 +251,14 @@ class AnimeOnlineNinja :
      * Grids lazy-load with an inline SVG placeholder in `src`. Skip data: URIs
      * and fall through to the next candidate instead of returning them (or a
      * null cover) when a lazyload attribute is missing or itself empty.
-     * Listing cards reference the exact same file as the details-page poster
-     * (verified via Wayback), so URLs are used as-is - no size-suffix rewrite.
+     *
+     * Listing cards serve WordPress size derivatives - `...-185x278.jpg` on
+     * most grid items, `...-500x750.jpg` on a few - while the details page
+     * poster (`div.sheader > div.poster > img`) serves the un-suffixed
+     * original upload. That handed the same entry two different cover URLs,
+     * so opening it replaced the library cover with a re-downloaded copy.
+     * Strip the `-WIDTHxHEIGHT` suffix to collapse both onto the original,
+     * which WordPress keeps alongside the sizes it generates from it.
      */
     override fun Element.getImageUrl(): String? = listOf(
         attr("abs:data-src"),
@@ -260,6 +266,7 @@ class AnimeOnlineNinja :
         attr("abs:srcset").substringBefore(" "),
         attr("abs:src"),
     ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
+        ?.replace(THUMB_SIZE_SUFFIX_REGEX, "")
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
@@ -326,6 +333,9 @@ class AnimeOnlineNinja :
     override val episodeNumberRegex by lazy { Regex("""(\d+(?:\.\d+)?)$""") }
 
     companion object {
+        /** WordPress resize suffix on grid covers, e.g. `-185x278` in `poster-185x278.jpg`. */
+        private val THUMB_SIZE_SUFFIX_REGEX = Regex("""-\d+x\d+(?=\.\w+(?:\?|$))""")
+
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "SUB"
