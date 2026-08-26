@@ -32,7 +32,6 @@ import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -354,11 +353,16 @@ class StreamingCommunity(override val lang: String, private val showType: String
             append(lang)
         }
 
-        // The player lists its mirror servers in `window.streams`. Resolve all of them
-        // concurrently so a failing edge (expired token / 5xx) doesn't kill the extraction,
-        // and fall back to the plain master playlist when the array isn't there.
-        // Subtitle/audio renditions are regex-parsed out of each master playlist and are
-        // never fetched here, so nothing per-track needs parallelizing.
+        // The player lists its mirror servers in `window.streams`; every mirror's
+        // master playlist carries the SAME renditions and subtitle/audio lists
+        // (verified live: 38 SUBTITLES entries on each). Merging mirrors used to
+        // duplicate every subtitle track (~76 tracks for ~38 real ones) and
+        // double the work. Resolve all mirrors concurrently for resilience — a
+        // failing edge (expired token / 5xx / empty result) falls through to the
+        // next one — but consume ONLY the first successful extraction. Fall back
+        // to the plain master playlist when the array isn't there. Subtitle/audio
+        // renditions are regex-parsed out of each master playlist and are never
+        // fetched here, so nothing per-track needs parallelizing.
         val serverPlaylists = SERVERS_REGEX.findAll(script)
             .map { match ->
                 match.groupValues[1] to buildMasterPlaylistUrl(match.groupValues[2].unescapeJs(), token, expires)
@@ -366,16 +370,18 @@ class StreamingCommunity(override val lang: String, private val showType: String
             .ifEmpty { sequenceOf("" to masterPlUrl) }
             .toList()
 
-        return serverPlaylists
-            .parallelCatchingFlatMapBlocking { (serverName, serverPlaylistUrl) ->
-                playlistUtils.extractFromHls(
-                    playlistUrl = serverPlaylistUrl,
-                    videoNameGen = { quality ->
-                        listOfNotNull(serverName.ifBlank { null }, quality).joinToString(" - ")
-                    },
-                )
-            }
-            .distinctBy { it.videoUrl }
+        return coroutineScope {
+            serverPlaylists.map { (_, serverPlaylistUrl) ->
+                async {
+                    runCatching {
+                        playlistUtils.extractFromHls(playlistUrl = serverPlaylistUrl)
+                            .takeIf { it.isNotEmpty() }
+                    }.getOrNull()
+                }
+            }.awaitAll()
+                .firstOrNull { !it.isNullOrEmpty() }
+                .orEmpty()
+        }
     }
 
     private fun buildMasterPlaylistUrl(base: String, token: String, expires: String) = base + (if ('?' in base) '&' else '?') + "h=1&token=$token&expires=$expires&lang=$lang"
