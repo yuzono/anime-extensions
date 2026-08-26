@@ -395,7 +395,11 @@ class StreamingCommunity(override val lang: String, private val showType: String
      * the same rendition list would otherwise list each language twice.
      */
     private fun List<Video>.proxySubtitles(): List<Video> = map { video ->
-        video.copy(
+        Video(
+            videoUrl = video.videoUrl,
+            url = video.url,
+            quality = video.quality,
+            headers = video.headers ?: headers,
             subtitleTracks = SubtitleServer.proxy(client, video.subtitleTracks, video.headers ?: headers),
             audioTracks = video.audioTracks.distinctBy(Track::url),
         )
