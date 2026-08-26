@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.anikage
 
 import android.content.SharedPreferences
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -57,6 +58,13 @@ class Anikage :
         .build()
 
     private val preferences by getPreferencesLazy()
+
+    /**
+     * The neko provider serves AniNeko streams whose segments are wrapped
+     * in a fake PNG header, so they must pass through a local proxy that
+     * strips it before playback.
+     */
+    private val localProxy by lazy { LocalProxy(client) }
 
     // ============================== Popular ===============================
 
@@ -302,9 +310,13 @@ class Anikage :
             }
             ?: (primaryProviders.map(primaryLabel::to) + secondaryProviders.map(secondaryLabel::to))
 
+        val excludedServers = preferences.excludedServers
+        val excludedTypes = preferences.excludedTypes
+        val activeProviders = providers.filter { it.second !in excludedServers }
+
         val playlistUtils = PlaylistUtils(client, headers)
 
-        return providers.parallelCatchingFlatMap { (type, provider) ->
+        return activeProviders.parallelCatchingFlatMap { (type, provider) ->
             val episodeData = client.newCall(
                 GET(videoListRequestUrl(episode, provider), headers),
             )
@@ -315,11 +327,16 @@ class Anikage :
                 Track("https://gg.akage.lol/m3u8/${it.file}", it.label)
             }
 
-            episodeData.sources.parallelCatchingFlatMap { source ->
+            val videos = episodeData.sources.parallelCatchingFlatMap { source ->
                 val videoUrl = source.episodeSourceUrl()
                 if (source.isM3U8 == true) {
+                    val effectiveUrl = if (provider == "neko") {
+                        localProxy.getProxyUrl(videoUrl, headers)
+                    } else {
+                        videoUrl
+                    }
                     playlistUtils.extractFromHls(
-                        playlistUrl = videoUrl,
+                        playlistUrl = effectiveUrl,
                         masterHeaders = headers,
                         videoHeaders = headers,
                         videoNameGen = { "$type - $provider - ${source.quality} - $it" },
@@ -335,7 +352,38 @@ class Anikage :
                     ).let(::listOf)
                 }
             }
+
+            videos
         }
+            .filterNot { video ->
+                val videoType = video.quality.substringBefore(" - ")
+                excludedTypes.any { videoType.equals(it, ignoreCase = true) }
+            }
+    }
+
+    override fun List<Video>.sort(): List<Video> {
+        val isDubPreferred = preferences.subOrDub == "dub"
+        val quality = preferences.quality
+        val primaryType = if (isDubPreferred) "Dub" else "Sub"
+        val secondaryType = if (isDubPreferred) "Sub" else "Dub"
+        val preferredServer = if (isDubPreferred) preferences.dubSource else preferences.subSource
+        val qualitiesList = PREF_QUALITY_ENTRIES.reversed()
+
+        return sortedWith(
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
+                .thenByDescending { video ->
+                    when {
+                        video.quality.contains(primaryType, ignoreCase = true) -> 2
+                        video.quality.contains(secondaryType, ignoreCase = true) -> 1
+                        else -> 0
+                    }
+                }
+                .thenByDescending { video ->
+                    val videoServer = video.quality.substringAfter(" - ").substringBefore(" - ")
+                    if (videoServer.equals(preferredServer, ignoreCase = true)) 1 else 0
+                },
+        )
     }
 
     private fun serversListUrl(episode: SEpisode): String = "$baseUrl${episode.url}".substringBefore("/sources") + "/servers"
@@ -415,19 +463,12 @@ class Anikage :
             summary = "%s",
         )
 
-        screen.addSwitchPreference(
-            key = PREF_ADULT_KEY,
-            title = "Enable NSFW Content",
-            summary = "Show adult content in search results and popular anime",
-            default = PREF_ADULT_DEFAULT,
-        )
-
         screen.addListPreference(
-            key = PREF_ISSUBORDUB_SOURCE,
-            title = "Sub or Dub?",
-            entries = listOf("Sub", "Dub"),
-            entryValues = listOf("sub", "dub"),
-            default = PREF_ISSUBORDUB_DEFAULT,
+            key = PREF_QUALITY_KEY,
+            title = "Preferred Quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
 
@@ -448,6 +489,40 @@ class Anikage :
             default = PREF_DUB_DEFAULT,
             summary = "%s",
         )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_EXCLUDE_SERVERS_KEY
+            title = "Exclude Servers"
+            summary = "Choose which servers you want to exclude"
+            entries = SUB_PROVIDER.toTypedArray()
+            entryValues = SUB_PROVIDER.toTypedArray()
+            setDefaultValue(emptySet<String>())
+        }.also(screen::addPreference)
+
+        screen.addListPreference(
+            key = PREF_ISSUBORDUB_SOURCE,
+            title = "Sub or Dub?",
+            entries = listOf("Sub", "Dub"),
+            entryValues = listOf("sub", "dub"),
+            default = PREF_ISSUBORDUB_DEFAULT,
+            summary = "%s",
+        )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_EXCLUDE_TYPES_KEY
+            title = "Exclude Types"
+            summary = "Choose which audio types you want to exclude"
+            entries = listOf("Sub", "Dub").toTypedArray()
+            entryValues = listOf("sub", "dub").toTypedArray()
+            setDefaultValue(emptySet<String>())
+        }.also(screen::addPreference)
+
+        screen.addSwitchPreference(
+            key = PREF_ADULT_KEY,
+            title = "Enable NSFW Content",
+            summary = "Show adult content in search results and popular anime",
+            default = PREF_ADULT_DEFAULT,
+        )
     }
 
     private val SharedPreferences.titleStyle
@@ -464,6 +539,15 @@ class Anikage :
 
     private val SharedPreferences.dubSource
         get() = getString(PREF_DUB_SOURCE, PREF_DUB_DEFAULT)!!
+
+    private val SharedPreferences.quality
+        get() = getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+
+    private val SharedPreferences.excludedServers
+        get() = getStringSet(PREF_EXCLUDE_SERVERS_KEY, emptySet()).orEmpty()
+
+    private val SharedPreferences.excludedTypes
+        get() = getStringSet(PREF_EXCLUDE_TYPES_KEY, emptySet()).orEmpty()
 
     companion object {
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
@@ -491,6 +575,13 @@ class Anikage :
 
         private const val PREF_DUB_SOURCE = "preferred_dub_source"
         private const val PREF_DUB_DEFAULT = "koto"
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private const val PREF_QUALITY_DEFAULT = "1080p"
+
+        private const val PREF_EXCLUDE_SERVERS_KEY = "excluded_servers"
+        private const val PREF_EXCLUDE_TYPES_KEY = "excluded_types"
 
         private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
         private const val PREF_ISSUBORDUB_DEFAULT = "sub"
