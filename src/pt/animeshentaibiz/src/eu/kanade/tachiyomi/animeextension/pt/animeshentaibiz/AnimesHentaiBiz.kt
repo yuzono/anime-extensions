@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.pt.animeshentaibiz
 
-import android.util.Base64
 import aniyomi.lib.bloggerextractor.BloggerExtractor
 import aniyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -36,6 +35,12 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     private fun cleanTitle(title: String): String = title
         .replace(Regex("""\s*Todos os Episodios Online\s*"""), "")
         .trim()
+
+    private fun normalizeUrl(url: String): String = when {
+        url.startsWith("//") -> "https:$url"
+        url.startsWith("/") -> baseUrl + url
+        else -> url
+    }
 
     // ===================== LISTAGEM DE SÉRIES (POPULAR) =====================
     override fun popularAnimeRequest(page: Int): Request {
@@ -165,92 +170,34 @@ class AnimesHentaiBiz : AnimeHttpSource() {
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.asJsoup()
-        val sources = doc.select("[data-embed-id]").mapNotNull { element ->
-            val encoded = element.attr("data-embed-id")
-            val parts = encoded.split(':', limit = 2)
-            if (parts.size != 2) return@mapNotNull null
-            val label = decode(parts[0]) ?: "Servidor"
-            val payload = decode(parts[1])
-            PlayerSource(label, payload, element.text())
-        }.distinctBy { it.label to it.payload }
-
         val playerHeaders = headers.newBuilder()
             .set("Referer", response.request.url.toString())
             .build()
-        val preparedSources = sources.map(::prepareSource)
-        val fastSources = preparedSources.filter { it.type == SourceType.BLOGGER }
-        val slowSources = preparedSources.filter { it.type in setOf(SourceType.IFRAME, SourceType.URL) }
-        val fastVideos = extractSources(fastSources, playerHeaders).distinctBy { it.videoUrl }
-        if (fastVideos.isNotEmpty()) {
-            return fastVideos
-        }
 
-        return extractSources(slowSources, playerHeaders).distinctBy { it.videoUrl }
-    }
-
-    private data class PlayerSource(val label: String, val payload: String?, val visibleText: String)
-
-    private data class PreparedSource(
-        val source: PlayerSource,
-        val payload: String,
-        val kind: PayloadKind,
-        val embedUrl: String?,
-        val type: SourceType,
-    )
-
-    private enum class PayloadKind { URL, IFRAME_HTML, HTML_OTHER, JSON, EMPTY, UNKNOWN }
-
-    private enum class SourceType { BLOGGER, IFRAME, URL, OTHER }
-
-    private fun prepareSource(source: PlayerSource): PreparedSource {
-        val payload = source.payload?.let(::normalizePayload).orEmpty()
-        val kind = payloadKind(payload)
-        val embedUrl = extractEmbedUrl(payload, kind)
-        val type = when {
-            isBloggerUrl(embedUrl) -> SourceType.BLOGGER
-            kind == PayloadKind.IFRAME_HTML -> SourceType.IFRAME
-            kind == PayloadKind.URL -> SourceType.URL
-            else -> SourceType.OTHER
-        }
-        return PreparedSource(source, payload, kind, embedUrl, type)
-    }
-
-    private fun extractSources(sources: List<PreparedSource>, playerHeaders: Headers): List<Video> = sources.parallelCatchingFlatMapBlocking { prepared ->
-        when (prepared.type) {
-            SourceType.BLOGGER -> bloggerExtractor.videosFromUrl(prepared.embedUrl.orEmpty(), playerHeaders).map { video ->
-                Video(video.url, "${prepared.source.label} - ${video.quality}", video.videoUrl, video.headers ?: Headers.headersOf())
+        val iframeUrls = doc.select("iframe[src], iframe[data-src], div.embed-responsive iframe, div.player-box iframe, div.play-box iframe")
+            .mapNotNull {
+                val src = it.attr("src").ifBlank { it.attr("data-src") }
+                if (src.isNotBlank()) normalizeUrl(src) else null
             }
-            SourceType.IFRAME,
-            SourceType.URL,
-            -> universalExtractor.videosFromUrl(prepared.embedUrl.orEmpty(), playerHeaders, prepared.source.label)
-            SourceType.OTHER -> emptyList()
+            .distinct()
+
+        return iframeUrls.parallelCatchingFlatMapBlocking { iframeUrl ->
+            extractVideosFromUrl(iframeUrl, playerHeaders)
+        }.distinctBy { it.videoUrl }
+    }
+
+    private fun extractVideosFromUrl(url: String, playerHeaders: Headers): List<Video> {
+        return when {
+            url.contains("blogger.com/video", true) -> {
+                bloggerExtractor.videosFromUrl(url, playerHeaders).map { video ->
+                    Video(video.url, "Blogger - ${video.quality}", video.videoUrl, video.headers ?: playerHeaders)
+                }
+            }
+            else -> {
+                universalExtractor.videosFromUrl(url, playerHeaders)
+            }
         }
     }
-
-    private fun normalizePayload(payload: String) = Jsoup.parseBodyFragment(payload).text().trim().ifBlank { payload.trim() }
-
-    private fun payloadKind(payload: String): PayloadKind = when {
-        payload.isBlank() -> PayloadKind.EMPTY
-        Jsoup.parseBodyFragment(payload).selectFirst("iframe[src]") != null -> PayloadKind.IFRAME_HTML
-        payload.startsWith("http://", true) || payload.startsWith("https://", true) || payload.startsWith("//") -> PayloadKind.URL
-        payload.startsWith("{") || payload.startsWith("[") -> PayloadKind.JSON
-        payload.startsWith("<") -> PayloadKind.HTML_OTHER
-        else -> PayloadKind.UNKNOWN
-    }
-
-    private fun extractEmbedUrl(payload: String, kind: PayloadKind): String? = when (kind) {
-        PayloadKind.IFRAME_HTML -> Jsoup.parseBodyFragment(payload).selectFirst("iframe[src]")?.attr("src")?.let(::normalizeUrl)
-        PayloadKind.URL -> normalizeUrl(payload)
-        else -> null
-    }
-
-    private fun normalizeUrl(url: String) = if (url.startsWith("//")) "https:$url" else url
-
-    private fun isBloggerUrl(url: String?) = url?.contains("blogger.com/video", true) == true
-
-    private fun decode(value: String): String? = runCatching {
-        String(Base64.decode(value, Base64.DEFAULT), Charsets.UTF_8)
-    }.getOrNull()
 
     override fun videoUrlParse(response: Response): String = response.request.url.toString()
 
