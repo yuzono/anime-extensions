@@ -4,7 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import java.util.Calendar
 
-object AnikageFilters {
+object Filters {
 
     open class QueryPartFilter(
         displayName: String,

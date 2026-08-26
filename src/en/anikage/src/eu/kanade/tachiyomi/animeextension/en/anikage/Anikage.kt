@@ -21,6 +21,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -57,7 +58,7 @@ class Anikage :
 
     private val preferences by getPreferencesLazy()
 
-    override fun getFilterList(): AnimeFilterList = AnikageFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     override fun popularAnimeRequest(page: Int): Request {
         val requestUrl = ANIKAGE_API_URL
@@ -79,7 +80,7 @@ class Anikage :
         query: String,
         filters: AnimeFilterList,
     ): Request {
-        val searchParams = AnikageFilters.getSearchParameters(filters)
+        val searchParams = Filters.getSearchParameters(filters)
         val requestUrl = ANIKAGE_API_URL
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
@@ -347,6 +348,8 @@ class Anikage :
             .awaitSuccess()
             .parseAs<EpisodeServers>()
             .servers
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         emptyList()
     }
