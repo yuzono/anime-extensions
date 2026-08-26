@@ -32,6 +32,7 @@ import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -353,8 +354,33 @@ class StreamingCommunity(override val lang: String, private val showType: String
             append(lang)
         }
 
-        return playlistUtils.extractFromHls(playlistUrl = masterPlUrl)
+        // The player lists its mirror servers in `window.streams`. Resolve all of them
+        // concurrently so a failing edge (expired token / 5xx) doesn't kill the extraction,
+        // and fall back to the plain master playlist when the array isn't there.
+        // Subtitle/audio renditions are regex-parsed out of each master playlist and are
+        // never fetched here, so nothing per-track needs parallelizing.
+        val serverPlaylists = SERVERS_REGEX.findAll(script)
+            .map { match ->
+                match.groupValues[1] to buildMasterPlaylistUrl(match.groupValues[2].unescapeJs(), token, expires)
+            }
+            .ifEmpty { sequenceOf("" to masterPlUrl) }
+            .toList()
+
+        return serverPlaylists
+            .parallelCatchingFlatMapBlocking { (serverName, serverPlaylistUrl) ->
+                playlistUtils.extractFromHls(
+                    playlistUrl = serverPlaylistUrl,
+                    videoNameGen = { quality ->
+                        listOfNotNull(serverName.ifBlank { null }, quality).joinToString(" - ")
+                    },
+                )
+            }
+            .distinctBy { it.videoUrl }
     }
+
+    private fun buildMasterPlaylistUrl(base: String, token: String, expires: String) = base + (if ('?' in base) '&' else '?') + "h=1&token=$token&expires=$expires&lang=$lang"
+
+    private fun String.unescapeJs() = replace("\\/", "/").replace("\\u0026", "&")
 
     override fun videoListRequest(episode: SEpisode): Request = throw Exception("Not used")
 
@@ -407,6 +433,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
         private val PLAYLIST_URL_REGEX = Regex("""url: ?'(.*?)'""")
         private val EXPIRES_REGEX = Regex("""'expires': ?'(\d+)'""")
         private val TOKEN_REGEX = Regex("""'token': ?'([\w-]+)'""")
+
+        // window.streams = [{"name":"Server1","active":false,"url":"https:\/\/vixcloud.co\/playlist\/174559?b=1\u0026ub=1"}, …]
+        private val SERVERS_REGEX = Regex("""\{"name":"([^"]+)","active":[a-z]+,"url":"([^"]+)"\}""")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
