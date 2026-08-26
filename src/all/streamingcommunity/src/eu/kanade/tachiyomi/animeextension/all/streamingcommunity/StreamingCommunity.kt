@@ -261,9 +261,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
                                 val seasonResponse = client.newCall(
                                     GET("${response.request.url}/season-${season.number}", apiHeaders),
                                 ).awaitSuccess() // Suspend call for network request
-                                json.decodeFromString<SingleShowResponse>(seasonResponse.getData()).props.loadedSeason
-                                    ?.takeIf { it.id == season.id }
-                                    ?.episodes
+                                json.decodeFromString<SingleShowResponse>(seasonResponse.getData()).props.loadedSeason?.episodes
                                     ?: emptyList()
                             }
                             Pair(season, episodes) // Return season object and its episodes
@@ -273,12 +271,8 @@ class StreamingCommunity(override val lang: String, private val showType: String
             }
 
             // Process the fetched data
-            val seenSeasons = mutableSetOf<Int>()
-            val seenEpisodes = mutableSetOf<Pair<Int, Int>>()
             allSeasonEpisodes.forEach { (season, episodeData) ->
-                if (!seenSeasons.add(season.id)) return@forEach
                 episodeData.forEach { episode ->
-                    if (!seenEpisodes.add(season.number to episode.number)) return@forEach
                     episodeList.add(
                         SEpisode.create().apply {
                             name = "$seasonIntl ${season.number} $episodeIntl ${episode.number} - ${episode.name}"
@@ -389,14 +383,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
                 ?: runCatching { playlistUtils.extractFromHls(playlistUrl = masterPlUrl) }.getOrNull()
                     ?.takeIf { it.isNotEmpty() }
                     .orEmpty()
-        }.dedupeRenditionTracks()
-    }
-
-    private fun List<Video>.dedupeRenditionTracks(): List<Video> = map { video ->
-        video.copy(
-            subtitleTracks = video.subtitleTracks.distinctBy { it.url },
-            audioTracks = video.audioTracks.distinctBy { it.url },
-        )
+        }
     }
 
     private fun buildMasterPlaylistUrl(base: String, token: String, expires: String) = base + (if ('?' in base) '&' else '?') + "h=1&token=$token&expires=$expires&lang=$lang"
