@@ -253,14 +253,22 @@ class BeatZAnime : ParsedAnimeHttpSource() {
             movie.episode_number = 1F
         }
 
-        // The site does not keep rows in numeric order (e.g. Slime S1 lists
-        // eps 03-24, specials and OVAs first, then appends eps 01-02 at the
-        // end); sort by episode number so the reversed list stays coherent
-        // no matter where a row sits in the table. Stable sort keeps each
-        // special next to its number-twin.
-        episodes.sortBy { it.episode_number }
+        // The site scatters rows (e.g. Slime S1 lists eps 03-24, its Especial +
+        // OVAs in the middle, then appends eps 01-02 at the end), while its
+        // intended layout is the season's regular episodes followed by extras.
+        // Mirror that intent with a stable partition: regular episodes ordered
+        // by number, then name-detected specials (OVA/Especial/NCOP/NCED…)
+        // ordered by number, so the reversed list shows the latest regular
+        // episode first and keeps every special grouped after ALL of the
+        // season's episodes instead of interleaved with its number-twins.
+        val regularEpisodes = episodes
+            .filter { !SPECIAL_REGEX.containsMatchIn(it.name) }
+            .sortedBy { it.episode_number }
+        val specialEpisodes = episodes
+            .filter { SPECIAL_REGEX.containsMatchIn(it.name) }
+            .sortedBy { it.episode_number }
 
-        return episodes.reversed()
+        return (specialEpisodes + regularEpisodes).reversed()
     }
 
     // ============================ Video Links =============================
@@ -344,6 +352,16 @@ class BeatZAnime : ParsedAnimeHttpSource() {
         private val EPISODE_TRAILING_INT_REGEX = Regex("""(\d+)\s*$""")
 
         private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Detects extras by name (vocabulary observed on the site: "OVA",
+         * "(OVA)", "Especial(es)", "Película/Pelicula", "NCOP/NCOPV", "NCED"),
+         * so they can be grouped after the regular episodes.
+         */
+        private val SPECIAL_REGEX = Regex(
+            """\b(?:ova|especiales|especial|peliculas?|películas?|ncopv|ncop|nced)\b""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Pre-compiled for reuse in normalizeAccents(); avoids per-call Regex construction. */
         private val ACCENTS_REGEX = Regex("\\p{InCombiningDiacriticalMarks}+")
