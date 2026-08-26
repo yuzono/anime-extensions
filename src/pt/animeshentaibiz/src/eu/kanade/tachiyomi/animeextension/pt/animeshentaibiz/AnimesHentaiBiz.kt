@@ -10,14 +10,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
@@ -188,8 +185,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             return fastVideos
         }
 
-        val slowVideos = extractSources(slowSources, playerHeaders).distinctBy { it.videoUrl }
-        return slowVideos
+        return extractSources(slowSources, playerHeaders).distinctBy { it.videoUrl }
     }
 
     private data class PlayerSource(val label: String, val payload: String?, val visibleText: String)
@@ -220,7 +216,7 @@ class AnimesHentaiBiz : AnimeHttpSource() {
     }
 
     private fun extractSources(sources: List<PreparedSource>, playerHeaders: Headers): List<Video> = sources.parallelCatchingFlatMapBlocking { prepared ->
-        val result = when (prepared.type) {
+        when (prepared.type) {
             SourceType.BLOGGER -> bloggerExtractor.videosFromUrl(prepared.embedUrl.orEmpty(), playerHeaders).map { video ->
                 Video(video.url, "${prepared.source.label} - ${video.quality}", video.videoUrl, video.headers ?: Headers.headersOf())
             }
@@ -229,7 +225,6 @@ class AnimesHentaiBiz : AnimeHttpSource() {
             -> universalExtractor.videosFromUrl(prepared.embedUrl.orEmpty(), playerHeaders, prepared.source.label)
             SourceType.OTHER -> emptyList()
         }
-        result
     }
 
     private fun normalizePayload(payload: String) = Jsoup.parseBodyFragment(payload).text().trim().ifBlank { payload.trim() }
