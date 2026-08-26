@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
@@ -383,7 +384,21 @@ class StreamingCommunity(override val lang: String, private val showType: String
                 ?: runCatching { playlistUtils.extractFromHls(playlistUrl = masterPlUrl) }.getOrNull()
                     ?.takeIf { it.isNotEmpty() }
                     .orEmpty()
-        }
+        }.proxySubtitles()
+    }
+
+    /**
+     * Routes every subtitle track through [SubtitleServer] - see that class for
+     * why the upstream rendition URLs are slow to open. Audio tracks keep their
+     * upstream URLs, since the player streams those as the HLS renditions they
+     * already are, but are still deduplicated: a title whose mirrors advertise
+     * the same rendition list would otherwise list each language twice.
+     */
+    private fun List<Video>.proxySubtitles(): List<Video> = map { video ->
+        video.copy(
+            subtitleTracks = SubtitleServer.proxy(client, video.subtitleTracks, video.headers ?: headers),
+            audioTracks = video.audioTracks.distinctBy(Track::url),
+        )
     }
 
     private fun buildMasterPlaylistUrl(base: String, token: String, expires: String) = base + (if ('?' in base) '&' else '?') + "h=1&token=$token&expires=$expires&lang=$lang"
