@@ -261,12 +261,15 @@ class BeatZAnime : ParsedAnimeHttpSource() {
         // ordered by number, so the reversed list shows the latest regular
         // episode first and keeps every special grouped after ALL of the
         // season's episodes instead of interleaved with its number-twins.
+        // Specials get a sentinel number (-1) so they never collide with real
+        // episode numbering in the app's tracking/sorting.
         val regularEpisodes = episodes
             .filter { !SPECIAL_REGEX.containsMatchIn(it.name) }
             .sortedBy { it.episode_number }
         val specialEpisodes = episodes
             .filter { SPECIAL_REGEX.containsMatchIn(it.name) }
             .sortedBy { it.episode_number }
+            .onEach { it.episode_number = -1F }
 
         return (specialEpisodes + regularEpisodes).reversed()
     }
