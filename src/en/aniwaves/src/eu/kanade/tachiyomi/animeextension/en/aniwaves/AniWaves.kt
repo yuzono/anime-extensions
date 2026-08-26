@@ -676,7 +676,7 @@ class AniWaves :
     }
 
     /**
-     * echovideo annoys you with playlists with fake headers, like always.
+     * Echovideo annoys you with playlists with fake headers, like always.
      * We detect and decode this hell; return plain-text input untouched.
      */
     private fun decodeNumericHls(text: String): String {
