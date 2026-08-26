@@ -380,7 +380,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
                 }
             }.awaitAll()
                 .firstOrNull { !it.isNullOrEmpty() }
-                .orEmpty()
+                ?: runCatching { playlistUtils.extractFromHls(playlistUrl = masterPlUrl) }.getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+                    .orEmpty()
         }
     }
 

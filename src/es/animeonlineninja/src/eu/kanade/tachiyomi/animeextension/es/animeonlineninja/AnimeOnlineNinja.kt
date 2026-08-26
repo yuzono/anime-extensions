@@ -47,7 +47,7 @@ class AnimeOnlineNinja :
     // the same Cloudflare zone and serve an identical managed challenge on
     // every path, while ver.'s deep paths just 301 back here - so keep each
     // request single-hopped on ww3. and let CloudflareInterceptor solve it.
-    override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page")
+    override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page/")
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
 

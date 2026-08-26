@@ -12,6 +12,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
+import java.io.IOException
 
 class OneThreeTwoAnimeExtractor(
     private val client: OkHttpClient,
@@ -72,8 +73,12 @@ class OneThreeTwoAnimeExtractor(
 
     private fun fetchServerIds(animeSlug: String): List<Pair<String, String>> {
         val svUrl = "$baseUrl/ajax/film/sv?id=$animeSlug"
-        val svJson = retry { client.newCall(GET(svUrl, headers())).execute().parseAs<SvResponseDto>() }
-            ?: return emptyList()
+        val svJson = retry {
+            client.newCall(GET(svUrl, headers())).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Server tabs request failed: ${response.code}")
+                response.parseAs<SvResponseDto>()
+            }
+        } ?: return emptyList()
         val svDoc = Jsoup.parse(svJson.html)
         val tabs = svDoc.select("span.tab[data-name]").map { tab ->
             Pair(tab.text().trim(), tab.attr("data-name"))

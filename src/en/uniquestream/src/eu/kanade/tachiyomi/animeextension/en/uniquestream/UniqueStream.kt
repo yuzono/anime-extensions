@@ -186,7 +186,7 @@ class UniqueStream : AnimeHttpSource() {
         require(videos.isNotEmpty()) { "Failed to fetch videos" }
 
         return videos.sortedWith(
-            compareByDescending<Video> { it.quality.startsWith(originalLabel) }
+            compareByDescending<Video> { it.quality.substringBefore(" - ") == originalLabel }
                 .thenByDescending { it.quality.substringAfterLast(" ").removeSuffix("p").toIntOrNull() ?: 0 },
         )
     }
