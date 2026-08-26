@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.onetwothreeanime
 
-import aniyomi.lib.playlistutils.PlaylistUtils
+import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -9,18 +9,20 @@ import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import org.jsoup.Jsoup
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class OneThreeTwoAnimeExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
     private val baseUrl: String,
 ) {
-
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     // ------------------------------------------------------------------ //
     //  DTOs                                                              //
@@ -117,36 +119,156 @@ class OneThreeTwoAnimeExtractor(
         val streamUrl = resolvePlayerPage(embedBase, innerToken)
 
         if (streamUrl != null) {
-            val videoHeaders = hlsHeaders(embedHostReferer)
-
-            // The resolved m3u8 is usually a master playlist; expand it into
-            // per-quality videos. Falls back to the raw master URL when the
-            // playlist cannot be inspected.
-            val videos = (
-                catching<List<Video>> {
-                    playlistUtils.extractFromHls(
-                        playlistUrl = streamUrl,
-                        referer = embedHostReferer,
-                        masterHeaders = videoHeaders,
-                        videoHeaders = videoHeaders,
-                        videoNameGen = { quality -> "[$serverLabel] $quality" },
-                    )
-                } ?: emptyList()
-                )
-                .ifEmpty {
-                    listOf(
-                        Video(
-                            url = streamUrl,
-                            quality = "[$serverLabel] HLS",
-                            videoUrl = streamUrl,
-                            headers = videoHeaders,
-                        ),
-                    )
-                }
-            return videos
+            // echovideo serves numeric-encoded playlists and fakes a
+            // "#EXT-X-ENDLIST" at the top of the body; players stop right
+            // after loading it (~1s black screen). Decode + clean ourselves
+            // and serve fixed text from the local server instead of letting
+            // PlaylistUtils / ExoPlayer trust the raw upstream payload.
+            return hlsVideosFromPlaylist(
+                m3u8Url = streamUrl,
+                serverLabel = serverLabel,
+                referer = embedHostReferer,
+            )
         }
 
         return emptyList()
+    }
+
+    // ------------------------------------------------------------------ //
+    //  HLS handling                                                      //
+    //  play2.echovideo.ru quirks (same CDN as AniWaves.ru):              //
+    //   - "trash data": numeric-encoded playlists (lines of integers     //
+    //     0-255 = bytes of the real m3u8) → decodeNumericHls             //
+    //   - fake "#EXT-X-ENDLIST" at the top of the playlist, which        //
+    //     PlaylistUtils takes for granted → manual parse + clean         //
+    //  Cleaned text is registered in a local loopback server; segments   //
+    //  are proxied through it with pinned headers because the CDN is     //
+    //  Cloudflare-fronted and gates on client signature (error 1010).    //
+    // ------------------------------------------------------------------ //
+
+    private suspend fun hlsVideosFromPlaylist(
+        m3u8Url: String,
+        serverLabel: String,
+        referer: String,
+    ): List<Video> {
+        val fetchHeaders = headers.newBuilder()
+            .set("Accept", "*/*")
+            .set("Referer", referer)
+            .set("User-Agent", PLAYER_USER_AGENT)
+            .build()
+
+        suspend fun fetchPlaylistText(url: String): String = decodeNumericHls(client.newCall(GET(url, fetchHeaders)).awaitSuccess().bodyString())
+
+        val masterBase = m3u8Url.toHttpUrlOrNull() ?: return emptyList()
+        val masterText = try {
+            fetchPlaylistText(m3u8Url)
+        } catch (e: Exception) {
+            Log.w(TAG, "Master playlist failed (${masterBase.host}): ${e.message}")
+            return emptyList()
+        }
+
+        val videoHeaders = hlsHeaders(referer)
+
+        val variants = buildList {
+            if (masterText.contains("#EXT-X-STREAM-INF")) {
+                var pendingQuality: String? = null
+                for (raw in masterText.lines()) {
+                    val line = raw.trim()
+                    when {
+                        line.startsWith("#EXT-X-STREAM-INF") -> {
+                            pendingQuality = Regex("""RESOLUTION=\d+x(\d+)""").find(line)
+                                ?.groupValues?.get(1)?.let { "${it}p" }
+                                ?: Regex("""BANDWIDTH=(\d+)""").find(line)
+                                    ?.groupValues?.get(1)?.let { "${it.toInt() / 1000}kbps" }
+                        }
+                        line.isNotEmpty() && !line.startsWith("#") -> {
+                            masterBase.resolve(line)?.toString()?.let { abs ->
+                                add(abs to pendingQuality)
+                            }
+                            pendingQuality = null
+                        }
+                    }
+                }
+            } else {
+                add(m3u8Url to null)
+            }
+        }.asReversed()
+
+        return variants.mapNotNull { (variantUrl, quality) ->
+            runCatching {
+                var text = absolutizeHlsUrls(fetchPlaylistText(variantUrl), variantUrl.toHttpUrl())
+                text = cleanVariantPlaylist(text) ?: throw IOException("Playlist has no segments")
+                text = proxySegmentUrls(text, referer)
+                val localUrl = playlistServer(client).register(text)
+                Video(
+                    url = localUrl,
+                    quality = "[$serverLabel] ${quality ?: "auto"}",
+                    videoUrl = localUrl,
+                    headers = videoHeaders,
+                )
+            }.onFailure {
+                Log.w(TAG, "Variant failed ($variantUrl): ${it.message}")
+            }.getOrNull()
+        }
+    }
+
+    /** Rewrites segment / key / map URIs to the local segment proxy. */
+    private fun proxySegmentUrls(text: String, referer: String): String = text.lines().joinToString("\n") { line ->
+        val t = line.trim()
+        when {
+            t.startsWith("#EXT-X-KEY") || t.startsWith("#EXT-X-MAP") ->
+                t.replace(URI_ATTRIBUTE_REGEX) { m ->
+                    "URI=\"" + playlistServer(client).segmentProxyUrl(m.groupValues[1], referer, PLAYER_USER_AGENT) + "\""
+                }
+            t.isEmpty() || t.startsWith("#") -> line
+            else -> playlistServer(client).segmentProxyUrl(t, referer, PLAYER_USER_AGENT)
+        }
+    }
+
+    /**
+     * Echovideo annoys you with playlists with fake headers, like always.
+     * We detect and decode this hell; return plain-text input untouched.
+     */
+    private fun decodeNumericHls(text: String): String {
+        val trimmed = text.trimStart()
+        if (trimmed.isEmpty() || !trimmed[0].isDigit()) return text
+        val bytes = ArrayList<Byte>(text.length / 3)
+        for (raw in text.split('\n', '\r')) {
+            val token = raw.trim()
+            if (token.isEmpty()) continue
+            val value = token.toIntOrNull() ?: return text
+            if (value !in 0..255) return text
+            bytes.add(value.toByte())
+        }
+        return bytes.takeIf { it.isNotEmpty() }
+            ?.let { String(it.toByteArray(), Charsets.UTF_8) }
+            ?: text
+    }
+
+    private fun absolutizeHlsUrls(text: String, base: HttpUrl): String = text.lines().joinToString("\n") { line ->
+        val t = line.trim()
+        when {
+            t.startsWith("#EXT-X-KEY") || t.startsWith("#EXT-X-MAP") ->
+                t.replace(URI_ATTRIBUTE_REGEX) { m ->
+                    "URI=\"" + (base.resolve(m.groupValues[1])?.toString() ?: m.groupValues[1]) + "\""
+                }
+            t.isEmpty() || t.startsWith("#") -> line
+            else -> base.resolve(t)?.toString() ?: line
+        }
+    }
+
+    /**
+     * The upstream fakes the playlist end: "#EXT-X-ENDLIST" can show up at
+     * the top or between segments, making playback stop instantly. Drop
+     * every ENDLIST and append exactly one terminal tag after the last
+     * segment; null when the payload carries no segments at all (stub).
+     */
+    private fun cleanVariantPlaylist(text: String): String? {
+        val lines = text.lines().filter(String::isNotBlank)
+        if (lines.none { it.trimStart().startsWith("#EXTINF") }) return null
+        return lines.filter { it.trim() != "#EXT-X-ENDLIST" }
+            .joinToString("\n")
+            .plus("\n#EXT-X-ENDLIST\n")
     }
 
     // ------------------------------------------------------------------ //
@@ -316,9 +438,30 @@ class OneThreeTwoAnimeExtractor(
     // ------------------------------------------------------------------ //
 
     companion object {
+        private const val TAG = "OneThreeTwoAnime"
+
         // Sent on every Video so the player requests look browser-made.
         private const val PLAYER_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+        /**
+         * One server per process: the source recreates this extractor per
+         * video-list request, and each NanoHTTPD instance would otherwise
+         * pin its socket until GC.
+         */
+        @Volatile
+        private var sharedServer: PlaylistServer? = null
+
+        private fun playlistServer(client: OkHttpClient): PlaylistServer = sharedServer ?: synchronized(this) {
+            sharedServer ?: PlaylistServer(
+                client.newBuilder()
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .protocols(listOf(Protocol.HTTP_1_1))
+                    .build(),
+            ).also { sharedServer = it }
+        }
+
+        private val URI_ATTRIBUTE_REGEX = Regex("""URI="([^"]+)"""")
 
         // embed-3 wrapper page: var zrpart2 = '<base64>';
         private val ZRPART2_REGEX = Regex(
