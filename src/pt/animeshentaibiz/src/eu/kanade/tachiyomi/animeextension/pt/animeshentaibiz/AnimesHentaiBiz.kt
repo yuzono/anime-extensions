@@ -186,16 +186,14 @@ class AnimesHentaiBiz : AnimeHttpSource() {
         }.distinctBy { it.videoUrl }
     }
 
-    private fun extractVideosFromUrl(url: String, playerHeaders: Headers): List<Video> {
-        return when {
-            url.contains("blogger.com/video", true) -> {
-                bloggerExtractor.videosFromUrl(url, playerHeaders).map { video ->
-                    Video(video.url, "Blogger - ${video.quality}", video.videoUrl, video.headers ?: playerHeaders)
-                }
+    private fun extractVideosFromUrl(url: String, playerHeaders: Headers): List<Video> = when {
+        url.contains("blogger.com/video", true) -> {
+            bloggerExtractor.videosFromUrl(url, playerHeaders).map { video ->
+                Video(video.url, "Blogger - ${video.quality}", video.videoUrl, video.headers ?: playerHeaders)
             }
-            else -> {
-                universalExtractor.videosFromUrl(url, playerHeaders)
-            }
+        }
+        else -> {
+            universalExtractor.videosFromUrl(url, playerHeaders)
         }
     }
 
