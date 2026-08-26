@@ -18,11 +18,12 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
     var port: Int = 0
         private set
 
-    /** True only when the local proxy server started successfully. */
+    // Server is started
     val isAvailable: Boolean get() = port > 0 && serverSocket?.isClosed == false
 
     init {
         try {
+            // Videos broke if changed
             val ss = ServerSocket(0)
             serverSocket = ss
             port = ss.localPort
@@ -39,10 +40,6 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
         }
     }
 
-    /**
-     * Returns a local proxy URL for [targetUrl], or [targetUrl] itself when the
-     * proxy server failed to start (port == 0).
-     */
     fun getProxyUrl(targetUrl: String, headers: okhttp3.Headers?): String {
         if (!isAvailable) return targetUrl
         val encodedUrl = Base64.encodeToString(targetUrl.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
@@ -114,7 +111,6 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
                     val name = headerParts[0].trim()
                     val value = headerParts[1].trim()
                     if (name.equals("Range", ignoreCase = true) && !isM3u8Request) {
-                        // HD-1 wraps the MPEG-TS payload in a PNG response, which we neet to get rid of
                         clientRange = value
                     }
                 }
@@ -130,7 +126,6 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
                 sendResponse(socket, response, targetUrl, encodedHeaders, clientRange)
             }
         } catch (e: Exception) {
-            // Only attempt to send an HTTP error response when the request was fully parsed
             if (requestParsed) {
                 try {
                     sendError(socket, 500, e.message ?: "Internal Error")
@@ -301,8 +296,10 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
     }
 
     private fun isMpegTs(data: ByteArray): Boolean {
-        if (data.size < 376) return false
-        val maxOffset = min(data.size - 376, 400)
+        // Need data[offset], data[offset + 188] and data[offset + 376] in
+        // bounds, so the last valid offset is size - 377.
+        if (data.size < 377) return false
+        val maxOffset = min(data.size - 377, 400)
         return (0..maxOffset).any { offset ->
             data[offset] == 0x47.toByte() &&
                 data[offset + 188] == 0x47.toByte() &&

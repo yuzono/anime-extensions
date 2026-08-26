@@ -287,7 +287,7 @@ class Anikage :
 
     // =========================== Video Links ==============================
 
-    private fun videoListRequestUrl(episode: SEpisode, provider: String): String = "$baseUrl${episode.url}?lang=${preferences.subOrDub}&provider=$provider"
+    private fun videoListRequestUrl(episode: SEpisode, lang: String, provider: String): String = "$baseUrl${episode.url}?lang=$lang&provider=$provider"
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val isDubPreferred = preferences.subOrDub == "dub"
@@ -318,7 +318,7 @@ class Anikage :
 
         return activeProviders.parallelCatchingFlatMap { (type, provider) ->
             val episodeData = client.newCall(
-                GET(videoListRequestUrl(episode, provider), headers),
+                GET(videoListRequestUrl(episode, type.lowercase(), provider), headers),
             )
                 .awaitSuccess()
                 .parseAs<EpisodeSource>()
