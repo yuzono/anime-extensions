@@ -359,7 +359,7 @@ class BeatZAnime : ParsedAnimeHttpSource() {
          * so they can be grouped after the regular episodes.
          */
         private val SPECIAL_REGEX = Regex(
-            """\b(?:ova|especiales|especial|peliculas?|películas?|ncopv|ncop|nced)\b""",
+            """\b(?:oad|ova|especiales|especial|peliculas?|películas?|ncopv|ncop|nced)\b""",
             RegexOption.IGNORE_CASE,
         )
 
