@@ -61,3 +61,12 @@ data class StreamUrlDto(
     val source: String = "",
     val url: String = "",
 )
+
+// the site re-uses identical embed URLs across consecutive episodes of a drama;
+// wrapping the episode number keeps every SEpisode.url unique so the app's
+// per-anime unique episode url constraint does not collapse them into one row
+@Serializable
+data class EpisodePayload(
+    val n: Float,
+    val urls: List<StreamUrlDto> = emptyList(),
+)

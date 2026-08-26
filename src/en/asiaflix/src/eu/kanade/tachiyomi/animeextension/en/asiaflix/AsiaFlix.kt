@@ -7,7 +7,9 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.streamtapeextractor.StreamTapeExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
+import aniyomi.lib.vidmolyextractor.VidMolyExtractor
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.EntryDto
+import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.EpisodePayload
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.PagedDto
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.StreamResultDto
 import eu.kanade.tachiyomi.animeextension.en.asiaflix.dto.StreamUrlDto
@@ -99,14 +101,20 @@ class AsiaFlix : AnimeHttpSource() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val result = response.parseAs<EntryDto>()
+        val episodes = result.episodes.orEmpty()
 
-        return result.episodes.orEmpty().map {
+        if (episodes.isEmpty()) throw Exception("No episodes found.")
+
+        return episodes.map {
             SEpisode.create().apply {
                 val number = it.number
                 name = if (number % 1f == 0f) "Episode ${number.toInt()}" else "Episode $number"
                 episode_number = number
                 scanlator = it.type?.uppercase(Locale.US)
-                url = Base64.encodeToString(json.encodeToString(it.streamUrls).toByteArray(), Base64.NO_WRAP)
+                url = Base64.encodeToString(
+                    json.encodeToString(EpisodePayload(number, it.streamUrls)).toByteArray(),
+                    Base64.NO_WRAP,
+                )
             }
         }.sortedByDescending { it.episode_number }
     }
@@ -118,6 +126,7 @@ class AsiaFlix : AnimeHttpSource() {
     private val doodStreamExtractor by lazy { DoodExtractor(client) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
     private val mixDropExtractor by lazy { MixDropExtractor(client) }
+    private val vidmolyExtractor by lazy { VidMolyExtractor(client, videoHeaders) }
 
     // dummy request that carries the encoded stream server list
     override fun videoListRequest(episode: SEpisode): Request = "$baseUrl/".toHttpUrl().newBuilder()
@@ -128,7 +137,7 @@ class AsiaFlix : AnimeHttpSource() {
     override fun videoListParse(response: Response): List<Video> {
         val payload = response.use { it.request.url.queryParameter("ep") } ?: return emptyList()
         val hostUrls = runCatching {
-            json.decodeFromString<List<StreamUrlDto>>(Base64.decode(payload, Base64.NO_WRAP).decodeToString())
+            json.decodeFromString<EpisodePayload>(Base64.decode(payload, Base64.NO_WRAP).decodeToString()).urls
         }.getOrElse { return emptyList() }
 
         return hostUrls.filter { it.url.isNotBlank() }
@@ -179,6 +188,9 @@ class AsiaFlix : AnimeHttpSource() {
             streamWishExtractor.videosFromUrl(hostUrl)
 
         hostUrl.containsAny("dlions", "smoothpre", "vidhide") -> vidHideExtractor.videosFromUrl(hostUrl)
+
+        // the api resolver 500s on vidmoly embeds, so this branch is the only path for them
+        hostUrl.contains("vidmoly") -> vidmolyExtractor.videosFromUrl(hostUrl)
 
         else -> emptyList()
     }
