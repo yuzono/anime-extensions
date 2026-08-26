@@ -2,9 +2,11 @@ package eu.kanade.tachiyomi.animeextension.en.anikage
 
 import android.net.Uri
 import android.util.Base64
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import java.net.InetAddress.getByName
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
@@ -23,8 +25,7 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
 
     init {
         try {
-            // Videos broke if changed
-            val ss = ServerSocket(0)
+            val ss = ServerSocket(0, 50, getByName("127.0.0.1"))
             serverSocket = ss
             port = ss.localPort
             executor.execute {
@@ -40,7 +41,7 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
         }
     }
 
-    fun getProxyUrl(targetUrl: String, headers: okhttp3.Headers?): String {
+    fun getProxyUrl(targetUrl: String, headers: Headers?): String {
         if (!isAvailable) return targetUrl
         val encodedUrl = Base64.encodeToString(targetUrl.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         val headersStr = headers?.let { h ->
@@ -91,7 +92,7 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
             val targetUrl = String(Base64.decode(encodedUrl, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
             val isM3u8Request = targetUrl.contains(".m3u8") || path.contains("playlist.m3u8")
 
-            val targetHeaders = okhttp3.Headers.Builder()
+            val targetHeaders = Headers.Builder()
             if (encodedHeaders.isNotEmpty()) {
                 val headersStr = String(Base64.decode(encodedHeaders, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
                 headersStr.split("\n").forEach { line ->
@@ -163,16 +164,22 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
         }
 
         val stripped = stripPngHeader(response.body.bytes())
-        val range = parseRange(clientRange, stripped.size)
+        val range = if (response.isSuccessful) parseRange(clientRange, stripped.size) else null
         val body = range?.let { stripped.copyOfRange(it.first, it.last + 1) } ?: stripped
-        val status = if (range == null) 200 else 206
+        val isPartial = range != null
+        val status = if (isPartial) 206 else response.code
+        val reason = when {
+            isPartial -> "Partial Content"
+            response.message.isNotBlank() -> response.message
+            else -> status.toString()
+        }
         val contentType = if (isMpegTs(stripped)) {
             "video/mp2t"
         } else {
             response.header("Content-Type") ?: "application/octet-stream"
         }
 
-        out.write("HTTP/1.1 $status ${if (status == 206) "Partial Content" else "OK"}\r\n".toByteArray())
+        out.write("HTTP/1.1 $status $reason\r\n".toByteArray())
         writeForwardedHeaders(out, response, isM3u8 = false)
         if (range != null) {
             out.write("Accept-Ranges: bytes\r\n".toByteArray())
@@ -214,16 +221,21 @@ class LocalProxy(private val client: okhttp3.OkHttpClient) {
         val parts = range.split("-", limit = 2)
         if (parts.size != 2) return null
 
-        val start = parts[0].toIntOrNull()
-        val end = parts[1].toIntOrNull()
+        val startStr = parts[0].trim()
+        val endStr = parts[1].trim()
+
         return when {
-            start != null && start >= 0 && start < size -> {
+            startStr.isEmpty() -> {
+                val end = endStr.toIntOrNull()
+                if (end != null && end > 0) maxOf(0, size - end)..<size else null
+            }
+            else -> {
+                val start = startStr.toIntOrNull()
+                val end = endStr.toIntOrNull()
+                if (start == null || start < 0 || start >= size) return null
+                if (end != null && end < start) return null
                 start..min(end ?: (size - 1), size - 1)
             }
-            start == null && end != null && end > 0 -> {
-                maxOf(0, size - end)..<size
-            }
-            else -> null
         }
     }
 
