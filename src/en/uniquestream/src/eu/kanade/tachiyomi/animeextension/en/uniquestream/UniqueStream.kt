@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
@@ -138,19 +139,22 @@ class UniqueStream : AnimeHttpSource() {
         ).awaitSuccess().parseAs<MediaResponse>()
 
         val hls = requireNotNull(media.hls) { "No HLS media available for this episode" }
-        val entries = mutableListOf(Pair(SUB_LABEL, hls))
+        // The top-level track is the original audio (usually raw Japanese, no
+        // subs), so label it by its locale instead of claiming it is a sub.
+        val originalLabel = hls.locale?.let { localeNames[it] } ?: ORIGINAL_LABEL
+        val entries = mutableListOf(Pair(originalLabel, hls))
         hls.hardSubs.orEmpty().forEach { sub ->
             entries.add(hardSubLabel(sub.locale) to sub)
         }
-        media.versions.orEmpty().forEach { version ->
+        media.versions?.hls.orEmpty().forEach { version ->
             val label = version.locale?.let { localeNames[it] } ?: "Dub"
             entries.add(label to version)
         }
 
         UniqueStreamHlsServer.setUp(client)
 
-        val videos = entries.flatMap { (label, dto) ->
-            val masterUrl = requireNotNull(dto.playlist) { "Missing playlist for $label" }
+        val videos = entries.parallelCatchingFlatMapBlocking { (label, dto) ->
+            val masterUrl = dto.playlist ?: return@parallelCatchingFlatMapBlocking emptyList<Video>()
             val master = fetchText(masterUrl)
             VARIANT_REGEX.findAll(master).mapNotNull { match ->
                 val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
@@ -161,13 +165,13 @@ class UniqueStream : AnimeHttpSource() {
                     quality = "$label - ${height}p",
                     videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId, height),
                 )
-            }
+            }.toList()
         }
 
         require(videos.isNotEmpty()) { "Failed to fetch videos" }
 
         return videos.sortedWith(
-            compareByDescending<Video> { it.quality.startsWith(SUB_LABEL) }
+            compareByDescending<Video> { it.quality.startsWith(originalLabel) }
                 .thenByDescending { it.quality.substringAfterLast(" ").removeSuffix("p").toIntOrNull() ?: 0 },
         )
     }
@@ -279,8 +283,14 @@ class UniqueStream : AnimeHttpSource() {
     data class MediaResponse(
         @SerialName("media_id") val mediaId: String,
         val hls: HlsDto? = null,
-        val versions: List<HlsDto>? = null,
+        // Episodes wrap dubs in {"hls": [...]}; movies omit the key entirely.
+        val versions: VersionsDto? = null,
     ) {
+        @Serializable
+        data class VersionsDto(
+            val hls: List<HlsDto>? = null,
+        )
+
         @Serializable
         data class HlsDto(
             val locale: String? = null,
@@ -292,12 +302,13 @@ class UniqueStream : AnimeHttpSource() {
     companion object {
         private const val PAGE_SIZE = 20
         private const val DEFAULT_AUDIO = "ja-JP"
-        private const val SUB_LABEL = "Sub"
+        private const val ORIGINAL_LABEL = "Original"
 
         // Master playlists carry one line of metadata followed by the variant URL.
         private val VARIANT_REGEX = Regex("""RESOLUTION=\d+x(\d+)[^\n]*\n([^\n#]+\.m3u8[^\n]*)""")
 
         private val localeNames = mapOf(
+            "ja-JP" to "Japanese",
             "en-US" to "Dub",
             "es-419" to "Spanish (LatAm)",
             "es-ES" to "Spanish (Spain)",
@@ -309,6 +320,7 @@ class UniqueStream : AnimeHttpSource() {
             "ru-RU" to "Russian",
             "hi-IN" to "Hindi",
             "ta-IN" to "Tamil",
+            "pl-PL" to "Polish",
         )
     }
 }
