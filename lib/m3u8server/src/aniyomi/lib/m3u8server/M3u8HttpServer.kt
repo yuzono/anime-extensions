@@ -11,7 +11,6 @@ import okhttp3.Request
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
@@ -144,7 +143,12 @@ class M3u8HttpServer(
             }
             Log.d(tag, "Segment processing completed successfully, data size: ${segmentData.size} bytes")
             val inputStream = ByteArrayInputStream(segmentData)
-            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
+            newFixedLengthResponse(
+                Status.OK,
+                "video/mp2t",
+                inputStream,
+                segmentData.size.toLong(),
+            )
         } catch (e: UpstreamStatusException) {
             Log.w(tag, "Upstream segment HTTP ${e.code} for $url: ${e.message}")
             passThroughStatus(e)
@@ -586,7 +590,7 @@ class M3u8HttpServer(
         it.groupValues[1] to it.groupValues[2].trim('"')
     }
 
-    private fun resolveHlsUrl(baseHttpUrl: okhttp3.HttpUrl?, uri: String): String = baseHttpUrl?.resolve(uri)?.toString() ?: uri
+    private fun resolveHlsUrl(baseHttpUrl: HttpUrl?, uri: String): String = baseHttpUrl?.resolve(uri)?.toString() ?: uri
 
     private fun createLocalSegmentUrl(
         serverPort: Int,

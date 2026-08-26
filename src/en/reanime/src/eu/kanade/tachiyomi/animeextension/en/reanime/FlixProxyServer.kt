@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 class FlixProxyServer(
     private val headers: Headers,
     private var segmentMask: ByteArray,
-) : NanoHTTPD(0) {
+) : NanoHTTPD("127.0.0.1", 0) {
 
     fun updateSegmentMask(newMask: ByteArray) {
         if (!newMask.contentEquals(segmentMask)) {
@@ -36,8 +36,8 @@ class FlixProxyServer(
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
-            .followRedirects(true)
-            .followSslRedirects(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -46,6 +46,11 @@ class FlixProxyServer(
         val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8")}"
         // Do not append fake extensions. MPV handles the stream better when it relies
         // on the MIME type and the HLS demuxer handles the timestamps correctly.
+        return "http://127.0.0.1:$listeningPort/proxy?$params"
+    }
+
+    fun createSubtitleProxyUrl(originalUrl: String): String {
+        val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload="
         return "http://127.0.0.1:$listeningPort/proxy?$params"
     }
 
@@ -91,6 +96,20 @@ class FlixProxyServer(
         val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
         return try {
+            val isSubtitle = url.contains("/subtitles/")
+            if (isSubtitle) {
+                if (!url.startsWith("https://")) {
+                    return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Subtitle URL must be https")
+                }
+                val proxyHeaders = headers.newBuilder()
+                    .set("Accept", "*/*")
+                    .removeAll("Origin").removeAll("Referer")
+                    .apply {
+                        add("Origin", flixCloudUrl)
+                        add("Referer", "$flixCloudUrl/")
+                    }.build()
+                return serveSubtitle(url, proxyHeaders)
+            }
             val isManifest = url.contains(".m3u8")
             val isMasterManifest = isManifest && (
                 url.contains("master.m3u8") ||
@@ -204,6 +223,62 @@ class FlixProxyServer(
             newFixedLengthResponse(Status.OK, "video/mp2t", inputStream, outputLength)
         } else {
             newChunkedResponse(Status.OK, "video/mp2t", inputStream)
+        }
+    }
+
+    private fun serveSubtitle(
+        subtitleUrl: String,
+        proxyHeaders: Headers,
+    ): Response {
+        val request = Request.Builder().url(subtitleUrl).headers(proxyHeaders).build()
+        return proxyClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                val errorSnippet = try {
+                    response.peekBody(1024).string().take(300)
+                } catch (_: Exception) {
+                    ""
+                }
+                return@use newFixedLengthResponse(
+                    Status.lookup(code) ?: Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Subtitle Error: $code $errorSnippet",
+                )
+            }
+            val body = response.body
+            val contentType = when {
+                subtitleUrl.endsWith(".ass") -> "text/x-ass"
+                subtitleUrl.endsWith(".srt") -> "application/x-subrip"
+                subtitleUrl.endsWith(".vtt") -> "text/vtt"
+                else -> body.contentType()?.toString() ?: "text/plain"
+            }
+            val maxSubtitleBytes = 512 * 1024
+            val contentLength = body.contentLength()
+            if (contentLength != -1L && contentLength > maxSubtitleBytes) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            }
+            val bytes: ByteArray = try {
+                body.byteStream().use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    var n: Int
+                    while (input.read(buffer).also { n = it } != -1) {
+                        total += n
+                        if (total > maxSubtitleBytes) throw IllegalStateException("too large")
+                        out.write(buffer, 0, n)
+                    }
+                    out.toByteArray()
+                }
+            } catch (e: IllegalStateException) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            } catch (_: Exception) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle read error")
+            }
+            val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
+            resp.addHeader("Access-Control-Allow-Origin", "*")
+            resp.addHeader("Access-Control-Allow-Headers", "*")
+            resp
         }
     }
 

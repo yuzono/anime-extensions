@@ -1,13 +1,13 @@
 ext {
-    extName = 'Re:ANIME'
-    extClass = '.ReAnime'
-    extVersionCode = 4
-    isNsfw = true
+    extName = 'AniWaves.ru'
+    extClass = '.AniWaves'
+    extVersionCode = 1
+    isNsfw = false
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
     implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
-    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:doodextractor"))
 }

@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
@@ -28,6 +28,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.delay
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -55,7 +56,7 @@ abstract class AnikotoTheme(
     override val name: String,
     private val domainEntries: List<String>,
     private val hosterNames: List<String>,
-) : ParsedAnimeHttpSource(),
+) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -80,6 +81,13 @@ abstract class AnikotoTheme(
     protected open val rateLimit = 5
 
     open val mapperUrl = "https://mapper.nekostream.site/api"
+
+    override val disableRelatedAnimesBySearch = true
+
+    open val useEpisodeTitles = true
+
+    open val hasSourceFilter = false
+    open val hasEpisodeFilter = false
 
     // ============================ Headers & Client =========================
 
@@ -258,7 +266,6 @@ abstract class AnikotoTheme(
     protected open fun getTypeDisplayName(typeKey: String): String = when (typeKey) {
         "Sub" -> "Sub"
         "H-Sub" -> "H-Sub"
-        "HSub" -> "Hard Sub"
         "S-Sub" -> "Soft Sub"
         "Dub" -> "Dub"
         "A-Dub" -> "A-Dub"
@@ -285,9 +292,9 @@ abstract class AnikotoTheme(
         cacheControl,
     )
 
-    override fun popularAnimeSelector(): String = "div.ani.items > div.item"
+    open fun popularAnimeSelector(): String = "div.ani.items > div.item"
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
+    open fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         element.selectFirst("a.name")?.let { a ->
             setUrlWithoutDomain(EP_URL_SUFFIX_REGEX.replace(a.attr("href").substringBefore("?"), ""))
             title = getTitle(a)
@@ -297,7 +304,7 @@ abstract class AnikotoTheme(
         }
     }
 
-    override fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
+    open fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -320,9 +327,9 @@ abstract class AnikotoTheme(
         cacheControl,
     )
 
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+    open fun latestUpdatesSelector() = popularAnimeSelector()
+    open fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
+    open fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -352,15 +359,18 @@ abstract class AnikotoTheme(
             addListQueryParameter("status", params.statuses)
             addListQueryParameter("language", params.languages)
             addListQueryParameter("rating", params.ratings)
+            addListQueryParameter("source", params.sources)
+            addQueryParameterIfNotEmpty("ep_min", params.episodesMin)
+            addQueryParameterIfNotEmpty("ep_max", params.episodesMax)
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
 
         return GET(url, docHeaders, cacheControl)
     }
 
-    override fun searchAnimeSelector() = popularAnimeSelector()
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+    open fun searchAnimeSelector() = popularAnimeSelector()
+    open fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+    open fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -371,11 +381,13 @@ abstract class AnikotoTheme(
         return AnimesPage(animes, nextPage)
     }
 
-    override fun getFilterList(): AnimeFilterList = AnikotoThemeFilters.FILTER_LIST
+    override fun getFilterList(): AnimeFilterList = AnikotoThemeFilters.getFilterList(hasSourceFilter, hasEpisodeFilter)
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime = parseAnimeDetails(response.asJsoup())
+
+    open fun parseAnimeDetails(document: Document): SAnime {
         val newDocument = resolveSearchAnime(document)
         val titleElement = newDocument.selectFirst("h1.title, h2.title")
         val animeId = newDocument.selectFirst("[data-id]")?.attr("data-id")
@@ -474,7 +486,7 @@ abstract class AnikotoTheme(
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-    override fun episodeListSelector() = "div.episodes ul > li > a"
+    open fun episodeListSelector() = "div.episodes ul > li > a"
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.url.substringAfter("#", "")
@@ -509,6 +521,7 @@ abstract class AnikotoTheme(
 
         return try {
             response.parseAs<ResultResponse>().toDocument().select(episodeListSelector())
+                .filter { !hideFiller || !isFiller(it) }
                 .map { episodeFromElement(it, animeUrl) }
                 .reversed()
         } catch (e: Exception) {
@@ -517,23 +530,32 @@ abstract class AnikotoTheme(
         }
     }
 
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
+    open fun isFiller(element: Element): Boolean = element.hasClass("filler")
+
+    fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     private fun episodeFromElement(element: Element, animeUrl: String): SEpisode {
-        val title = element.parent()?.attr("title") ?: ""
+        val tooltip = element.parent()?.attr("title") ?: ""
         val epNum = element.attr("data-num")
         val ids = element.attr("data-ids")
         val sub = if (element.attr("data-sub").toIntOrNull() == 1) "Sub" else ""
         val dub = if (element.attr("data-dub").toIntOrNull() == 1) "Dub" else ""
-        val softSub = if (SOFTSUB_REGEX.containsMatchIn(title)) "SoftSub" else ""
-        val name = element.parent()?.select("span.d-title")?.text().orEmpty()
+        val softSub = if (SOFTSUB_REGEX.containsMatchIn(tooltip)) "SoftSub" else ""
+
+        var name = element.parent()?.select("span.d-title")?.text().orEmpty()
+        if (useEpisodeTitles && name.isEmpty() && tooltip.isNotEmpty()) {
+            name = tooltip.substringBefore("Release:").substringBefore("Softsub").trim()
+        }
 
         val malId = element.attr("data-mal")
         val slug = element.attr("data-slug")
         val timestamp = element.attr("data-timestamp")
 
+        val isFiller = isFiller(element) && markFiller
+        val fillerTag = if (isFiller) " [Filler]" else ""
+
         return SEpisode.create().apply {
-            this.name = "Episode $epNum" + if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else ""
+            this.name = "Episode $epNum" + (if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else "") + fillerTag
             this.url = buildString {
                 append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
                 if (malId.isNotEmpty()) append("&mal=$malId")
@@ -541,7 +563,7 @@ abstract class AnikotoTheme(
                 if (timestamp.isNotEmpty()) append("&ts=$timestamp")
             }
             episode_number = epNum.toFloatOrNull() ?: 0f
-            date_upload = DATE_FORMATTER.tryParse(RELEASE_REGEX.find(title)?.groupValues?.get(1))
+            date_upload = DATE_FORMATTER.tryParse(RELEASE_REGEX.find(tooltip)?.groupValues?.get(1))
             scanlator = listOf(sub, softSub, dub).filter(String::isNotBlank).joinToString()
         }
     }
@@ -604,16 +626,12 @@ abstract class AnikotoTheme(
             m3u8ServerManager.startServer()
             val deadline = System.currentTimeMillis() + 2000L
             while (!m3u8ServerManager.isRunning() && System.currentTimeMillis() < deadline) {
-                kotlinx.coroutines.delay(50L)
+                delay(50L)
             }
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "M3U8 server start failed: ${e.message}")
         }
     }
-
-    override fun videoListSelector() = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // ============================ Video Sort ==============================
 
@@ -643,8 +661,7 @@ abstract class AnikotoTheme(
 
     protected open fun buildTypeFallbackChain(type: String): List<String> = when (type) {
         "Sub" -> listOf("Sub", "H-Sub", "HSub")
-        "H-Sub" -> listOf("H-Sub", "Sub")
-        "HSub" -> listOf("HSub", "Sub")
+        "H-Sub", "HSub" -> listOf("H-Sub", "HSub")
         "S-Sub" -> listOf("S-Sub", "Sub")
         "Dub" -> listOf("Dub", "A-Dub")
         "A-Dub" -> listOf("A-Dub", "Dub")
@@ -850,6 +867,8 @@ abstract class AnikotoTheme(
     protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.firstOrNull() ?: "")
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
+    protected val markFiller by preferences.delegate(PREF_MARK_FILLER_KEY, PREF_MARK_FILLER_DEFAULT)
+    protected val hideFiller by preferences.delegate(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     // ============================== Preferences ===========================
 
@@ -990,6 +1009,20 @@ abstract class AnikotoTheme(
             summary = "%s"
         }.also(screen::addPreference)
 
+        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_MARK_FILLER_KEY
+            title = "Mark Filler Episodes"
+            summary = "Mark filler episodes in the episode list"
+            setDefaultValue(PREF_MARK_FILLER_DEFAULT)
+        }.also(screen::addPreference)
+
+        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_HIDE_FILLER_KEY
+            title = "Hide Filler Episodes"
+            summary = "Hides detected filler episodes from episode list"
+            setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
+        }.also(screen::addPreference)
+
         val excludeServerEntries = discoveredServers.map { getHosterDisplayName(it) }.toTypedArray()
         val excludeServerValues = discoveredServers.toTypedArray()
 
@@ -1044,6 +1077,12 @@ abstract class AnikotoTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
+
+        private const val PREF_MARK_FILLER_KEY = "mark_fillers"
+        private const val PREF_MARK_FILLER_DEFAULT = true
+
+        private const val PREF_HIDE_FILLER_KEY = "hide_fillers"
+        private const val PREF_HIDE_FILLER_DEFAULT = false
 
         private const val PREF_DISCOVERED_TYPES_KEY = "discovered_types"
         private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"

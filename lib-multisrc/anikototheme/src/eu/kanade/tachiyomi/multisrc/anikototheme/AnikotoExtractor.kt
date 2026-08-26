@@ -88,7 +88,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                             else -> null
                         } ?: return@forEach
 
-                        val linkId = linkDto.url
+                        val linkId = linkDto.url.takeIf { it.isNotBlank() } ?: return@forEach
 
                         if (!theme.hostToggle.contains(serverName)) return@forEach
                         if (!theme.isTypeEnabled(typeLabel, theme.typeToggle)) return@forEach
@@ -198,7 +198,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
     ): ExtractionResult {
         val streamType = try {
             embedUrl.toHttpUrl().pathSegments.lastOrNull()
-                ?.takeIf { it == "sub" || it == "dub" }
+                ?.takeIf { it == "sub" || it == "dub" || it == "hsub" }
         } catch (_: Exception) {
             null
         } ?: ""
@@ -249,7 +249,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         streamType: String,
     ): Pair<SourceResponseDto, Boolean> {
         val primaryResult = try {
-            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId&id=$dataId", apiHeaders))
+            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId&id=$dataId&type=$streamType&type=$streamType", apiHeaders))
                 .awaitSuccess().use { response ->
                     if (!response.isSuccessful) throw Exception("getSources failed: HTTP ${response.code}")
                     response.parseAs<SourceResponseDto>()
@@ -261,11 +261,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         if (primaryResult != null) return primaryResult
 
-        val newUrl = if (streamType.isNotEmpty()) {
-            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId&type=$streamType&type=$streamType"
-        } else {
-            "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId"
-        }
+        val newUrl = "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId&type=$streamType&type=$streamType"
 
         val data = theme.client.newCall(GET(newUrl, apiHeaders))
             .awaitSuccess().use { response ->
@@ -365,13 +361,15 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return ExtractionResult(videos, true)
     }
 
-    private suspend fun proxyVideoList(videos: List<Video>): List<Video> {
+    private fun proxyVideoList(videos: List<Video>): List<Video> {
         if (!theme.m3u8ServerManager.isRunning()) {
             Log.e("AnikotoExtractor", "M3U8 server not running, dropping ${videos.size} videos")
             return emptyList()
         }
         return videos.mapNotNull { video ->
-            val processedUrl = proxyThroughM3u8Server(video.url)
+            val referer = video.headers?.get("Referer") ?: runCatching { "https://${video.url.toHttpUrl().host}/" }.getOrNull()
+            val userAgent = video.headers?.get("User-Agent")
+            val processedUrl = proxyThroughM3u8Server(video.videoUrl!!, referer, userAgent)
             if (processedUrl == null) {
                 Log.w("AnikotoExtractor", "Proxy failed for: ${video.quality}")
             }
@@ -388,8 +386,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
     }
 
-    private fun proxyThroughM3u8Server(originalUrl: String): String? = try {
-        theme.m3u8ServerManager.processM3u8Url(originalUrl)
+    private fun proxyThroughM3u8Server(originalUrl: String, referer: String? = null, userAgent: String? = null): String? = try {
+        theme.m3u8ServerManager.processM3u8Url(originalUrl, referer, userAgent)
     } catch (e: Exception) {
         Log.e("AnikotoExtractor", "Proxy process failed: ${e.message}")
         null
