@@ -247,24 +247,12 @@ class AnimeOnlineNinja :
         .eachText()
         .joinToString("\n")
 
-    /**
-     * Grids lazy-load with an inline SVG placeholder in `src`. Skip data: URIs
-     * and fall through to the next candidate instead of returning them (or a
-     * null cover) when a lazyload attribute is missing or itself empty.
-     *
-     * Listing and details serve the SAME cover URL, WordPress size suffix
-     * included - verified live across 20 trending entries: 11 carried a
-     * `-185x278` suffix and all 11 carried it on `div.sheader div.poster img`
-     * too, with zero mismatches. So no size-suffix rewriting here: stripping
-     * it only rewrites ~55% of cover URLs for no gain, forcing every affected
-     * library entry to re-download an identical image.
-     */
-    override fun Element.getImageUrl(): String? = listOf(
-        attr("abs:data-src"),
-        attr("abs:data-lazy-src"),
-        attr("abs:srcset").substringBefore(" "),
-        attr("abs:src"),
-    ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
+    // Covers need no size-suffix rewrite, so `stripImageSizeSuffix` stays off:
+    // verified live across 20 trending entries that the listing card and
+    // `div.sheader div.poster img` serve an identical URL, suffix included -
+    // 11 of the 20 carried `-185x278` on BOTH sides, with zero mismatches.
+    // The data: placeholder skip that used to live here is now the DooPlay
+    // default, since the grids lazy-load an inline SVG into `src`.
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 

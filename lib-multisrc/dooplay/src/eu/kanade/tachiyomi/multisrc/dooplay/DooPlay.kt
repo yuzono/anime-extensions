@@ -44,6 +44,9 @@ abstract class DooPlay(
          * Useful for the URL intent handler.
          */
         const val PREFIX_SEARCH = "path:"
+
+        /** WordPress resize suffix on covers, e.g. `-200x300` in `file-200x300.jpg`. */
+        private val IMAGE_SIZE_SUFFIX_REGEX by lazy { Regex("""-\d+x\d+(?=\.\w+(?:\?|$))""") }
     }
 
     protected open val prefQualityDefault = "1080p"
@@ -454,15 +457,33 @@ abstract class DooPlay(
     }
 
     /**
+     * Whether to drop WordPress' `-<width>x<height>` resize suffix from cover
+     * URLs, e.g. `.../file-200x300.jpg` -> `.../file.jpg`.
+     *
+     * Enable it on sites whose listing cards serve a size derivative while the
+     * details page serves the original upload, so one entry does not end up
+     * with two different cover URLs. Leave it off where both already agree -
+     * rewriting the URL there only forces covers to be re-downloaded.
+     */
+    protected open val stripImageSizeSuffix = false
+
+    /**
      * Tries to get the image url via various possible attributes.
      * Taken from Tachiyomi's Madara multisrc.
+     *
+     * Candidates are tried in order and empty values fall through to the next
+     * one: `hasAttr` is true for a present-but-empty lazyload attribute, which
+     * otherwise yielded a blank cover. Inline `data:` placeholders - what a
+     * lazy-loaded grid ships in `src` before hydration - are never a real
+     * cover either, so they are skipped as well.
      */
-    protected open fun Element.getImageUrl(): String? = when {
-        hasAttr("data-src") -> attr("abs:data-src")
-        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-        else -> attr("abs:src")
-    }
+    protected open fun Element.getImageUrl(): String? = listOf(
+        attr("abs:data-src"),
+        attr("abs:data-lazy-src"),
+        attr("abs:srcset").substringBefore(" "),
+        attr("abs:src"),
+    ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
+        ?.let { if (stripImageSizeSuffix) it.replace(IMAGE_SIZE_SUFFIX_REGEX, "") else it }
 
     override fun List<Video>.sort(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!

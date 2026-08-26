@@ -240,18 +240,9 @@ class AnimeQ :
         )
     }
 
-    override fun Element.getImageUrl(): String {
-        val url = when {
-            hasAttr("data-src") -> attr("abs:data-src")
-            hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-            hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-            else -> attr("abs:src")
-        }
-
-        // Remove the "-<width>x<height>" suffix before the file extension:
-        // ex: ".../file-200x300.jpg" -> ".../file.jpg"
-        return url.replace(REGEX_IMAGE_SIZE_SUFFIX, "")
-    }
+    // Listings serve WordPress size derivatives; the details page serves the
+    // original. Collapse both onto the original via the theme helper.
+    override val stripImageSizeSuffix = true
 
     @Serializable
     data class GenreDto(
@@ -261,8 +252,5 @@ class AnimeQ :
 
     companion object {
         private val REGEX_QUALITY by lazy { Regex("""(\d+)p""") }
-        private val REGEX_IMAGE_SIZE_SUFFIX by lazy {
-            Regex("""-\d+x\d+(?=\.[A-Za-z0-9]+$)""")
-        }
     }
 }
