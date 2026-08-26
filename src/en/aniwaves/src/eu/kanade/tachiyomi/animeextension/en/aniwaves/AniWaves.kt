@@ -817,7 +817,7 @@ class AniWaves :
         private const val PREF_LANG_DEFAULT = "Sub"
 
         private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "vidplay"
+        private const val PREF_SERVER_DEFAULT = "Vidplay"
 
         private const val PREF_SERVER_EXCLUDE_KEY = "excluded_servers"
         private val PREF_SERVER_EXCLUDE_DEFAULT = emptySet<String>()
