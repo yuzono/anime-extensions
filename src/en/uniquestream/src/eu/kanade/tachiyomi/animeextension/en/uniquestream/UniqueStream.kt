@@ -8,7 +8,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelFlatMapBlocking
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
@@ -142,31 +141,47 @@ class UniqueStream : AnimeHttpSource() {
         // The top-level track is the original audio (usually raw Japanese, no
         // subs), so label it by its locale instead of claiming it is a sub.
         val originalLabel = hls.locale?.let { localeNames[it] } ?: ORIGINAL_LABEL
-        val entries = mutableListOf(Pair(originalLabel, hls))
-        hls.hardSubs.orEmpty().forEach { sub ->
-            entries.add(hardSubLabel(sub.locale) to sub)
-        }
-        media.versions?.hls.orEmpty().forEach { version ->
-            val label = version.locale?.let { localeNames[it] } ?: "Dub"
-            entries.add(label to version)
-        }
 
         UniqueStreamHlsServer.setUp(client)
 
-        val videos = entries.parallelCatchingFlatMapBlocking { (label, dto) ->
-            val masterUrl = dto.playlist ?: return@parallelCatchingFlatMapBlocking emptyList<Video>()
-            val master = fetchText(masterUrl)
-            VARIANT_REGEX.findAll(master).mapNotNull { match ->
-                val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-                val variantUrl = masterUrl.toHttpUrl().resolve(match.groupValues[2])?.toString()
-                    ?: return@mapNotNull null
-                Video(
-                    url = variantUrl,
-                    quality = "$label - ${height}p",
-                    videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId, height),
-                )
-            }.toList()
+        // Emits a locale as a single Video whose proxied master keeps every
+        // variant inside, so the player resolves qualities without this
+        // extension fetching that master up front.
+        fun singleVideo(label: String, dto: MediaResponse.HlsDto): Video? {
+            val masterUrl = dto.playlist ?: return null
+            return Video(
+                url = masterUrl,
+                quality = label,
+                videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId),
+            )
         }
+
+        // Only the original track gets its master inspected, to keep the
+        // familiar per-height quality entries; dubs and hardsubs stay
+        // un-fetched, cutting N master round-trips down to exactly 1.
+        // If the inspection fails, fall back to a single unfiltered Video.
+        val originalVideos = hls.playlist?.let { masterUrl ->
+            runCatching {
+                fetchText(masterUrl).let { master ->
+                    VARIANT_REGEX.findAll(master).mapNotNull { match ->
+                        val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                        val variantUrl = masterUrl.toHttpUrl().resolve(match.groupValues[2])?.toString()
+                            ?: return@mapNotNull null
+                        Video(
+                            url = variantUrl,
+                            quality = "$originalLabel - ${height}p",
+                            videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId, height),
+                        )
+                    }.toList()
+                }
+            }.getOrElse { listOfNotNull(singleVideo(originalLabel, hls)) }
+        } ?: emptyList<Video>()
+
+        val videos = originalVideos +
+            hls.hardSubs.orEmpty().mapNotNull { sub -> singleVideo(hardSubLabel(sub.locale), sub) } +
+            media.versions?.hls.orEmpty().mapNotNull { version ->
+                singleVideo(version.locale?.let { localeNames[it] } ?: "Dub", version)
+            }
 
         require(videos.isNotEmpty()) { "Failed to fetch videos" }
 
