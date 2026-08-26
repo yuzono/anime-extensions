@@ -57,9 +57,13 @@ class OneThreeTwoAnimeExtractor(
         val serverIds = fetchServerIds(animeSlug)
         if (serverIds.isEmpty()) return emptyList()
 
+        // Different tabs can resolve to the same stream URL (verified live:
+        // "F5 - HQ" and "No Ads 4" both return the identical m3u8), but each
+        // entry is already labeled with its server name, so keep them all
+        // visible like on the site instead of collapsing equal URLs.
         return serverIds.parallelCatchingFlatMapBlocking { (serverLabel, serverId) ->
             fetchVideoForServer(animeSlug, episodeNum, serverId, serverLabel)
-        }.distinctBy { it.videoUrl }
+        }
     }
 
     // ------------------------------------------------------------------ //
