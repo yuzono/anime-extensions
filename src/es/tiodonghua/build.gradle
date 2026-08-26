@@ -3,7 +3,7 @@ ext {
     extClass = '.Tiodonghua'
     themePkg = 'animestream'
     baseUrl = 'https://anime.tiodonghua.com'
-    overrideVersionCode = 16
+    overrideVersionCode = 17
 }
 
 apply plugin: "kei.plugins.extension.legacy"

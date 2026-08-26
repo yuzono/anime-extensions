@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AniZipResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMetaLatest
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.DetailsById
+import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.KitsuMappingsResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -62,10 +63,7 @@ class Torrentio :
 
     // ============================== Anilist API Request ===================
     private fun makeGraphQLRequest(query: String, variables: String): Request {
-        val requestBody = FormBody.Builder()
-            .add("query", query)
-            .add("variables", variables)
-            .build()
+        val requestBody = FormBody.Builder().add("query", query).add("variables", variables).build()
 
         return POST("https://graphql.anilist.co", body = requestBody)
     }
@@ -90,45 +88,40 @@ class Torrentio :
             else -> false
         }
 
-        val animeList = mediaList
-            .filterNot { (it?.countryOfOrigin == "CN" || it?.isAdult == true) && isLatestQuery }
-            .map { media ->
-                val anime = SAnime.create().apply {
-                    url = media?.id.toString()
-                    title = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
-                        "romaji" -> media?.title?.romaji.toString()
-                        "english" -> (media?.title?.english?.takeIf { it.isNotBlank() } ?: media?.title?.romaji).toString()
-                        "native" -> media?.title?.native.toString()
-                        else -> ""
-                    }
-                    thumbnail_url = media?.coverImage?.extraLarge
-                    description = media?.description
-                        ?.replace(Regex("<br><br>"), "\n")
-                        ?.replace(Regex("<.*?>"), "")
-                        ?: "No Description"
-
-                    status = when (media?.status) {
-                        "RELEASING" -> SAnime.ONGOING
-                        "FINISHED" -> SAnime.COMPLETED
-                        "HIATUS" -> SAnime.ON_HIATUS
-                        "NOT_YET_RELEASED" -> SAnime.LICENSED
-                        else -> SAnime.UNKNOWN
-                    }
-
-                    // Extracting tags
-                    val tagsList = media?.tags?.mapNotNull { it.name }.orEmpty()
-                    // Extracting genres
-                    val genresList = media?.genres.orEmpty()
-                    genre = (tagsList + genresList).toSet().sorted().joinToString()
-
-                    // Extracting studios
-                    val studiosList = media?.studios?.nodes?.mapNotNull { it.name }.orEmpty()
-                    author = studiosList.sorted().joinToString()
-
-                    initialized = true
+        val animeList = mediaList.filterNot { (it?.countryOfOrigin == "CN" || it?.isAdult == true) && isLatestQuery }.map { media ->
+            val anime = SAnime.create().apply {
+                url = media?.id.toString()
+                title = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
+                    "romaji" -> media?.title?.romaji.toString()
+                    "english" -> (media?.title?.english?.takeIf { it.isNotBlank() } ?: media?.title?.romaji).toString()
+                    "native" -> media?.title?.native.toString()
+                    else -> ""
                 }
-                anime
+                thumbnail_url = media?.coverImage?.extraLarge
+                description = media?.description?.replace(Regex("<br><br>"), "\n")?.replace(Regex("<.*?>"), "") ?: "No Description"
+
+                status = when (media?.status) {
+                    "RELEASING" -> SAnime.ONGOING
+                    "FINISHED" -> SAnime.COMPLETED
+                    "HIATUS" -> SAnime.ON_HIATUS
+                    "NOT_YET_RELEASED" -> SAnime.LICENSED
+                    else -> SAnime.UNKNOWN
+                }
+
+                // Extracting tags
+                val tagsList = media?.tags?.mapNotNull { it.name }.orEmpty()
+                // Extracting genres
+                val genresList = media?.genres.orEmpty()
+                genre = (tagsList + genresList).toSet().sorted().joinToString()
+
+                // Extracting studios
+                val studiosList = media?.studios?.nodes?.mapNotNull { it.name }.orEmpty()
+                author = studiosList.sorted().joinToString()
+
+                initialized = true
             }
+            anime
+        }
 
         return AnimesPage(animeList, hasNextPage)
     }
@@ -177,16 +170,13 @@ class Torrentio :
             if (url.host != baseUrl.toHttpUrl().host) {
                 throw Exception("Unsupported url")
             }
-            val id = url.pathSegments.getOrNull(1)
-                ?: throw Exception("Unsupported url")
+            val id = url.pathSegments.getOrNull(1) ?: throw Exception("Unsupported url")
             return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
         }
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
+            return client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
         }
 
         return super.getSearchAnime(page, query, filters)
@@ -274,15 +264,13 @@ class Torrentio :
             append(
                 metaData?.description?.let {
                     Jsoup.parseBodyFragment(
-                        it.replace("<br>\n", "br2n")
-                            .replace("<br>", "br2n")
-                            .replace("\n", "br2n"),
+                        it.replace("<br>\n", "br2n").replace("<br>", "br2n").replace("\n", "br2n"),
                     ).text().replace("br2n", "\n")
                 },
             )
             append("\n\n")
             if (!(metaData?.season == null && metaData?.seasonYear == null)) {
-                append("Release: ${ metaData.season ?: ""} ${ metaData.seasonYear ?: ""}")
+                append("Release: ${metaData.season ?: ""} ${metaData.seasonYear ?: ""}")
             }
             metaData?.format?.let { append("\nType: ${metaData.format}") }
             metaData?.episodes?.let { append("\nTotal Episode Count: ${metaData.episodes}") }
@@ -307,40 +295,69 @@ class Torrentio :
         return anime
     }
 
+    // ============================== Fetch KitsuId ==============================
+    private fun resolveKitsuId(aniZipResponse: AniZipResponse, response: Response): String? {
+        aniZipResponse.mappings?.kitsuId?.let {
+            return it.toString()
+        }
+
+        val anilistId = response.request.url.queryParameter("anilist_id") ?: run {
+            return null
+        }
+
+        return client.newCall(
+            GET(
+                "https://kitsu.io/api/edge/mappings?filter[externalSite]=anilist/anime&filter[externalId]=$anilistId&include=item",
+            ),
+        ).execute().use { kitsuResponse ->
+            if (!kitsuResponse.isSuccessful) {
+                return null
+            }
+
+            val kitsuId = json.decodeFromString<KitsuMappingsResponse>(
+                kitsuResponse.body.string(),
+            ).data.firstOrNull()?.relationships?.item?.data?.id
+            kitsuId
+        }
+    }
+
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime): Request = GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val responseString = response.body.string()
-        val aniZipResponse = json.decodeFromString<AniZipResponse>(responseString)
+        val aniZipResponse = json.decodeFromString<AniZipResponse>(response.body.string())
+        val kitsuId = resolveKitsuId(aniZipResponse, response) ?: run {
+            return emptyList()
+        }
 
         return when (aniZipResponse.mappings?.type) {
             "TV", "ONA", "OVA" -> {
-                aniZipResponse.episodes
-                    ?.let { episodes ->
-                        if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
-                            episodes
-                        } else {
-                            episodes.filter { (_, episode) -> episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis() }
+                aniZipResponse.episodes?.let { episodes ->
+                    if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
+                        episodes
+                    } else {
+                        episodes.filter { (_, episode) ->
+                            episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
                         }
                     }
-                    ?.mapNotNull { (_, episode) ->
-                        val episodeNumber = runCatching { episode?.episode?.toFloat() }.getOrNull()
+                }?.mapNotNull { (_, episode) ->
+                    val episodeNumber = runCatching {
+                        episode?.episode?.toFloat()
+                    }.getOrNull() ?: return@mapNotNull null
 
-                        if (episodeNumber == null) {
-                            return@mapNotNull null
-                        }
+                    val title = episode?.title?.get("en")
 
-                        val title = episode?.title?.get("en")
-
-                        SEpisode.create().apply {
-                            episode_number = episodeNumber
-                            url = "/stream/series/kitsu:${aniZipResponse.mappings.kitsuId}:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                            date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
-                            name = if (title == null) "Episode ${episode?.episode}" else "Episode ${episode.episode}: $title"
-                            scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }?.let { "Upcoming" } ?: ""
-                        }
-                    }.orEmpty().reversed()
+                    SEpisode.create().apply {
+                        episode_number = episodeNumber
+                        url = "/stream/series/kitsu:$kitsuId:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
+                        date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
+                        name = title?.let {
+                            "Episode ${episode.episode}: $it"
+                        } ?: "Episode ${episode?.episode}"
+                        scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
+                            ?.let { "Upcoming" } ?: ""
+                    }
+                }.orEmpty().reversed()
             }
 
             "MOVIE" -> {
@@ -353,7 +370,7 @@ class Torrentio :
                 listOf(
                     SEpisode.create().apply {
                         episode_number = 1.0F
-                        url = "/stream/movie/kitsu:${aniZipResponse.mappings.kitsuId}.json"
+                        url = "/stream/movie/kitsu:$kitsuId.json"
                         name = "Movie"
                         date_upload = dateUpload
                     },
@@ -412,43 +429,58 @@ class Torrentio :
         val streamList = json.decodeFromString<StreamDataTorrent>(responseString)
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
 
-        val animeTrackers = """http://nyaa.tracker.wf:7777/announce,
-            http://anidex.moe:6969/announce,http://tracker.anirena.com:80/announce,
-            udp://tracker.uw0.xyz:6969/announce,
-            http://share.camoe.cn:8080/announce,
-            http://t.nyaatracker.com:80/announce,
-            udp://47.ip-51-68-199.eu:6969/announce,
-            udp://9.rarbg.me:2940,
-            udp://9.rarbg.to:2820,
-            udp://exodus.desync.com:6969/announce,
-            udp://explodie.org:6969/announce,
-            udp://ipv4.tracker.harry.lu:80/announce,
-            udp://open.stealth.si:80/announce,
-            udp://opentor.org:2710/announce,
-            udp://opentracker.i2p.rocks:6969/announce,
-            udp://retracker.lanta-net.ru:2710/announce,
-            udp://tracker.cyberia.is:6969/announce,
-            udp://tracker.dler.org:6969/announce,
-            udp://tracker.ds.is:6969/announce,
-            udp://tracker.internetwarriors.net:1337,
-            udp://tracker.openbittorrent.com:6969/announce,
-            udp://tracker.opentrackr.org:1337/announce,
-            udp://tracker.tiny-vps.com:6969/announce,
-            udp://tracker.torrent.eu.org:451/announce,
-            udp://valakas.rollo.dnsabr.com:2710/announce,
-            udp://www.torrent.eu.org:451/announce,
-            ${fetchTrackers().split("\n").joinToString(",")}
+        val animeTrackers = """
+        http://anidex.moe:6969/announce,
+        http://tracker.anirena.com:80/announce,
+        udp://tracker.uw0.xyz:6969/announce,
+        http://share.camoe.cn:8080/announce,
+        http://t.nyaatracker.com:80/announce,
+        udp://47.ip-51-68-199.eu:6969/announce,
+        udp://9.rarbg.me:2940,
+        udp://9.rarbg.to:2820,
+        udp://exodus.desync.com:6969/announce,
+        udp://explodie.org:6969/announce,
+        udp://ipv4.tracker.harry.lu:80/announce,
+        udp://open.stealth.si:80/announce,
+        udp://opentor.org:2710/announce,
+        udp://opentracker.i2p.rocks:6969/announce,
+        udp://retracker.lanta-net.ru:2710/announce,
+        udp://tracker.cyberia.is:6969/announce,
+        udp://tracker.dler.org:6969/announce,
+        udp://tracker.ds.is:6969/announce,
+        udp://tracker.internetwarriors.net:1337,
+        udp://tracker.openbittorrent.com:6969/announce,
+        udp://tracker.opentrackr.org:1337/announce,
+        udp://tracker.tiny-vps.com:6969/announce,
+        udp://tracker.torrent.eu.org:451/announce,
+        udp://valakas.rollo.dnsabr.com:2710/announce,
+        udp://www.torrent.eu.org:451/announce,
+        ${fetchTrackers().split("\n").joinToString(",")}
         """.trimIndent()
 
         return streamList.streams?.map { stream ->
-            val urlOrHash =
-                if (debridProvider == "none") {
-                    val trackerList = animeTrackers.split(",").map { it.trim() }.filter { it.isNotBlank() }.joinToString("&tr=")
-                    "magnet:?xt=urn:btih:${stream.infoHash}&dn=${stream.infoHash}&tr=$trackerList&index=${stream.fileIdx}"
-                } else {
-                    stream.url ?: ""
+            val urlOrHash = if (debridProvider == "none") {
+                buildString {
+                    append("magnet:?xt=urn:btih:${stream.infoHash}")
+                    append("&dn=${stream.infoHash}")
+
+                    animeTrackers.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tracker ->
+                        append("&tr=$tracker")
+                    }
+
+                    stream.fileIdx?.let {
+                        append("&index=$it")
+                    }
                 }
-            Video(urlOrHash, ((stream.name?.replace("Torrentio\n", "") ?: "") + "\n" + stream.title), urlOrHash)
+            } else {
+                stream.url ?: ""
+            }
+
+            Video(
+                urlOrHash,
+                ((stream.name?.removePrefix("Torrentio\n") ?: "") + "\n" + (stream.title ?: "")),
+                urlOrHash,
+            )
         }.orEmpty()
     }
 
@@ -490,9 +522,7 @@ class Torrentio :
     }
 
     private fun fetchTrackers(): String {
-        val request = Request.Builder()
-            .url("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
-            .build()
+        val request = Request.Builder().url("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt").build()
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw Exception("Unexpected code $response")
@@ -508,7 +538,8 @@ class Torrentio :
             entries = PREF_DEBRID_ENTRIES
             entryValues = PREF_DEBRID_VALUES
             setDefaultValue("none")
-            summary = "Choose 'None' for Torrent. If you select a Debrid provider, enter your token key. No token key is needed if 'None' is selected."
+            summary =
+                "Choose 'None' for Torrent. If you select a Debrid provider, enter your token key. No token key is needed if 'None' is selected."
         }.also(screen::addPreference)
 
         // Token
@@ -628,6 +659,7 @@ class Torrentio :
             "Premiumize",
             "AllDebrid",
             "DebridLink",
+            "EasyDebrid",
             "Offcloud",
             "TorBox",
         )
@@ -637,6 +669,7 @@ class Torrentio :
             "premiumize",
             "alldebrid",
             "debridlink",
+            "easydebrid",
             "offcloud",
             "torbox",
         )
@@ -671,15 +704,17 @@ class Torrentio :
             "NyaaSi",
             "TokyoTosho",
             "AniDex",
+            "nekoBT",
             "🇷🇺 Rutor",
             "🇷🇺 Rutracker",
             "🇵🇹 Comando",
             "🇵🇹 BluDV",
             "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
             "🇪🇸 MejorTorrent",
-            "🇲🇽 Cinecalidad",
-            "🇮🇹 ilCorsaroNero",
             "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
 
         private val PREF_PROVIDERS_VALUE = arrayOf(
@@ -695,15 +730,17 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
             "rutor",
             "rutracker",
             "comando",
             "bludv",
             "torrent9",
-            "mejortorrent",
-            "cinecalidad",
             "ilcorsaronero",
+            "mejortorrent",
             "wolfmax4k",
+            "cinecalidad",
+            "besttorrents",
         )
 
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -719,6 +756,7 @@ class Torrentio :
             "nyaasi",
             "tokyotosho",
             "anidex",
+            "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 

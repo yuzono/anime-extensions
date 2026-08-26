@@ -168,38 +168,50 @@ class RapidCloudExtractor(
 
         val data = json.decodeFromString<SourceResponseDto>(srcRes)
 
-        return data.sources.map { source ->
+        return data.sources.mapNotNull { source ->
             val encoded = source.file
 
             val m3u8: String = if (!data.encrypted || ".m3u8" in encoded) {
                 encoded
             } else {
-                // tryDecrypting(ciphered, keyType)
-                decryptWithNewKey(encoded)
+                decryptWithNewKey(encoded) ?: run {
+                    Log.w("RapidCloudExtractor", "Skipping encrypted source — decryption keys unavailable")
+                    return@mapNotNull null
+                }
             }
 
             VideoDto(m3u8, data.tracks)
         }
     }
 
-    private fun decryptWithNewKey(ciphered: String): String {
-        val newKey = requestNewKey()
+    private fun decryptWithNewKey(ciphered: String): String? {
+        val newKey = requestNewKeyOrNull() ?: return null
         return decryptOpenSSL(ciphered, newKey).also {
             Log.i("RapidCloudExtractor", "Decrypted URL with new key: $it")
         }
     }
 
-    private fun requestNewKey(): String = client.newCall(GET("https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json"))
-        .execute()
-        .use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("Failed to fetch keys.json")
-            val jsonStr = response.body.string()
-            if (jsonStr.isEmpty()) throw IllegalStateException("keys.json is empty")
-            val key = json.decodeFromString<Map<String, String>>(jsonStr)["mega"]
-                ?: throw IllegalStateException("Rapid key not found in keys.json")
-            Log.i("RapidCloudExtractor", "Using Rapid Key: $key")
-            key
-        }
+    private fun requestNewKeyOrNull(): String? = try {
+        client.newCall(GET("https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json"))
+            .execute()
+            .use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("RapidCloudExtractor", "keys.json fetch failed: HTTP ${response.code}")
+                    return@use null
+                }
+                val jsonStr = response.body.string()
+                if (jsonStr.isEmpty()) {
+                    Log.w("RapidCloudExtractor", "keys.json is empty")
+                    return@use null
+                }
+                json.decodeFromString<Map<String, String>>(jsonStr)["mega"]?.also {
+                    Log.i("RapidCloudExtractor", "Using Rapid Key: $it")
+                }
+            }
+    } catch (e: Exception) {
+        Log.w("RapidCloudExtractor", "requestNewKey failed: ${e.message}")
+        null
+    }
 
     private fun decryptOpenSSL(encBase64: String, password: String): String {
         try {
