@@ -269,7 +269,28 @@ class AnimeOnlineNinja :
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
-    override val latestUpdatesPath = "episodio"
+    /**
+     * `/episodio/` lists EPISODES, not series. Its cards are
+     * `article.item se episodes`: `alt` is the episode name ("Yomi no Tsugai
+     * Cap 17"), the image is a 300x170 still, and the href points at
+     * `/episodio/<slug>/`. `animeDetailsParse` then rewrote the entry url to
+     * the series on open, so every Latest entry changed title, cover AND
+     * identity the moment it was opened.
+     *
+     * Nothing on the episode card maps back to its series, and the slug will
+     * not do it - `bleach-sennen-kessen-hen-cap-45` lives under
+     * `/online/bleach-9-032824/` and `horizontes-pokemon-cap-146` under
+     * `/online/pokemon-2023-032824/`; 5 of 12 sampled derivations were wrong.
+     * Resolving it properly costs one request per card for the url, plus a
+     * second for the poster, which the episode page does not carry either.
+     *
+     * The airing-series listing is the same `article.item tvshows` grid the
+     * rest of the source already parses, handing over the series title,
+     * series poster and `/online/` url straight from the card. Verified live:
+     * pages 1-3 return 30/30/22 cards and the pager correctly reports no next
+     * page on the last one.
+     */
+    override val latestUpdatesPath = "genero/en-emision-1"
 
     override fun latestUpdatesNextPageSelector() = "div.pagination > *:last-child:not(span):not(.current)"
 
