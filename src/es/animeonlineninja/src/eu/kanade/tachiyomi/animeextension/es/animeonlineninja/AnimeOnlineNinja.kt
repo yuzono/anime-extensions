@@ -248,17 +248,18 @@ class AnimeOnlineNinja :
         .joinToString("\n")
 
     /**
-     * Grids lazy-load with an inline SVG placeholder in `src`; never return
-     * one as a cover when the lazyload attributes are missing. Listing cards
-     * reference the exact same file as the details-page poster (verified via
-     * Wayback), so URLs are used as-is - no size-suffix rewriting.
+     * Grids lazy-load with an inline SVG placeholder in `src`. Skip data: URIs
+     * and fall through to the next candidate instead of returning them (or a
+     * null cover) when a lazyload attribute is missing or itself empty.
+     * Listing cards reference the exact same file as the details-page poster
+     * (verified via Wayback), so URLs are used as-is - no size-suffix rewrite.
      */
-    override fun Element.getImageUrl(): String? = when {
-        hasAttr("data-src") -> attr("abs:data-src")
-        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
-        else -> attr("abs:src")
-    }?.takeUnless { it.startsWith("data:") }
+    override fun Element.getImageUrl(): String? = listOf(
+        attr("abs:data-src"),
+        attr("abs:data-lazy-src"),
+        attr("abs:srcset").substringBefore(" "),
+        attr("abs:src"),
+    ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
 
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
