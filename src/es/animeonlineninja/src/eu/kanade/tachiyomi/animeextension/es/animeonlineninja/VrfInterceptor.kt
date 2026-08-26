@@ -14,7 +14,9 @@ class VrfInterceptor : Interceptor {
         val response = chain.proceed(request)
         val respBody = response.body.string()
         if (response.headers["Content-Type"]?.contains("image") == true) {
-            return chain.proceed(request)
+            return response.newBuilder()
+                .body(respBody.toResponseBody(response.body.contentType()))
+                .build()
         }
         val body = if (respBody.contains("One moment, please")) {
             val parsed = Jsoup.parse(respBody)

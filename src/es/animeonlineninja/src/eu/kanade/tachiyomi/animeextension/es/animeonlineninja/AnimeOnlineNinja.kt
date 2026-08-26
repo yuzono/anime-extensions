@@ -43,7 +43,10 @@ class AnimeOnlineNinja :
 
     // ============================== Popular ===============================
     // The trending section paginates as /tendencias/page/N/ (its own pager
-    // links); /tendencias/N is a WordPress 404.
+    // links); /tendencias/N is a WordPress 404. Both ww3. and ver. sit behind
+    // the same Cloudflare zone and serve an identical managed challenge on
+    // every path, while ver.'s deep paths just 301 back here - so keep each
+    // request single-hopped on ww3. and let CloudflareInterceptor solve it.
     override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page")
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
@@ -246,7 +249,9 @@ class AnimeOnlineNinja :
 
     /**
      * Grids lazy-load with an inline SVG placeholder in `src`; never return
-     * one as a cover when the lazyload attributes are missing.
+     * one as a cover when the lazyload attributes are missing. Listing cards
+     * reference the exact same file as the details-page poster (verified via
+     * Wayback), so URLs are used as-is - no size-suffix rewriting.
      */
     override fun Element.getImageUrl(): String? = when {
         hasAttr("data-src") -> attr("abs:data-src")
