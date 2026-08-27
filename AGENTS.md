@@ -13,7 +13,7 @@ Yuzono Anikku/Aniyomi anime extensions – Kotlin + Jsoup/OkHttp scrapers. Each 
 - Build single extension: `./gradlew src:<lang>:<source>:assembleDebug` (e.g. `./gradlew src:en:anizone:assembleDebug`)
 - Build all: `./gradlew assembleDebug` (avoid – loads every module; prefer loading subset in `settings.gradle.kts`)
 - Lint/format check: `./gradlew spotlessCheck` (CI) / `./gradlew spotlessApply` (local)
-- Test/verify: compile via Android Studio before PR (required by `CONTRIBUTING.md:1306`)
+- Test/verify: compile via Android Studio before PR (required by `CONTRIBUTING.md#submitting-the-changes` ~ `1309`)
 
 ## Structure
 
@@ -47,7 +47,7 @@ Rules:
 - Individual extension (no theme): increment `extVersionCode` by **1** if code affecting users changed. Bump **once per PR** – do not increment multiple times across commits.
 - Theme (`lib-multisrc/<theme>/build.gradle.kts`): increment `baseVersionCode` by **1** when theme logic changes.
 - When `baseVersionCode` is bumped, **do not** bump `overrideVersionCode` for extensions using that theme in the same PR – the addition already bumps every extension's effective `versionCode`. Only bump `overrideVersionCode` when the individual extension itself changed independently of the theme.
-- Checklist mirrors this: `CONTRIBUTING.md:1311-1314` and `.github/pull_request_template.md:3-4`.
+- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1316-1317` and `.github/pull_request_template.md:3-4`.
 
 ## Boundaries
 
@@ -58,6 +58,6 @@ Rules:
 
 ## PR Instructions
 
-- Follow `CONTRIBUTING.md:1290-1321` checklist; test build in Android Studio.
+- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1290-1324` checklist; test build in Android Studio.
 - Title: keep concise; reference issues (`Closes #xyz`).
 - One version bump per module per PR as above.
