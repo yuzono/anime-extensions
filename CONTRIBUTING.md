@@ -1112,6 +1112,9 @@ apply plugin: "kei.plugins.extension.legacy"
 
 Notice that instead of `extVersionCode`, extensions using a theme must use `overrideVersionCode`. The final extension version code (`extVersionCode`) is automatically calculated during the build process as `theme.baseVersionCode + ext.overrideVersionCode`.
 
+> [!IMPORTANT]
+> **Bump once per PR – theme bump propagates.** Increment `baseVersionCode` **or** `overrideVersionCode` by **1** at most once per PR per module, regardless of commit count. When you bump a theme's `baseVersionCode`, **do not** also bump `overrideVersionCode` for extensions using that theme in the same PR – `versionCode = baseVersionCode + overrideVersionCode` (`PluginExtensionLegacy.kt:61`) already bumps every extension's effective version. Only bump `overrideVersionCode` when that individual extension changed independently of the theme.
+
 Because themes are provided as libraries, your extension's main class will directly inherit from the theme's base class.
 
 Any site-specific overrides, custom functions, or custom icons are implemented directly in your extension's module (`src/<lang>/<mysourcename>`) by overriding the inherited theme properties and functions.
@@ -1310,8 +1313,8 @@ can find it below.
 
 ### Pull Request checklist
 
-- Updated `extVersionCode` value in `build.gradle` for individual extensions
-- Updated `overrideVersionCode` or `baseVersionCode` as needed for all multisrc extensions
+- Updated `extVersionCode` **once** per `build.gradle` for individual extensions (bump by 1 once per PR, not per commit)
+- Updated `overrideVersionCode` or `baseVersionCode` as needed for all multisrc extensions – when `baseVersionCode` is bumped, do not bump `overrideVersionCode` for extensions using that theme in the same PR
 - Referenced all related issues in the PR body (e.g. "Closes #xyz")
 - Added the `isNsfw = true` flag in `build.gradle` when appropriate
 - Have not changed source names
