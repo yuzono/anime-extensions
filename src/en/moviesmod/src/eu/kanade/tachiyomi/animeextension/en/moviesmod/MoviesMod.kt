@@ -254,6 +254,7 @@ class MoviesMod :
                     val finalUrl = runCatching {
                         val headRequest = GET(href, headers).newBuilder().head().build()
                         client.newCall(headRequest).execute().use { resp ->
+                            if (!resp.isSuccessful) return@use null
                             resp.request.url.queryParameter("url") ?: resp.request.url.toString()
                         }
                     }.getOrNull() ?: href
