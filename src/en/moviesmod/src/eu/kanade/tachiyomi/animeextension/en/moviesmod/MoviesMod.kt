@@ -59,10 +59,11 @@ class MoviesMod :
                             .newCall(GET("$baseUrl/")).await().use { resp ->
                                 when (resp.code) {
                                     301, 302, 307, 308 -> {
-                                        val origin = resp.headers["location"]
+                                        val target = resp.headers["location"]
                                             ?.let { resp.request.url.resolve(it) }
-                                            ?.let { "${it.scheme}://${it.host}" }
-                                        if (origin != null) {
+                                            ?.takeIf { it.host.contains("moviesmod") }
+                                        val origin = target?.let { "${it.scheme}://${it.host}" }
+                                        if (origin != null && resp.code in setOf(301, 308)) {
                                             preferences.edit().putString(PREF_DOMAIN_KEY, origin).apply()
                                         }
                                         origin ?: baseUrl
@@ -80,7 +81,8 @@ class MoviesMod :
                         client.newCall(GET(MMODLIST_URL, headers)).execute().use { resp ->
                             val body = resp.body.string()
                             // mmodlist returns 200 with meta refresh: url=https://moviesmod.zone
-                            Regex("""https://moviesmod\.[a-z.]+""").find(body)?.value?.trimEnd('/')
+                            // Trim trailing dot that can come from sentence punctuation
+                            Regex("""https://moviesmod\.[a-z0-9.-]+""").find(body)?.value?.trimEnd('/', '.')
                         }
                     }.getOrNull()
 
