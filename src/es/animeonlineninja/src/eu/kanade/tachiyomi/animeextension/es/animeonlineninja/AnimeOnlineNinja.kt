@@ -254,6 +254,21 @@ class AnimeOnlineNinja :
     // The data: placeholder skip that used to live here is now the DooPlay
     // default, since the grids lazy-load an inline SVG into `src`.
 
+    /**
+     * Grids lazy-load with an inline SVG placeholder in `src`. Skip data: URIs
+     * and fall through to the next candidate instead of returning them (or a
+     * null cover) when a lazyload attribute is missing or itself empty.
+     *
+     * Listing cards reference the exact same file as the details-page poster,
+     * suffix included, so URLs are used as-is - no size-suffix rewriting.
+     */
+    override fun Element.getImageUrl(): String? = listOf(
+        attr("abs:data-src"),
+        attr("abs:data-lazy-src"),
+        attr("abs:srcset").substringBefore(" "),
+        attr("abs:src"),
+    ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
+
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
