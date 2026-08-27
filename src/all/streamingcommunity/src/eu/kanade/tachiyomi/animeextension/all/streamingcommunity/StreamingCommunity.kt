@@ -420,10 +420,14 @@ class StreamingCommunity(override val lang: String, private val showType: String
     }.titles.map { it.toSAnime(imageCdn) }
 
     private fun browseHasNextPage(response: Response, size: Int): Boolean {
-        if (size < PAGE_SIZE) return false
         val url = response.request.url
         return when {
-            url.encodedPath.contains("/browse/top10") || url.encodedPath.contains("/browse/trending") -> true
+            // Popular hands out top10, then trending, then the archive. These two
+            // are fixed-size slices - top10 always answers with exactly 10 - so a
+            // short result never means the end; the *next* page is another
+            // endpoint entirely. Checked before the size test for that reason.
+            url.encodedPath.contains(TOP10_TRENDING_REGEX) -> true
+            size < PAGE_SIZE -> false
             // The site serves at most MAX_ARCHIVE_PAGES archive pages and answers 503 beyond that.
             url.encodedPath.endsWith("/archive") -> (url.queryParameter("page")?.toIntOrNull() ?: 1) < MAX_ARCHIVE_PAGES
             else -> true
@@ -457,6 +461,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
         private const val PAGE_SIZE = 60
         private const val MAX_ARCHIVE_PAGES = 20
 
+        private val TOP10_TRENDING_REGEX = Regex("""/browse/(top10|trending)""")
         private val PLAYLIST_URL_REGEX = Regex("""url: ?'(.*?)'""")
         private val EXPIRES_REGEX = Regex("""'expires': ?'(\d+)'""")
         private val TOKEN_REGEX = Regex("""'token': ?'([\w-]+)'""")
