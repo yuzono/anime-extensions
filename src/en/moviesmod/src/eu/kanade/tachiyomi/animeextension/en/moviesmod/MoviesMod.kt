@@ -29,6 +29,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MoviesMod :
     ParsedAnimeHttpSource(),
@@ -170,6 +171,7 @@ class MoviesMod :
         val isSerie = episodeElements.firstOrNull()?.selectFirst("a")?.text()?.equals("Episode Links", ignoreCase = true) == true
 
         // Parallelize child-page fetches to avoid performance regression vs sequential Jsoup.connect
+        val childPageLoaded = AtomicBoolean(false)
         val triples = episodeElements.toList().parallelMapNotNullBlocking { row ->
             runCatching {
                 val prevP = row.previousElementSiblings()
@@ -190,6 +192,7 @@ class MoviesMod :
                 val episodePageDocument = runCatching {
                     client.newCall(GET(childUrl, headers)).execute().asJsoup()
                 }.getOrNull() ?: return@parallelMapNotNullBlocking null
+                childPageLoaded.set(true)
 
                 val links = episodePageDocument.select("div.timed-content-client_show_0_5_0 a")
                     .ifEmpty {
@@ -234,7 +237,15 @@ class MoviesMod :
             }
         }
 
-        if (grouped.isEmpty()) throw Exception("Only Zip Pack Available")
+        if (grouped.isEmpty()) {
+            throw Exception(
+                if (childPageLoaded.get()) {
+                    "Only Zip Pack Available"
+                } else {
+                    "Failed to load episode pages. Site may have changed or is behind Cloudflare."
+                },
+            )
+        }
         return grouped.reversed()
     }
 
