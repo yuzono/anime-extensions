@@ -28,6 +28,7 @@ Yuzono Anikku/Aniyomi anime extensions – Kotlin + Jsoup/OkHttp scrapers. Each 
 
 See `CONTRIBUTING.md` for full rules. Critical for agents:
 
+- Check `lib/` and `core/utils` (`keiyoushi.utils`) first – reuse existing libs/helpers instead of custom boilerplate (`parseAs`/`toJsonRequestBody`/`tryParse`/`extractNextJs`/`absUrl`, `lib-cookieinterceptor`/`lib-cryptoaes`/etc.). See `CONTRIBUTING.md#core-dependencies`.
 - Kotlin + Android; web scraping via CSS selectors, OkHttp, Jsoup.
 - Do not use `data class` for `@Serializable` DTOs unless needed; camelCase fields, `@SerialName` only when JSON key differs.
 - Use `response.parseAs<T>()`, `response.asJsoup()`, `SimpleDateFormat(...).tryParse()`, `element.absUrl("href")` + `setUrlWithoutDomain()`.
