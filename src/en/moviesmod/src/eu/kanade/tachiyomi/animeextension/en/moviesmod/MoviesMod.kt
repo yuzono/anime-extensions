@@ -38,7 +38,7 @@ class MoviesMod :
 
     override val baseUrl by lazy {
         val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-        if (stored == "https://moviesmod.red") {
+        if (stored == "https://moviesmod.red" || stored == "https://moviesmod.army") {
             preferences.edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
             PREF_DOMAIN_DEFAULT
         } else {
@@ -50,20 +50,39 @@ class MoviesMod :
         runCatching {
             runBlocking {
                 withContext(Dispatchers.Default) {
-                    client.newBuilder()
-                        .followRedirects(false)
-                        .build()
-                        .newCall(GET("$baseUrl/")).await().use { resp ->
-                            when (resp.code) {
-                                301 -> {
-                                    (resp.headers["location"]?.substringBeforeLast("/") ?: baseUrl).also {
-                                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                    // Try baseUrl first, handling HTTP redirects
+                    val resolvedFromBase = runCatching {
+                        client.newBuilder()
+                            .followRedirects(false)
+                            .build()
+                            .newCall(GET("$baseUrl/")).await().use { resp ->
+                                when (resp.code) {
+                                    301, 302, 307, 308 -> {
+                                        (resp.headers["location"]?.substringBeforeLast("/") ?: baseUrl).also {
+                                            preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                                        }
                                     }
+                                    in 200..299 -> baseUrl
+                                    else -> null
                                 }
-
-                                else -> baseUrl
                             }
+                    }.getOrNull()
+
+                    if (resolvedFromBase != null) return@withContext resolvedFromBase
+
+                    // Fallback: resolve latest domain via mmodlist redirect which always points to current domain
+                    val latest = runCatching {
+                        client.newCall(GET(MMODLIST_URL, headers)).execute().use { resp ->
+                            val body = resp.body.string()
+                            // mmodlist returns 200 with meta refresh: url=https://moviesmod.zone
+                            Regex("""https://moviesmod\.[a-z.]+""").find(body)?.value?.trimEnd('/')
                         }
+                    }.getOrNull()
+
+                    latest?.let {
+                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                        it
+                    } ?: baseUrl
                 }
             }
         }.getOrDefault(baseUrl)
@@ -413,7 +432,8 @@ class MoviesMod :
 
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
         private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.army"
+        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.zone"
+        private const val MMODLIST_URL = "https://mmodlist.org/?type=hollywood"
         private const val PREF_DOMAIN_DIALOG_TITLE = PREF_DOMAIN_TITLE
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
