@@ -4,6 +4,7 @@ import android.util.Base64
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -11,11 +12,11 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelMapNotNullBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -23,14 +24,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
-import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MoviesMod :
     ParsedAnimeHttpSource(),
@@ -39,27 +38,58 @@ class MoviesMod :
     override val name = "Movies Mod"
 
     override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        if (stored == "https://moviesmod.red" || stored == "https://moviesmod.army") {
+            preferences.edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
+            PREF_DOMAIN_DEFAULT
+        } else {
+            stored
+        }
     }
 
     private val currentBaseUrl by lazy {
         runCatching {
             runBlocking {
                 withContext(Dispatchers.Default) {
-                    client.newBuilder()
-                        .followRedirects(false)
-                        .build()
-                        .newCall(GET("$baseUrl/")).await().use { resp ->
-                            when (resp.code) {
-                                301 -> {
-                                    (resp.headers["location"]?.substringBeforeLast("/") ?: baseUrl).also {
-                                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                    // Try baseUrl first, handling HTTP redirects
+                    val resolvedFromBase = runCatching {
+                        client.newBuilder()
+                            .followRedirects(false)
+                            .build()
+                            .newCall(GET("$baseUrl/")).await().use { resp ->
+                                when (resp.code) {
+                                    301, 302, 307, 308 -> {
+                                        val target = resp.headers["location"]
+                                            ?.let { resp.request.url.resolve(it) }
+                                            ?.takeIf { it.host.contains("moviesmod") }
+                                        val origin = target?.let { "${it.scheme}://${it.host}" }
+                                        if (origin != null && resp.code in setOf(301, 308)) {
+                                            preferences.edit().putString(PREF_DOMAIN_KEY, origin).apply()
+                                        }
+                                        origin ?: baseUrl
                                     }
+                                    in 200..299 -> baseUrl
+                                    else -> null
                                 }
-
-                                else -> baseUrl
                             }
+                    }.getOrNull()
+
+                    if (resolvedFromBase != null) return@withContext resolvedFromBase
+
+                    // Fallback: resolve latest domain via mmodlist redirect which always points to current domain
+                    val latest = runCatching {
+                        client.newCall(GET(MMODLIST_URL, headers)).execute().use { resp ->
+                            val body = resp.body.string()
+                            // mmodlist returns 200 with meta refresh: url=https://moviesmod.zone
+                            // Trim trailing dot that can come from sentence punctuation
+                            Regex("""https://moviesmod\.[a-z0-9.-]+""").find(body)?.value?.trimEnd('/', '.')
                         }
+                    }.getOrNull()
+
+                    latest?.let {
+                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                        it
+                    } ?: baseUrl
                 }
             }
         }.getOrDefault(baseUrl)
@@ -73,6 +103,8 @@ class MoviesMod :
 
     private val preferences by getPreferencesLazy()
 
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request = GET("$currentBaseUrl/page/$page/")
 
@@ -80,7 +112,8 @@ class MoviesMod :
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.select("a").attr("abs:href"))
-        thumbnail_url = element.select("div.featured-thumbnail > img").attr("abs:src")
+        val img = element.selectFirst("div.featured-thumbnail > img")
+        thumbnail_url = img?.attr("abs:data-src")?.takeIf { it.isNotBlank() } ?: img?.attr("abs:src")
         title = element.select("a").attr("title")
             .replace("Download", "").trim()
     }
@@ -123,29 +156,52 @@ class MoviesMod :
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
+        // Original selector + fallback for site redesign / domain change
         val episodeElements = doc.select("p:has(a.maxbutton-episode-links,a.maxbutton-download-links)")
+            .ifEmpty { doc.select("p:has(a[class*=maxbutton])") }
             .asSequence()
+
+        if (!episodeElements.iterator().hasNext()) {
+            throw Exception("No episode links found. Site may have changed or is behind Cloudflare.")
+        }
 
         val qualityRegex = "\\d{3,4}p(?:\\s+\\w+)?".toRegex(RegexOption.IGNORE_CASE)
         val seasonRegex = "[ .]?S(?:eason)?[ .]?(\\d{1,2})[ .]?".toRegex(RegexOption.IGNORE_CASE)
         val movieTitleRegex = "^[^(]+\n?".toRegex(RegexOption.IGNORE_CASE)
 
-        val isSerie = episodeElements.first().selectFirst("a")!!.text() == "Episode Links"
+        // Safe check for series vs movie; avoid NPE on empty or missing text
+        val isSerie = episodeElements.firstOrNull()?.selectFirst("a")?.text()?.equals("Episode Links", ignoreCase = true) == true
 
-        val episodeList = episodeElements.map { row ->
-            val prevP = row.previousElementSibling()!!.text()
-            val quality = (qualityRegex.find(prevP)?.value ?: "HD")
-            val defaultName = if (isSerie) {
-                seasonRegex.find(prevP)?.value ?: "Season 1"
-            } else {
-                movieTitleRegex.find(prevP.replace("Download", "").trim())?.value ?: "Movie"
-            }
+        // Parallelize child-page fetches to avoid performance regression vs sequential Jsoup.connect
+        val childPageLoaded = AtomicBoolean(false)
+        val triples = episodeElements.toList().parallelMapNotNullBlocking { row ->
+            runCatching {
+                val prevP = row.previousElementSiblings()
+                    .firstOrNull { it.text().isNotBlank() }?.text().orEmpty()
 
-            val episodePageUrl = row.selectFirst("a[href]")?.attr("href")!!
-            val episodePageDocument = Jsoup.connect(extractChildUrl(episodePageUrl)).get()
+                val quality = qualityRegex.find(prevP)?.value ?: "HD"
+                val defaultName = if (isSerie) {
+                    seasonRegex.find(prevP)?.value ?: "Season 1"
+                } else {
+                    movieTitleRegex.find(prevP.replace("Download", "").trim())?.value ?: "Movie"
+                }
 
-            episodePageDocument.select("div.timed-content-client_show_0_5_0 a").asSequence()
-                .mapIndexedNotNull { index, linkElement ->
+                val episodePageUrl = row.selectFirst("a[href]")?.attr("abs:href")?.takeUnless { it.isBlank() }
+                    ?: return@parallelMapNotNullBlocking null
+
+                val childUrl = extractChildUrl(episodePageUrl)
+
+                val episodePageDocument = runCatching {
+                    client.newCall(GET(childUrl, headers)).execute().asJsoup()
+                }.getOrNull() ?: return@parallelMapNotNullBlocking null
+                childPageLoaded.set(true)
+
+                val links = episodePageDocument.select("div.timed-content-client_show_0_5_0 a")
+                    .ifEmpty {
+                        episodePageDocument.select("""a[href*="?sid="], a[href*="r?key="]""")
+                    }
+
+                links.mapIndexedNotNull { index, linkElement ->
                     val episode = if (isSerie) {
                         linkElement.text()
                             .replace("Episode", "", true)
@@ -155,16 +211,19 @@ class MoviesMod :
                         0
                     }
 
-                    val url = linkElement.attr("href").takeUnless(String::isBlank)
+                    val url = linkElement.attr("abs:href").takeUnless(String::isBlank)
                         ?: return@mapIndexedNotNull null
 
                     Triple(
                         Pair(defaultName, episode),
                         url,
-                        if (isSerie) quality else quality + " " + linkElement.text(),
+                        if (isSerie) quality else "$quality ${linkElement.text()}".trim(),
                     )
                 }
-        }.flatten().groupBy { it.first }.values.mapIndexed { index, items ->
+            }.getOrNull()
+        }.flatten()
+
+        val grouped = triples.groupBy { it.first }.values.mapIndexed { index, items ->
             val (itemName, episodeNum) = items.first().first
 
             SEpisode.create().apply {
@@ -180,24 +239,24 @@ class MoviesMod :
             }
         }
 
-        if (episodeList.isEmpty()) throw Exception("Only Zip Pack Available")
-        return episodeList.reversed()
+        if (grouped.isEmpty()) {
+            throw Exception(
+                if (childPageLoaded.get()) {
+                    "Only Zip Pack Available"
+                } else {
+                    "Failed to load episode pages. Site may have changed or is behind Cloudflare."
+                },
+            )
+        }
+        return grouped.reversed()
     }
 
     private fun extractChildUrl(mainUrl: String): String {
-        // Parse the URL
-        val parsedUrl = URL(mainUrl)
-
-        // Get query parameters
-        val queryParams = parsedUrl.query.split("&").associate {
-            val (key, value) = it.split("=")
-            key to value
-        }
-
-        // Decode the Base64 string
-        val decodedUrl = String(Base64.decode(queryParams["url"], 1))
-
-        return decodedUrl
+        return runCatching {
+            val urlParam = mainUrl.toHttpUrl().queryParameter("url") ?: return mainUrl
+            val flags = if (urlParam.contains("-") || urlParam.contains("_")) Base64.URL_SAFE else Base64.DEFAULT
+            String(Base64.decode(urlParam, flags))
+        }.getOrDefault(mainUrl)
     }
 
     override fun episodeListSelector(): String = "p:has(a.maxbutton-episode-links)"
@@ -208,24 +267,61 @@ class MoviesMod :
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val urlJson = json.decodeFromString<EpLinks>(episode.url)
 
-        val videoList = urlJson.urls.parallelCatchingFlatMap { eplink ->
-            val quality = eplink.quality
-            val url = getMediaUrl(eplink) ?: return@parallelCatchingFlatMap emptyList()
-            val videos = extractVideo(url, quality)
+        return urlJson.urls.parallelCatchingFlatMap { eplink ->
+            val mediaUrl = getMediaUrl(eplink) ?: return@parallelCatchingFlatMap emptyList()
+            extractVideos(mediaUrl, eplink.quality)
+        }
+    }
+
+    private fun extractVideos(fileUrl: String, quality: String): List<Video> {
+        val doc = runCatching { client.newCall(GET(fileUrl, headers)).execute().asJsoup() }.getOrNull()
+            ?: return emptyList()
+
+        val btns = doc.select("div.card-body a.btn")
+        if (btns.isEmpty()) return emptyList()
+
+        // Extract videos, handling HLS via PlaylistUtils where applicable
+        return btns.flatMap { btn ->
+            val href = btn.attr("abs:href").takeUnless { it.isBlank() } ?: return@flatMap emptyList()
+            val size = SIZE_REGEX.find(btn.text())?.groupValues?.get(1)?.let { " - $it" } ?: ""
+
             when {
-                videos.isEmpty() -> {
-                    extractGDriveLink(url, quality).ifEmpty {
-                        getDirectLink(url, "instant", "/mfile/")?.let {
-                            listOf(Video(it, "$quality - GDrive Instant link", it))
-                        } ?: emptyList()
+                href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") ||
+                    href.contains("r2.dev") || href.contains("instant.video-gen") -> {
+                    val finalUrl = runCatching {
+                        val headRequest = GET(href, headers).newBuilder().head().build()
+                        client.newCall(headRequest).execute().use { resp ->
+                            if (!resp.isSuccessful) return@use null
+                            resp.request.url.queryParameter("url") ?: resp.request.url.toString()
+                        }
+                    }.getOrNull() ?: href
+
+                    if (finalUrl.contains(".m3u8")) {
+                        runCatching {
+                            playlistUtils.extractFromHls(
+                                finalUrl,
+                                videoNameGen = { q -> "$quality - $q$size" },
+                            )
+                        }.getOrDefault(listOf(Video(finalUrl, "$quality - HLS$size", finalUrl)))
+                    } else {
+                        listOf(Video(finalUrl, "$quality - Instant$size", finalUrl))
                     }
                 }
-
-                else -> videos
+                href.contains(".m3u8") -> {
+                    runCatching {
+                        playlistUtils.extractFromHls(
+                            href,
+                            videoNameGen = { q -> "$quality - $q$size" },
+                        )
+                    }.getOrDefault(emptyList())
+                }
+                href.contains("/login") -> emptyList()
+                else -> {
+                    // Fallback for r2.dev, seedtg.xyz, tgcdn_bot and future hosts - expose as direct
+                    listOf(Video(href, "$quality - Direct$size", href))
+                }
             }
         }
-
-        return videoList
     }
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
@@ -255,70 +351,6 @@ class MoviesMod :
         if (path == "/404") return null
 
         return "https://" + mediaResponse.request.url.host + path
-    }
-
-    private fun extractVideo(url: String, quality: String): List<Video> = (1..3).toList().flatMap { type ->
-        extractWorkerLinks(url, quality, type)
-    }
-
-    private fun extractWorkerLinks(mediaUrl: String, quality: String, type: Int): List<Video> {
-        val reqLink = mediaUrl.replace("/file/", "/wfile/") + "?type=$type"
-        val resp = client.newCall(GET(reqLink)).execute().asJsoup()
-        val sizeMatch = SIZE_REGEX.find(resp.select("div.card-header").text().trim())
-        val size = sizeMatch?.groups?.get(1)?.value?.let { " - $it" } ?: ""
-        return resp.select("div.card-body div.mb-4 > a").mapIndexed { index, linkElement ->
-            val link = linkElement.attr("href")
-            val decodedLink = if (link.contains("workers.dev")) {
-                link
-            } else {
-                String(Base64.decode(link.substringAfter("download?url="), Base64.DEFAULT))
-            }
-
-            Video(
-                url = decodedLink,
-                quality = "$quality - CF $type Worker ${index + 1}$size",
-                videoUrl = decodedLink,
-            )
-        }
-    }
-
-    private fun getDirectLink(url: String, action: String = "direct", newPath: String = "/file/"): String? {
-        val doc = client.newCall(GET(url, headers)).execute().asJsoup()
-        val script = doc.selectFirst("script:containsData(async function taskaction)")
-            ?.data()
-            ?: return url
-
-        val key = script.substringAfter("key\", \"").substringBefore('"')
-        val form = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("action", action)
-            .addFormDataPart("key", key)
-            .addFormDataPart("action_token", "")
-            .build()
-
-        val headers = headersBuilder().set("x-token", url.toHttpUrl().host).build()
-
-        val req = client.newCall(POST(url.replace("/file/", newPath), headers, form)).execute()
-        return runCatching {
-            json.decodeFromString<DriveLeechDirect>(req.body.string()).url
-        }.getOrNull()
-    }
-
-    private fun extractGDriveLink(mediaUrl: String, quality: String): List<Video> {
-        val neoUrl = getDirectLink(mediaUrl) ?: mediaUrl
-        val response = client.newCall(GET(neoUrl)).execute().asJsoup()
-        val gdBtn = response.selectFirst("div.card-body a.btn")!!
-        val gdLink = gdBtn.attr("href")
-        val sizeMatch = SIZE_REGEX.find(gdBtn.text())
-        val size = sizeMatch?.groups?.get(1)?.value?.let { " - $it" } ?: ""
-        val gdResponse = client.newCall(GET(gdLink)).execute().asJsoup()
-        val link = gdResponse.select("form#download-form")
-        return if (link.isNullOrEmpty()) {
-            emptyList()
-        } else {
-            val realLink = link.attr("action")
-            listOf(Video(realLink, "$quality - Gdrive$size", realLink))
-        }
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -408,9 +440,6 @@ class MoviesMod :
         val url: String,
     )
 
-    @Serializable
-    data class DriveLeechDirect(val url: String? = null)
-
     private fun EpLinks.toJson(): String = json.encodeToString(this)
 
     private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
@@ -424,7 +453,8 @@ class MoviesMod :
 
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
         private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.red"
+        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.zone"
+        private const val MMODLIST_URL = "https://mmodlist.org/?type=hollywood"
         private const val PREF_DOMAIN_DIALOG_TITLE = PREF_DOMAIN_TITLE
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
