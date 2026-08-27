@@ -752,6 +752,7 @@ class Torrentio :
             "eztv",
             "rarbg",
             "1337x",
+            "ext",
             "thepiratebay",
             "kickasstorrents",
             "torrentgalaxy",
