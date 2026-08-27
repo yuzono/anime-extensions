@@ -474,7 +474,7 @@ class AnimePahe :
                 val status = nextResponse.code
                 nextResponse.close()
                 throw IOException("HTTP $status fetching episodes at $nextUrl")
-                }
+            }
             currentData = nextResponse.use { it.parseAs() }
         }
 
