@@ -1,7 +1,7 @@
 Checklist:
 
-- [ ] Updated `extVersionCode` **once** per `build.gradle` for individual extensions (bump by 1 once per PR)
-- [ ] Updated `overrideVersionCode` or `baseVersionCode` **once** per `build.gradle.kts` for all multisrc extensions (only one increment per PR per module) – when `baseVersionCode` is bumped, do not bump `overrideVersionCode` for extensions using that theme in same PR
+- [ ] Updated `extVersionCode` value in `build.gradle` for individual extensions
+- [ ] Updated `overrideVersionCode` or `baseVersionCode` as needed for all multisrc extensions
 - [ ] Referenced all related issues in the PR body (e.g. "Closes #xyz")
 - [ ] Added the `isNsfw = true` flag in `build.gradle` when appropriate
 - [ ] Have not changed source names
