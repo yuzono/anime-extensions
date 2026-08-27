@@ -218,8 +218,8 @@ class MoviesMod :
     private fun extractChildUrl(mainUrl: String): String {
         return runCatching {
             val urlParam = mainUrl.toHttpUrl().queryParameter("url") ?: return mainUrl
-            runCatching { String(Base64.decode(urlParam, Base64.DEFAULT)) }
-                .getOrElse { String(Base64.decode(urlParam, Base64.URL_SAFE)) }
+            val flags = if (urlParam.contains("-") || urlParam.contains("_")) Base64.URL_SAFE else Base64.DEFAULT
+            String(Base64.decode(urlParam, flags))
         }.getOrDefault(mainUrl)
     }
 
