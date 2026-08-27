@@ -24,7 +24,7 @@ class HentaiSaturn :
 
     override val name = "HentaiSaturn"
 
-    override val baseUrl = "https://www.hentaisaturn.com"
+    override val baseUrl = "https://www.hentaisaturn.tv"
 
     override val lang = "it"
 
