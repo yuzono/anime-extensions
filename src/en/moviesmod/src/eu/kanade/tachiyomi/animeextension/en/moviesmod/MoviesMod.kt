@@ -58,9 +58,13 @@ class MoviesMod :
                             .newCall(GET("$baseUrl/")).await().use { resp ->
                                 when (resp.code) {
                                     301, 302, 307, 308 -> {
-                                        (resp.headers["location"]?.substringBeforeLast("/") ?: baseUrl).also {
-                                            preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
+                                        val origin = resp.headers["location"]
+                                            ?.let { resp.request.url.resolve(it) }
+                                            ?.let { "${it.scheme}://${it.host}" }
+                                        if (origin != null) {
+                                            preferences.edit().putString(PREF_DOMAIN_KEY, origin).apply()
                                         }
+                                        origin ?: baseUrl
                                     }
                                     in 200..299 -> baseUrl
                                     else -> null
@@ -189,7 +193,7 @@ class MoviesMod :
 
                 val links = episodePageDocument.select("div.timed-content-client_show_0_5_0 a")
                     .ifEmpty {
-                        episodePageDocument.select("a[href*=?sid=], a[href*=r?key=]")
+                        episodePageDocument.select("""a[href*="?sid="], a[href*="r?key="]""")
                     }
 
                 links.mapIndexedNotNull { index, linkElement ->
@@ -269,7 +273,8 @@ class MoviesMod :
             val size = SIZE_REGEX.find(btn.text())?.groupValues?.get(1)?.let { " - $it" } ?: ""
 
             when {
-                href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") -> {
+                href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") ||
+                    href.contains("r2.dev") || href.contains("instant.video-gen") -> {
                     val finalUrl = runCatching {
                         val headRequest = GET(href, headers).newBuilder().head().build()
                         client.newCall(headRequest).execute().use { resp ->
@@ -297,8 +302,11 @@ class MoviesMod :
                         )
                     }.getOrDefault(emptyList())
                 }
-                href.contains("/login") || href.contains("seedtg.xyz") -> emptyList()
-                else -> emptyList()
+                href.contains("/login") -> emptyList()
+                else -> {
+                    // Fallback for r2.dev, seedtg.xyz, tgcdn_bot and future hosts - expose as direct
+                    listOf(Video(href, "$quality - Direct$size", href))
+                }
             }
         }
     }
