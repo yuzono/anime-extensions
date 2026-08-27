@@ -738,7 +738,7 @@ class Torrentio :
             "rutracker",
             "comando",
             "bludv",
-            "micoleaobublado",
+            "micoleaodublado",
             "torrent9",
             "ilcorsaronero",
             "mejortorrent",
