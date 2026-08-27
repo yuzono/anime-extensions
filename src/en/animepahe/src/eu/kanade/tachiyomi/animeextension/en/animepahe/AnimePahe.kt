@@ -138,21 +138,6 @@ class AnimePahe :
         response.close()
 
         val animeId = anime.getId()
-        val cachedSession = animeId?.let { getSessionFromCache(it) }
-        if (cachedSession != null) {
-            val newRequest = GET("$baseUrl/anime/$cachedSession", headers)
-            var newResponse = client.newCall(newRequest).await()
-            if (newResponse.code == 429) {
-                newResponse.close()
-                delay(1000.milliseconds)
-                newResponse = client.newCall(newRequest).await()
-            }
-            if (newResponse.isSuccessful) {
-                return newResponse.use { animeDetailsParse(it) }
-            }
-            newResponse.close()
-        }
-
         delay(1000.milliseconds)
         val result = fetchSessionAndId(animeId, anime.title) ?: throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
         val (newId, newSession) = result
@@ -426,7 +411,7 @@ class AnimePahe :
                     newResponse = client.newCall(GET(newUrl)).await()
                 }
                 if (newResponse.isSuccessful) {
-                    return@withLock newResponse.use { fetchEpisodes(it, newSession, limitToFirstPage = true) }
+                    return@withLock newResponse.use { fetchEpisodes(it, newSession) }
                 }
                 newResponse.close()
                 throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' at $newUrl")
@@ -713,7 +698,6 @@ class AnimePahe :
 
                 val matchedAnime = if (animeId != null) {
                     searchData.items.firstOrNull { it.id.toString() == animeId }
-                        ?: searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
                 } else if (normalizedTitle != null) {
                     searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
                 } else {
