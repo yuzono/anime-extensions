@@ -172,8 +172,8 @@ class MoviesMod :
         // Parallelize child-page fetches to avoid performance regression vs sequential Jsoup.connect
         val triples = episodeElements.toList().parallelMapNotNullBlocking { row ->
             runCatching {
-                val prevP = row.previousElementSibling()?.text()?.takeIf { it.isNotBlank() }
-                    ?: row.previousElementSiblings().firstOrNull()?.text().orEmpty()
+                val prevP = row.previousElementSiblings()
+                    .firstOrNull { it.text().isNotBlank() }?.text().orEmpty()
 
                 val quality = qualityRegex.find(prevP)?.value ?: "HD"
                 val defaultName = if (isSerie) {
@@ -182,7 +182,7 @@ class MoviesMod :
                     movieTitleRegex.find(prevP.replace("Download", "").trim())?.value ?: "Movie"
                 }
 
-                val episodePageUrl = row.selectFirst("a[href]")?.attr("href")?.takeUnless { it.isBlank() }
+                val episodePageUrl = row.selectFirst("a[href]")?.attr("abs:href")?.takeUnless { it.isBlank() }
                     ?: return@parallelMapNotNullBlocking null
 
                 val childUrl = extractChildUrl(episodePageUrl)
@@ -206,7 +206,7 @@ class MoviesMod :
                         0
                     }
 
-                    val url = linkElement.attr("href").takeUnless(String::isBlank)
+                    val url = linkElement.attr("abs:href").takeUnless(String::isBlank)
                         ?: return@mapIndexedNotNull null
 
                     Triple(
