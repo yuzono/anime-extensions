@@ -1112,9 +1112,6 @@ apply plugin: "kei.plugins.extension.legacy"
 
 Notice that instead of `extVersionCode`, extensions using a theme must use `overrideVersionCode`. The final extension version code (`extVersionCode`) is automatically calculated during the build process as `theme.baseVersionCode + ext.overrideVersionCode`.
 
-> [!IMPORTANT]
-> **Bump once per PR – theme bump propagates.** Increment `baseVersionCode` **or** `overrideVersionCode` by **1** at most once per PR per module, regardless of commit count. When you bump a theme's `baseVersionCode`, **do not** also bump `overrideVersionCode` for extensions using that theme in the same PR – `versionCode = baseVersionCode + overrideVersionCode` (`PluginExtensionLegacy.kt:61`) already bumps every extension's effective version. Only bump `overrideVersionCode` when that individual extension changed independently of the theme.
-
 Because themes are provided as libraries, your extension's main class will directly inherit from the theme's base class.
 
 Any site-specific overrides, custom functions, or custom icons are implemented directly in your extension's module (`src/<lang>/<mysourcename>`) by overriding the inherited theme properties and functions.
