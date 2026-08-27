@@ -361,7 +361,7 @@ class AnimePahe :
         var session = animeId?.let { getSessionFromCache(it) } ?: anime.getSession()
 
         if (session == null) {
-            delay(3000)
+            delay(3000.milliseconds)
             fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                 saveSessionToCache(newId, newSession)
                 session = newSession
@@ -383,7 +383,7 @@ class AnimePahe :
         var response = client.newCall(GET(url)).await()
         if (response.code == 429) {
             response.close()
-            delay(3000)
+            delay(3000.milliseconds)
             response = client.newCall(GET(url)).await()
         }
 
@@ -394,7 +394,7 @@ class AnimePahe :
             val newSession = if (latestSession != null && latestSession != session) {
                 latestSession
             } else {
-                delay(3000)
+                delay(3000.milliseconds)
                 fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                     saveSessionToCache(newId, newSession)
                     newSession
@@ -402,12 +402,12 @@ class AnimePahe :
             }
 
             if (newSession != null && newSession != session) {
-                delay(3000)
+                delay(3000.milliseconds)
                 val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
                 var newResponse = client.newCall(GET(newUrl)).await()
                 if (newResponse.code == 429) {
                     newResponse.close()
-                    delay(3000)
+                    delay(3000.milliseconds)
                     newResponse = client.newCall(GET(newUrl)).await()
                 }
                 if (newResponse.isSuccessful) {
@@ -470,6 +470,11 @@ class AnimePahe :
                 delay(3000.milliseconds)
                 nextResponse = client.newCall(GET(nextUrl)).await()
             }
+            if (!nextResponse.isSuccessful) {
+                val status = nextResponse.code
+                nextResponse.close()
+                throw IOException("HTTP $status fetching episodes at $nextUrl")
+                }
             currentData = nextResponse.use { it.parseAs() }
         }
 
