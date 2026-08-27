@@ -343,16 +343,11 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val expires = EXPIRES_REGEX.find(script)?.groupValues?.get(1)
             ?: error("Failed to extract expires")
 
-        val masterPlUrl = buildString {
-            append(playlistUrl)
-            append(if (playlistUrl.contains('?')) '&' else '?')
-            append("h=1&token=")
-            append(token)
-            append("&expires=")
-            append(expires)
-            append("&lang=")
-            append(lang)
-        }
+        // `h=1` asks vixcloud for the FHD rendition set. It now answers 403
+        // whenever the embed says the session may not play FHD, which was every
+        // title sampled - so only send it when the player itself would.
+        val canPlayFhd = CAN_PLAY_FHD_REGEX.find(script)?.groupValues?.get(1) == "true"
+        val masterPlUrl = buildMasterPlaylistUrl(playlistUrl, token, expires, canPlayFhd)
 
         // The player lists its mirror servers in `window.streams`; every mirror's
         // master playlist carries the SAME renditions and subtitle/audio lists
@@ -366,13 +361,19 @@ class StreamingCommunity(override val lang: String, private val showType: String
         // fetched here, so nothing per-track needs parallelizing.
         val serverPlaylists = SERVERS_REGEX.findAll(script)
             .map { match ->
-                match.groupValues[1] to buildMasterPlaylistUrl(match.groupValues[2].unescapeJs(), token, expires)
+                val active = match.groupValues[2]
+                Triple(
+                    match.groupValues[1],
+                    buildMasterPlaylistUrl(match.groupValues[3].unescapeJs(), token, expires, canPlayFhd),
+                    active == "true" || active == "1",
+                )
             }
-            .ifEmpty { sequenceOf("" to masterPlUrl) }
+            .sortedByDescending(Triple<String, String, Boolean>::third)
             .toList()
+            .ifEmpty { listOf(Triple("", masterPlUrl, true)) }
 
         return coroutineScope {
-            serverPlaylists.map { (_, serverPlaylistUrl) ->
+            serverPlaylists.map { (_, serverPlaylistUrl, _) ->
                 async {
                     runCatching {
                         playlistUtils.extractFromHls(playlistUrl = serverPlaylistUrl)
@@ -405,7 +406,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
         )
     }
 
-    private fun buildMasterPlaylistUrl(base: String, token: String, expires: String) = base + (if ('?' in base) '&' else '?') + "h=1&token=$token&expires=$expires&lang=$lang"
+    private fun buildMasterPlaylistUrl(base: String, token: String, expires: String, canPlayFhd: Boolean) = base + (if ('?' in base) '&' else '?') + (if (canPlayFhd) "h=1&" else "") + "token=$token&expires=$expires&lang=$lang"
 
     private fun String.unescapeJs() = replace("\\/", "/").replace("\\u0026", "&")
 
@@ -466,8 +467,12 @@ class StreamingCommunity(override val lang: String, private val showType: String
         private val EXPIRES_REGEX = Regex("""'expires': ?'(\d+)'""")
         private val TOKEN_REGEX = Regex("""'token': ?'([\w-]+)'""")
 
-        // window.streams = [{"name":"Server1","active":false,"url":"https:\/\/vixcloud.co\/playlist\/174559?b=1\u0026ub=1"}, …]
-        private val SERVERS_REGEX = Regex("""\{"name":"([^"]+)","active":[a-z]+,"url":"([^"]+)"\}""")
+        // window.streams = [{"name":"Server1","active":false,"url":"...playlist/594985?b=1\\u0026ub=1"},
+        //                   {"name":"Server2","active":1,"url":"...playlist/594985?b=1\\u0026ab=1"}]
+        // `active` is not always a keyword - live pages emit the number 1 for the
+        // selected mirror - so accept any value and read it out separately.
+        private val SERVERS_REGEX = Regex("""\{"name":"([^"]+)","active":([^,]+),"url":"([^"]+)"\}""")
+        private val CAN_PLAY_FHD_REGEX = Regex("""window\.canPlayFHD\s*=\s*(\w+)""")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
