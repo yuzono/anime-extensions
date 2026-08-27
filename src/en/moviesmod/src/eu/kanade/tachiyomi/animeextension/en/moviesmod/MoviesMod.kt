@@ -37,7 +37,13 @@ class MoviesMod :
     override val name = "Movies Mod"
 
     override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        if (stored == "https://moviesmod.red") {
+            preferences.edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
+            PREF_DOMAIN_DEFAULT
+        } else {
+            stored
+        }
     }
 
     private val currentBaseUrl by lazy {
@@ -163,7 +169,9 @@ class MoviesMod :
                 }.getOrNull() ?: return@parallelMapNotNullBlocking null
 
                 val links = episodePageDocument.select("div.timed-content-client_show_0_5_0 a")
-                    .ifEmpty { episodePageDocument.select("a[href]") }
+                    .ifEmpty {
+                        episodePageDocument.select("a[href*=?sid=], a[href*=r?key=]")
+                    }
 
                 links.mapIndexedNotNull { index, linkElement ->
                     val episode = if (isSerie) {
@@ -210,9 +218,8 @@ class MoviesMod :
     private fun extractChildUrl(mainUrl: String): String {
         return runCatching {
             val urlParam = mainUrl.toHttpUrl().queryParameter("url") ?: return mainUrl
-            // Use DEFAULT first, fallback to NO_PADDING for compatibility
             runCatching { String(Base64.decode(urlParam, Base64.DEFAULT)) }
-                .getOrElse { String(Base64.decode(urlParam, Base64.NO_PADDING)) }
+                .getOrElse { String(Base64.decode(urlParam, Base64.URL_SAFE)) }
         }.getOrDefault(mainUrl)
     }
 
@@ -245,7 +252,8 @@ class MoviesMod :
             when {
                 href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") -> {
                     val finalUrl = runCatching {
-                        client.newCall(GET(href, headers)).execute().use { resp ->
+                        val headRequest = GET(href, headers).newBuilder().head().build()
+                        client.newCall(headRequest).execute().use { resp ->
                             resp.request.url.queryParameter("url") ?: resp.request.url.toString()
                         }
                     }.getOrNull() ?: href
