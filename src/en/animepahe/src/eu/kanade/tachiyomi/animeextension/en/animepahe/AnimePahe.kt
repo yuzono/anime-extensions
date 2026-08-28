@@ -128,7 +128,7 @@ class AnimePahe :
 
         if (response.code == 429) {
             response.close()
-            delay(1000.milliseconds)
+            delay(3000.milliseconds)
             response = client.newCall(request).await()
         }
 
@@ -147,7 +147,7 @@ class AnimePahe :
         var newResponse = client.newCall(newRequest).await()
         if (newResponse.code == 429) {
             newResponse.close()
-            delay(1000.milliseconds)
+            delay(3000.milliseconds)
             newResponse = client.newCall(newRequest).await()
         }
         if (newResponse.isSuccessful) {
