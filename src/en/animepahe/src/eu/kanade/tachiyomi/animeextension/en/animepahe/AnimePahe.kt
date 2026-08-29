@@ -128,7 +128,7 @@ class AnimePahe :
 
         if (response.code == 429) {
             response.close()
-            delay(3000.milliseconds)
+            delay(10000.milliseconds)
             response = client.newCall(request).await()
         }
 
@@ -147,7 +147,7 @@ class AnimePahe :
         var newResponse = client.newCall(newRequest).await()
         if (newResponse.code == 429) {
             newResponse.close()
-            delay(3000.milliseconds)
+            delay(10000.milliseconds)
             newResponse = client.newCall(newRequest).await()
         }
         if (newResponse.isSuccessful) {
@@ -233,12 +233,17 @@ class AnimePahe :
         val yearFilter = filters.filterIsInstance<Filters.YearFilter>().firstOrNull()
         val seasonFilter = filters.filterIsInstance<Filters.SeasonFilter>().firstOrNull()
 
+        if (page > 1) {
+            Thread.sleep(3000)
+        }
+
         return if (query.isNotBlank()) {
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
             val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("api")
                 addQueryParameter("m", "search")
-                // addQueryParameter("l", "8")
-                addQueryParameter("q", query)
+                addQueryParameter("q", "$query $timeSuffix")
+                addQueryParameter("page", page.toString())
             }
             GET(urlBuilder.build())
         } else {
@@ -288,6 +293,7 @@ class AnimePahe :
         val url = response.request.url
         if (url.pathSegments.contains("api") && url.queryParameter("m") == "search") {
             val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+            val hasNextPage = searchData.currentPage < searchData.lastPage
             val animeList = searchData.items.map { anime ->
                 saveSessionToCache(anime.id.toString(), anime.session)
 
@@ -297,7 +303,7 @@ class AnimePahe :
                     setUrlWithoutDomain("/a/${anime.id}")
                 }
             }
-            return AnimesPage(animeList, false)
+            return AnimesPage(animeList, hasNextPage)
         } else if (url.pathSegments.contains("anime")) {
             val document = response.useAsJsoup()
             val entries = document.select("div.index div > a").mapNotNull { a ->
@@ -383,7 +389,7 @@ class AnimePahe :
         var response = client.newCall(GET(url)).await()
         if (response.code == 429) {
             response.close()
-            delay(3000.milliseconds)
+            delay(10000.milliseconds)
             response = client.newCall(GET(url)).await()
         }
 
@@ -407,7 +413,7 @@ class AnimePahe :
                 var newResponse = client.newCall(GET(newUrl)).await()
                 if (newResponse.code == 429) {
                     newResponse.close()
-                    delay(3000.milliseconds)
+                    delay(10000.milliseconds)
                     newResponse = client.newCall(GET(newUrl)).await()
                 }
                 if (newResponse.isSuccessful) {
@@ -467,7 +473,7 @@ class AnimePahe :
             var nextResponse = client.newCall(GET(nextUrl)).await()
             if (nextResponse.code == 429) {
                 nextResponse.close()
-                delay(3000.milliseconds)
+                delay(10000.milliseconds)
                 nextResponse = client.newCall(GET(nextUrl)).await()
             }
             if (!nextResponse.isSuccessful) {
@@ -690,30 +696,52 @@ class AnimePahe :
     }
 
     private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, query: String): Pair<String, String>? {
-        val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("api")
-            addQueryParameter("m", "search")
-            addQueryParameter("q", query)
-        }.build()
+        var page = 1
+        var hasNextPage = true
 
-        return try {
-            client.newCall(GET(searchUrl)).await().use { response ->
-                if (!response.isSuccessful) return null
-                val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+        while (hasNextPage && page <= 10) {
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
+            val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                addPathSegment("api")
+                addQueryParameter("m", "search")
+                addQueryParameter("q", "$query $timeSuffix")
+                addQueryParameter("page", page.toString())
+            }.build()
 
-                val matchedAnime = if (animeId != null) {
-                    searchData.items.firstOrNull { it.id.toString() == animeId }
-                } else if (normalizedTitle != null) {
-                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
+            val result = try {
+                val response = client.newCall(GET(searchUrl)).await()
+                val finalResponse = if (response.code == 429) {
+                    response.close()
+                    delay(10000.milliseconds)
+                    client.newCall(GET(searchUrl)).await()
                 } else {
-                    null
+                    response
                 }
+                finalResponse.use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val searchData = resp.parseAs<ResponseDto<SearchResultDto>>()
 
-                matchedAnime?.let { it.id.toString() to it.session }
+                    hasNextPage = searchData.currentPage < searchData.lastPage
+
+                    val matchedAnime = if (animeId != null) {
+                        searchData.items.firstOrNull { it.id.toString() == animeId }
+                    } else if (normalizedTitle != null) {
+                        searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
+                    } else {
+                        null
+                    }
+
+                    matchedAnime?.let { it.id.toString() to it.session }
+                }
+            } catch (_: Exception) {
+                null
             }
-        } catch (_: Exception) {
-            null
+
+            if (result != null) return result
+            page++
+            delay(3000.milliseconds)
         }
+        return null
     }
 
     private fun normalizeSearchQuery(raw: String): String = raw
