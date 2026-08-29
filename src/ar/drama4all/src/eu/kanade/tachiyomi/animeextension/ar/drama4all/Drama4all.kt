@@ -1,8 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.ar.drama4all
 
-import androidx.preference.ListPreference
-import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -13,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.bodyString
-import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -37,16 +33,12 @@ import okhttp3.Response
  * the unmodified master is passed to the player with the audio declared natively
  * in `#EXT-X-MEDIA`. mpv autoselects the usable rendition itself.
  */
-class Drama4all :
-    AnimeHttpSource(),
-    ConfigurableAnimeSource {
+class Drama4all : AnimeHttpSource() {
 
     override val name = "دراما للجميع"
     override val baseUrl = "https://drama4all.com"
     override val lang = "ar"
     override val supportsLatest = true
-
-    private val preferences by getPreferencesLazy()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -77,33 +69,6 @@ class Drama4all :
     private val flatPlaybackHeaders: Headers = playbackHeaders.newBuilder()
         .removeAll("Referer")
         .build()
-
-    // =========================== Preferences =============================
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DEFAULT_QUALITY
-            title = "الجودة الافتراضية للتشغيل"
-            entries = QUALITY_ENTRIES
-            entryValues = QUALITY_VALUES
-            setDefaultValue(DEFAULT_QUALITY)
-            summary = "%s"
-        }.also(screen::addPreference)
-    }
-
-    companion object {
-        private const val PREF_DEFAULT_QUALITY = "default_quality"
-        private const val DEFAULT_QUALITY = "auto"
-        private val QUALITY_ENTRIES = arrayOf(
-            "الأقل جودة (تشغيل سريع)",
-            "360p",
-            "480p",
-            "720p",
-            "1080p",
-            "الأعلى جودة",
-        )
-        private val QUALITY_VALUES = arrayOf("auto", "360", "480", "720", "1080", "max")
-    }
 
     // ============================== Popular ===============================
 
@@ -230,7 +195,7 @@ class Drama4all :
             )
         }
 
-        return videos.orderByDefaultQuality()
+        return videos
     }
 
     /**
@@ -277,22 +242,6 @@ class Drama4all :
         return Regex("""\d{3,4}p|\b\d{3,4}\b""").find(name)?.value?.let { it.trimEnd('p') + "p" } ?: "HD"
     }
 
-    // Sort by the user-chosen default quality: place it first (fastest start)
-    // then the rest ascending, so the player lands on the selected quality.
-    private fun List<Video>.orderByDefaultQuality(): List<Video> {
-        val ascending = sortedBy { it.quality.heightOf() }
-        return when (val pref = preferences.getString(PREF_DEFAULT_QUALITY, DEFAULT_QUALITY) ?: DEFAULT_QUALITY) {
-            "auto" -> ascending
-            "max" -> ascending.reversed()
-            else -> {
-                val target = pref.toIntOrNull() ?: return ascending
-                val chosen = ascending.indexOfFirst { it.quality.heightOf() == target }
-                    .takeIf { it != -1 } ?: return ascending
-                listOf(ascending[chosen]) + ascending.filterIndexed { i, _ -> i != chosen }
-            }
-        }
-    }
-
     /** HEADs a direct file to read its byte size (no body download). */
     private fun streamSize(url: String): String? = runCatching {
         client.newCall(GET(url, headers).newBuilder().head().build()).execute().use { resp ->
@@ -306,9 +255,6 @@ class Drama4all :
         bytes >= 1_000 -> "%.0f KB".format(bytes / 1_000.0)
         else -> "$bytes B"
     }
-
-    private fun String.heightOf(): Int = Regex("""(\d{3,4})p""").find(this)
-        ?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
 
     // ========================== Helper / DTOs ===========================
 
