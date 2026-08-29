@@ -280,7 +280,7 @@ class XAnime :
             buildList {
                 srcData.souPath?.let { path ->
                     val url = if (path.startsWith("http")) path else baseUrl + path
-                    val serverName = srcData.srcName
+                    val serverName = srcData.srcName ?: "Unknown"
                     addAll(
                         playlistUtils.extractFromHls(
                             playlistUrl = url,
@@ -296,7 +296,7 @@ class XAnime :
                         addAll(
                             playlistUtils.extractFromHls(
                                 playlistUrl = url,
-                                videoNameGen = { quality -> "$srcType - ${m3u8.name}: $quality" },
+                                videoNameGen = { quality -> "$srcType - ${m3u8.name ?: "Unknown"}: $quality" },
                                 subtitleList = trackList,
                             ),
                         )
