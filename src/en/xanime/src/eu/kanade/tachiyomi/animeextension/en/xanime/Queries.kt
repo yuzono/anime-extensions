@@ -34,9 +34,10 @@ class Queries(
                 ani_id aniPath info_title info_filmdesc
                 info_meta_status info_meta_genre info_meta_season info_meta_year
                 info_meta_duration info_meta_rating info_meta_scores
-                info_meta_studios
+                info_meta_studios info_meta_type info_meta_dateAiredBegin
+                info_meta_dateAiredEnd info_alternative_titles { type title }
                 urlCover600 urlCoverOri info_cover_name bgimg_url
-                info_slug
+                info_slug ani_id_mal al_id
                 episodesNodes_last(amount: 1) {
                     id data {
                         ani_id ep_id ep_index ep_title epPath

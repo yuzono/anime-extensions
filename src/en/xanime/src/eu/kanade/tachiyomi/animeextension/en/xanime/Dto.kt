@@ -94,7 +94,7 @@ class AnimeData(
             fancyScore(s).takeIf { it.isNotEmpty() }?.let { append("$it\n\n") }
         }
         description?.takeIf { it.isNotBlank() }?.let { raw ->
-            append("**Description:**\n${Parser.unescapeEntities(raw, false)}\n\n")
+            append("${Parser.unescapeEntities(raw, false)}\n\n")
         }
 
         malId?.takeIf { it.isNotBlank() }?.let {
@@ -114,10 +114,6 @@ class AnimeData(
         }
 
         type.takeIf { it.isNotEmpty() }?.joinToString(", ")?.let { append("**Type:** $it\n") }
-        status?.takeIf { it.isNotBlank() }?.let {
-            val formattedStatus = it.replace("_", " ").replaceFirstChar(Char::titlecase)
-            append("**Status:** $formattedStatus\n")
-        }
         season?.takeIf { it.isNotBlank() }?.let { append("**Season:** $it\n") }
         year?.takeIf { it.isNotBlank() }?.let { append("**Year:** $it\n") }
         duration?.takeIf { it.isNotBlank() }?.let { append("**Duration:** $it\n") }
@@ -216,7 +212,7 @@ class EpisodeData(
     private val epPath: String? = null,
     @SerialName("date_create") private val createDate: Long? = null,
     @SerialName("date_update") private val updateDate: Long? = null,
-    @SerialName("sourcesNode_list") val sourcesList: List<SourceNode> = emptyList(),
+    @SerialName("sourcesNode_list") val sourcesList: List<SourceNode>? = null,
 ) {
     val epSlug: String?
         get() = epPath?.let { path ->
@@ -245,9 +241,9 @@ class EpisodeData(
         date_upload = updateDate ?: createDate ?: 0L
 
         scanlator = sourcesList
-            .mapNotNull { it.data?.srcType?.lowercase() }
-            .distinct()
-            .sortedBy {
+            ?.mapNotNull { it.data?.srcType?.lowercase() }
+            ?.distinct()
+            ?.sortedBy {
                 when (it) {
                     "sub" -> 1
                     "raw" -> 2
@@ -255,7 +251,7 @@ class EpisodeData(
                     else -> 4
                 }
             }
-            .joinToString(" & ") { it.replaceFirstChar(Char::titlecase) }
+            ?.joinToString(" & ") { it.replaceFirstChar(Char::titlecase) }
     }
 }
 
@@ -282,7 +278,7 @@ class SourceNode(
 @Serializable
 class SourceData(
     @SerialName("src_name") val srcName: String? = null,
-    @SerialName("src_type") val srcType: String,
+    @SerialName("src_type") val srcType: String? = null,
     val souPath: String? = null,
     @SerialName("m3u8_lists") val m3u8Lists: List<M3u8List> = emptyList(),
     @SerialName("track") val tracks: List<TrackData> = emptyList(),

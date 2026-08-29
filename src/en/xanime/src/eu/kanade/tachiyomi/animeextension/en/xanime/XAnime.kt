@@ -244,7 +244,7 @@ class XAnime :
         val videos = sources.parallelCatchingFlatMapBlocking { source ->
             val srcData = source.data ?: return@parallelCatchingFlatMapBlocking emptyList()
 
-            val srcType = srcData.srcType.replaceFirstChar {
+            val srcType = srcData.srcType?.replaceFirstChar {
                 if (it.isLowerCase()) it.titlecase() else it.toString()
             }
 
