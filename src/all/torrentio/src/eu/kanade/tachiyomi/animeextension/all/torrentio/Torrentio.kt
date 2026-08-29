@@ -1061,17 +1061,17 @@ class Torrentio :
 
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
-            "YTS", "EZTV", "RARBG", "1337x", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
+            "YTS", "EZTV", "RARBG", "1337x", "EXT", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
             "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
-            "🇵🇹 BluDV", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k", "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
+            "🇵🇹 BluDV", "🇵🇹 MicoLeaoDublado", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k", "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
-            "yts", "eztv", "rarbg", "1337x", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
+            "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
             "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
-            "bludv", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
+            "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
         )
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
-            "yts", "eztv", "rarbg", "1337x", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
+            "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
             "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()

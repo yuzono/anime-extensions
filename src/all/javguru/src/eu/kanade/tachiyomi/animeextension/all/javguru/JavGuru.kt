@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
@@ -364,13 +365,8 @@ class JavGuru :
                     .set("Referer", "$baseUrl/")
                     .set("Origin", baseUrl)
                     .build()
-                Video(
-                    url = video.url,
-                    quality = video.quality,
-                    videoUrl = video.videoUrl,
+                video.copyLegacy(
                     headers = newHeaders,
-                    subtitleTracks = video.subtitleTracks,
-                    audioTracks = video.audioTracks,
                 )
             }
         }

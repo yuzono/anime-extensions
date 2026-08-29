@@ -61,10 +61,10 @@ class BeatZAnime : ParsedAnimeHttpSource() {
     override fun latestUpdatesSelector(): String = ".row > div:has(a.titulo-largo)"
 
     override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
-        thumbnail_url = element.selectFirst("img")!!.imgAttr()
         with(element.selectFirst("a.titulo-largo")!!) {
             setUrlWithoutDomain(attr("abs:href"))
             title = text()
+            thumbnail_url = posterUrl(attr("href"))
         }
     }
 
@@ -155,7 +155,7 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
         title = document.selectFirst("h1")!!.text()
-        thumbnail_url = document.selectFirst(".row > div > img")?.imgAttr()
+        thumbnail_url = document.selectFirst("div.poster-card img")?.attr("abs:src")
         genre = document.selectFirst("p.post-text span:has(b:contains(Generos))")?.ownText()
         status = document.selectFirst("div:has(>h5:contains(Estado)) a").parseStatus()
         description = buildString {
@@ -244,7 +244,34 @@ class BeatZAnime : ParsedAnimeHttpSource() {
             )
         }
 
-        return episodes.reversed()
+        // Movie pages label their single file after the release name, which
+        // often differs from the displayed title ("Gotoubun..." vs "5-toubun...",
+        // year suffixes); show the movie title instead.
+        if (isMovie(document) && episodes.size == 1) {
+            val movie = episodes[0]
+            document.selectFirst("h1")?.text()?.let { movie.name = it }
+            movie.episode_number = 1F
+        }
+
+        // The site scatters rows (e.g. Slime S1 lists eps 03-24, its Especial +
+        // OVAs in the middle, then appends eps 01-02 at the end), while its
+        // intended layout is the season's regular episodes followed by extras.
+        // Mirror that intent with a stable partition: regular episodes ordered
+        // by number, then name-detected specials (OVA/Especial/NCOP/NCED…)
+        // ordered by number, so the reversed list shows the latest regular
+        // episode first and keeps every special grouped after ALL of the
+        // season's episodes instead of interleaved with its number-twins.
+        // Specials get a sentinel number (-1) so they never collide with real
+        // episode numbering in the app's tracking/sorting.
+        val regularEpisodes = episodes
+            .filter { !SPECIAL_REGEX.containsMatchIn(it.name) }
+            .sortedBy { it.episode_number }
+        val specialEpisodes = episodes
+            .filter { SPECIAL_REGEX.containsMatchIn(it.name) }
+            .sortedBy { it.episode_number }
+            .onEach { it.episode_number = -1F }
+
+        return (specialEpisodes + regularEpisodes).reversed()
     }
 
     // ============================ Video Links =============================
@@ -276,10 +303,21 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     // ============================= Utilities ==============================
 
-    private fun Element.imgAttr(): String = when {
-        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
-        hasAttr("data-src") -> attr("abs:data-src")
-        else -> attr("abs:src")
+    /**
+     * The "Tipo" stat on details pages marks the entry as a movie ("Pelicula").
+     */
+    private fun isMovie(document: Document): Boolean = document.selectFirst("div.stat-item:has(h5:contains(Tipo)) a")
+        ?.text()
+        ?.equals("Pelicula", ignoreCase = true)
+        ?: false
+
+    /**
+     * Card images are 16:9 episode stills; the poster art follows the site's
+     * slug convention at /img/img-anime/<slug>/<slug>-port.jpg.
+     */
+    private fun posterUrl(animeUrl: String): String {
+        val slug = animeUrl.substringAfterLast('/').removeSuffix(".html")
+        return "$baseUrl/img/img-anime/$slug/$slug-port.jpg"
     }
 
     /**
@@ -317,6 +355,16 @@ class BeatZAnime : ParsedAnimeHttpSource() {
         private val EPISODE_TRAILING_INT_REGEX = Regex("""(\d+)\s*$""")
 
         private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Detects extras by name (vocabulary observed on the site: "OVA",
+         * "(OVA)", "Especial(es)", "Película/Pelicula", "NCOP/NCOPV", "NCED"),
+         * so they can be grouped after the regular episodes.
+         */
+        private val SPECIAL_REGEX = Regex(
+            """\b(?:oad|ova|especiales|especial|peliculas?|películas?|ncopv|ncop|nced)\b""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Pre-compiled for reuse in normalizeAccents(); avoids per-call Regex construction. */
         private val ACCENTS_REGEX = Regex("\\p{InCombiningDiacriticalMarks}+")

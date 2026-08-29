@@ -14,11 +14,16 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
+import keiyoushi.utils.toHex
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -26,12 +31,16 @@ import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
+import kotlin.random.Random
+import kotlin.time.Duration.Companion.milliseconds
 
 abstract class WcoTheme :
     ParsedAnimeHttpSource(),
@@ -179,20 +188,27 @@ abstract class WcoTheme :
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.cat-eps, div#episodeList a.dark-episode-item"
+    override fun episodeListSelector() = "div.cat-eps, div#episodeList a.dark-episode-item, nav#sidebarEpisodeList a.sidebar-episode-item"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodes = document.select(episodeListSelector()).mapNotNull {
             runCatching { episodeFromElement(it) }.getOrNull()
         }
-        return episodes.mapIndexed { index, episode ->
+
+        // Subbed first, then dubbed; within each group sort by episode number
+        val sorted = episodes.sortedWith(
+            compareBy(
+                { it.name.contains("dub", ignoreCase = true) },
+                { it.episode_number },
+            ),
+        )
+
+        return sorted.mapIndexed { index, episode ->
             episode.apply {
-                episode_number = (episodes.size - index).toFloat()
+                episode_number = (sorted.size - index).toFloat()
             }
         }
-            // If opening an episode link instead of anime link, there is no episode list available.
-            // So we return the same episode with the title from the page.
             .ifEmpty {
                 listOf(
                     SEpisode.create().apply {
@@ -211,8 +227,9 @@ abstract class WcoTheme :
         val anchor = if (element.tagName() == "a") element else element.selectFirst("a")!!
         setUrlWithoutDomain(anchor.attr("href"))
         val title = anchor.selectFirst("span")?.text() ?: element.text()
-        val (name, _) = episodeTitleFromElement(title)
+        val (name, epNum) = episodeTitleFromElement(title)
         this.name = name
+        this.episode_number = epNum
     }
 
     open fun episodeTitleFromElement(title: String): Pair<String, Float> {
@@ -260,17 +277,18 @@ abstract class WcoTheme :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return if (useOldIframeExtractor) iframeOldExtractor(document) else iframeExtractor(document)
+        val episodeReferer = response.request.url.toString()
+        return if (useOldIframeExtractor) iframeOldExtractor(document, episodeReferer) else iframeExtractor(document, episodeReferer)
     }
 
-    open fun iframeExtractor(document: Document) = document.select("iframe")
+    open fun iframeExtractor(document: Document, episodeReferer: String = "$baseUrl/") = document.select("iframe")
         .ifEmpty { throw Exception("No iframe found in the episode page") }
         .parallelCatchingFlatMapBlocking {
             val iframeLink = it.attr("abs:src")
-            iframeParse(iframeLink)
+            iframeParse(iframeLink, episodeReferer)
         }
 
-    open fun iframeOldExtractor(document: Document): List<Video> {
+    open fun iframeOldExtractor(document: Document, episodeReferer: String = "$baseUrl/"): List<Video> {
         val script = document.selectFirst("script:containsData(decodeURIComponent)")?.data()
             ?: throw Exception("No script found in the episode page")
 
@@ -289,20 +307,126 @@ abstract class WcoTheme :
             .selectFirst("iframe")?.attr("src")
             ?: throw Exception("No iframe found in the episode page")
 
-        return runBlocking { runCatching { iframeParse(iframeUrl) }.getOrElse { emptyList() } }
+        return runBlocking { runCatching { iframeParse(iframeUrl, episodeReferer) }.getOrElse { emptyList() } }
     }
 
-    open suspend fun iframeParse(iframeLink: String): List<Video> = if (iframeLink.contains("embed.wcostream")) {
+    private fun generateNonce(): String = ByteArray(16).also(Random::nextBytes).toHex()
+
+    private fun chromeHeadersBuilder() = Headers.Builder()
+        .add("User-Agent", DESKTOP_USER_AGENT)
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("Dnt", "1")
+        .add("Sec-Ch-Ua", "\"Not=A?Brand\";v=\"99\", \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"")
+        .add("Sec-Ch-Ua-Mobile", "?0")
+        .add("Sec-Ch-Ua-Platform", "\"Windows\"")
+    open suspend fun iframeParse(iframeLink: String, episodeReferer: String = "$baseUrl/"): List<Video> = if (iframeLink.contains("embed.wcostream")) {
         // Dub or Hard-sub
-        val iframeSoup = client.newCall(GET(iframeLink, headers))
-            .awaitSuccess().asJsoup()
+        val iframeDomain = "https://" + iframeLink.toHttpUrl().host
+
+        // 1. Load index.php
+        val navHeaders = Headers.Builder()
+            .add("User-Agent", DESKTOP_USER_AGENT)
+            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+            .add("Referer", episodeReferer)
+            .add("Sec-Fetch-Dest", "iframe")
+            .add("Sec-Fetch-Site", "cross-site")
+            .build()
+
+        client.get(
+            iframeLink,
+            navHeaders,
+        ).close()
+
+        // 1b. Load pre-init.js — the server tracks this sub-resource request
+        val preInitUrl = "$iframeDomain/inc/embed/pre-init.js?v2"
+        runCatching {
+            client.newCall(GET(preInitUrl, navHeaders)).execute().close()
+        }
+
+        // 1c. Load the bait ad script that pre-init.js would load
+        val baitUrl = "$iframeDomain/assets/ads/advertisement.js"
+        runCatching {
+            client.newCall(GET(baitUrl, navHeaders)).execute().close()
+        }
+
+        // 2a. Small delay to simulate pre-init.js execution time
+        delay(300.milliseconds)
+
+        // 2b. Create the "clear" beacon
+        val pid = iframeLink.toHttpUrl().queryParameter("pid") ?: return emptyList()
+        val nonce = generateNonce()
+        val beaconBody = """{"nonce":"$nonce","status":"clear","id":"$pid"}"""
+
+        val beaconHeaders = chromeHeadersBuilder()
+            .add("Accept", "*/*")
+            .add("Origin", iframeDomain)
+            .add("Referer", iframeLink)
+            .add("Sec-Fetch-Dest", "empty")
+            .add("Sec-Fetch-Mode", "cors")
+            .add("Sec-Fetch-Site", "same-origin")
+            .build()
+
+        client.post(
+            "$iframeDomain/ad-verify",
+            beaconHeaders,
+            beaconBody.toRequestBody("application/json".toMediaType()),
+        ).close()
+
+        // 3. WAIT — server enforces anti-bot delay after beacon
+        val delaySeconds = preferences.getString(PREF_DELAY_KEY, PREF_DELAY_DEFAULT)
+            ?.toIntOrNull()
+            ?.takeIf { it in 1..60 }
+            ?: PREF_DELAY_DEFAULT.toInt()
+        delay((delaySeconds * 1000L).milliseconds)
+
+        // 4. Fetch the real player page — try video-js-old.php first, then fall back to video-js.php
+        val embedHeaders = chromeHeadersBuilder()
+            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+            .add("Priority", "u=0, i")
+            .add("Referer", iframeLink)
+            .add("Sec-Fetch-Dest", "iframe")
+            .add("Sec-Fetch-Mode", "navigate")
+            .add("Sec-Fetch-Site", "same-origin")
+            .add("Sec-Fetch-Storage-Access", "none")
+            .add("Sec-Fetch-User", "?1")
+            .add("Upgrade-Insecure-Requests", "1")
+            .build()
+
+        val videoJsOldUrl = iframeLink.toHttpUrl().newBuilder()
+            .encodedPath("/inc/embed/video-js-old.php")
+            .addQueryParameter("n", nonce)
+            .build()
+            .toString()
+
+        val oldPlayerResponse = client.newCall(GET(videoJsOldUrl, embedHeaders)).execute()
+        val oldPlayerBody = oldPlayerResponse.body.string()
+        val useOldPlayer = oldPlayerResponse.isSuccessful && "$.getJSON" in oldPlayerBody
+
+        val videoJsUrl = if (useOldPlayer) {
+            videoJsOldUrl
+        } else {
+            iframeLink.toHttpUrl().newBuilder()
+                .encodedPath("/inc/embed/video-js.php")
+                .addQueryParameter("n", nonce)
+                .build()
+                .toString()
+        }
+
+        val iframeSoup = if (useOldPlayer) {
+            Jsoup.parse(oldPlayerBody, iframeDomain)
+        } else {
+            client.newCall(GET(videoJsUrl, embedHeaders))
+                .awaitSuccess()
+                .asJsoup()
+        }
 
         val getVideoLinkScript =
-            iframeSoup.selectFirst("script:containsData(getJSON)")!!.data()
+            iframeSoup.selectFirst("script:containsData(getJSON)")?.data()
+                ?: return emptyList()
+
         val getVideoLink =
             getVideoLinkScript.substringAfter("$.getJSON(\"").substringBefore("\"")
 
-        val iframeDomain = "https://" + iframeLink.toHttpUrl().host
         val requestUrl = iframeDomain + getVideoLink
 
         val requestHeaders = headersBuilder()
@@ -366,6 +490,23 @@ abstract class WcoTheme :
             default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
+
+        val currentDelay = preferences.getString(PREF_DELAY_KEY, PREF_DELAY_DEFAULT)
+            ?.toIntOrNull()
+            ?.takeIf { it in 1..60 }
+            ?.toString()
+            ?: PREF_DELAY_DEFAULT
+
+        screen.addEditTextPreference(
+            key = PREF_DELAY_KEY,
+            title = PREF_DELAY_TITLE,
+            default = PREF_DELAY_DEFAULT,
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER,
+            validate = { it.toIntOrNull() in 1..60 },
+            validationMessage = { "Enter a number between 1 and 60" },
+            summary = "Current:  ${currentDelay}s",
+            getSummary = { "Current: ${it}s" },
+        )
     }
     override val supportsRelatedAnimes = false
 
@@ -378,6 +519,10 @@ abstract class WcoTheme :
         val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p")
         val PREF_QUALITY_VALUES = listOf("1080", "720", "480")
 
-        const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36 Edg/88.0.705.63"
+        const val PREF_DELAY_KEY = "preferred_delay"
+        const val PREF_DELAY_TITLE = "Anti-bot delay (seconds)"
+        const val PREF_DELAY_DEFAULT = "12"
+
+        const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
     }
 }

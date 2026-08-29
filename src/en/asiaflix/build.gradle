@@ -1,15 +1,16 @@
 ext {
     extName = 'AsiaFlix'
     extClass = '.AsiaFlix'
-    extVersionCode = 31
+    extVersionCode = 32
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:cryptoaes'))
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:vidhideextractor'))
+    implementation(project(':lib:vidmolyextractor'))
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:mixdropextractor'))

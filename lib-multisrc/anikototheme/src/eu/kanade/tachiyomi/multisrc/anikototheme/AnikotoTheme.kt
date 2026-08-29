@@ -50,6 +50,7 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 
 abstract class AnikotoTheme(
     override val lang: String,
@@ -532,8 +533,6 @@ abstract class AnikotoTheme(
 
     open fun isFiller(element: Element): Boolean = element.hasClass("filler")
 
-    fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
-
     private fun episodeFromElement(element: Element, animeUrl: String): SEpisode {
         val tooltip = element.parent()?.attr("title") ?: ""
         val epNum = element.attr("data-num")
@@ -549,7 +548,7 @@ abstract class AnikotoTheme(
 
         val malId = element.attr("data-mal")
         val slug = element.attr("data-slug")
-        val timestamp = element.attr("data-timestamp")
+        val timestamp = element.attr("data-timestamp").toLongOrNull()
 
         val isFiller = isFiller(element) && markFiller
         val fillerTag = if (isFiller) " [Filler]" else ""
@@ -560,11 +559,12 @@ abstract class AnikotoTheme(
                 append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
                 if (malId.isNotEmpty()) append("&mal=$malId")
                 if (slug.isNotEmpty()) append("&slug=$slug")
-                if (timestamp.isNotEmpty()) append("&ts=$timestamp")
+                if (timestamp != null) append("&ts=$timestamp")
             }
             episode_number = epNum.toFloatOrNull() ?: 0f
-            date_upload = DATE_FORMATTER.tryParse(RELEASE_REGEX.find(tooltip)?.groupValues?.get(1))
-            scanlator = listOf(sub, softSub, dub).filter(String::isNotBlank).joinToString()
+            date_upload = timestamp?.let { it * 1000 }
+                ?: DATE_FORMATTER.tryParse(RELEASE_REGEX.find(tooltip)?.groupValues?.get(1))
+            scanlator = listOf(sub, softSub, dub).filter(String::isNotBlank).joinToString(" & ")
         }
     }
 
@@ -626,7 +626,7 @@ abstract class AnikotoTheme(
             m3u8ServerManager.startServer()
             val deadline = System.currentTimeMillis() + 2000L
             while (!m3u8ServerManager.isRunning() && System.currentTimeMillis() < deadline) {
-                delay(50L)
+                delay(50.milliseconds)
             }
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "M3U8 server start failed: ${e.message}")
@@ -786,7 +786,7 @@ abstract class AnikotoTheme(
         typeElements.flatMap { elem ->
             elem.select("li")
                 .filter { !it.hasClass("download-icon") }
-                .mapNotNull { it.text().takeIf { it.isNotEmpty() } }
+                .mapNotNull { it -> it.text().takeIf { it.isNotEmpty() } }
         }.also { updateDiscoveredServers(it, isMapper = false) }
 
         val effectiveTypeToggle = typeToggle

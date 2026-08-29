@@ -5,35 +5,68 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class DetailsResponseDto(
-    @SerialName("_id") val id: String,
-    val name: String,
-    val altNames: String,
-    val synopsis: String,
-    val image: String,
-    val tvStatus: String,
-    val genre: String,
+data class PagedDto<T>(
+    val hasNext: Boolean = false,
+    val body: List<T> = emptyList(),
+)
+
+@Serializable
+data class NameDto(val name: String = "")
+
+@Serializable
+data class EntryDto(
+    val name: String = "",
+    val slug: String = "",
+    val altNames: List<String> = emptyList(),
+    val synopsis: String? = null,
+    val description: String? = null,
+    val image: String? = null,
+    val coverImage: String? = null,
+    // the v1 API emits "genres": [{"name": …}] and "status": "Ongoing|Completed"
+    @SerialName("genres") val genre: List<NameDto> = emptyList(),
+    @SerialName("status") val tvStatus: String? = null,
+
+    // some dramas return "episodes": null explicitly
+    val episodes: List<EpisodeDto>? = null,
 ) {
     fun toSAnime() = SAnime.create().apply {
         title = name
-        url = id
-        thumbnail_url = image
-        genre = this@DetailsResponseDto.genre
+        url = slug
+        thumbnail_url = image ?: coverImage
         status = when (tvStatus) {
             "Ongoing" -> SAnime.ONGOING
             "Completed" -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
         }
-        description = buildString {
-            append(synopsis)
-            append("\n\n")
+        genre = this@EntryDto.genre.joinToString { it.name }
 
-            altNames.split(",")
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .joinToString("\n") { "• $it" }
-                .also { append("Alternative Names: \n$it") }
-        }
-        initialized = true
+        val altNamesBlock = altNames.joinToString("\n") { "• ${it.trim()}" }
+            .takeIf { it.isNotEmpty() }
+            ?.let { "\n\nAlternative Names: \n$it" }
+            .orEmpty()
+        description = (synopsis ?: description.orEmpty()) + altNamesBlock
     }
 }
+
+@Serializable
+data class EpisodeDto(
+    val number: Float,
+    val type: String? = null,
+    val epUrl: String? = null,
+    val streamUrls: List<StreamUrlDto> = emptyList(),
+)
+
+@Serializable
+data class StreamUrlDto(
+    val source: String = "",
+    val url: String = "",
+)
+
+// the site re-uses identical embed URLs across consecutive episodes of a drama;
+// wrapping the episode number keeps every SEpisode.url unique so the app's
+// per-anime unique episode url constraint does not collapse them into one row
+@Serializable
+data class EpisodePayload(
+    val n: Float,
+    val urls: List<StreamUrlDto> = emptyList(),
+)

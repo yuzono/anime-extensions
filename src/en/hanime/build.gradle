@@ -1,7 +1,7 @@
 ext {
     extName = 'hanime.tv'
     extClass = '.Hanime'
-    extVersionCode = 22
+    extVersionCode = 23
     isNsfw = true
 }
 
@@ -15,8 +15,21 @@ android {
     }
 }
 
+// Unit tests live outside `src/` because the legacy plugin makes the
+// module-root `src` directory the MAIN source root.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.unitTest?.sources?.java?.addStaticSourceDirectory(file("test").absolutePath)
+    }
+}
+
 dependencies {
     implementation(project(":lib:playlistutils"))
     //noinspection UseTomlInstead
     implementation("com.dylibso.chicory:runtime:1.7.5")
+    // kotlin.stdlib.default.dependency=false repo-wide; unit tests need it declared explicitly
+    testImplementation("org.jetbrains.kotlin:kotlin-stdlib:${libs.versions.kotlin.gradle.get()}")
+    testImplementation("junit:junit:4.13.2")
+    // bundles.common is compileOnly, so source supertypes are missing from the unit-test runtime
+    testRuntimeOnly("com.github.komikku-app:aniyomi-extensions-lib:bdc8184127")
 }

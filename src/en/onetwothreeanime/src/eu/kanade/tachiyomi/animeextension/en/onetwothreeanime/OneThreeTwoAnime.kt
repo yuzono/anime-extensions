@@ -25,9 +25,13 @@ class OneThreeTwoAnime :
 
     override val name = "123Anime"
 
-    // baseUrl is a property getter (not lazy) so switching mirrors is instant
+    // baseUrl is a property getter (not lazy) so switching mirrors is instant.
+    // Values removed from DOMAIN_VALUES (e.g. mirrors that now 301 elsewhere)
+    // fall back to the default instead of sticking around from old installs.
     override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
+        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+            ?.takeIf { it in DOMAIN_VALUES }
+            ?: PREF_DOMAIN_DEFAULT
 
     override val lang = "en"
 
@@ -39,12 +43,7 @@ class OneThreeTwoAnime :
     private val preferences by getPreferencesLazy()
 
     private val extractor: OneThreeTwoAnimeExtractor
-        get() = OneThreeTwoAnimeExtractor(
-            client,
-            headers,
-            baseUrl,
-            preferences.getString(PREF_PLAYER_KEY, PREF_PLAYER_DEFAULT)!!,
-        )
+        get() = OneThreeTwoAnimeExtractor(client, headers, baseUrl)
 
     // ==================================================================
     //  Sub/Dub preference helper
@@ -255,16 +254,6 @@ class OneThreeTwoAnime :
             default = PREF_LATEST_TAB_DEFAULT,
             summary = "Which sub-tab to show in Latest when Sub+Dub mode is active: %s",
         )
-        screen.addListPreference(
-            key = PREF_PLAYER_KEY,
-            title = "Preferred Player",
-            entries = PLAYER_ENTRIES.toList(),
-            entryValues = PLAYER_VALUES.toList(),
-            default = PREF_PLAYER_DEFAULT,
-            summary = "Video player used to fetch stream URLs: %s. " +
-                "JW Player is recommended — stream URL is embedded directly in the page. " +
-                "Legacy Player requires parsing obfuscated JS.",
-        )
     }
 
     // ==================================================================
@@ -313,19 +302,15 @@ class OneThreeTwoAnime :
     // ==================================================================
 
     companion object {
-        // Mirror preference
+        // Mirror preference — mirrors verified live; others 301 to the hub
         private const val PREF_DOMAIN_KEY = "pref_domain"
         private val DOMAIN_ENTRIES = arrayOf(
-            "123anime.ru (Primary)",
+            "123animehub.cc (Primary)",
             "123anime.la",
-            "123anime.cc",
-            "123anime.info",
         )
         private val DOMAIN_VALUES = arrayOf(
-            "https://123anime.ru",
+            "https://123animehub.cc",
             "https://123anime.la",
-            "https://123anime.cc",
-            "https://123anime.info",
         )
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
 
@@ -343,17 +328,5 @@ class OneThreeTwoAnime :
         private val LATEST_TAB_ENTRIES = arrayOf("Subbed", "Dubbed", "Chinese")
         private val LATEST_TAB_VALUES = arrayOf("sub", "dub", "chinese")
         private val PREF_LATEST_TAB_DEFAULT = LATEST_TAB_VALUES[0]
-
-        // Player preference
-        private const val PREF_PLAYER_KEY = "pref_player"
-        private val PLAYER_ENTRIES = arrayOf(
-            "JW Player — Recommended",
-            "Legacy Player",
-        )
-        private val PLAYER_VALUES = arrayOf(
-            OneThreeTwoAnimeExtractor.PLAYER_JW,
-            OneThreeTwoAnimeExtractor.PLAYER_LEGACY,
-        )
-        private val PREF_PLAYER_DEFAULT = PLAYER_VALUES[0]
     }
 }
