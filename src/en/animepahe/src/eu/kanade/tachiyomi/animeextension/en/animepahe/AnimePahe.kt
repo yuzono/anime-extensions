@@ -32,6 +32,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import rx.Observable
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -124,13 +125,7 @@ class AnimePahe :
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime = fetchMutex.withLock {
         val request = animeDetailsRequest(anime)
-        var response = client.newCall(request).await()
-
-        if (response.code == 429) {
-            response.close()
-            delay(3000.milliseconds)
-            response = client.newCall(request).await()
-        }
+        val response = safeApiCall(request)
 
         if (response.isSuccessful) {
             return response.use { animeDetailsParse(it) }
@@ -139,17 +134,13 @@ class AnimePahe :
 
         val animeId = anime.getId()
         delay(1000.milliseconds)
-        val result = fetchSessionAndId(animeId, anime.title) ?: throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+        val result = fetchSessionAndId(animeId, anime.title)
+            ?: throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
         val (newId, newSession) = result
         saveSessionToCache(newId, newSession)
 
         val newRequest = GET("$baseUrl/anime/$newSession", headers)
-        var newResponse = client.newCall(newRequest).await()
-        if (newResponse.code == 429) {
-            newResponse.close()
-            delay(3000.milliseconds)
-            newResponse = client.newCall(newRequest).await()
-        }
+        val newResponse = safeApiCall(newRequest)
         if (newResponse.isSuccessful) {
             return newResponse.use { animeDetailsParse(it) }
         }
@@ -202,11 +193,28 @@ class AnimePahe :
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api?m=airing&page=$page")
+
+    @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getPopularAnime"))
+    override fun fetchPopularAnime(page: Int): Observable<AnimesPage> = Observable.fromCallable {
         if (page > 1) {
             Thread.sleep(3000)
         }
-        return GET("$baseUrl/api?m=airing&page=$page")
+        val request = popularAnimeRequest(page)
+        var response = client.newCall(request).execute()
+
+        if (response.code == 429) {
+            response.close()
+            Thread.sleep(12000)
+            response = client.newCall(request).execute()
+        }
+
+        if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
+            response.close()
+            throw IOException("You have been rate limited. Wait a few seconds and refresh")
+        }
+
+        popularAnimeParse(response)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
@@ -234,11 +242,15 @@ class AnimePahe :
         val seasonFilter = filters.filterIsInstance<Filters.SeasonFilter>().firstOrNull()
 
         return if (query.isNotBlank()) {
+            // Appends a unique epoch timestamp to bypass Cloudflare's API cache
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
             val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("api")
                 addQueryParameter("m", "search")
-                // addQueryParameter("l", "8")
-                addQueryParameter("q", query)
+                // AnimePahe search is smart enough to ignore the timeSuffix value when searching
+                // (which lets us paginate the same results without worrying about cached pages)
+                addQueryParameter("q", "$query $timeSuffix")
+                addQueryParameter("page", page.toString())
             }
             GET(urlBuilder.build())
         } else {
@@ -284,10 +296,35 @@ class AnimePahe :
         }
     }
 
+    @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getSearchAnime"))
+    override fun fetchSearchAnime(page: Int, query: String, filters: AnimeFilterList): Observable<AnimesPage> = Observable.fromCallable {
+        val isApiCall = query.isNotBlank() || filters.isEmpty()
+        if (page > 1 && isApiCall) {
+            Thread.sleep(3000)
+        }
+
+        val request = searchAnimeRequest(page, query, filters)
+        var response = client.newCall(request).execute()
+
+        if (response.code == 429) {
+            response.close()
+            Thread.sleep(12000)
+            response = client.newCall(request).execute()
+        }
+
+        if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
+            response.close()
+            throw IOException("You are being rate limited. Wait a few seconds and try again.")
+        }
+
+        searchAnimeParse(response)
+    }
+
     override fun searchAnimeParse(response: Response): AnimesPage {
         val url = response.request.url
         if (url.pathSegments.contains("api") && url.queryParameter("m") == "search") {
             val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+            val hasNextPage = searchData.currentPage < searchData.lastPage
             val animeList = searchData.items.map { anime ->
                 saveSessionToCache(anime.id.toString(), anime.session)
 
@@ -297,7 +334,7 @@ class AnimePahe :
                     setUrlWithoutDomain("/a/${anime.id}")
                 }
             }
-            return AnimesPage(animeList, false)
+            return AnimesPage(animeList, hasNextPage)
         } else if (url.pathSegments.contains("anime")) {
             val document = response.useAsJsoup()
             val entries = document.select("div.index div > a").mapNotNull { a ->
@@ -356,7 +393,7 @@ class AnimePahe :
 
     private fun SAnime.getSession() = sessionIdRegex.find(url)?.groupValues?.get(1)
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = fetchMutex.withLock {
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.getId()
         var session = animeId?.let { getSessionFromCache(it) } ?: anime.getSession()
 
@@ -380,12 +417,7 @@ class AnimePahe :
             addQueryParameter("page", "1")
         }.build()
 
-        var response = client.newCall(GET(url)).await()
-        if (response.code == 429) {
-            response.close()
-            delay(3000.milliseconds)
-            response = client.newCall(GET(url)).await()
-        }
+        val response = safeApiCall(GET(url))
 
         if (!response.isSuccessful) {
             response.close()
@@ -404,14 +436,9 @@ class AnimePahe :
             if (newSession != null && newSession != session) {
                 delay(3000.milliseconds)
                 val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
-                var newResponse = client.newCall(GET(newUrl)).await()
-                if (newResponse.code == 429) {
-                    newResponse.close()
-                    delay(3000.milliseconds)
-                    newResponse = client.newCall(GET(newUrl)).await()
-                }
+                val newResponse = safeApiCall(GET(newUrl))
                 if (newResponse.isSuccessful) {
-                    return@withLock newResponse.use { fetchEpisodes(it, newSession) }
+                    return newResponse.use { fetchEpisodes(it, newSession) }
                 }
                 newResponse.close()
                 throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' at $newUrl")
@@ -419,7 +446,7 @@ class AnimePahe :
             throw IOException("HTTP ${response.code} fetching episodes for '${anime.title}' (ID: ${animeId ?: "N/A"}) at $url")
         }
 
-        return@withLock response.use { fetchEpisodes(it, session) }
+        return response.use { fetchEpisodes(it, session) }
     }
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -444,7 +471,6 @@ class AnimePahe :
     private suspend fun fetchEpisodes(
         response: Response,
         session: String,
-        limitToFirstPage: Boolean = false,
     ): List<SEpisode> {
         val episodeList = mutableListOf<SEpisode>()
         val requestUrl = response.request.url
@@ -457,19 +483,14 @@ class AnimePahe :
 
         while (true) {
             episodeList.addAll(parseEpisodePage(currentData.items, session))
-            if (limitToFirstPage || currentData.currentPage >= currentData.lastPage) break
+            if (currentData.currentPage >= currentData.lastPage) break
 
             val nextUrl = requestUrl.newBuilder()
                 .setQueryParameter("page", (currentData.currentPage + 1).toString())
                 .build()
 
             delay(3000.milliseconds)
-            var nextResponse = client.newCall(GET(nextUrl)).await()
-            if (nextResponse.code == 429) {
-                nextResponse.close()
-                delay(3000.milliseconds)
-                nextResponse = client.newCall(GET(nextUrl)).await()
-            }
+            val nextResponse = safeApiCall(GET(nextUrl))
             if (!nextResponse.isSuccessful) {
                 val status = nextResponse.code
                 nextResponse.close()
@@ -646,6 +667,21 @@ class AnimePahe :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Helper function to execute API requests and automatically handle 429 rate limits.
+     * Waits 12 seconds and retries once if a 429 occurs.
+     */
+    private suspend fun safeApiCall(request: Request): Response {
+        var response = client.newCall(request).await()
+        if (response.code == 429) {
+            response.close()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
+        }
+        return response
+    }
+
     private fun saveSessionToCache(animeId: String, session: String) {
         val idKey = "session_cache_$animeId"
         val sessionKey = "id_cache_$session"
@@ -670,14 +706,12 @@ class AnimePahe :
 
         val normalizedTitle = normalizeTitle(title)
 
-        // Define the trailing lengths we want to try
-        // e.g. 4 words ("Dungeon IV Part 2"), 3 words ("IV Part 2")
-        val trailingLengths = listOf(4, 3)
-
         // Try searching with the full normalized title first
         var result = searchApiForId(animeId, normalizedTitle, searchQuery)
         if (result != null) return result
 
+        // Try searching with the trailing words (e.g. for sequels "IV Part 2")
+        val trailingLengths = listOf(4, 3)
         for (len in trailingLengths) {
             if (words.size > len) {
                 val shortQuery = words.takeLast(len).joinToString(" ")
@@ -689,31 +723,58 @@ class AnimePahe :
         return null
     }
 
-    private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, query: String): Pair<String, String>? {
-        val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("api")
-            addQueryParameter("m", "search")
-            addQueryParameter("q", query)
-        }.build()
+    private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, originalQuery: String): Pair<String, String>? {
+        var page = 1
+        var hasNextPage = true
 
-        return try {
-            client.newCall(GET(searchUrl)).await().use { response ->
-                if (!response.isSuccessful) return null
-                val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+        while (hasNextPage && page <= 10) {
+            // Appends a unique epoch timestamp to bypass Cloudflare's API cache
+            // AnimePahe search is smart enough to ignore the timeSuffix value
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
+            val fullQuery = "$originalQuery $timeSuffix"
 
-                val matchedAnime = if (animeId != null) {
-                    searchData.items.firstOrNull { it.id.toString() == animeId }
-                } else if (normalizedTitle != null) {
-                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
-                } else {
-                    null
+            val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                addPathSegment("api")
+                addQueryParameter("m", "search")
+                addQueryParameter("q", fullQuery)
+                addQueryParameter("page", page.toString())
+            }.build()
+
+            val result = try {
+                val response = safeApiCall(GET(searchUrl))
+                response.use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val searchData = resp.parseAs<ResponseDto<SearchResultDto>>()
+
+                    hasNextPage = searchData.currentPage < searchData.lastPage
+
+                    val matchedAnime = if (animeId != null) {
+                        searchData.items.firstOrNull { it.id.toString() == animeId }
+                    } else if (normalizedTitle != null) {
+                        // Match entry titles using the substring before timeSuffix (which is normalizedTitle)
+                        // Using contains() so minor local title differences (like "TV" or "Part 2") still match correctly
+                        searchData.items.firstOrNull {
+                            val apiTitle = normalizeTitle(it.title)
+                            apiTitle.contains(normalizedTitle) || normalizedTitle.contains(apiTitle)
+                        }
+                    } else {
+                        null
+                    }
+
+                    matchedAnime?.let { it.id.toString() to it.session }
                 }
-
-                matchedAnime?.let { it.id.toString() to it.session }
+            } catch (_: Exception) {
+                null
             }
-        } catch (_: Exception) {
-            null
+
+            if (result != null) return result
+
+            if (hasNextPage && page < 10) {
+                delay(3000.milliseconds)
+            }
+            page++
         }
+        return null
     }
 
     private fun normalizeSearchQuery(raw: String): String = raw
