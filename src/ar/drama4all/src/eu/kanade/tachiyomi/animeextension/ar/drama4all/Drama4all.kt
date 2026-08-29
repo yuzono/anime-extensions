@@ -19,6 +19,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
 import okhttp3.Response
 
 /**
@@ -102,7 +103,6 @@ class Drama4all :
             "الأعلى جودة",
         )
         private val QUALITY_VALUES = arrayOf("auto", "360", "480", "720", "1080", "max")
-        private val RESOLUTION_REGEX = Regex("""RESOLUTION=\d+x(\d+)""")
     }
 
     // ============================== Popular ===============================
@@ -123,9 +123,22 @@ class Drama4all :
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/search?q=$query", headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        // Build the query via HttpUrl so special characters (e.g. `&`, `=`, `#`)
+        // in the search text are URL-encoded instead of breaking the URL.
+        val url = "$baseUrl/search".toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("q", query)
+            .build()
+        return GET(url, headers)
+    }
 
-    override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        // The search endpoint returns the whole result set on one page: requesting
+        // a `page` beyond it returns no catalogue data. Always report
+        // hasNextPage = false so the app never re-fetches and re-displays the
+        // same results.
+        return AnimesPage(parseLibrary(response).map { it.toSAnime() }, false)
+    }
 
     // ============================ Anime Details ============================
 
@@ -221,52 +234,27 @@ class Drama4all :
     }
 
     /**
-     * Returns playable [Video] entries for an HLS master.
+     * Returns the playable [Video] for an HLS master.
      *
      * The master is NOT split into its per-variant playlists: the video variants
      * are video-only and audio lives in a standalone `#EXT-X-MEDIA` rendition.
      * Re-attaching that rendition via `Track`-based `audioTracks` is unreliable
      * on the app's mpv player, so the untouched master is handed to the player
-     * and the audio rendition is selected natively by the demuxer. One entry is
-     * produced per declared resolution so the quality picker stays populated.
+     * and the audio rendition is selected natively by the demuxer. Only one
+     * "Auto" entry is exposed: listing a fixed resolution per variant would be
+     * misleading, since every entry would point at the same adaptive master URL
+     * (the demuxer selects the rendition). This also avoids a master fetch, so
+     * playback starts immediately.
      */
-    private suspend fun resolveHls(videoUrl: String, subs: List<Track>): List<Video> {
-        // The mydramawave master can also be cold-slow; the master fetch only
-        // fills the quality picker, so it must never block playback start. If the
-        // master body is unavailable or has no declared resolutions, hand the
-        // player the untouched master directly — its demuxer selects quality.
-        val masterBody = fetchMasterQuietly(videoUrl)
-
-        val heights = masterBody
-            ?.let { RESOLUTION_REGEX.findAll(it) }
-            .orEmpty()
-            .mapNotNull { it.groupValues[1].toIntOrNull() }
-            .distinct()
-            .sortedDescending()
-            .toList()
-
-        if (heights.isEmpty()) {
-            return listOf(
-                Video(
-                    url = videoUrl,
-                    quality = "Drama4All",
-                    videoUrl = videoUrl,
-                    headers = playbackHeaders,
-                    subtitleTracks = subs,
-                ),
-            )
-        }
-
-        return heights.map { height ->
-            Video(
-                url = videoUrl,
-                quality = "Drama4All · ${height}p",
-                videoUrl = videoUrl,
-                headers = playbackHeaders,
-                subtitleTracks = subs,
-            )
-        }
-    }
+    private fun resolveHls(videoUrl: String, subs: List<Track>): List<Video> = listOf(
+        Video(
+            url = videoUrl,
+            quality = "Drama4All · Auto",
+            videoUrl = videoUrl,
+            headers = playbackHeaders,
+            subtitleTracks = subs,
+        ),
+    )
 
     /**
      * `cdn1/cdn2.nsstorage.space/…/hls/<token>.m3u8` layout: a flat single-quality
@@ -337,18 +325,6 @@ class Drama4all :
                 client.newCall(GET(apiUrl, headers)).execute().parseAs<EpisodeDto>()
             }.getOrNull()
             if (dto != null && dto.videoUrl.orEmpty().isNotBlank()) return dto
-        }
-        return null
-    }
-
-    /** Master playlist body with one retry; null on failure. Playback proceeds
-     * from the URL alone if this returns null, so a stalled CDN can't hang us. */
-    private fun fetchMasterQuietly(videoUrl: String): String? {
-        repeat(2) {
-            val body = runCatching {
-                client.newCall(GET(videoUrl, playbackHeaders)).execute().use { it.bodyString() }
-            }.getOrNull()
-            if (!body.isNullOrBlank()) return body
         }
         return null
     }
