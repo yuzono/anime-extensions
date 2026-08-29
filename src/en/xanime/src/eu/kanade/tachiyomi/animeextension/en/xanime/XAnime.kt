@@ -246,7 +246,7 @@ class XAnime :
 
             val srcType = srcData.srcType?.replaceFirstChar {
                 if (it.isLowerCase()) it.titlecase() else it.toString()
-            }
+            } ?: "Unknown"
 
             if (excludedTypes.any { it.equals(srcType, ignoreCase = true) }) return@parallelCatchingFlatMapBlocking emptyList()
 

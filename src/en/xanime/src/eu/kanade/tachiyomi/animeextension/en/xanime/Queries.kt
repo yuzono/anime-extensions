@@ -69,7 +69,8 @@ class Queries(
             get_q01(select: $select){
                 paging { total pages page next prev }
                 items { id data {
-                    ani_id ep_id ep_index ep_title epPath date_create date_update
+                    ani_id ep_id ep_index  ep_title epPath date_create
+                    date_update ep_sub_index
                     sourcesNode_list { id data { sou_id src_type } }
                 } }
             }
