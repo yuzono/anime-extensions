@@ -1,7 +1,7 @@
 ext {
     extName = 'Cine24h'
     extClass = '.Cine24h'
-    extVersionCode = 24
+    extVersionCode = 25
 }
 
 apply plugin: "kei.plugins.extension.legacy"

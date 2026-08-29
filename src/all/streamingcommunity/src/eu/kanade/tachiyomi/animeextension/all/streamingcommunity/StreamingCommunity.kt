@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
@@ -94,8 +95,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     override val baseUrl: String
         get() = "$homepage/$lang"
-    private val apiUrl: String
-        get() = "$homepage/api"
 
     override val supportsLatest = true
 
@@ -112,23 +111,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
         .add("Referer", "$homepage/")
         .build()
 
-    private val jsonHeadersRef by lazy { AtomicReference(newJsonHeader()) }
-    private fun newJsonHeader() = headers.newBuilder()
-        .add("Origin", homepage)
-        .add("Referer", "$homepage/")
-        .add("Content-Type", "application/json")
-        .add("X-Requested-With", "XMLHttpRequest")
-        .add("X-Inertia", "true")
-        .add("x-inertia-version", "") // This requires an up-to-date `version`
-        .build()
-
     private var apiHeaders: Headers
         get() = apiHeadersRef.get()
         set(value) = apiHeadersRef.set(value)
-
-    private var jsonHeaders: Headers
-        get() = jsonHeadersRef.get()
-        set(value) = jsonHeadersRef.set(value)
 
     private val json: Json by injectLazy()
 
@@ -137,80 +122,32 @@ class StreamingCommunity(override val lang: String, private val showType: String
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = when (page) {
-        1 -> GET("$apiUrl/browse/top10?lang=$lang&type=$showType", apiHeaders)
+        1 -> GET("$baseUrl/browse/top10?type=$showType", apiHeaders)
 
-        2 -> GET("$apiUrl/browse/trending?lang=$lang&type=$showType", apiHeaders)
+        2 -> GET("$baseUrl/browse/trending?type=$showType", apiHeaders)
 
         else ->
-            GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=views&type=$showType", apiHeaders)
+            GET("$baseUrl/archive?type=$showType&sort=views&page=${page - 2}", apiHeaders)
     }
 
     private var imageCdn = "https://cdn.${baseUrl.toHttpUrl().host}/images/"
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val path = response.request.url.encodedPath
-        val isApiCall = path.startsWith("/api/")
-        val isTop10Trending = path.contains(TOP10_TRENDING_REGEX)
-
-        val parsed: PropObject = if (isApiCall) {
-            json.decodeFromString<PropObject>(response.body.string())
-        } else {
-            json.decodeFromString<ShowsResponse>(response.body.string()).props
-                .also { props -> props.cdn_url?.takeIf { it.isNotBlank() }?.let { imageCdn = "$it/images/" } }
-        }
-
-        val animeList = parsed.titles.map { it.toSAnime(imageCdn) }
-
-        val hasNextPage = isTop10Trending || animeList.size == 60
-
-        return AnimesPage(animeList, hasNextPage)
+        val animeList = parseBrowse(response)
+        return AnimesPage(animeList, browseHasNextPage(response, animeList.size))
     }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = when (page) {
-        in 1..2 -> if (showType == "movie") {
-            GET("$apiUrl/browse/latest?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
-        } else {
-            GET("$apiUrl/browse/new-episodes?lang=$lang&offset=${(page - 1) * 60}&type=$showType", apiHeaders)
-        }
-
-        else ->
-            GET("$apiUrl/archive?lang=$lang&offset=${(page - 3) * 60}&sort=created_at&type=$showType", apiHeaders)
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse/latest?type=$showType&page=$page", apiHeaders)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
     // =============================== Search ===============================
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        val featuredFilter = filters.filterIsInstance<FeaturedFilter>().firstOrNull()
-        if (query.isBlank() && featuredFilter?.isDefault() == false) {
-            val httpUrl = apiUrl.toHttpUrl().newBuilder().apply {
-                addPathSegments("browse/genre")
-                addQueryParameter(featuredFilter.uri, featuredFilter.toUriPart())
-            }.build()
-            return client.newCall(GET(httpUrl, apiHeaders))
-                .awaitSuccess()
-                .use(::searchAnimeParse)
-                .let {
-                    // Limited to only 120 results (2 pages)
-                    if (page == 2) {
-                        it.copy(hasNextPage = false)
-                    } else {
-                        it
-                    }
-                }
-        } else {
-            val request = searchAnimeRequest(page, query, filters)
-            return client.newCall(request)
-                .awaitSuccess()
-                .use(::searchAnimeParse)
-        }
-    }
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val genresFilter = filters.filterIsInstance<GenresFilter>().firstOrNull()
+        val featuredFilter = filters.filterIsInstance<FeaturedFilter>().firstOrNull()
         val sortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()
         val yearFilter = filters.filterIsInstance<YearFilter>().firstOrNull()
         val scoreFilter = filters.filterIsInstance<ScoreFilter>().firstOrNull()
@@ -218,9 +155,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val qualityFilter = filters.filterIsInstance<QualityFilter>().firstOrNull()
         val ageFilter = filters.filterIsInstance<AgeFilter>().firstOrNull()
 
-        val httpUrlBuilder = apiUrl.toHttpUrl().newBuilder()
+        val httpUrlBuilder = baseUrl.toHttpUrl().newBuilder()
         httpUrlBuilder.apply {
-            addPathSegments("archive")
+            addPathSegment("archive")
             addQueryParameter("search", query)
             if (sortFilter?.isDefault() == false) {
                 addQueryParameter(sortFilter.uri, sortFilter.toUriPart())
@@ -244,34 +181,21 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
         genresFilter?.addToUri(httpUrlBuilder)
 
+        if (featuredFilter?.isDefault() == false) {
+            httpUrlBuilder.addQueryParameter(featuredFilter.uri, featuredFilter.toUriPart())
+        }
+
         httpUrlBuilder.apply {
-            addQueryParameter("lang", lang)
             addQueryParameter("type", showType)
-            addQueryParameter("offset", ((page - 1) * 60).toString())
+            addQueryParameter("page", page.toString())
         }
 
         return GET(httpUrlBuilder.build(), apiHeaders)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val path = response.request.url.encodedPath
-        val isApiCall = path.startsWith("/api/")
-
-        val parsed = if (isApiCall) {
-            json.decodeFromString<PropObject>(response.getData()).titles
-        } else {
-            json.decodeFromString<ShowsResponse>(response.getData()).props
-                .also { props -> props.cdn_url?.takeIf { it.isNotBlank() }?.let { imageCdn = "$it/images/" } }
-                .titles
-        }
-
-        val animeList = parsed.map {
-            it.toSAnime(imageCdn)
-        }
-
-        val hasNextPage = animeList.size == 60
-
-        return AnimesPage(animeList, hasNextPage)
+        val animeList = parseBrowse(response)
+        return AnimesPage(animeList, browseHasNextPage(response, animeList.size))
     }
 
     // =========================== Anime Details ============================
@@ -321,17 +245,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
                 },
             )
         } else {
-            val inertiaHeaders = headers.newBuilder()
-                .add("Host", baseUrl.toHttpUrl().host)
-                .add("Referer", "${response.request.url}/")
-                .add("Content-Type", "application/json")
-                .add("X-Requested-With", "XMLHttpRequest")
-                .add("X-Inertia", "true")
-                .add("X-Inertia-Version", parsed.version ?: "")
-                .add("X-Inertia-Partial-Component", "Titles/Title")
-                .add("X-Inertia-Partial-Data", "loadedSeason,flash")
-                .build()
-
             val seasonIntl = intl["season"]
             val episodeIntl = intl["episode"]
 
@@ -347,9 +260,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
                                 data.loadedSeason.episodes
                             } else {
                                 val seasonResponse = client.newCall(
-                                    GET("${response.request.url}/season-${season.number}", inertiaHeaders),
+                                    GET("${response.request.url}/season-${season.number}", apiHeaders),
                                 ).awaitSuccess() // Suspend call for network request
-                                json.decodeFromString<SingleShowResponse>(seasonResponse.body.string()).props.loadedSeason?.episodes
+                                json.decodeFromString<SingleShowResponse>(seasonResponse.getData()).props.loadedSeason?.episodes
                                     ?: emptyList()
                             }
                             Pair(season, episodes) // Return season object and its episodes
@@ -430,25 +343,97 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val expires = EXPIRES_REGEX.find(script)?.groupValues?.get(1)
             ?: error("Failed to extract expires")
 
-        val masterPlUrl = buildString {
-            append(playlistUrl)
-            append(if (playlistUrl.contains('?')) '&' else '?')
-            append("h=1&token=")
-            append(token)
-            append("&expires=")
-            append(expires)
-            append("&lang=")
-            append(lang)
-        }
+        // `h=1` asks vixcloud for the FHD rendition set. It now answers 403
+        // whenever the embed says the session may not play FHD, which was every
+        // title sampled - so only send it when the player itself would.
+        val canPlayFhd = CAN_PLAY_FHD_REGEX.find(script)?.groupValues?.get(1) == "true"
+        val masterPlUrl = buildMasterPlaylistUrl(playlistUrl, token, expires, canPlayFhd)
 
-        return playlistUtils.extractFromHls(playlistUrl = masterPlUrl)
+        // The player lists its mirror servers in `window.streams`; every mirror's
+        // master playlist carries the SAME renditions and subtitle/audio lists
+        // (verified live: 38 SUBTITLES entries on each). Merging mirrors used to
+        // duplicate every subtitle track (~76 tracks for ~38 real ones) and
+        // double the work. Resolve all mirrors concurrently for resilience — a
+        // failing edge (expired token / 5xx / empty result) falls through to the
+        // next one — but consume ONLY the first successful extraction. Fall back
+        // to the plain master playlist when the array isn't there. Subtitle/audio
+        // renditions are regex-parsed out of each master playlist and are never
+        // fetched here, so nothing per-track needs parallelizing.
+        val serverPlaylists = SERVERS_REGEX.findAll(script)
+            .map { match ->
+                val active = match.groupValues[2]
+                Triple(
+                    match.groupValues[1],
+                    buildMasterPlaylistUrl(match.groupValues[3].unescapeJs(), token, expires, canPlayFhd),
+                    active == "true" || active == "1",
+                )
+            }
+            .sortedByDescending(Triple<String, String, Boolean>::third)
+            .toList()
+            .ifEmpty { listOf(Triple("", masterPlUrl, true)) }
+
+        return coroutineScope {
+            serverPlaylists.map { (_, serverPlaylistUrl, _) ->
+                async {
+                    runCatching {
+                        playlistUtils.extractFromHls(playlistUrl = serverPlaylistUrl)
+                            .takeIf { it.isNotEmpty() }
+                    }.getOrNull()
+                }
+            }.awaitAll()
+                .firstOrNull { !it.isNullOrEmpty() }
+                ?: runCatching { playlistUtils.extractFromHls(playlistUrl = masterPlUrl) }.getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+                    .orEmpty()
+        }.proxySubtitles()
     }
+
+    /**
+     * Routes every subtitle track through [SubtitleServer] - see that class for
+     * why the upstream rendition URLs are slow to open. Audio tracks keep their
+     * upstream URLs, since the player streams those as the HLS renditions they
+     * already are, but are still deduplicated: a title whose mirrors advertise
+     * the same rendition list would otherwise list each language twice.
+     */
+    private fun List<Video>.proxySubtitles(): List<Video> = map { video ->
+        Video(
+            videoUrl = video.videoUrl,
+            url = video.url,
+            quality = video.quality,
+            headers = video.headers ?: headers,
+            subtitleTracks = SubtitleServer.proxy(client, video.subtitleTracks, video.headers ?: headers),
+            audioTracks = video.audioTracks.distinctBy(Track::url),
+        )
+    }
+
+    private fun buildMasterPlaylistUrl(base: String, token: String, expires: String, canPlayFhd: Boolean) = base + (if ('?' in base) '&' else '?') + (if (canPlayFhd) "h=1&" else "") + "token=$token&expires=$expires&lang=$lang"
+
+    private fun String.unescapeJs() = replace("\\/", "/").replace("\\u0026", "&")
 
     override fun videoListRequest(episode: SEpisode): Request = throw Exception("Not used")
 
     override fun videoListParse(response: Response): List<Video> = throw Exception("Not used")
 
     // ============================= Utilities ==============================
+
+    private fun parseBrowse(response: Response): List<SAnime> = json.decodeFromString<BrowseResponse>(response.getData()).props.also { props ->
+        props.cdn_url?.takeIf { it.isNotBlank() }?.let { imageCdn = "$it/images/" }
+    }.titles.map { it.toSAnime(imageCdn) }
+
+    private fun browseHasNextPage(response: Response, size: Int): Boolean {
+        val url = response.request.url
+        return when {
+            // Popular hands out top10, then trending, then the archive. These two
+            // are fixed-size slices - top10 always answers with exactly 10 - so a
+            // short result never means the end; the *next* page is another
+            // endpoint entirely. Checked before the size test for that reason.
+            url.encodedPath.contains(TOP10_TRENDING_REGEX) -> true
+            size < PAGE_SIZE -> false
+            // The site serves at most MAX_ARCHIVE_PAGES archive pages and answers 503 beyond that.
+            url.encodedPath.endsWith("/archive") -> (url.queryParameter("page")?.toIntOrNull() ?: 1) < MAX_ARCHIVE_PAGES
+            else -> true
+        }
+    }
 
     private fun Response.getData(): String = if (headers["content-type"]?.contains("application/json") == true) {
         body.string()
@@ -471,14 +456,23 @@ class StreamingCommunity(override val lang: String, private val showType: String
     }
 
     companion object {
-        private const val DOMAIN_DEFAULT = "https://streamingunity.biz" // Redirect URL: https://streamingunity.tv
+        private const val DOMAIN_DEFAULT = "https://streamingunity.vip"
         private const val PREF_CUSTOM_DOMAIN_KEY = "custom_domain_v${BuildConfig.VERSION_NAME}"
         private const val TAG = "StreamingCommunity"
+        private const val PAGE_SIZE = 60
+        private const val MAX_ARCHIVE_PAGES = 20
 
         private val TOP10_TRENDING_REGEX = Regex("""/browse/(top10|trending)""")
         private val PLAYLIST_URL_REGEX = Regex("""url: ?'(.*?)'""")
         private val EXPIRES_REGEX = Regex("""'expires': ?'(\d+)'""")
         private val TOKEN_REGEX = Regex("""'token': ?'([\w-]+)'""")
+
+        // window.streams = [{"name":"Server1","active":false,"url":"...playlist/594985?b=1\\u0026ub=1"},
+        //                   {"name":"Server2","active":1,"url":"...playlist/594985?b=1\\u0026ab=1"}]
+        // `active` is not always a keyword - live pages emit the number 1 for the
+        // selected mirror - so accept any value and read it out separately.
+        private val SERVERS_REGEX = Regex("""\{"name":"([^"]+)","active":([^,]+),"url":"([^"]+)"\}""")
+        private val CAN_PLAY_FHD_REGEX = Regex("""window\.canPlayFHD\s*=\s*(\w+)""")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
@@ -520,7 +514,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
             preferences.customDomain = newDomain
             homepage = newDomain
             apiHeaders = newApiHeader()
-            jsonHeaders = newJsonHeader()
         }
     }
 

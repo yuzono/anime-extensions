@@ -29,7 +29,7 @@ class AnimeOnlineNinja :
     DooPlay(
         "es",
         "AnimeOnline.Ninja",
-        "https://ver.animeonline.ninja",
+        "https://ww3.animeonline.ninja",
     ) {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
@@ -42,11 +42,19 @@ class AnimeOnlineNinja :
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page")
+    // The trending section paginates as /tendencias/page/N/ (its own pager
+    // links); /tendencias/N is a WordPress 404. Both ww3. and ver. sit behind
+    // the same Cloudflare zone and serve an identical managed challenge on
+    // every path, while ver.'s deep paths just 301 back here - so keep each
+    // request single-hopped on ww3. and let CloudflareInterceptor solve it.
+    override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page/", headers)
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
 
     override fun popularAnimeNextPageSelector() = latestUpdatesNextPageSelector()
+
+    // The site uses the DooPlay icon font instead of FontAwesome.
+    override val animeMenuSelector = "div.pag_episodes div.item a[href] i.icon-bars"
 
     // =============================== Search ===============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -98,13 +106,13 @@ class AnimeOnlineNinja :
         }
 
         return if (path.startsWith("/?s=")) {
-            GET("$baseUrl/page/$page$path")
+            GET("$baseUrl/page/$page$path", headers)
         } else if (path.startsWith("/letra") || path.startsWith("/tendencias")) {
             val before = path.substringBeforeLast("/")
             val after = path.substringAfterLast("/")
-            GET("$baseUrl$before/page/$page/$after")
+            GET("$baseUrl$before/page/$page/$after", headers)
         } else {
-            GET("$baseUrl$path/page/$page")
+            GET("$baseUrl$path/page/$page", headers)
         }
     }
 
@@ -239,10 +247,54 @@ class AnimeOnlineNinja :
         .eachText()
         .joinToString("\n")
 
+    // Covers need no size-suffix rewrite, so `stripImageSizeSuffix` stays off:
+    // verified live across 20 trending entries that the listing card and
+    // `div.sheader div.poster img` serve an identical URL, suffix included -
+    // 11 of the 20 carried `-185x278` on BOTH sides, with zero mismatches.
+    // The data: placeholder skip that used to live here is now the DooPlay
+    // default, since the grids lazy-load an inline SVG into `src`.
+
+    /**
+     * Grids lazy-load with an inline SVG placeholder in `src`. Skip data: URIs
+     * and fall through to the next candidate instead of returning them (or a
+     * null cover) when a lazyload attribute is missing or itself empty.
+     *
+     * Listing cards reference the exact same file as the details-page poster,
+     * suffix included, so URLs are used as-is - no size-suffix rewriting.
+     */
+    override fun Element.getImageUrl(): String? = listOf(
+        attr("abs:data-src"),
+        attr("abs:data-lazy-src"),
+        attr("abs:srcset").substringBefore(" "),
+        attr("abs:src"),
+    ).firstOrNull { it.isNotEmpty() && !it.startsWith("data:") }
+
     override val additionalInfoItems = listOf("Título", "Temporadas", "Episodios", "Duración media")
 
     // =============================== Latest ===============================
-    override val latestUpdatesPath = "episodio"
+
+    /**
+     * `/episodio/` lists EPISODES, not series. Its cards are
+     * `article.item se episodes`: `alt` is the episode name ("Yomi no Tsugai
+     * Cap 17"), the image is a 300x170 still, and the href points at
+     * `/episodio/<slug>/`. `animeDetailsParse` then rewrote the entry url to
+     * the series on open, so every Latest entry changed title, cover AND
+     * identity the moment it was opened.
+     *
+     * Nothing on the episode card maps back to its series, and the slug will
+     * not do it - `bleach-sennen-kessen-hen-cap-45` lives under
+     * `/online/bleach-9-032824/` and `horizontes-pokemon-cap-146` under
+     * `/online/pokemon-2023-032824/`; 5 of 12 sampled derivations were wrong.
+     * Resolving it properly costs one request per card for the url, plus a
+     * second for the poster, which the episode page does not carry either.
+     *
+     * The airing-series listing is the same `article.item tvshows` grid the
+     * rest of the source already parses, handing over the series title,
+     * series poster and `/online/` url straight from the card. Verified live:
+     * pages 1-3 return 30/30/22 cards and the pager correctly reports no next
+     * page on the last one.
+     */
+    override val latestUpdatesPath = "genero/en-emision-1"
 
     override fun latestUpdatesNextPageSelector() = "div.pagination > *:last-child:not(span):not(.current)"
 

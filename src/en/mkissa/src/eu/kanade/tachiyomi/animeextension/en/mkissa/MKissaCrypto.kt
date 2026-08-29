@@ -41,30 +41,49 @@ object MKissaCrypto {
         .digest(value.toByteArray(Charsets.UTF_8))
         .toHex()
 
-    /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild. */
-    fun deriveMask(buildId: String, seeds: List<String>): ByteArray? {
-        if (buildId.isEmpty() || seeds.size != SEED_COUNT) return null
+    private data class MaskParams(val saltMul: Int, val saltAdd: Int, val fragMul: Int, val fragAdd: Int)
 
-        val stream = ByteArray(KEY_SIZE) { i ->
-            (buildId[i % buildId.length].code xor ((i * 17 + 31) and 0xFF)).toByte()
-        }
+    private val MASK_PARAMS = listOf(
+        MaskParams(250, 54, 16, 217),
+        MaskParams(211, 222, 200, 176),
+        MaskParams(17, 31, 41, 7),
+    )
 
-        val mask = ByteArray(KEY_SIZE)
-        seeds.forEachIndexed { index, seed ->
-            val bytes = runCatching { Base64.decode(seed, Base64.DEFAULT) }.getOrNull() ?: return null
-            if (bytes.size < SEED_SIZE) return null
-
-            val base = index * SEED_SIZE
-            for (offset in 0 until SEED_SIZE) {
-                mask[base + offset] = (
-                    (bytes[offset].toInt() and 0xFF) xor
-                        (stream[base + offset].toInt() and 0xFF) xor
-                        ((index * 41 + offset * 7) and 0xFF)
-                    ).toByte()
+    /** `seeds XOR f(buildId) XOR f(position)`; both inputs change on every site rebuild.
+     *  2025-09: site rotated salts from 211/222/200/176 to 250/54/16/217 (see Fd={saltMul:250,...} in chunk).
+     *  Keep older constants as fallback for a brief grace window.
+     */
+    fun maskCandidates(buildId: String, seeds: List<String>): List<ByteArray> {
+        if (buildId.isEmpty() || seeds.size != SEED_COUNT) return emptyList()
+        val candidates = mutableListOf<ByteArray>()
+        for (params in MASK_PARAMS) {
+            val stream = ByteArray(KEY_SIZE) { i ->
+                (buildId[i % buildId.length].code xor ((i * params.saltMul + params.saltAdd) and 0xFF)).toByte()
             }
+
+            val mask = ByteArray(KEY_SIZE)
+            var ok = true
+            seeds.forEachIndexed { index, seed ->
+                val bytes = runCatching { Base64.decode(seed, Base64.DEFAULT) }.getOrNull()
+                if (bytes == null || bytes.size < SEED_SIZE) {
+                    ok = false
+                    return@forEachIndexed
+                }
+                val base = index * SEED_SIZE
+                for (offset in 0 until SEED_SIZE) {
+                    mask[base + offset] = (
+                        (bytes[offset].toInt() and 0xFF) xor
+                            (stream[base + offset].toInt() and 0xFF) xor
+                            ((index * params.fragMul + offset * params.fragAdd) and 0xFF)
+                        ).toByte()
+                }
+            }
+            if (ok && mask.any { it != 0.toByte() }) candidates.add(mask)
         }
-        return mask
+        return candidates
     }
+
+    fun deriveMask(buildId: String, seeds: List<String>): ByteArray? = maskCandidates(buildId, seeds).firstOrNull()
 
     fun deriveKey(mask: ByteArray, partB: ByteArray): SecretKeySpec {
         val keyBytes = ByteArray(KEY_SIZE) { i ->
@@ -73,8 +92,42 @@ object MKissaCrypto {
         return SecretKeySpec(keyBytes, KEY_TYPE)
     }
 
-    /** `x-aa-boot`, checked by the bootstrap endpoint before it hands out `partB`. */
-    fun bootToken(
+    /** `x-aa-boot`, checked by the bootstrap endpoint before it hands out `partB`.
+     *  2025-09: site changed bootPrefix from "kNk1YgwkSI:" to "4X2PsZc2r:" and message
+     *  from "epoch.group.host.buildId.lane" to "group.host.lane.buildId.epoch"
+     *  (see Fd={bootPrefix:"4X2PsZc2r:",join:".",parts:[group,host,lane,buildId,epoch]}).
+     *  We keep the previous formats as fallback for the brief window after a site rebuild.
+     */
+    fun bootTokenNew(
+        mask: ByteArray,
+        buildId: String,
+        epoch: Long,
+        keyGroup: String,
+        refererHost: String,
+        lane: String,
+    ): String {
+        val inner = hmac(mask, "4X2PsZc2r:$buildId")
+        // kd.parts = ["group","host","lane","buildId","epoch"], kd.join = "."
+        // omitEmptyLane = false, so always include lane even if empty
+        val message = listOf(keyGroup, refererHost, lane, buildId, epoch.toString()).joinToString(".")
+        return hmac(inner, message).toHex()
+    }
+
+    /** 2025-08 scheme, kept for the grace window after a rebuild. */
+    fun bootTokenPrevious(
+        mask: ByteArray,
+        buildId: String,
+        epoch: Long,
+        keyGroup: String,
+        refererHost: String,
+        lane: String,
+    ): String {
+        val inner = hmac(mask, "kNk1YgwkSI:$buildId")
+        val message = listOf(epoch.toString(), keyGroup, refererHost, buildId, lane).joinToString(".")
+        return hmac(inner, message).toHex()
+    }
+
+    fun bootTokenLegacy(
         mask: ByteArray,
         buildId: String,
         epoch: Long,
@@ -90,6 +143,19 @@ object MKissaCrypto {
         }
         return hmac(inner, message).toHex()
     }
+
+    fun bootTokenCandidates(
+        mask: ByteArray,
+        buildId: String,
+        epoch: Long,
+        keyGroup: String,
+        refererHost: String,
+        lane: String,
+    ): List<String> = listOf(
+        bootTokenNew(mask, buildId, epoch, keyGroup, refererHost, lane),
+        bootTokenPrevious(mask, buildId, epoch, keyGroup, refererHost, lane),
+        bootTokenLegacy(mask, buildId, epoch, keyGroup, refererHost, lane),
+    )
 
     /** Oldest first: during the grace window the server still mints `partB` for the previous. */
     fun epochCandidates(now: Long = System.currentTimeMillis()): List<Long> {

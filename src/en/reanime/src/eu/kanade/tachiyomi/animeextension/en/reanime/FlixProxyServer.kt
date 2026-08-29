@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.util.Log
-import fi.iki.elonen.NanoHTTPD
 import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -11,13 +10,19 @@ import okio.Buffer
 import okio.ForwardingSource
 import okio.Source
 import okio.buffer
+import org.nanohttpd.protocols.http.IHTTPSession
+import org.nanohttpd.protocols.http.NanoHTTPD
+import org.nanohttpd.protocols.http.response.Response
+import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
+import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
+import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class FlixProxyServer(
     private val headers: Headers,
     private var segmentMask: ByteArray,
-) : NanoHTTPD(0) {
+) : NanoHTTPD("127.0.0.1", 0) {
 
     fun updateSegmentMask(newMask: ByteArray) {
         if (!newMask.contentEquals(segmentMask)) {
@@ -31,8 +36,8 @@ class FlixProxyServer(
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
-            .followRedirects(true)
-            .followSslRedirects(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -41,6 +46,11 @@ class FlixProxyServer(
         val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8")}"
         // Do not append fake extensions. MPV handles the stream better when it relies
         // on the MIME type and the HLS demuxer handles the timestamps correctly.
+        return "http://127.0.0.1:$listeningPort/proxy?$params"
+    }
+
+    fun createSubtitleProxyUrl(originalUrl: String): String {
+        val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload="
         return "http://127.0.0.1:$listeningPort/proxy?$params"
     }
 
@@ -80,12 +90,26 @@ class FlixProxyServer(
         segmentUrl
     }
 
-    override fun serve(session: IHTTPSession): Response? {
+    override fun handle(session: IHTTPSession): Response {
         val params = session.parameters
-        val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing url")
+        val url = params["url"]?.firstOrNull() ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
         val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
         return try {
+            val isSubtitle = url.contains("/subtitles/")
+            if (isSubtitle) {
+                if (!url.startsWith("https://")) {
+                    return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Subtitle URL must be https")
+                }
+                val proxyHeaders = headers.newBuilder()
+                    .set("Accept", "*/*")
+                    .removeAll("Origin").removeAll("Referer")
+                    .apply {
+                        add("Origin", flixCloudUrl)
+                        add("Referer", "$flixCloudUrl/")
+                    }.build()
+                return serveSubtitle(url, proxyHeaders)
+            }
             val isManifest = url.contains(".m3u8")
             val isMasterManifest = isManifest && (
                 url.contains("master.m3u8") ||
@@ -119,9 +143,9 @@ class FlixProxyServer(
         } catch (e: Exception) {
             // Return 503 for timeouts so the player retries the segment instead of failing completely
             val status = if (e is java.net.SocketTimeoutException) {
-                Response.Status.SERVICE_UNAVAILABLE
+                Status.SERVICE_UNAVAILABLE
             } else {
-                Response.Status.INTERNAL_ERROR
+                Status.INTERNAL_ERROR
             }
 
             newFixedLengthResponse(status, "text/plain", e.toString())
@@ -150,7 +174,7 @@ class FlixProxyServer(
             val code = response.code
             response.close()
             return newFixedLengthResponse(
-                Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                Status.lookup(code) ?: Status.INTERNAL_ERROR,
                 "text/plain",
                 "CDN Error: $code",
             )
@@ -196,9 +220,65 @@ class FlixProxyServer(
         val inputStream = xorSource.buffer().inputStream()
 
         return if (outputLength > 0) {
-            newFixedLengthResponse(Response.Status.OK, "video/mp2t", inputStream, outputLength)
+            newFixedLengthResponse(Status.OK, "video/mp2t", inputStream, outputLength)
         } else {
-            newChunkedResponse(Response.Status.OK, "video/mp2t", inputStream)
+            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
+        }
+    }
+
+    private fun serveSubtitle(
+        subtitleUrl: String,
+        proxyHeaders: Headers,
+    ): Response {
+        val request = Request.Builder().url(subtitleUrl).headers(proxyHeaders).build()
+        return proxyClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                val errorSnippet = try {
+                    response.peekBody(1024).string().take(300)
+                } catch (_: Exception) {
+                    ""
+                }
+                return@use newFixedLengthResponse(
+                    Status.lookup(code) ?: Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Subtitle Error: $code $errorSnippet",
+                )
+            }
+            val body = response.body
+            val contentType = when {
+                subtitleUrl.endsWith(".ass") -> "text/x-ass"
+                subtitleUrl.endsWith(".srt") -> "application/x-subrip"
+                subtitleUrl.endsWith(".vtt") -> "text/vtt"
+                else -> body.contentType()?.toString() ?: "text/plain"
+            }
+            val maxSubtitleBytes = 512 * 1024
+            val contentLength = body.contentLength()
+            if (contentLength != -1L && contentLength > maxSubtitleBytes) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            }
+            val bytes: ByteArray = try {
+                body.byteStream().use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    var n: Int
+                    while (input.read(buffer).also { n = it } != -1) {
+                        total += n
+                        if (total > maxSubtitleBytes) throw IllegalStateException("too large")
+                        out.write(buffer, 0, n)
+                    }
+                    out.toByteArray()
+                }
+            } catch (e: IllegalStateException) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+            } catch (_: Exception) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle read error")
+            }
+            val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
+            resp.addHeader("Access-Control-Allow-Origin", "*")
+            resp.addHeader("Access-Control-Allow-Headers", "*")
+            resp
         }
     }
 
@@ -226,7 +306,7 @@ class FlixProxyServer(
             val errorBody = response.body.string()
             response.close()
             return newFixedLengthResponse(
-                Response.Status.lookup(response.code) ?: Response.Status.INTERNAL_ERROR,
+                Status.lookup(response.code) ?: Status.INTERNAL_ERROR,
                 "text/plain",
                 "Manifest Error: $errorBody",
             )
@@ -290,7 +370,7 @@ class FlixProxyServer(
         }
 
         // Use application/vnd.apple.mpegurl to match the CDN exactly
-        return newFixedLengthResponse(Response.Status.OK, "application/vnd.apple.mpegurl", modifiedText)
+        return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", modifiedText)
     }
 
     companion object {

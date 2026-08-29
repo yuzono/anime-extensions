@@ -1,13 +1,13 @@
 ext {
     extName = 'Re:ANIME'
     extClass = '.ReAnime'
-    extVersionCode = 1
+    extVersionCode = 5
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(":lib:playlistutils"))
 }

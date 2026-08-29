@@ -17,7 +17,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -26,6 +25,9 @@ import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -33,9 +35,9 @@ import org.jsoup.nodes.Element
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.time.Duration.Companion.milliseconds
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
 class AnimePahe :
@@ -43,6 +45,8 @@ class AnimePahe :
     ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
+
+    private val fetchMutex = Mutex()
 
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
@@ -56,12 +60,6 @@ class AnimePahe :
         client.newBuilder().apply {
             interceptors().removeAll { it is DdosGuardInterceptor }
         }.build()
-    }
-
-    private val searchClient by lazy {
-        client.newBuilder()
-            .rateLimit(2, 1, TimeUnit.SECONDS)
-            .build()
     }
 
     override val name = "AnimePahe"
@@ -124,9 +122,15 @@ class AnimePahe :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET(getAnimeUrl(anime), headers)
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = fetchMutex.withLock {
         val request = animeDetailsRequest(anime)
-        val response = client.newCall(request).await()
+        var response = client.newCall(request).await()
+
+        if (response.code == 429) {
+            response.close()
+            delay(3000.milliseconds)
+            response = client.newCall(request).await()
+        }
 
         if (response.isSuccessful) {
             return response.use { animeDetailsParse(it) }
@@ -134,20 +138,23 @@ class AnimePahe :
         response.close()
 
         val animeId = anime.getId()
-        val result = fetchSessionAndId(animeId, anime.title)
+        delay(1000.milliseconds)
+        val result = fetchSessionAndId(animeId, anime.title) ?: throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+        val (newId, newSession) = result
+        saveSessionToCache(newId, newSession)
 
-        if (result != null) {
-            val (newId, newSession) = result
-            saveSessionToCache(newId, newSession)
-            val newRequest = GET("$baseUrl/anime/$newSession", headers)
-            val newResponse = client.newCall(newRequest).await()
-            if (newResponse.isSuccessful) {
-                return newResponse.use { animeDetailsParse(it) }
-            }
+        val newRequest = GET("$baseUrl/anime/$newSession", headers)
+        var newResponse = client.newCall(newRequest).await()
+        if (newResponse.code == 429) {
             newResponse.close()
-            throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $newId) at ${newRequest.url}")
+            delay(3000.milliseconds)
+            newResponse = client.newCall(newRequest).await()
         }
-        throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+        if (newResponse.isSuccessful) {
+            return newResponse.use { animeDetailsParse(it) }
+        }
+        newResponse.close()
+        throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $newId) at ${newRequest.url}")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -195,7 +202,12 @@ class AnimePahe :
     }
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api?m=airing&page=$page")
+    override fun popularAnimeRequest(page: Int): Request {
+        if (page > 1) {
+            Thread.sleep(3000)
+        }
+        return GET("$baseUrl/api?m=airing&page=$page")
+    }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val latestData = response.parseAs<ResponseDto<LatestAnimeDto>>()
@@ -310,6 +322,8 @@ class AnimePahe :
     override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
 
     // =============================== Relation/Suggestions ===============================
+    override val disableRelatedAnimesBySearch = true
+
     override fun relatedAnimeListRequest(anime: SAnime) = animeDetailsRequest(anime)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
@@ -342,14 +356,13 @@ class AnimePahe :
 
     private fun SAnime.getSession() = sessionIdRegex.find(url)?.groupValues?.get(1)
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = fetchMutex.withLock {
         val animeId = anime.getId()
-        var session = animeId?.let { getSessionFromCache(it) }
+        var session = animeId?.let { getSessionFromCache(it) } ?: anime.getSession()
 
         if (session == null) {
-            val result = fetchSessionAndId(animeId, anime.title)
-            if (result != null) {
-                val (newId, newSession) = result
+            delay(3000.milliseconds)
+            fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                 saveSessionToCache(newId, newSession)
                 session = newSession
             }
@@ -367,27 +380,46 @@ class AnimePahe :
             addQueryParameter("page", "1")
         }.build()
 
-        val response = client.newCall(GET(url)).await()
+        var response = client.newCall(GET(url)).await()
+        if (response.code == 429) {
+            response.close()
+            delay(3000.milliseconds)
+            response = client.newCall(GET(url)).await()
+        }
+
         if (!response.isSuccessful) {
             response.close()
-            val result = fetchSessionAndId(animeId, anime.title)
-            if (result != null) {
-                val (newId, newSession) = result
-                if (newSession != session) {
+
+            val latestSession = animeId?.let { getSessionFromCache(it) }
+            val newSession = if (latestSession != null && latestSession != session) {
+                latestSession
+            } else {
+                delay(3000.milliseconds)
+                fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                     saveSessionToCache(newId, newSession)
-                    val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
-                    val newResponse = client.newCall(GET(newUrl)).await()
-                    if (newResponse.isSuccessful) {
-                        return newResponse.use { fetchEpisodes(it, newSession) }
-                    }
-                    newResponse.close()
-                    throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' (ID: $newId) at $newUrl")
+                    newSession
                 }
+            }
+
+            if (newSession != null && newSession != session) {
+                delay(3000.milliseconds)
+                val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
+                var newResponse = client.newCall(GET(newUrl)).await()
+                if (newResponse.code == 429) {
+                    newResponse.close()
+                    delay(3000.milliseconds)
+                    newResponse = client.newCall(GET(newUrl)).await()
+                }
+                if (newResponse.isSuccessful) {
+                    return@withLock newResponse.use { fetchEpisodes(it, newSession) }
+                }
+                newResponse.close()
+                throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' at $newUrl")
             }
             throw IOException("HTTP ${response.code} fetching episodes for '${anime.title}' (ID: ${animeId ?: "N/A"}) at $url")
         }
 
-        return response.use { fetchEpisodes(it, session) }
+        return@withLock response.use { fetchEpisodes(it, session) }
     }
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -409,7 +441,11 @@ class AnimePahe :
 
     override fun episodeListParse(response: Response): List<SEpisode> = emptyList()
 
-    private suspend fun fetchEpisodes(response: Response, session: String): List<SEpisode> {
+    private suspend fun fetchEpisodes(
+        response: Response,
+        session: String,
+        limitToFirstPage: Boolean = false,
+    ): List<SEpisode> {
         val episodeList = mutableListOf<SEpisode>()
         val requestUrl = response.request.url
         var currentData = response.parseAs<ResponseDto<EpisodeDto>>()
@@ -421,13 +457,25 @@ class AnimePahe :
 
         while (true) {
             episodeList.addAll(parseEpisodePage(currentData.items, session))
-            if (currentData.currentPage >= currentData.lastPage) break
+            if (limitToFirstPage || currentData.currentPage >= currentData.lastPage) break
 
             val nextUrl = requestUrl.newBuilder()
                 .setQueryParameter("page", (currentData.currentPage + 1).toString())
                 .build()
 
-            currentData = client.newCall(GET(nextUrl)).await().use { it.parseAs() }
+            delay(3000.milliseconds)
+            var nextResponse = client.newCall(GET(nextUrl)).await()
+            if (nextResponse.code == 429) {
+                nextResponse.close()
+                delay(3000.milliseconds)
+                nextResponse = client.newCall(GET(nextUrl)).await()
+            }
+            if (!nextResponse.isSuccessful) {
+                val status = nextResponse.code
+                nextResponse.close()
+                throw IOException("HTTP $status fetching episodes at $nextUrl")
+            }
+            currentData = nextResponse.use { it.parseAs() }
         }
 
         val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
@@ -649,7 +697,7 @@ class AnimePahe :
         }.build()
 
         return try {
-            searchClient.newCall(GET(searchUrl)).await().use { response ->
+            client.newCall(GET(searchUrl)).await().use { response ->
                 if (!response.isSuccessful) return null
                 val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
 

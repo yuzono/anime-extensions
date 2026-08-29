@@ -19,7 +19,7 @@ class WCOStream : WcoTheme() {
     override fun popularAnimeSelector(): String = "div#content > div > div:has(div.recent-release:contains(Recent Releases)) > div > ul > li"
     override fun searchAnimeSelector(): String = "div#blog div.iccerceve"
 
-    override fun episodeListSelector() = "div#catlist-listview > ul > li, table:has(> tbody > tr > td > h3:contains(Episode List)) div.menustyle > ul > li"
+    override fun episodeListSelector() = "div#catlist-listview > ul > li, table:has(> tbody > tr > td > h3:contains(Episode List)) div.menustyle > ul > li, div#episodeList a.dark-episode-item, nav#sidebarEpisodeList a.sidebar-episode-item"
 
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         // Same fallback chain as the base theme, but using wcostream's anime
