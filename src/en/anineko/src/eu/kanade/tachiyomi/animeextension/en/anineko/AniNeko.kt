@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -357,11 +358,8 @@ class AniNeko :
                 iframeUrl.contains("otakuhg.site") || iframeUrl.contains("otakuvid.online") -> {
                     val extractor = VidHideExtractor(client, headers)
                     extractor.videosFromUrl(iframeUrl) { quality -> "$versionType - $quality" }.map { video ->
-                        Video(
-                            url = video.url,
+                        video.copyLegacy(
                             quality = addServerName(serverName, video.quality),
-                            videoUrl = video.videoUrl,
-                            headers = video.headers,
                             subtitleTracks = video.subtitleTracks + subtitleTracks,
                         )
                     }
@@ -370,11 +368,8 @@ class AniNeko :
                 iframeUrl.contains("playmogo.com") || iframeUrl.contains("dood") -> {
                     val extractor = DoodExtractor(client)
                     extractor.videosFromUrl(iframeUrl, quality = versionType).map { video ->
-                        Video(
-                            url = video.url,
+                        video.copyLegacy(
                             quality = addServerName(serverName, video.quality),
-                            videoUrl = video.videoUrl,
-                            headers = video.headers,
                             subtitleTracks = video.subtitleTracks + subtitleTracks,
                         )
                     }

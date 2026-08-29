@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -480,12 +481,8 @@ class AniWaves :
     private fun extractFromDood(embedUrl: String, server: VideoData): List<Video> {
         val label = videoLabel(server)
         return doodExtractor.videosFromUrl(embedUrl, label).map { video ->
-            Video(
-                url = video.url,
+            video.copyLegacy(
                 quality = "$label - Doodstream 1080p",
-                videoUrl = video.videoUrl,
-                headers = video.headers,
-                subtitleTracks = video.subtitleTracks,
             )
         }
     }
