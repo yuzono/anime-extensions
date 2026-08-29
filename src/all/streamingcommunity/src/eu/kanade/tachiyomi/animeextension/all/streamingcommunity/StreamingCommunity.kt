@@ -31,6 +31,7 @@ import keiyoushi.lib.i18n.Intl
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.async
@@ -396,10 +397,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
      * the same rendition list would otherwise list each language twice.
      */
     private fun List<Video>.proxySubtitles(): List<Video> = map { video ->
-        Video(
-            videoUrl = video.videoUrl,
-            url = video.url,
-            quality = video.quality,
+        video.copyLegacy(
             headers = video.headers ?: headers,
             subtitleTracks = SubtitleServer.proxy(client, video.subtitleTracks, video.headers ?: headers),
             audioTracks = video.audioTracks.distinctBy(Track::url),
