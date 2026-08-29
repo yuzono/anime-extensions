@@ -377,7 +377,6 @@ class XAnime :
         private const val PREF_QUALITY_DEFAULT = "1080"
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 
-
         private const val PREF_TYPE_KEY = "pref_type"
         private const val PREF_TYPE_DEFAULT = "Sub"
         private const val PREF_EXCLUDE_TYPE_KEY = "pref_exclude_type"
