@@ -94,13 +94,31 @@ class XAnime :
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http")) {
-            val url = query.toHttpUrlOrNull()
+            val url = query.toHttpUrlOrNull() ?: return AnimesPage(emptyList(), false)
             val knownHosts = DOMAIN_VALUES.map { it.toHttpUrl().host }
-            if (url != null && url.host in knownHosts && "title" in url.pathSegments) {
-                val aniId = url.pathSegments[url.pathSegments.indexOf("title") + 1].substringBefore("-")
-                return fetchSearchAnime(1, aniId, "field_score", filters)
-            }
+            if (url.host !in knownHosts) return AnimesPage(emptyList(), false)
+
+            val titleIndex = url.pathSegments.indexOf("title")
+            val aniId = url.pathSegments.getOrNull(titleIndex + 1)
+                ?.substringBefore("-")
+                ?.takeIf { titleIndex != -1 && it.isNotBlank() }
+                ?: return AnimesPage(emptyList(), false)
+
+            return getSearchAnime(page, "$PREFIX_ID$aniId", filters)
         }
+
+        if (query.startsWith(PREFIX_ID)) {
+            val id = query.substringAfter(PREFIX_ID)
+            if (id.isBlank()) return AnimesPage(emptyList(), false)
+            val anime = SAnime.create().apply { this.url = id }
+            return runCatching {
+                val details = getAnimeDetails(anime)
+                if (details.title.isBlank()) throw Exception("Anime not found")
+                listOf(details)
+            }.getOrElse { emptyList() }
+                .let { AnimesPage(it, false) }
+        }
+
         val sortby = filters.firstInstanceOrNull<SortFilter>()?.getValue(SORT_MAP) ?: "field_date_create"
 
         return fetchSearchAnime(page, query, sortby, filters)
@@ -161,7 +179,7 @@ class XAnime :
     // =========================== Anime Details ============================
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val node = api.getAnimeDetails(anime.url) ?: return anime
+        val node = api.getAnimeDetails(anime.url) ?: throw Exception("Anime not found")
         rememberSlug(anime.url, node.slug)
         return node.toSAnimeDetails(baseUrl)
     }
@@ -346,20 +364,23 @@ class XAnime :
     }
 
     companion object {
-        private val DOMAIN_VALUES = listOf("https://xanime.me", "https://xanime.app")
+        const val PREFIX_ID = "id:"
 
+        private val DOMAIN_VALUES = listOf("https://xanime.me", "https://xanime.app")
         private val DOMAIN_ENTRIES = listOf("xanime.me", "xanime.app")
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private val PREF_DOMAIN = DOMAIN_VALUES[0]
+
         private val QUALITY_VALUES = listOf("1080p", "720p", "480p", "360p")
         private val QUALITY_KEYS = listOf("1080", "720", "480", "360")
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+
         private const val PREF_TYPE_KEY = "pref_type"
         private const val PREF_TYPE_DEFAULT = "Sub"
         private const val PREF_EXCLUDE_TYPE_KEY = "pref_exclude_type"
         private val TYPE_VALUES = listOf("Sub", "Raw", "Dub")
-
-        private val QUALITY_REGEX = Regex("""(\d+)p""")
     }
 }
