@@ -57,7 +57,8 @@ abstract class Source :
 }
 
 fun Video.copyLegacy(
-    url: String = this.videoUrl?.takeIf { it.isNotBlank() } ?: this.url,
+    // This is quick fix for the bug in Anikku preview r8888 (caused by a bug upstream)
+    url: String = this.url.takeIf { it.isNotBlank() } ?: this.videoUrl?.takeIf { it.isNotBlank() } ?: "Video URL was empty",
     quality: String = this.quality,
     videoUrl: String? = this.videoUrl,
     headers: Headers? = this.headers,
