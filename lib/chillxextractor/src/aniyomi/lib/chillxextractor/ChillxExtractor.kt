@@ -3,6 +3,7 @@ package aniyomi.lib.chillxextractor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.copyLegacy
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
@@ -40,12 +41,7 @@ class ChillxExtractor(private val client: OkHttpClient, private val headers: Hea
         )
 
         return videoList.map {
-            Video(
-                url = it.url,
-                quality = it.quality,
-                videoUrl = it.videoUrl,
-                headers = it.headers,
-                audioTracks = it.audioTracks,
+            it.copyLegacy(
                 subtitleTracks = playlistUtils.fixSubtitles(it.subtitleTracks),
             )
         }
