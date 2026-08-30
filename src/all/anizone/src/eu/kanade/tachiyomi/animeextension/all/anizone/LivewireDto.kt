@@ -1,35 +1,34 @@
 package eu.kanade.tachiyomi.animeextension.all.anizone
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 
 @Serializable
-class LivewireDto(
+data class LivewireDto(
     val components: List<ComponentDto>,
 ) {
     @Serializable
-    class ComponentDto(
+    data class ComponentDto(
         val snapshot: String,
         val effects: EffectsDto,
     ) {
         @Serializable
-        class EffectsDto(
+        data class EffectsDto(
             val html: String,
+            val dispatches: List<DispatchDto> = emptyList(),
         )
     }
 }
 
 @Serializable
-class LivewireRequestDto(
-    @SerialName("_token") val token: String,
-    val components: List<LivewireComponentRequestDto>,
+data class DispatchDto(
+    val name: String,
+    val params: DispatchParamsDto? = null,
 )
 
 @Serializable
-class LivewireComponentRequestDto(
-    val calls: JsonArray,
-    val snapshot: String,
-    val updates: JsonObject,
+data class DispatchParamsDto(
+    val items: JsonArray? = null,
+    val nextCursor: String? = null,
+    val hasMore: Boolean? = null,
 )
