@@ -2,7 +2,7 @@ ext {
     extName = 'AnimeXin'
     extClass = '.AnimeXin'
     themePkg = 'animestream'
-    baseUrl = 'https://animexin.vip'
+    baseUrl = 'https://animexin.dev'
     overrideVersionCode = 21
 }
 

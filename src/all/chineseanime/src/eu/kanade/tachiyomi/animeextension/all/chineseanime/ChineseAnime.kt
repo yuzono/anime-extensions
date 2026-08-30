@@ -15,11 +15,11 @@ class ChineseAnime :
     AnimeStream(
         "all",
         "ChineseAnime",
-        "https://www.chineseanime.vip",
+        "https://www.chineseanime.in",
     ) {
 
     // =============================== Search ===============================
-    override fun searchAnimeNextPageSelector() = "div.mrgn > a.r"
+    override fun searchAnimeNextPageSelector() = "div.hpage > a.r"
 
     // =========================== Anime Details ============================
     override val animeDescriptionSelector = ".entry-content"
