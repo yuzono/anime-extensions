@@ -59,7 +59,7 @@ abstract class AnimeStream(
         "pt-BR" -> "Qualidade preferida"
         else -> "Preferred quality"
     }
-    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p")
+    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p", "144p")
     protected open val prefQualityEntries: List<String>
         get() = prefQualityValues
 

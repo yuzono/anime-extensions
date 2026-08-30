@@ -2,7 +2,7 @@ ext {
     extName = 'ChineseAnime'
     extClass = '.ChineseAnime'
     themePkg = 'animestream'
-    baseUrl = 'https://www.chineseanime.vip'
+    baseUrl = 'https://www.chineseanime.in'
     overrideVersionCode = 26
 }
 
