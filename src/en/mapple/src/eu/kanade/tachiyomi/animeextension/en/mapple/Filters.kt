@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.mapple
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
-object MappleFilters {
+object Filters {
 
     // Standard Filters
     class TypeFilter : AnimeFilter.Select<String>("Type", arrayOf("Movie", "TV Show"))
