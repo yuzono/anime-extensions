@@ -80,7 +80,7 @@ class DonghuaStream :
         )
     }
 
-    override val prefQualityValues = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p")
+    override val prefQualityValues = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p")
 
     override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response)
         .filter { !it.name.contains("Preview", ignoreCase = true) || !preferences.ignorePreview }
