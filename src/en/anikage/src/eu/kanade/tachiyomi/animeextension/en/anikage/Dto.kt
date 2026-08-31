@@ -186,7 +186,7 @@ data class SourceData(
     val type: String?,
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
-        "https://gg.akage.lol",
+        "https://og.bakayaro.live",
         isM3U8?.let { "m3u8" } ?: "stream",
         url,
     ).joinToString("/")
@@ -197,7 +197,7 @@ data class SubtitleData(
     val file: String,
     val label: String,
     val kind: String,
-    val default: Boolean,
+    val default: Boolean? = null,
     val embedUrl: String? = null,
 )
 
