@@ -26,7 +26,7 @@ object MKissaBundle {
         val candidates = mutableListOf<String>()
 
         if (maskDefaultVar != null) {
-            val assignRegex = Regex("""\b${Regex.escape(maskDefaultVar)}\s*=\s*($CALL_PATTERN)""")
+            val assignRegex = Regex("""\b${Regex.escape(maskDefaultVar)}\s*=\s*($CALL_PATTERN)\s*(?:,|;|\n)""")
             assignRegex.findAll(js).forEach { m -> candidates.add(m.groupValues[1]) }
         }
 
@@ -42,7 +42,7 @@ object MKissaBundle {
         }
 
         if (candidates.isEmpty()) {
-            val assignRegex = Regex("""\b\w+\s*=\s*($CALL_PATTERN)\b""")
+            val assignRegex = Regex("""\b\w+\s*=\s*($CALL_PATTERN)\s*(?:,|;|\n)""")
             assignRegex.findAll(js).forEach { m ->
                 val call = m.groupValues[1]
                 if (!call.contains("+")) candidates.add(call)
