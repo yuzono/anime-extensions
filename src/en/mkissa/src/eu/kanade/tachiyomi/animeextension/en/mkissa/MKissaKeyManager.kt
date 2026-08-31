@@ -16,11 +16,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Owns the "aaReq" key material: `buildId` + mask seeds are scraped from the live JS bundle and
- * fold into the client mask, which signs the bootstrap request for `partB`; the key is
- * `mask XOR partB`.
- */
 class MKissaKeyManager(
     private val client: OkHttpClient,
     private val headers: Headers,
@@ -41,7 +36,6 @@ class MKissaKeyManager(
     private var cachedMaterial: Material? = null
     private val materialMutex = Mutex()
 
-    // One preference, so a concurrent write cannot pair one build's id with another's seeds.
     private var storedBuild by preferences.delegate(PREF_BUILD_KEY, "")
 
     suspend fun material(forceRefresh: Boolean = false): Material {
@@ -61,10 +55,8 @@ class MKissaKeyManager(
                 .getOrElse { throw Exception(MATERIAL_ERROR) }
             require(partB.size >= 32) { MATERIAL_ERROR }
 
-            // Only after the server accepted it, so a bad parse cannot wedge every later launch.
             storedBuild = handshake.build.serialize()
 
-            // Not the bootstrap's switchAt: it can already be past while the epoch is live.
             val now = System.currentTimeMillis()
             Material(
                 key = MKissaCrypto.deriveKey(handshake.mask, partB),
@@ -84,7 +76,6 @@ class MKissaKeyManager(
         cachedMaterial = null
     }
 
-    /** Used when the streams API rejects a token the bootstrap minted, which it cannot detect. */
     fun invalidateBuild() {
         storedBuild = ""
         cachedMaterial = null
@@ -93,17 +84,11 @@ class MKissaKeyManager(
     fun isCryptoError(body: String): Boolean = runCatching { body.parseAs<AaApiError>().errors }.getOrNull()
         ?.any { it.extensions?.code?.startsWith("AA_CRYPTO") == true } == true
 
-    /**
-     * The server's own complaint — a captcha gate, a rate limit — for responses it refuses outright.
-     * Null while a crypto error is present, since fresh material can still rescue those.
-     */
     fun apiErrorMessage(body: String): String? {
         if (isCryptoError(body)) return null
         val message = runCatching { body.parseAs<AaApiError>().errors }.getOrNull()
             ?.firstNotNullOfOrNull { it.message }
             ?: return null
-        // The bare code says nothing to someone whose episode just refused to load, and the gate is
-        // on the network rather than the account, so there is nothing to sign in to or re-install.
         return if (message == CAPTCHA_ERROR) {
             "MKissa is rate limiting this network ($CAPTCHA_ERROR). Browsing still works; " +
                 "streams should return on their own after a while."
@@ -118,37 +103,32 @@ class MKissaKeyManager(
         val bootstrap: AaCryptoBootstrap,
     )
 
-    /** [stale] distinguishes "server refused this build" from a network fault. */
     private class BootstrapResult(
         val bootstrap: AaCryptoBootstrap?,
         val stale: Boolean,
         val mask: ByteArray? = null,
     )
 
-    /** Re-scraping starts at the Cloudflare-gated HTML, so cheaper causes are ruled out first. */
     private suspend fun handshake(): Handshake? {
         val cached = cachedBuild()
-        val cachedMasks = cached?.let { MKissaCrypto.maskCandidates(it.buildId, it.seeds) }
+        val cachedMask = cached?.let { MKissaCrypto.deriveMask(it.buildId, it.seeds) }
 
-        if (cached != null && cachedMasks != null && cachedMasks.isNotEmpty()) {
-            val first = bootstrap(cached.buildId, cachedMasks, MKissaCrypto.epochCandidates())
-            first.bootstrap?.let { return Handshake(cached, first.mask!!, it) }
+        if (cached != null && cachedMask != null) {
+            val first = bootstrap(cached.buildId, cachedMask, MKissaCrypto.epochCandidates())
+            first.bootstrap?.let { return Handshake(cached, cachedMask, it) }
             if (!first.stale) return null
 
-            // A clock off by more than the grace window looks exactly like a stale build.
-            val second = bootstrap(cached.buildId, cachedMasks, MKissaCrypto.skewedEpochCandidates())
-            second.bootstrap?.let { return Handshake(cached, second.mask!!, it) }
+            val second = bootstrap(cached.buildId, cachedMask, MKissaCrypto.skewedEpochCandidates())
+            second.bootstrap?.let { return Handshake(cached, cachedMask, it) }
         }
 
         val fresh = resolveBuild() ?: return null
-        val freshMasks = MKissaCrypto.maskCandidates(fresh.buildId, fresh.seeds)
-        if (freshMasks.isEmpty()) return null
-        val freshResult = bootstrap(fresh.buildId, freshMasks, MKissaCrypto.epochCandidates())
-        return freshResult.bootstrap?.let { Handshake(fresh, freshResult.mask!!, it) }
+        val freshMask = MKissaCrypto.deriveMask(fresh.buildId, fresh.seeds) ?: return null
+        val freshResult = bootstrap(fresh.buildId, freshMask, MKissaCrypto.epochCandidates())
+        return freshResult.bootstrap?.let { Handshake(fresh, freshMask, it) }
     }
 
-    /** `GET /client-crypto/v1/bootstrap?buildId=&k=`, gated by an HMAC of the client mask. */
-    private suspend fun bootstrap(buildId: String, masks: List<ByteArray>, epochs: List<Long>): BootstrapResult {
+    private suspend fun bootstrap(buildId: String, mask: ByteArray, epochs: List<Long>): BootstrapResult {
         val host = siteUrl.toHttpUrl().host
         val url = "${apiUrl.trimEnd('/')}$BOOTSTRAP_PATH".toHttpUrl().newBuilder()
             .addQueryParameter("buildId", buildId)
@@ -156,36 +136,30 @@ class MKissaKeyManager(
             .build()
 
         var sawStale = false
-        for (mask in masks) {
-            for (epoch in epochs) {
-                var epochStale = false
-                for (bootToken in MKissaCrypto.bootTokenCandidates(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE)) {
-                    val requestHeaders = headers.newBuilder()
-                        .set("x-build-id", buildId)
-                        .set("x-aa-boot", bootToken)
-                        .set("Origin", siteUrl)
-                        .set("Referer", "$siteUrl/")
-                        .build()
+        for (epoch in epochs) {
+            val bootToken = MKissaCrypto.bootToken(mask, buildId, epoch, KEY_GROUP, host, ANIME_LANE)
+            val requestHeaders = headers.newBuilder()
+                .set("x-build-id", buildId)
+                .set("x-aa-boot", bootToken)
+                .set("Origin", siteUrl)
+                .set("Referer", "$siteUrl/")
+                .build()
 
-                    val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
-                        ?: return BootstrapResult(null, stale = false)
+            val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
+                ?: return BootstrapResult(null, stale = false)
 
-                    if (!response.isSuccessful) {
-                        response.close()
-                        if (response.code in STALE_CODES) epochStale = true
-                        continue
-                    }
-
-                    val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
-                        ?: continue
-
-                    // A partB from another lane would silently derive the wrong key.
-                    if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
-
-                    return BootstrapResult(bootstrap, stale = false, mask = mask)
-                }
-                if (epochStale) sawStale = true
+            if (!response.isSuccessful) {
+                response.close()
+                if (response.code in STALE_CODES) sawStale = true
+                continue
             }
+
+            val bootstrap = runCatching { response.parseAs<AaCryptoBootstrap>() }.getOrNull()
+                ?: continue
+
+            if (bootstrap.k != null && bootstrap.k != ANIME_LANE) continue
+
+            return BootstrapResult(bootstrap, stale = false, mask = mask)
         }
         return BootstrapResult(null, stale = sawStale)
     }
@@ -197,7 +171,6 @@ class MKissaKeyManager(
         return MKissaBundle.BuildInfo(buildId, seeds)
     }
 
-    /** The entry is re-read every time: chunk URLs are immutable, so a rebuild only shows in HTML. */
     private suspend fun resolveBuild(): MKissaBundle.BuildInfo? {
         val appUrl = entryUrlFromSite()?.toHttpUrl() ?: return null
 
@@ -205,7 +178,6 @@ class MKissaKeyManager(
             client.newCall(GET(appUrl, headers)).awaitSuccess().bodyString()
         }.getOrNull() ?: return null
 
-        // Shared chunks first: that is where it has always lived.
         val chunkRefs = CHUNK_REF_REGEX.findAll(appJs)
             .map { it.groupValues[1] }
             .distinct()
@@ -213,9 +185,6 @@ class MKissaKeyManager(
             .take(MAX_BUILD_CHUNKS)
             .toList()
 
-        // In batches rather than all at once: the chunks run to about a megabyte each, so fetching
-        // the whole list in parallel would pull tens of megabytes to use one of them, while walking
-        // them one at a time pays a full round trip per miss.
         for (batch in chunkRefs.chunked(BUILD_CHUNK_BATCH)) {
             val found = batch.parallelCatchingMapNotNull { ref ->
                 val chunkUrl = appUrl.resolve(ref) ?: return@parallelCatchingMapNotNull null
@@ -223,13 +192,11 @@ class MKissaKeyManager(
                 if (!body.contains(CRYPTO_CHUNK_MARKER)) return@parallelCatchingMapNotNull null
                 MKissaBundle.parse(body)
             }
-            // Order is preserved, so this stays the first hit in the site's own chunk order.
             found.firstOrNull()?.let { return it }
         }
         return null
     }
 
-    /** Cloudflare-gated; only needed to locate the CDN app entry. */
     private suspend fun entryUrlFromSite(): String? {
         val html = runCatching {
             client.newCall(GET("$siteUrl/", headers)).awaitSuccess().bodyString()
@@ -249,10 +216,8 @@ class MKissaKeyManager(
 
         private const val BOOTSTRAP_PATH = "/client-crypto/v1/bootstrap"
 
-        // 403 invalid_boot_token, 404 unknown_build_id.
         private val STALE_CODES = setOf(403, 404)
 
-        // The site buckets its hosts; adding a mirror to the domain pref means revisiting this.
         private const val KEY_GROUP = "mkissa"
 
         private const val PREF_BUILD_KEY = "client_build_cache"
