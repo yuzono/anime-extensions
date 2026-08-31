@@ -187,7 +187,7 @@ data class SourceData(
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
         "https://og.bakayaro.live",
-        isM3U8?.let { "m3u8" } ?: "stream",
+        if (isM3U8 == true) "m3u8" else "stream",
         url,
     ).joinToString("/")
 }
