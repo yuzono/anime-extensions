@@ -144,6 +144,7 @@ object MKissaCrypto {
         return hmac(inner, message).toHex()
     }
 
+    /** Legacy `aa-boot` scheme, retained for grace window after a site rebuild. */
     fun bootTokenLegacy(
         mask: ByteArray,
         buildId: String,
@@ -161,6 +162,7 @@ object MKissaCrypto {
         return hmac(inner, message).toHex()
     }
 
+    /** Returns all boot-token candidates in priority order, newest first, for grace-window compatibility. */
     fun bootTokenCandidates(
         mask: ByteArray,
         buildId: String,
