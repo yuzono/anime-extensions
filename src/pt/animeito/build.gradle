@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeIto'
     themePkg = 'animestream'
     baseUrl = 'https://animesonline.io'
-    overrideVersionCode = 7
+    overrideVersionCode = 8
 }
 
 apply plugin: "kei.plugins.extension.legacy"

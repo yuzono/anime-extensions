@@ -11,7 +11,6 @@ class AnimeIto :
         "Animeito",
         "https://animesonline.io",
     ) {
-    override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
 
     // ============================ Video Links =============================
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
