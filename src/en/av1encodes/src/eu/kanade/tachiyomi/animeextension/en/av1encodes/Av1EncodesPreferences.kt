@@ -60,19 +60,24 @@ internal fun buildPreferenceScreen(screen: PreferenceScreen) {
         title = "Show Torrent Link"
         summary = "Include the torrent link as a video option."
         setDefaultValue(PREF_SHOW_TORRENT_DEFAULT)
-    }
+    }.also(screen::addPreference)
 }
 
 private val qualityRegex by lazy { Regex("""[xX]\s*(\d{3,4})""") }
 private val resolutionRegex by lazy { Regex("""(\d{3,4})p""") }
 
 internal fun List<Video>.sortByPreferredQuality(preferences: SharedPreferences): List<Video> {
-    val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-    val preferredResolution = qualityRegex.find(preferredQuality)?.groupValues?.getOrNull(1) ?: preferredQuality
-    val linkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
+    val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT).orEmpty()
+    val preferredResolution = qualityRegex.find(preferredQuality)?.groupValues?.getOrNull(1)
+        ?: resolutionRegex.find(preferredQuality)?.groupValues?.getOrNull(1)
+        ?: preferredQuality
+    val linkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT).orEmpty()
     return sortedWith(
         compareByDescending<Video> { it.quality.contains(linkType, ignoreCase = true) }
-            .thenByDescending { it.quality.contains(preferredResolution, ignoreCase = true) }
+            .thenByDescending {
+                it.quality.contains(preferredResolution, ignoreCase = true) ||
+                    it.quality.contains("${preferredResolution}p", ignoreCase = true)
+            }
             .thenByDescending { resolutionRegex.find(it.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0 },
     )
 }
