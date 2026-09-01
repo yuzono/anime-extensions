@@ -13,17 +13,17 @@ import eu.kanade.tachiyomi.animeextension.all.javguru.extractors.MaxStreamExtrac
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -38,7 +38,7 @@ import java.util.Locale
 import kotlin.math.min
 
 class JavGuru :
-    AnimeHttpLegacySource(),
+    AnimeHttpHosterSource(),
     ConfigurableAnimeSource {
 
     override val name = "Jav Guru"
@@ -286,7 +286,7 @@ class JavGuru :
 
     // ========================= Videos =========================
 
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.useAsJsoup()
 
         val iframeData = document.selectFirst("script:containsData(iframe_url)")?.html()
@@ -299,10 +299,9 @@ class JavGuru :
 
         return iframeUrls
             .parallelMapNotNullBlocking(::resolveHosterUrl)
-            .parallelCatchingFlatMapBlocking(::getVideos)
     }
 
-    private suspend fun resolveHosterUrl(iframeUrl: String): String? = runCatching {
+    private suspend fun resolveHosterUrl(iframeUrl: String): Hoster? = runCatching {
         val token = iframeUrl.toHttpUrlOrNull()?.queryParameter("xd")
         val finalUrl = if (token != null) {
             val base = iframeUrl.substringBefore("?")
@@ -342,7 +341,10 @@ class JavGuru :
             return null
         }
 
-        return redirectUrl
+        return legacyHoster(
+            hosterUrl = redirectUrl,
+            hosterName = redirectUrl.toHttpUrlOrNull()?.host ?: "Unknown",
+        )
     }.getOrNull()
 
     private val streamWishExtractor by lazy {
@@ -358,40 +360,43 @@ class JavGuru :
     private val maxStreamExtractor by lazy { MaxStreamExtractor(client, headers) }
     private val emTurboExtractor by lazy { EmTurboExtractor(client, headers) }
 
-    private suspend fun getVideos(hosterUrl: String): List<Video> = when {
-        listOf("javplaya", "javclan").any { it in hosterUrl } -> {
-            streamWishExtractor.videosFromUrl(hosterUrl).map { video ->
-                val newHeaders = (video.headers ?: headers).newBuilder()
-                    .set("Referer", "$baseUrl/")
-                    .set("Origin", baseUrl)
-                    .build()
-                video.copyLegacy(
-                    headers = newHeaders,
-                )
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val hosterUrl = hoster.hosterUrl
+        return when {
+            listOf("javplaya", "javclan").any { it in hosterUrl } -> {
+                streamWishExtractor.videosFromUrl(hosterUrl).map { video ->
+                    val newHeaders = (video.headers ?: headers).newBuilder()
+                        .set("Referer", "$baseUrl/")
+                        .set("Origin", baseUrl)
+                        .build()
+                    video.copyLegacy(
+                        headers = newHeaders,
+                    )
+                }
             }
-        }
 
-        hosterUrl.contains("streamtape") -> {
-            streamTapeExtractor.videoFromUrl(hosterUrl).let(::listOfNotNull)
-        }
+            hosterUrl.contains("streamtape") -> {
+                streamTapeExtractor.videoFromUrl(hosterUrl).let(::listOfNotNull)
+            }
 
-        listOf("dood", "ds2play").any { it in hosterUrl } -> {
-            doodExtractor.videosFromUrl(hosterUrl)
-        }
+            listOf("dood", "ds2play").any { it in hosterUrl } -> {
+                doodExtractor.videosFromUrl(hosterUrl)
+            }
 
-        listOf("mixdrop", "mixdroop").any { it in hosterUrl } -> {
-            mixDropExtractor.videoFromUrl(hosterUrl)
-        }
+            listOf("mixdrop", "mixdroop").any { it in hosterUrl } -> {
+                mixDropExtractor.videoFromUrl(hosterUrl)
+            }
 
-        hosterUrl.contains("maxstream") -> {
-            maxStreamExtractor.videoFromUrl(hosterUrl)
-        }
+            hosterUrl.contains("maxstream") -> {
+                maxStreamExtractor.videoFromUrl(hosterUrl)
+            }
 
-        hosterUrl.contains("emturbovid") -> {
-            emTurboExtractor.getVideos(hosterUrl)
-        }
+            hosterUrl.contains("emturbovid") -> {
+                emTurboExtractor.getVideos(hosterUrl)
+            }
 
-        else -> emptyList()
+            else -> emptyList()
+        }
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
