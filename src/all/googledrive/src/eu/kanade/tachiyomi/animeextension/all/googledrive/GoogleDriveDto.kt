@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.googledrive
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 data class PostResponse(
@@ -13,7 +16,13 @@ data class PostResponse(
         val title: String,
         val mimeType: String,
         val fileSize: String? = null,
-    )
+        val parents: List<Parent>? = null,
+    ) {
+        @Serializable
+        data class Parent(
+            val id: String,
+        )
+    }
 }
 
 @Serializable
@@ -41,5 +50,17 @@ data class DetailsJson(
     val artist: String? = null,
     val description: String? = null,
     val genre: List<String>? = null,
-    val status: String? = null,
+    val status: JsonElement? = null,
+) {
+    fun statusAsInt(): Int? = (status as? JsonPrimitive)?.content?.toIntOrNull()
+}
+
+@Serializable
+data class EpisodeDetailsJson(
+    @SerialName("episode_number")
+    val episodeNumber: Float,
+    val name: String? = null,
+    @SerialName("date_upload")
+    val dateUpload: String? = null,
+    val scanlator: String? = null,
 )
