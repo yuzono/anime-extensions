@@ -35,7 +35,6 @@ jobs:
       matrix: ${{ steps.generate-matrices.outputs.matrix }}
       delete: ${{ steps.generate-matrices.outputs.delete }}
       skipBump: ${{ steps.set-env.outputs.SKIP_BUMP }}
-      skipBuild: ${{ steps.set-env.outputs.SKIP_BUILD }}
     steps:
       - name: Checkout ${{ github.ref_name }} branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +53,8 @@ jobs:
 
           # Commit message markers:
           #   [skip bumping version] -> skip the version bumping step only
-          #   [skip yuzono ci]       -> skip the version bumping step and the build job
+          #   [skip yuzono ci]       -> skip the version bumping step and emit empty
+          #                             build matrices, so the build job does not run
           skip_bump=false
           skip_build=false
           case "$LATEST_COMMIT_MESSAGE" in
@@ -102,15 +102,23 @@ jobs:
 
       - id: generate-matrices
         name: Create output matrices
+        env:
+          SKIP_BUILD: ${{ steps.set-env.outputs.SKIP_BUILD }}
         run: |
-          python ./.github/scripts/generate-build-matrices.py "$NX_BASE" Release
+          if [ "$SKIP_BUILD" = "true" ]; then
+            echo "Skipping build: emitting empty matrices."
+            echo 'matrix={"chunk":[]}' >> $GITHUB_OUTPUT
+            echo 'delete=[]' >> $GITHUB_OUTPUT
+          else
+            python ./.github/scripts/generate-build-matrices.py "$NX_BASE" Release
+          fi
 
   build:
     name: Build extensions (${{ matrix.chunk.number }})
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: ${{ needs.prepare.outputs.skipBuild != 'true' && toJson(fromJson(needs.prepare.outputs.matrix).chunk) != '[]' }}
+    if: ${{ toJson(fromJson(needs.prepare.outputs.matrix).chunk) != '[]' }}
     strategy:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
