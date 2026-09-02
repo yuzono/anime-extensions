@@ -21,7 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.Source
 import keiyoushi.utils.addEditTextPreference
-import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.get
@@ -603,7 +603,7 @@ class Stremio : Source() {
         val data = video.internalData.parseAs<VideoData>()
         val subtitleList = getSubtitleList(data)
 
-        return video.copy(
+        return video.copyLegacy(
             subtitleTracks = subtitleList,
         )
     }
@@ -963,19 +963,20 @@ class Stremio : Source() {
             validationMessage = { "Invalid scanlator format" },
         )
 
-        screen.addSwitchPreference(
-            key = PREF_SPLIT_SEASONS_KEY,
-            default = PREF_SPLIT_SEASONS_DEFAULT,
-            title = "Split seasons",
-            summary = "Split seasons into its own entry",
-        )
-
-        screen.addSwitchPreference(
-            key = PREF_CONCAT_NAMES_KEY,
-            default = PREF_CONCAT_NAMES_DEFAULT,
-            title = "Concatenate series and season names",
-            summary = "",
-        )
+        // TODO: enable after bumping to lib-16
+        // screen.addSwitchPreference(
+        //    key = PREF_SPLIT_SEASONS_KEY,
+        //    default = PREF_SPLIT_SEASONS_DEFAULT,
+        //    title = "Split seasons",
+        //    summary = "Split seasons into its own entry",
+        // )
+//
+        // screen.addSwitchPreference(
+        //    key = PREF_CONCAT_NAMES_KEY,
+        //    default = PREF_CONCAT_NAMES_DEFAULT,
+        //    title = "Concatenate series and season names",
+        //    summary = "",
+        // )
 
         val limitSummary: (String) -> String = { if (it == "0") "No limit" else "Limit: $it" }
         screen.addEditTextPreference(

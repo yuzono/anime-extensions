@@ -2,7 +2,6 @@
 
 package eu.kanade.tachiyomi.animeextension.all.stremio
 
-import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -81,7 +80,8 @@ data class MetaDto(
         title = name
         url = "#-$type-$id"
         thumbnail_url = poster
-        background_url = background ?: poster
+        // TODO: enable after bumping to lib-16
+        // background_url = background ?: poster
 
         genre = genres?.joinToString()
         author = director?.take(5)?.joinToString()
@@ -102,11 +102,12 @@ data class MetaDto(
             }
         }
 
-        fetch_type = if (type.equals("movie", true) || !splitSeasons) {
-            FetchType.Episodes
-        } else {
-            FetchType.Seasons
-        }
+        // TODO: enable after bumping to lib-16
+        // fetch_type = if (type.equals("movie", true) || !splitSeasons) {
+        //    FetchType.Episodes
+        // } else {
+        //    FetchType.Seasons
+        // }
     }
 }
 
@@ -166,8 +167,9 @@ data class VideoDto(
         url = "$type-$id"
         name = sub.replace(episodeTemplate).trim()
         scanlator = sub.replace(scanlatorTemplate).trim().takeNotBlank()
-        summary = overview?.takeNotBlank() ?: description
-        preview_url = thumbnail
+        // TODO: enable after bumping to lib-16
+        // summary = overview?.takeNotBlank() ?: description
+        // preview_url = thumbnail
         episode_number = episode?.toFloat() ?: 1F
         date_upload = DATE_FORMAT.tryParse(released)
     }
@@ -229,7 +231,7 @@ data class StreamDto(
         }.trim().ifBlank { "Video" }
 
         if (url?.isNotEmpty() == true) {
-            return Video(
+            return source.legacyVideo(
                 videoTitle = videoName,
                 videoUrl = url,
                 headers = headers,
@@ -261,7 +263,7 @@ data class StreamDto(
                 }
             }
 
-            return Video(
+            return source.legacyVideo(
                 videoTitle = videoName,
                 videoUrl = url,
                 internalData = videoData.toJsonString(),
