@@ -111,7 +111,7 @@ class AniZone :
 
         val isLivewire = res.request.url.encodedPath.contains("/livewire/update")
         val html = if (isLivewire) {
-            res.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY)
+            res.parseAs<LivewireDto>().getHtml(ANIME_SNAPSHOT_KEY).body()
         } else {
             res.asJsoup().updateState(ANIME_SNAPSHOT_KEY)
         }
@@ -280,7 +280,7 @@ class AniZone :
         val res = response.retryOn419 { client.newCall(it).execute() }
 
         val html = if (res.request.url.encodedPath.contains("/livewire/update")) {
-            res.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY)
+            res.parseAs<LivewireDto>().getHtml(EPISODE_SNAPSHOT_KEY).body()
         } else {
             res.asJsoup().updateState(EPISODE_SNAPSHOT_KEY)
         }
@@ -564,7 +564,7 @@ class AniZone :
     private fun Document.updateState(mapKey: String): Element {
         this.selectFirst("script[data-csrf]")?.attr("data-csrf")?.takeIf(String::isNotEmpty)?.let { token = it }
         this.getSnapshot()?.let { snapShots[mapKey] = it }
-        return this.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: this
+        return this.selectFirst("main > div[wire:snapshot], main > ul[wire:snapshot]") ?: this.body()
     }
 
     private fun createLivewireReq(

@@ -475,7 +475,7 @@ class MKissa :
     private fun String.containsAny(keywords: List<String>): Boolean = keywords.any { this.contains(it) }
 
     private suspend fun fetchSourceUrls(episode: SEpisode): List<SourceUrl> {
-        val encryptionChangedError = Exception("MKissa changed its stream encryption; update the extension")
+        val encryptionChangedError = Throwable("MKissa changed its stream encryption; update the extension")
         var lastError: Throwable? = null
         var buildHealed = false
 

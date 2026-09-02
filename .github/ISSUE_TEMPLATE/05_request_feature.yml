@@ -10,7 +10,7 @@ body:
       description: |
         You can find the extension name in **Browse → Extensions**.
       placeholder: |
-        Example: "DopeBox"
+        Example: "Jellyfin"
     validations:
       required: true
 

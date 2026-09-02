@@ -304,8 +304,7 @@ apply plugin: "kei.plugins.extension.legacy"
 | `extVersionCode` | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function. |
 | `isNsfw`         | Flag to indicate that a source contains NSFW content. Should always be set explicitly to either `true` or `false`. Falls back to `false` if not set.                                                                 |
 
-The extension's version name is generated automatically by concatenating `14` and `extVersionCode`.
-With the example used above, the version would be `14.1`.
+The extension's version name is generated automatically by concatenating `16` and `extVersionCode`. With the example used above, the version would be `16.1`.
 
 ### Core dependencies
 

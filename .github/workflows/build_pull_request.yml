@@ -36,12 +36,14 @@ jobs:
 
       - name: Set env
         id: set-env
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          LATEST_COMMIT_MESSAGE=$(git log -1 --pretty=%B "$HEAD_SHA")
           echo "LATEST_COMMIT_MESSAGE<<{delimiter}
           $LATEST_COMMIT_MESSAGE
 
-          Built on commit: $(git log -1 --pretty=%H)
+          Built on commit: $HEAD_SHA
           {delimiter}" >> $GITHUB_OUTPUT
 
           # Commit message markers:
@@ -61,6 +63,7 @@ jobs:
           esac
           echo "SKIP_BUMP=$skip_bump" >> $GITHUB_OUTPUT
           echo "SKIP_BUILD=$skip_build" >> $GITHUB_OUTPUT
+          echo "Commit $HEAD_SHA -> SKIP_BUMP=$skip_bump SKIP_BUILD=$skip_build"
 
       - name: Find lib changes
         id: modified-libs

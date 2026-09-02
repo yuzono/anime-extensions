@@ -10,7 +10,7 @@ body:
       description: |
         You can find the extension name and version in **Browse → Extensions**.
       placeholder: |
-        Example: "AnimePahe 14.19 (English)"
+        Example: "Stremio 16.7 (All)"
     validations:
       required: true
 
@@ -74,7 +74,7 @@ body:
       description: |
         You can find your app version in **More → About**.
       placeholder: |
-        Example: "0.15.2.4" or "Preview r7473"
+        Example: "0.17.0" or "Preview r8888"
     validations:
       required: true
 

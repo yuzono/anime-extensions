@@ -78,7 +78,7 @@ class AV1Encodes :
         val seen = mutableSetOf<String>()
         val animes = mutableListOf<SAnime>()
 
-        var searchContext: Element = doc
+        var searchContext: Element = doc.body()
         val header = doc.select("h1,h2,h3,h4,h5,h6").firstOrNull {
             it.text().contains("Top Downloads", ignoreCase = true)
         }
@@ -87,7 +87,7 @@ class AV1Encodes :
             searchContext = if (sibling != null && sibling.text().length > 20) {
                 sibling
             } else {
-                header.parent() ?: doc
+                header.parent() ?: doc.body()
             }
         }
 
@@ -266,7 +266,7 @@ class AV1Encodes :
             val contentRoot = doc.selectFirst(
                 "main, #main, #content, .content, [class*='anime-list'], [class*='anime-grid'], " +
                     "[class*='result'], [class*='listing'], [class*='airing'], section.animes",
-            ) ?: doc
+            ) ?: doc.body()
             animes = contentRoot.select("h3").mapNotNull { h3 ->
                 val block = h3.parent() ?: return@mapNotNull null
                 val a = block.selectFirst("a[href*='/anime/']")
@@ -361,7 +361,7 @@ class AV1Encodes :
                 ?: extractBg(
                     doc.selectFirst(
                         ".anime-poster, .poster, .anime-hero, [class*='poster'], [class*='hero']",
-                    ) ?: doc,
+                    ) ?: doc.body(),
                 )
 
             description = doc.selectFirst(

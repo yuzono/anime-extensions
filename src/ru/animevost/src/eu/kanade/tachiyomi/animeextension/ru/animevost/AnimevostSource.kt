@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 
 data class AnimeDescription(
     val year: String? = null,
@@ -347,10 +348,12 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
                 // Last-resort fallback: any div that directly wraps a /tip/ link.
                 // We require the container to have an <img> child so that bare
                 // navigation/filter links (genre, type) are not mistaken for anime cards.
-                document.select("a[href*='/tip/']")
-                    .mapNotNull { it.parent() }
-                    .filter { parent -> parent.selectFirst("img") != null }
-                    .distinctBy { it.cssSelector() }
+                Elements(
+                    document.select("a[href*='/tip/']")
+                        .mapNotNull { it.parent() }
+                        .filter { parent -> parent.selectFirst("img") != null }
+                        .distinctBy { it.cssSelector() },
+                )
             }
 
         containers.forEach { container: Element ->
