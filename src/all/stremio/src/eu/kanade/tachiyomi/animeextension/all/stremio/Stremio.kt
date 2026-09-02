@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animeextension.all.stremio.addon.dto.ExtraType
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -527,15 +528,12 @@ class Stremio : Source() {
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val (type, id) = episode.url.split("-", limit = 2)
-
-        val subtitles = getSubtitleList(type, id)
-        val serverUrl = preferences.serverUrl.takeIf { it.isNotEmpty() }
 
         return addons()
             .filter { it.manifest.isValidResource(AddonResource.STREAM, type, id) }
-            .parallelCatchingFlatMap { addon ->
+            .map { addon ->
                 val url = addon.getTransportUrl().newBuilder().apply {
                     addPathSegment("stream")
                     addPathSegment(type)
@@ -543,12 +541,26 @@ class Stremio : Source() {
                 }.build().toString() +
                     ".json"
 
-                client.get(url, headers)
-                    .parseAs<StreamResultDto>()
-                    .streams
-                    .map { v -> v.toVideo(serverUrl, subtitles) }
+                legacyHoster(
+                    hosterUrl = url,
+                    hosterName = addon.manifest.name,
+                    internalData = episode.url,
+                )
             }
-            .filterNotNull()
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val (type, id) = hoster.internalData.split("-", limit = 2)
+
+        val subtitles = getSubtitleList(type, id)
+        val serverUrl = preferences.serverUrl.takeIf { it.isNotEmpty() }
+
+        val url = hoster.hosterUrl
+
+        return client.get(url, headers)
+            .parseAs<StreamResultDto>()
+            .streams
+            .mapNotNull { v -> v.toVideo(serverUrl, subtitles) }
     }
 
     private suspend fun getSubtitleList(type: String, id: String): List<Track> = addons()
@@ -605,14 +617,14 @@ class Stremio : Source() {
         private val STRING_SUBSTITUTOR = StringSubstitutor(SUBSTITUTE_VALUES, "{", "}").apply {
             isEnableUndefinedVariableException = true
         }
-        private val SUBSTITUTE_DIALOG_MESSAGE = """
+        private val SUBSTITUTE_DIALOG_MESSAGE = $$"""
         |Supported placeholders:
         |- {name}: Episode name
         |- {episodeNumber}: Episode number
         |- {seasonNumber}: Season number
         |- {description}: Episode description
         |If you wish to place some text between curly brackets, place the escape character "$"
-        |before the opening curly bracket, e.g. ${'$'}{name}.
+        |before the opening curly bracket, e.g. ${name}.
         """.trimMargin()
 
         private const val PREF_EPISODE_NAME_TEMPLATE_KEY = "pref_episode_name_template"
