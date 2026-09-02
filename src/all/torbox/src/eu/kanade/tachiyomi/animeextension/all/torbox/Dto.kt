@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.torbox
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import extensions.utils.Source
-import extensions.utils.formatBytes
-import extensions.utils.toJsonString
+import keiyoushi.utils.Source
+import keiyoushi.utils.formatBytes
+import keiyoushi.utils.toJsonString
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.Locale.getDefault

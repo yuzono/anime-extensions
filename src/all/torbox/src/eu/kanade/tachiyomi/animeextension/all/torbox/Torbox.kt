@@ -11,16 +11,15 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.get
-import extensions.utils.Source
-import extensions.utils.addEditTextPreference
-import extensions.utils.addSetPreference
-import extensions.utils.addSwitchPreference
-import extensions.utils.delegate
-import extensions.utils.formatBytes
-import extensions.utils.parseAs
-import extensions.utils.toJsonString
+import keiyoushi.utils.Source
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.addSwitchPreference
+import keiyoushi.utils.delegate
+import keiyoushi.utils.formatBytes
+import keiyoushi.utils.get
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -208,7 +207,7 @@ class Torbox :
         CachedDate("Cached Date"),
         LastUpdated("Last Updated"),
         Progress("Progress"),
-        Ratio("Ration"),
+        Ratio("Ratio"),
         DownloadSpeed("Download Speed"),
         UploadSpeed("Upload Speed"),
         ETA("ETA"),
@@ -227,8 +226,6 @@ class Torbox :
     }
 
     // ============================== Episodes ==============================
-
-    override suspend fun getSeasonList(anime: SAnime) = throw UnsupportedOperationException()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val info = anime.url.parseAs<InfoDetailsDto>()
@@ -282,7 +279,7 @@ class Torbox :
         val videoUrl = client.get(url).parseAs<DataDto<String>>().data
 
         return listOf(
-            Video(
+            legacyVideo(
                 videoUrl = videoUrl,
                 videoTitle = episode.name,
             ),

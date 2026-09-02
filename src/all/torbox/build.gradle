@@ -1,7 +1,7 @@
 ext {
     extName = 'Torbox'
     extClass = '.Torbox'
-    extVersionCode = 2
+    extVersionCode = 1
     extNames = ["Torbox"]
     versionId = 2
 }
