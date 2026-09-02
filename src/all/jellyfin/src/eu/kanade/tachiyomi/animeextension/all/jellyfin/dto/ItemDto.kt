@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.all.jellyfin.dto
 
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.format
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.getImageUrl
-import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.formatBytes
@@ -74,11 +73,12 @@ data class ItemDto(
             ItemType.Series to "series",
             // Not using ItemType.Episode (episode) here
         )
-        fetch_type = when (type) {
-            ItemType.BoxSet, ItemType.Series -> FetchType.Seasons
-            ItemType.Movie, ItemType.Season -> FetchType.Episodes
-            else -> FetchType.Episodes
-        }
+        // TODO: enable after bumping to lib-16
+        // fetch_type = when (type) {
+        //     ItemType.BoxSet, ItemType.Series -> FetchType.Seasons
+        //     ItemType.Movie, ItemType.Season -> FetchType.Episodes
+        //     else -> FetchType.Episodes
+        // }
         url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("Users")
             addPathSegment(userId)
@@ -87,22 +87,24 @@ data class ItemDto(
             fragment(typeMap[type])
         }.build().toString()
         thumbnail_url = imageTags.primary?.getImageUrl(baseUrl, id)
-        background_url = when {
-            backdropImageTags?.firstOrNull() != null -> {
-                backdropImageTags.first().getImageUrl(baseUrl, id, "Backdrop", 0)
-            }
-
-            parentBackdropImageTags?.firstOrNull() != null && parentBackdropItemId != null -> {
-                parentBackdropImageTags.first().getImageUrl(baseUrl, parentBackdropItemId, "Backdrop", 0)
-            }
-
-            else -> thumbnail_url
-        }
+        // TODO: enable after bumping to lib-16
+        // background_url = when {
+        //     backdropImageTags?.firstOrNull() != null -> {
+        //         backdropImageTags.first().getImageUrl(baseUrl, id, "Backdrop", 0)
+        //     }
+//
+        //     parentBackdropImageTags?.firstOrNull() != null && parentBackdropItemId != null -> {
+        //         parentBackdropImageTags.first().getImageUrl(baseUrl, parentBackdropItemId, "Backdrop", 0)
+        //     }
+//
+        //     else -> thumbnail_url
+        // }
         title = name
         description = overview?.let(::convertHtml)
         genre = genres?.joinToString(", ")
         author = studios?.joinToString(", ") { it.name }
-        season_number = indexNumber?.toDouble() ?: -1.0
+        // TODO: enable after bumping to lib-16
+        // season_number = indexNumber?.toDouble() ?: -1.0
 
         status = if (type == ItemType.Movie) {
             SAnime.COMPLETED
@@ -198,8 +200,9 @@ data class ItemDto(
             .trim()
         url = "$baseUrl/Users/$userId/Items/$id"
         scanlator = extraInfo.joinToString(" • ")
-        summary = overview?.let(::convertHtml)
-        preview_url = imageTags.primary?.getImageUrl(baseUrl, id)
+        // TODO: enable after bumping to lib-16
+        // summary = overview?.let(::convertHtml)
+        // preview_url = imageTags.primary?.getImageUrl(baseUrl, id)
         premiereDate?.let {
             date_upload = parseDateTime(it.removeSuffix("Z"))
         }
