@@ -39,7 +39,6 @@ import keiyoushi.utils.get
 import keiyoushi.utils.getListPreference
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
-import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.toJsonString
 import kotlinx.coroutines.CancellationException
@@ -49,7 +48,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -163,7 +161,7 @@ class Jellyfin(private val suffix: String) :
         filterList.filterIsInstance<TypeFilter>().first().let {
             itemTypes = it.state.filter { s -> s.state }.map { s -> s.id }
             if (preferences.saveTypes) {
-                preferences.saveTypesValue = json.encodeToString<List<ItemType>>(itemTypes)
+                preferences.saveTypesValue = itemTypes.toJsonString(json)
             }
         }
 
@@ -555,7 +553,7 @@ class Jellyfin(private val suffix: String) :
 
         if (mediaSource.isRemote && mediaSource.path != null && preferences.useRemote) {
             return listOf(
-                Video(
+                legacyVideo(
                     videoTitle = buildString {
                         append("Source (Remote)")
                         mediaSource.name?.let { append("\n$it") }
@@ -588,7 +586,7 @@ class Jellyfin(private val suffix: String) :
             addQueryParameter("PlaySessionId", sessionData.playSessionId)
         }.build().toString()
 
-        val staticVideo = Video(
+        val staticVideo = legacyVideo(
             videoTitle = "Source - ${videoBitrate}ps",
             videoUrl = staticUrl,
             bitrate = Int.MAX_VALUE,
@@ -613,7 +611,7 @@ class Jellyfin(private val suffix: String) :
         val qualities = Constants.QUALITIES_LIST.takeWhile { it.videoBitrate <= referenceBitrate }
         qualities.forEach {
             videoList.add(
-                Video(
+                legacyVideo(
                     videoUrl = "",
                     videoTitle = it.description,
                     bitrate = it.videoBitrate,
@@ -679,7 +677,7 @@ class Jellyfin(private val suffix: String) :
 
         return client.post(
             url = sessionUrl,
-            body = json.encodeToString(playbackInfo).toJsonBody(),
+            body = playbackInfo.toJsonRequestBody(json),
         ).parseAs<SessionDto>(json)
     }
 
@@ -695,7 +693,7 @@ class Jellyfin(private val suffix: String) :
         )
 
         return sessionData.mediaSources.firstOrNull()?.transcodingUrl?.let {
-            video.copy(
+            video.copyLegacy(
                 videoUrl = baseUrl + it,
             )
         }
@@ -985,7 +983,7 @@ class Jellyfin(private val suffix: String) :
                         .items
                         .filterNot { it.collectionType in LIBRARY_BLACKLIST }
                         .map { MediaLibraryDto(it.name, it.id) }
-                    val libraryListJson = json.encodeToString<List<MediaLibraryDto>>(libraryList)
+                    val libraryListJson = libraryList.toJsonString(json)
 
                     displayToast("Login successful")
 
@@ -1097,7 +1095,7 @@ class Jellyfin(private val suffix: String) :
             default = PREF_EPISODE_NAME_TEMPLATE_DEFAULT,
             title = "Episode title format",
             summary = "Customize how episode names appear",
-            dialogMessage = """
+            dialogMessage = $$"""
             |Supported placeholders:
             |- {title}: Episode name
             |- {originalTitle}: Original title
@@ -1114,7 +1112,7 @@ class Jellyfin(private val suffix: String) :
             |- {runtime}: Episode runtime (formatted)
             |- {runtimeS}: Episode runtime (in seconds)
             |If you wish to place some text between curly brackets, place the escape character "$"
-            |before the opening curly bracket, e.g. ${'$'}{series}.
+            |before the opening curly bracket, e.g. ${series}.
             """.trimMargin(),
             inputType = InputType.TYPE_CLASS_TEXT,
             validate = {
