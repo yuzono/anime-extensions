@@ -17,7 +17,7 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
 abstract class Source :
-    AnimeHttpLegacySource(),
+    AnimeHttpHosterSource(),
     ConfigurableAnimeSource {
     protected val context: Application by injectLazy()
 
