@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.es.verpelistop
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
@@ -29,20 +30,11 @@ class HexloadExtractor(private val client: OkHttpClient, private val headers: He
             POST("https://hexload.com/download", headers, body = formBody),
         ).awaitSuccess().parseAs<Data>().result
 
-        val quality = formatBytes(video.size).takeIf { it.isNotBlank() }
+        val quality = video.size.formatBytes().takeIf { it.isNotBlank() }
             ?.let { "$prefix: $it" }
             ?: prefix
 
         return listOf(Video(video.url, quality, video.url, headers))
-    }
-
-    private fun formatBytes(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes"
-        bytes == 1L -> "$bytes byte"
-        else -> ""
     }
 
     @Serializable

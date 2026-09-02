@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.commonEmptyHeaders
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
@@ -181,7 +182,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 ?.groupValues?.get(1)
                 ?.toLongOrNull()
             val bandwidthFormatted = bandwidth
-                ?.let(::formatBytes)
+                ?.formatBytes()
             val streamName = listOfNotNull(resolution, bandwidthFormatted).joinToString(" - ")
                 .takeIf { it.isNotBlank() }
                 ?: "Video"
@@ -244,7 +245,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> = extractFromDash(
         mpdUrl,
         { videoRes, bandwidth ->
-            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+            videoNameGen(videoRes) + " - ${bandwidth.toLongOrNull()?.formatBytes() ?: ""}"
         },
         referer,
         { _, _ -> mpdHeaders },
@@ -291,7 +292,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> = extractFromDash(
         mpdUrl,
         { videoRes, bandwidth ->
-            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+            videoNameGen(videoRes) + " - ${bandwidth.toLongOrNull()?.formatBytes() ?: ""}"
         },
         referer,
         mpdHeadersGen,
@@ -345,8 +346,8 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
 
         // Get audio tracks
         val audioTracks = audioList + doc.select("Representation[mimetype~=audio]").map { audioSrc ->
-            val bandwidth = audioSrc.attr("bandwidth").toLongOrNull()
-            Track(audioSrc.text(), formatBytes(bandwidth))
+            val bandwidth = audioSrc.attr("bandwidth").toLongOrNull()?.formatBytes() ?: ""
+            Track(audioSrc.text(), bandwidth)
         }
 
         return doc.select("Representation[mimetype~=video]").map { videoSrc ->
@@ -365,16 +366,6 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 headers = videoHeadersGen(headers, referer, videoUrl),
             )
         }
-    }
-
-    private fun formatBytes(bytes: Long?): String = when {
-        bytes == null -> ""
-        bytes >= 1_000_000_000 -> "%.2f GB/s".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB/s".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB/s".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes/s"
-        bytes == 1L -> "$bytes byte/s"
-        else -> ""
     }
 
     // ============================= Utilities ==============================

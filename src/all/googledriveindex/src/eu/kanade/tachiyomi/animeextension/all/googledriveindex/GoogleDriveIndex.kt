@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
@@ -213,9 +214,8 @@ class GoogleDriveIndex :
         if (preferences.domainList.isBlank()) return emptyArray()
         return preferences.domainList.split(",").map {
             val match = URL_REGEX.matchEntire(it)!!
-            val name = match.groups["name"]?.let {
-                it.value.substringAfter("[").substringBeforeLast("]")
-            }
+            val name = match.groups["name"]
+                ?.value?.substringAfter("[")?.substringBeforeLast("]")
             Pair(name ?: it.toHttpUrl().encodedPath, it.removeName())
         }.toTypedArray()
     }
@@ -414,7 +414,7 @@ class GoogleDriveIndex :
                             } else {
                                 "/"
                             }
-                            val size = item.size?.toLongOrNull()?.let { formatFileSize(it) }
+                            val size = item.size?.toLongOrNull()?.formatBytes()
 
                             episodeList.add(
                                 SEpisode.create().apply {
@@ -508,15 +508,6 @@ class GoogleDriveIndex :
         return newString.trim()
     }
 
-    private fun formatFileSize(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes"
-        bytes == 1L -> "$bytes byte"
-        else -> ""
-    }
-
     private fun String.asReferer(): String = URLEncoder.encode(
         this.toHttpUrl().let {
             "https://${it.host}${it.encodedPath}"
@@ -578,13 +569,13 @@ class GoogleDriveIndex :
                                     response.request.header("Referer")!!,
                                     "single",
                                 ).toJsonString(),
-                                item.size?.toLongOrNull()?.let { formatFileSize(it) },
+                                item.size?.toLongOrNull()?.formatBytes(),
                             ).toJsonString()
                         } else {
                             LinkData(
                                 "single",
                                 joinUrl(URL_REGEX.matchEntire(url)!!.groups["url"]!!.value, item.name),
-                                item.size?.toLongOrNull()?.let { formatFileSize(it) },
+                                item.size?.toLongOrNull()?.formatBytes(),
                                 fragment = url.toHttpUrl().encodedFragment,
                             ).toJsonString()
                         }

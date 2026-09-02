@@ -30,6 +30,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.get
 import keiyoushi.utils.getListPreference
 import keiyoushi.utils.parallelFlatMap

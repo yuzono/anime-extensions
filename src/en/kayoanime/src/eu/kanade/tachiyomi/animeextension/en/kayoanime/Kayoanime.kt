@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
@@ -351,7 +352,7 @@ class Kayoanime :
                 if (parsed.items == null) throw Exception("Failed to load items, please log in to google drive through webview")
                 parsed.items.forEachIndexed { index, it ->
                     if (it.mimeType.startsWith("video")) {
-                        val size = it.fileSize?.toLongOrNull()?.let { formatBytes(it) }
+                        val size = it.fileSize?.toLongOrNull()?.formatBytes() ?: ""
                         val pathName = path.trimInfo()
 
                         episodeList.add(
@@ -522,15 +523,6 @@ class Kayoanime :
         val hide_next: Boolean,
         val code: String,
     )
-
-    private fun formatBytes(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes"
-        bytes == 1L -> "$bytes byte"
-        else -> ""
-    }
 
     private fun getCookie(url: String): String {
         val cookieList = client.cookieJar.loadForRequest(url.toHttpUrl())
