@@ -559,8 +559,10 @@ class AnimePahe :
         val cfUA = cfBypassUserAgent // Get the custom UA once
 
         val videos = if (!useHLS && paheWinLink.isNotBlank()) {
-            val mp4Videos = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
-            AnimePaheHlsServer.processMp4VideoList(client, mp4Videos)
+            val mp4Videos = runCatching {
+                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
+            }.getOrNull()
+            mp4Videos?.let { AnimePaheHlsServer.processMp4VideoList(client, it) } ?: emptyList()
         } else {
             emptyList()
         }
