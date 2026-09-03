@@ -11,17 +11,17 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
@@ -41,7 +41,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
 class AnimePahe :
-    AnimeHttpLegacySource(),
+    AnimeHttpHosterSource(),
     ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
@@ -528,41 +528,46 @@ class AnimePahe :
     }.toMutableList()
 
     // ============================ Video Links =============================
-    override fun videoListRequest(episode: SEpisode): Request {
+    override fun hosterListRequest(episode: SEpisode): Request {
         // Strip the `?anime_id=...` query parameter.
         // This parameter is strictly for database mapping and orphaning prevention.
         val urlPath = episode.url.substringBefore("?")
         return GET("$baseUrl$urlPath", headers)
     }
 
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        val links = document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
+        return document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
             val kwikLink = btn.attr("data-src")
             val quality = btn.text()
             val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
-            Triple(kwikLink, paheWinLink, quality)
+            legacyHoster(
+                hosterUrl = kwikLink,
+                hosterName = quality,
+                internalData = paheWinLink ?: "",
+            )
         }
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val kwikLink = hoster.hosterUrl
+        val paheWinLink = hoster.internalData
+        val quality = hoster.hosterName
 
         val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
         val cfUA = cfBypassUserAgent // Get the custom UA once
 
-        val videos = if (!useHLS) {
-            val mp4Videos = links.parallelCatchingFlatMapBlocking { (_, paheWinLink, quality) ->
-                if (paheWinLink.isNullOrBlank()) return@parallelCatchingFlatMapBlocking emptyList()
-                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
-            }
+        val videos = if (!useHLS && paheWinLink.isNotBlank()) {
+            val mp4Videos = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
             AnimePaheHlsServer.processMp4VideoList(client, mp4Videos)
         } else {
             emptyList()
         }
 
         return videos.ifEmpty {
-            val hlsVideos = links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
-                    .let(::listOf)
-            }
+            val hlsVideos = KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                .let(::listOf)
             AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
         }
     }
