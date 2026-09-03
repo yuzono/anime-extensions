@@ -568,9 +568,11 @@ class AnimePahe :
         }
 
         return videos.ifEmpty {
-            val hlsVideos = KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
-                .let(::listOf)
-            AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
+            val hlsVideos = runCatching {
+                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                    .let(::listOf)
+            }.getOrNull()
+            hlsVideos?.let { AnimePaheHlsServer.processVideoList(extractorClient, it) } ?: emptyList()
         }
     }
 
