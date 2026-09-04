@@ -140,6 +140,7 @@ jobs:
           KISSKH_SUB_API: ${{ secrets.KISSKH_SUB_API }}
           KAISVA: ${{ secrets.KAISVA }}
           TMDB_API: ${{ secrets.TMDB_API }}
+          WYZIE_API: ${{ secrets.WYZIE_API }}
           MODULES: ${{ join(matrix.chunk.modules, ' ') }}
         run: |
           ./gradlew $MODULES

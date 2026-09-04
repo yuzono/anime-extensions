@@ -137,6 +137,80 @@ data class VideoDataDto(
     val source: String,
 )
 
+// ============================== New Data Classes ==============================
+
+@Serializable
+data class PlaybackInitResponse(
+    val success: Boolean,
+    val requiresPow: Boolean = false,
+    val pow: PowData? = null,
+    val token: String? = null,
+    val expiresIn: Int? = null,
+)
+
+@Serializable
+data class PowData(
+    val challengeId: String,
+    val challenge: String,
+    val difficulty: Int,
+)
+
+@Serializable
+data class PlaybackInitRequest(
+    val mediaId: Int,
+    val mediaType: String,
+    @SerialName("tv_slug")
+    val tvSlug: String,
+    val requestToken: String,
+    val pow: PowRequest? = null,
+)
+
+@Serializable
+data class PowRequest(
+    val challengeId: String,
+    val nonce: String,
+)
+
+@Serializable
+data class EncryptRequest(
+    val data: EncryptData,
+    val endpoint: String,
+    val requestToken: String,
+)
+
+@Serializable
+data class EncryptData(
+    val mediaId: Int,
+    val mediaType: String,
+    @SerialName("tv_slug")
+    val tvSlug: String,
+    val source: String,
+)
+
+@Serializable
+data class EncryptResponse(
+    val url: String,
+    val encrypted: String,
+)
+
+@Serializable
+data class StreamEncryptedResponse(
+    val success: Boolean,
+    val data: StreamData? = null,
+)
+
+@Serializable
+data class StreamData(
+    @SerialName("stream_url")
+    val streamUrl: String,
+    val title: String,
+    @SerialName("tmdb_id")
+    val tmdbId: String,
+    @SerialName("media_type")
+    val mediaType: String,
+    val source: String,
+)
+
 // ============================== Subtitles ===============================
 
 @Serializable

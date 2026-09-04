@@ -22,19 +22,30 @@ import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.milliseconds
 
 class Mapple :
     AnimeHttpLegacySource(),
@@ -50,15 +61,18 @@ class Mapple :
         get() = preferences.domainPref
 
     private val apiUrl = "https://api.themoviedb.org/3"
-    private val mappleApi = "https://mapple.uk" // for payload only
-    private val decryptApi = "https://enc-dec.app/api"
-    private val subtitleApi = "https://sub.wyzie.ru"
+    private val subtitleApi = "https://sub.wyzie.io"
 
     override val lang = "en"
 
     override val supportsLatest = true
 
     private val json: Json by injectLazy()
+
+    private val customJson by lazy { Json { explicitNulls = false } }
+
+    private val EpisodeData.tvSlug: String
+        get() = if (type == "tv") "$season-$episode" else ""
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -81,13 +95,18 @@ class Mapple :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val types = if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
 
-        return types.parallelMapNotNull { mediaType ->
+        val results = types.parallelMap { mediaType ->
             runCatching {
                 client.newCall(latestUpdatesRequest(page, mediaType))
                     .awaitSuccess()
                     .use { latestUpdatesParse(it) }
-            }.getOrNull()
-        }.let { animePages ->
+            }
+        }
+        val animePages = results.mapNotNull { it.getOrNull() }
+        if (animePages.isEmpty()) {
+            results.first().exceptionOrNull()?.let { throw it }
+        }
+        return animePages.let { animePages ->
             val animes = animePages.flatMap { it.animes }
             val hasNextPage = animePages.any { it.hasNextPage }
             AnimesPage(animes, hasNextPage)
@@ -152,9 +171,9 @@ class Mapple :
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val type = filters.filterIsInstance<MappleFilters.TypeFilter>().first().state.let {
+        val type = filters.filterIsInstance<MappleFilters.TypeFilter>().firstOrNull()?.state?.let {
             if (it == 0) "movie" else "tv"
-        }
+        } ?: "movie"
         val sortFilter = filters.filterIsInstance<MappleFilters.SortFilter>().first()
         val sortBy = sortFilter.state?.run {
             when (index) {
@@ -232,12 +251,15 @@ class Mapple :
         return SAnime.create().apply {
             title = movie.title
             url = "/movie/${movie.id}"
-            thumbnail_url = movie.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+            thumbnail_url = movie.posterPath?.let { "$TMDB_IMAGE_BASE/$TMDB_POSTER_SIZE$it" }
             author = movie.productionCompanies.joinToString { it.name }
             genre = movie.genres.joinToString { it.name }
             status = parseStatus(movie.status)
             description = buildString {
-                movie.overview?.also { append(it + "\n\n") }
+                movie.overview?.takeIf { it.isNotBlank() }?.let {
+                    appendLine(it)
+                    appendLine()
+                }
                 val details = listOfNotNull(
                     "**Type:** Movie",
                     movie.voteAverage.takeIf { it > 0f }?.let { "**Score:** ★ ${String.format(Locale.US, "%.1f", it)}" },
@@ -258,7 +280,7 @@ class Mapple :
                 }
                 movie.backdropPath?.let {
                     if (isNotEmpty()) append("\n\n")
-                    append("![Backdrop](https://image.tmdb.org/t/p/w1280$it)")
+                    append("![Backdrop]($TMDB_IMAGE_BASE/$TMDB_BACKDROP_SIZE$it)")
                 }
             }
         }
@@ -269,7 +291,7 @@ class Mapple :
         return SAnime.create().apply {
             title = tv.name
             url = "/tv/${tv.id}"
-            thumbnail_url = tv.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+            thumbnail_url = tv.posterPath?.let { "$TMDB_IMAGE_BASE/$TMDB_POSTER_SIZE$it" }
             author = tv.productionCompanies.joinToString { it.name }
             artist = tv.networks.joinToString { it.name }
             genre = tv.genres.joinToString { it.name }
@@ -292,7 +314,7 @@ class Mapple :
                 }
                 tv.backdropPath?.let {
                     if (isNotEmpty()) append("\n\n")
-                    append("![Backdrop](https://image.tmdb.org/t/p/w1280$it)")
+                    append("![Backdrop]($TMDB_IMAGE_BASE/$TMDB_BACKDROP_SIZE$it)")
                 }
             }
         }
@@ -383,81 +405,125 @@ class Mapple :
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used")
 
+    private fun buildApiHeaders(): Headers = headers.newBuilder()
+        .add("Content-Type", "application/json")
+        .add("Accept", "*/*")
+        .add("Origin", baseUrl)
+        .add("Referer", "$baseUrl/")
+        .build()
+
+    private fun buildStreamHeaders(): Headers = headers.newBuilder()
+        .add("Referer", "$baseUrl/")
+        .build()
+
     // ============================ Video Links =============================
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val extraDataEncoded = episode.url.split("#").last()
+        val extraDataEncoded = episode.url.substringAfter('#', "")
         val episodeData = json.decodeFromString<EpisodeData>(extraDataEncoded)
 
-        val session = try {
-            client.newCall(GET("$decryptApi/enc-mapple")).awaitSuccess()
-                .parseAs<SessionResponseDto>().result
-        } catch (_: Exception) {
-            throw Exception("Failed to fetch session data")
+        // 1. Tokens
+        val pageUrl = "$baseUrl/watch/${episodeData.type}/${episodeData.tmdbId}"
+        val requestToken = getRequestToken(pageUrl)
+        val playbackToken = getPlaybackToken(episodeData, requestToken)
+
+        // 2. Server priority
+        val serversToQuery = resolveServerPriority()
+
+        // 3. Try each hoster until one yields videos
+        val apiHeaders = buildApiHeaders()
+        val streamHeaders = buildStreamHeaders()
+
+        serversToQuery.forEachIndexed { index, hoster ->
+            val result = runCatching {
+                fetchFromHoster(hoster, episodeData, requestToken, playbackToken, apiHeaders, streamHeaders)
+            }.onFailure { exception ->
+                if (exception is CancellationException) throw exception
+                // Optional: log exception/hoster failure here
+            }.getOrNull()
+
+            if (result != null) {
+                return result
+            }
+
+            if (index < serversToQuery.lastIndex) {
+                delay(1000.milliseconds)
+            }
         }
 
+        return emptyList()
+    }
+
+    private fun resolveServerPriority(): List<Hoster> {
         val hosterSelection = preferences.hostersPref
         val preferredServer = preferences.serverPref
 
-        val serversToQuery = if (preferredServer in hosterSelection) {
-            val priorityServer = HOSTERS.first { it.name == preferredServer }
-            val otherServers = HOSTERS.filter { it.name != preferredServer && it.name in hosterSelection }
-            listOf(priorityServer) + otherServers
+        return if (preferredServer in hosterSelection) {
+            val priority = HOSTERS.first { it.name == preferredServer }
+            val others = HOSTERS.filter { it.name != preferredServer && it.name in hosterSelection }
+            listOf(priority) + others
         } else {
             HOSTERS.filter { it.name in hosterSelection }
         }
+    }
 
-        val videoList = serversToQuery.parallelCatchingFlatMap { hoster ->
-            val payload = listOf(
-                VideoRequestDto(
-                    mediaId = episodeData.tmdbId,
-                    mediaType = episodeData.type,
-                    tvSlug = if (episodeData.type == "tv") "${episodeData.season}-${episodeData.episode}" else "",
-                    source = hoster.key,
-                    sessionId = session.sessionId,
+    private suspend fun fetchFromHoster(
+        hoster: Hoster,
+        episodeData: EpisodeData,
+        requestToken: String,
+        playbackToken: String,
+        apiHeaders: Headers,
+        streamHeaders: Headers,
+    ): List<Video>? {
+        // 3a. Encrypt
+        val encryptPayload = EncryptRequest(
+            data = EncryptData(
+                mediaId = episodeData.tmdbId.toInt(),
+                mediaType = episodeData.type,
+                tvSlug = episodeData.tvSlug,
+                source = hoster.key,
+            ),
+            endpoint = "stream-encrypted",
+            requestToken = requestToken,
+        )
+
+        val encryptResponse = runCatching {
+            client.newCall(
+                POST(
+                    "$baseUrl/api/encrypt",
+                    apiHeaders,
+                    json.encodeToString(encryptPayload).toRequestBody(JSON_MEDIA_TYPE),
                 ),
-            )
+            ).awaitSuccess().use { it.parseAs<EncryptResponse>() }
+        }.getOrNull() ?: return null
 
-            val requestBody = json.encodeToString(payload).toJsonRequestBody()
-            val requestUrl = "$mappleApi/watch/${episodeData.type}/${episodeData.tmdbId}"
+        // 3b. Stream-encrypted
+        val streamUrl = (
+            baseUrl.toHttpUrl().resolve(encryptResponse.url) ?: return null
+            ).newBuilder()
+            .addQueryParameter("requestToken", requestToken)
+            .addQueryParameter("token", playbackToken)
+            .build()
 
-            val headers = headers.newBuilder()
-                .add("Next-Action", session.nextAction) // Necessary header
-                .build()
-
-            val responseText = client.newCall(POST(requestUrl, headers, requestBody))
+        val streamResponse = runCatching {
+            client.newCall(GET(streamUrl, streamHeaders))
                 .awaitSuccess()
-                .use { it.body.string() }
+                .use { it.parseAs<StreamEncryptedResponse>() }
+        }.getOrNull()
 
-            // Handle JSONP-like response: 1:{...}
-            val dataLine = responseText.lines().find { it.startsWith("1:") }?.substringAfter("1:")
-                ?: return@parallelCatchingFlatMap emptyList()
-
-            val videoResponse = runCatching {
-                json.decodeFromString<VideoResponseDto>(dataLine)
-            }.getOrNull()
-
-            if (videoResponse == null || !videoResponse.success || videoResponse.data == null) {
-                return@parallelCatchingFlatMap emptyList()
-            }
-
-            val streamUrl = videoResponse.data.streamUrl
-            val masterHeaders = headers.newBuilder()
-                .set("Referer", "$baseUrl/") // Necessary header
-                .build()
-
-            // Fetch subtitles from Wyzie
-            val subtitles = getSubtitles(episodeData)
-
-            playlistUtils.extractFromHls(
-                playlistUrl = streamUrl,
-                videoNameGen = { quality -> "${hoster.name} - $quality" },
-                subtitleList = subtitles,
-                masterHeaders = masterHeaders,
-                videoHeaders = masterHeaders,
-            )
+        if (streamResponse == null || !streamResponse.success || streamResponse.data == null) {
+            return null
         }
 
-        return videoList
+        // 3c. Extract HLS + subtitles
+        val subtitles = getSubtitles(episodeData)
+
+        return playlistUtils.extractFromHls(
+            playlistUrl = streamResponse.data.streamUrl,
+            videoNameGen = { quality -> "${hoster.name} - $quality" },
+            subtitleList = subtitles,
+            masterHeaders = streamHeaders,
+            videoHeaders = streamHeaders,
+        ).takeIf { it.isNotEmpty() }
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
@@ -479,11 +545,15 @@ class Mapple :
             "$subtitleApi/search?id=${data.tmdbId}&season=${data.season}&episode=${data.episode}"
         }
 
+        val subUrl = url.toHttpUrl().newBuilder().apply {
+            addQueryParameter("key", WYZIE_API_KEY)
+        }.build()
+
         return try {
             val subLimit = preferences.subLimitPref.toIntOrNull() ?: PREF_SUB_LIMIT_DEFAULT.toInt()
             val preferredSubLang = preferences.subLangPref
 
-            val subtitles = client.newCall(GET(url, headers))
+            val subtitles = client.newCall(GET(subUrl, headers))
                 .awaitSuccess().use { it.parseAs<List<SubtitleDto>>() }
             subtitles
                 .take(subLimit)
@@ -495,6 +565,122 @@ class Mapple :
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private suspend fun getPlaybackToken(
+        episodeData: EpisodeData,
+        requestToken: String,
+    ): String {
+        val initPayload = PlaybackInitRequest(
+            mediaId = episodeData.tmdbId.toInt(),
+            mediaType = episodeData.type,
+            tvSlug = episodeData.tvSlug,
+            requestToken = requestToken,
+        )
+
+        val apiHeaders = headers.newBuilder()
+            .set("Content-Type", "application/json")
+            .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            .set("Accept-Language", "en-US,en;q=0.9")
+            .set("Origin", baseUrl)
+            .set("Referer", "$baseUrl/")
+            .build()
+
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+
+        // First call: get challenge
+        val challengeResponse = client.newCall(
+            POST(
+                "$baseUrl/api/playback-init",
+                apiHeaders,
+                customJson.encodeToString(initPayload).toRequestBody(mediaType),
+            ),
+        ).awaitSuccess().use { it.parseAs<PlaybackInitResponse>() }
+
+        if (challengeResponse.success && challengeResponse.token != null) {
+            // No PoW required
+            return challengeResponse.token
+        }
+
+        if (!challengeResponse.requiresPow || challengeResponse.pow == null) {
+            throw Exception("Playback init failed: ${challengeResponse.success}")
+        }
+
+        // Solve PoW
+        val pow = challengeResponse.pow
+        val nonce = solvePow(pow.challenge, pow.difficulty)
+
+        // Second call: with solved PoW
+        val powPayload = initPayload.copy(
+            pow = PowRequest(
+                challengeId = pow.challengeId,
+                nonce = nonce,
+            ),
+        )
+
+        val tokenResponse = client.newCall(
+            POST(
+                "$baseUrl/api/playback-init",
+                apiHeaders,
+                customJson.encodeToString(powPayload).toRequestBody(mediaType),
+            ),
+        ).awaitSuccess().use { it.parseAs<PlaybackInitResponse>() }
+
+        if (!tokenResponse.success || tokenResponse.token == null) {
+            throw Exception("Playback init (with PoW) failed")
+        }
+
+        return tokenResponse.token
+    }
+
+    /**
+     * Fetches the page HTML and extracts the requestToken.
+     */
+    private suspend fun getRequestToken(pageUrl: String): String = client.newCall(GET(pageUrl, headers))
+        .awaitSuccess()
+        .use { response ->
+            val html = response.body.string()
+            return requestTokenRegex.find(html)
+                ?.groupValues?.get(1)
+                ?: throw Exception("Request token not found in page HTML")
+        }
+
+    private suspend fun solvePow(challenge: String, difficulty: Int): String = withContext(Dispatchers.Default) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var nonce = 0L
+        val maxAttempts = 5_000_000L
+
+        while (nonce < maxAttempts) {
+            if (nonce % 10_000 == 0L) {
+                currentCoroutineContext().ensureActive()
+            }
+            val input = (challenge + nonce.toString()).toByteArray(Charsets.UTF_8)
+            val hash = digest.digest(input)
+
+            if (countLeadingZeroBits(hash) >= difficulty) {
+                return@withContext nonce.toString()
+            }
+            nonce++
+        }
+        throw Exception("PoW solve exceeded max attempts (difficulty=$difficulty)")
+    }
+
+    private fun countLeadingZeroBits(bytes: ByteArray): Int {
+        var count = 0
+        for (byte in bytes) {
+            val unsigned = byte.toInt() and 0xFF
+            if (unsigned == 0) {
+                count += 8
+            } else {
+                for (bit in 7 downTo 0) {
+                    if (unsigned and (1 shl bit) != 0) {
+                        return count
+                    }
+                    count++
+                }
+            }
+        }
+        return count
     }
 
     // ============================== Settings ==============================
@@ -611,7 +797,7 @@ class Mapple :
         title = media.realTitle
         val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
         url = "/$type/${media.id}"
-        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+        thumbnail_url = media.posterPath?.let { "$TMDB_IMAGE_BASE/$TMDB_POSTER_SIZE$it" }
     }
 
     private fun parseStatus(status: String?): Int = when (status) {
@@ -627,10 +813,17 @@ class Mapple :
     companion object {
         private val animeUrlRegex = Regex("""/(tv|movie)/(\d+)""")
 
+        private val requestTokenRegex = Regex("""window\.__REQUEST_TOKEN__\s*=\s*"([^"]+)"""")
         private const val TMDB_API_KEY = BuildConfig.TMDB_API
 
+        private const val WYZIE_API_KEY = BuildConfig.WYZIE_API
+
         private const val PREF_DOMAIN_KEY = "pref_domain"
+        private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
+        private const val TMDB_POSTER_SIZE = "w500"
+        private const val TMDB_BACKDROP_SIZE = "w1280"
         private const val PREF_DOMAIN_DEFAULT = "https://mapple.uk"
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val DOMAIN_ENTRIES = arrayOf("mapple.uk", "mappl.tv", "mapple.mov")
         private val DOMAIN_VALUES = arrayOf("https://mapple.uk", "https://mappl.tv", "https://mapple.mov")
 
@@ -649,11 +842,23 @@ class Mapple :
         private const val PREF_SUB_LIMIT_DEFAULT = "35"
 
         private val HOSTERS = listOf(
-            Hoster("Mapple", "mapple"),
-            Hoster("Sakura", "sakura"),
-            Hoster("Pinecone", "alfa"),
-            Hoster("Oak", "oak"),
-            Hoster("Willow", "wiggles"),
+            Hoster("Zeus", "mapple"),
+            Hoster("Athena", "s2"),
+            Hoster("Apollo", "s19"),
+            Hoster("Artemis", "s13"),
+            Hoster("Hermes", "s26"),
+            Hoster("Hera", "s4"),
+            Hoster("Ares", "s24"),
+            Hoster("Aphrodite", "s6"),
+            Hoster("Hephastus", "s15"),
+            Hoster("Demeter", "s7"),
+            Hoster("Dionysus", "s8"),
+            Hoster("Hestia", "s3"),
+            Hoster("Hades", "s16"),
+            Hoster("Persephone", "s12"),
+            Hoster("Nike", "s5"),
+            Hoster("Atlas", "s1"),
+            Hoster("Prometheus", "s10"),
         )
 
         // First 3: Mapple, Sakura, Pinecone
