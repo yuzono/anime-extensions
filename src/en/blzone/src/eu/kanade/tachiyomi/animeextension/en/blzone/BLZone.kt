@@ -48,7 +48,6 @@ class BLZone :
         private const val PREF_SERVER_DEFAULT = "Filemoon"
         private val SERVER_LIST = arrayOf("Filemoon", "StreamTape", "MixDrop", "VidGuard", "MP4", "Voe", "Byse")
         private val EPISODE_NUMBER_REGEX = Regex("""Episode (\d+)""", RegexOption.IGNORE_CASE)
-
     }
 
     // ---- FILTERS ----
