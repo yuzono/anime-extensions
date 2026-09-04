@@ -4,8 +4,13 @@ import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.DeviceProfileDto
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonNamingStrategy
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.apache.commons.text.StringSubstitutor
+import org.apache.commons.text.lookup.StringLookup
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.floor
 
 private val NEWLINE_REGEX = Regex("""\n""")
 
@@ -35,11 +40,12 @@ fun getAuthHeader(deviceInfo: Jellyfin.DeviceInfo, token: String? = null): Strin
         )
 }
 
-fun String.getImageUrl(baseUrl: String, id: String): String = baseUrl.toHttpUrl().newBuilder().apply {
+fun String.getImageUrl(baseUrl: String, id: String, name: String = "Primary", index: Int? = null): String = baseUrl.toHttpUrl().newBuilder().apply {
     addPathSegment("Items")
     addPathSegment(id)
     addPathSegment("Images")
-    addPathSegment("Primary")
+    addPathSegment(name)
+    index?.let { addPathSegment(it.toString()) }
     addQueryParameter("tag", this@getImageUrl)
 }.build().toString()
 
@@ -52,43 +58,26 @@ object PascalCaseToCamelCase : JsonNamingStrategy {
 }
 
 object Constants {
-    val QUALITY_MIGRATION_MAP = mapOf(
-        "4K - 120 Mbps" to 120_000_000L,
-        "4K - 80 Mbps" to 80_000_000L,
-        "1080p - 60 Mbps" to 60_000_000L,
-        "1080p - 40 Mbps" to 40_000_000L,
-        "1080p - 20 Mbps" to 20_000_000L,
-        "1080p - 15 Mbps" to 15_000_000L,
-        "1080p - 10 Mbps" to 10_000_000L,
-        "720p - 8 Mbps" to 8_000_000L,
-        "720p - 6 Mbps" to 6_000_000L,
-        "720p - 4 Mbps" to 4_000_000L,
-        "480p - 3 Mbps" to 3_000_000L,
-        "480p - 1.5 Mbps" to 1_500_000L,
-        "480p - 720 kbps" to 720_000L,
-        "360p - 420 kbps" to 420_000L,
-    )
-
     val QUALITIES_LIST = listOf(
-        Quality(420_000L, 128_000L, "420 kbps"),
-        Quality(720_000L, 192_000L, "720 kbps"),
-        Quality(1_500_000L, 192_000L, "1.5 Mbps"),
-        Quality(3_000_000L, 192_000L, "3 Mbps"),
-        Quality(4_000_000L, 192_000L, "4 Mbps"),
-        Quality(6_000_000L, 192_000L, "6 Mbps"),
-        Quality(8_000_000L, 192_000L, "8 Mbps"),
-        Quality(10_000_000L, 192_000L, "10 Mbps"),
-        Quality(15_000_000L, 192_000L, "15 Mbps"),
-        Quality(20_000_000L, 192_000L, "20 Mbps"),
-        Quality(40_000_000L, 192_000L, "40 Mbps"),
-        Quality(60_000_000L, 192_000L, "60 Mbps"),
-        Quality(80_000_000L, 192_000L, "80 Mbps"),
-        Quality(120_000_000L, 192_000L, "120 Mbps"),
+        Quality(420_000, 128_000, "420 kbps"),
+        Quality(720_000, 192_000, "720 kbps"),
+        Quality(1_500_000, 192_000, "1.5 Mbps"),
+        Quality(3_000_000, 192_000, "3 Mbps"),
+        Quality(4_000_000, 192_000, "4 Mbps"),
+        Quality(6_000_000, 192_000, "6 Mbps"),
+        Quality(8_000_000, 192_000, "8 Mbps"),
+        Quality(10_000_000, 192_000, "10 Mbps"),
+        Quality(15_000_000, 192_000, "15 Mbps"),
+        Quality(20_000_000, 192_000, "20 Mbps"),
+        Quality(40_000_000, 192_000, "40 Mbps"),
+        Quality(60_000_000, 192_000, "60 Mbps"),
+        Quality(80_000_000, 192_000, "80 Mbps"),
+        Quality(120_000_000, 192_000, "120 Mbps"),
     )
 
     data class Quality(
-        val videoBitrate: Long,
-        val audioBitrate: Long,
+        val videoBitrate: Int,
+        val audioBitrate: Int,
         val description: String,
     )
 
@@ -128,8 +117,8 @@ object Constants {
 fun getDeviceProfile(
     name: String,
     videoCodec: String,
-    videoBitrate: Long,
-    audioBitrate: Long,
+    videoBitrate: Int,
+    audioBitrate: Int,
 ): DeviceProfileDto {
     val subtitleProfilesList = buildList {
         listOf("srt", "ass", "sub", "ssa", "smi").forEach {
@@ -194,19 +183,64 @@ fun getDeviceProfile(
         ),
         responseProfiles = emptyList(),
         containerProfiles = emptyList(),
-        codecProfiles = listOf(
-            DeviceProfileDto.ProfileDto(
-                type = "Video",
-                codec = videoCodec,
-                conditions = listOf(
-                    DeviceProfileDto.ProfileDto.ProfileConditionDto(
-                        condition = "Equals",
-                        property = "Width",
-                        value = "0",
-                    ),
-                ),
-            ),
-        ),
+        codecProfiles = emptyList(),
         subtitleProfiles = subtitleProfilesList,
     )
+}
+
+fun format(values: Map<String, Any>, input: String): String {
+    val exprRegex = Regex("""^(\w+)(?:\s*([+\-*/])\s*([\d.]+))?(?::(.+))?$""")
+    val lookup = StringLookup { key ->
+        val match = exprRegex.find(key)
+            ?: throw IllegalArgumentException("Invalid format: $key")
+
+        val (valueKey, operator, operand, formatStr) = match.destructured
+        val result = when (val value = values[valueKey]) {
+            is String -> value
+
+            is Number if operator.isEmpty() -> value
+
+            is Number -> {
+                val op1 = value.toDouble()
+                val op2 = operand.toDouble()
+                when (operator) {
+                    "+" -> op1 + op2
+                    "-" -> op1 - op2
+                    "*" -> op1 * op2
+                    "/" -> op1 / op2
+                    else -> throw IllegalStateException("Unsupported operator: $operator")
+                }
+            }
+
+            else -> throw IllegalStateException("Unsupported value: ${value!!::class.java}")
+        }
+
+        val format = "%$formatStr"
+        when (result) {
+            is String -> {
+                if (formatStr.isEmpty()) result else String.format(Locale.US, format, result)
+            }
+
+            is Number -> {
+                if (formatStr.isEmpty()) {
+                    if (ceil(result.toDouble()) == floor(result.toDouble())) {
+                        result.toLong().toString()
+                    } else {
+                        result.toString()
+                    }
+                } else {
+                    if ("dox".any { format.endsWith(it, true) }) {
+                        String.format(Locale.US, format, result.toLong())
+                    } else {
+                        String.format(Locale.US, format, result.toDouble())
+                    }
+                }
+            }
+
+            else -> throw IllegalStateException("Unsupported value: ${operator::class.java}")
+        }
+    }
+
+    val substitutor = StringSubstitutor(lookup, "{", "}", '\\')
+    return substitutor.replace(input)
 }
