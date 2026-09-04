@@ -1,13 +1,30 @@
 ext {
     extName = 'RouVideo'
     extClass = '.RouVideoFactory'
-    extVersionCode = 14
+    extVersionCode = 18
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
+android {
+    sourceSets {
+        main {
+            java.exclude("test/**")
+            kotlin.exclude("test/**")
+        }
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
 dependencies {
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:m3u8server"))
     implementation(project(":lib:i18n"))
+    testImplementation(project(":core"))
+    testImplementation(libs.bundles.common)
+    testImplementation(libs.junit)
 }
