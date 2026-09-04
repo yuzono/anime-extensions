@@ -1,0 +1,19 @@
+ext {
+    extName = 'OtakusTV'
+    extClass = '.OtakusTV'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:uqloadextractor'))
+    implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:mixdropextractor'))
+    implementation(project(':lib:luluextractor'))
+    implementation(project(':lib:universalextractor'))
+}
