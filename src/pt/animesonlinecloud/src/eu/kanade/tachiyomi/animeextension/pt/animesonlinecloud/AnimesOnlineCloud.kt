@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animeextension.pt.animesonlinecloud.extractors.Univer
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
@@ -100,6 +101,22 @@ class AnimesOnlineCloud :
                     }
                 }
             }
+        }
+    }
+
+    // ============================ Episodes =============================
+
+    override fun episodeListSelector() = ".episodios-grid > .episode-card"
+
+    override fun episodeFromElement(element: Element, seasonName: String): SEpisode {
+        return SEpisode.create().apply {
+            val href = element.selectFirst(".episode-info a")!!
+            val episodeName = href.ownText().substringAfter(" - ")
+            val epNum = element.attr("data-episode-number")
+            episode_number = epNum.toFloatOrNull() ?: 0F
+            date_upload = 0L
+            name = "$episodeSeasonPrefix $seasonName x $epNum - $episodeName"
+            setUrlWithoutDomain(href.attr("href"))
         }
     }
 
