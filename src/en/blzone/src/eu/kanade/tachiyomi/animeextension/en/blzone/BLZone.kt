@@ -120,7 +120,7 @@ class BLZone :
 
     private fun latestAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
 
-    private fun hasNextPage(document: Document): Boolean = document.selectFirst(".pagination span.current + a, .pagination a.arrow_pag") != null
+    private fun hasNextPage(document: Document): Boolean = document.selectFirst(".pagination span.current + a") != null
 
     // ---- SEARCH ----
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
