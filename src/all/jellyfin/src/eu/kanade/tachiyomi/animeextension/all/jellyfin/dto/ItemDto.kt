@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.formatBytes
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.jsoup.parser.Parser
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -144,7 +145,7 @@ data class ItemDto(
         markdown = BREAK_REGEX.replace(markdown, "\n")
         markdown = HORIZONTAL_RULE_REGEX.replace(markdown, "\n---\n")
         markdown = TAG_REGEX.replace(markdown, "")
-        return markdown
+        return Parser.unescapeEntities(markdown, false)
     }
 
     private fun String?.parseStatus(): Int = when (this?.lowercase()) {
@@ -205,6 +206,10 @@ data class ItemDto(
         // preview_url = imageTags.primary?.getImageUrl(baseUrl, id)
         premiereDate?.let {
             date_upload = parseDateTime(it.removeSuffix("Z"))
+        }
+        // TODO: Remove after bumping to lib-16
+        indexNumber?.let {
+            episode_number = it.toFloat()
         }
         if (type == ItemType.Movie) {
             episode_number = 1F
