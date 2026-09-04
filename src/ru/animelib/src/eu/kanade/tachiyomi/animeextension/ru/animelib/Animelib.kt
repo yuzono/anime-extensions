@@ -27,6 +27,7 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -206,6 +207,7 @@ class Animelib :
         url.addQueryParameter("fields[]", "publisher")
         url.addQueryParameter("fields[]", "otherNames")
         url.addQueryParameter("fields[]", "anime_status_id")
+        url.addQueryParameter("fields[]", "type_id")
 
         return GET(url.build())
     }
@@ -239,10 +241,19 @@ class Animelib :
         return GET(url.build())
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val episodeList = response.parseAs<EpisodeList>()
+    override fun episodeListParse(response: Response): List<SEpisode> = response.parseAs<EpisodeList>().data.map { it.toSEpisode() }.reversed()
 
-        return episodeList.data.map { it.toSEpisode() }.reversed()
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val episodes = client.newCall(episodeListRequest(anime)).awaitSuccess()
+            .parseAs<EpisodeList>().data
+
+        // Полнометражки (тип «Фильм») показываем как «Фильм», а не «Сезон 1 Серия 1»
+        val isMovie = episodes.size == 1 && runCatching {
+            client.newCall(animeDetailsRequest(anime)).awaitSuccess()
+                .parseAs<AnimeInfo>().data.type?.id == 17
+        }.onFailure { if (it is CancellationException) throw it }.getOrDefault(false)
+
+        return episodes.map { it.toSEpisode(isMovie) }.reversed()
     }
 
     // =============================== Video List ===============================
@@ -624,9 +635,13 @@ class Animelib :
         artist = authors?.joinToString { it.name }
     }
 
-    private fun EpisodeInfo.toSEpisode() = SEpisode.create().apply {
+    private fun EpisodeInfo.toSEpisode(isMovie: Boolean = false) = SEpisode.create().apply {
         setUrlWithoutDomain("api/episodes/$id")
-        name = "Сезон $season Серия $number $episodeName"
+        name = if (isMovie) {
+            if (episodeName.isNotBlank()) "Фильм $episodeName" else "Фильм"
+        } else {
+            "Сезон $season Серия $number $episodeName"
+        }
         episode_number = number.toFloatOrNull() ?: 0f
         date_upload = dateFormatter.tryParse(date)
     }
