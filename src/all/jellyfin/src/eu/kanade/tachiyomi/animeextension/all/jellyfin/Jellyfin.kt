@@ -342,6 +342,10 @@ class Jellyfin(private val suffix: String) :
     private var itemTypes by LazyMutable {
         if (preferences.saveTypes) {
             preferences.saveTypesValue.parseAs<List<ItemType>>(json)
+                .ifEmpty {
+                    // Fallback to default list if saved types are empty
+                    listOf(ItemType.Movie, ItemType.Series, ItemType.BoxSet)
+                }
         } else {
             listOf(ItemType.Movie, ItemType.Series, ItemType.BoxSet)
         }
@@ -381,7 +385,7 @@ class Jellyfin(private val suffix: String) :
     }
 
     override fun getFilterList(): AnimeFilterList {
-        CoroutineScope(Dispatchers.IO).launch { getFilters() }
+        scope.launch { getFilters() }
 
         val filters = buildList {
             add(AnimeFilter.Header("Note: search ignores all filters except selected type(s)"))
@@ -568,7 +572,7 @@ class Jellyfin(private val suffix: String) :
             )
         }
 
-        val videoBitrate = mediaSource.bitrate!!.toLong().formatBytes().replace("B", "b")
+        val videoBitrate = mediaSource.bitrate?.toLong()?.formatBytes()?.replace("B", "b") ?: "-"
         val sessionData = getSessionData(
             videoBitrate = Int.MAX_VALUE,
             audioBitrate = Int.MAX_VALUE,
