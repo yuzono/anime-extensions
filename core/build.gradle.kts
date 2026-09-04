@@ -23,4 +23,5 @@ dependencies {
 
     testImplementation(libs.bundles.common)
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.coroutines.get()}")
 }
