@@ -1,6 +1,7 @@
 ext {
     extName = 'Stremio'
     extClass = '.Stremio'
+    libVersion = 16
     extVersionCode = 10
     extNames = ["Stremio"]
 }
@@ -8,5 +9,5 @@ ext {
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation("org.apache.commons:commons-text:1.14.0")
+    implementation("org.apache.commons:commons-text:1.15.0")
 }
