@@ -35,6 +35,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -63,9 +64,16 @@ class Torrentio :
 
     // ============================== Anilist API Request ===================
     private fun makeGraphQLRequest(query: String, variables: String): Request {
-        val requestBody = FormBody.Builder().add("query", query).add("variables", variables).build()
+        val requestBody = FormBody.Builder()
+            .add("query", query)
+            .add("variables", variables)
+            .build()
 
-        return POST("https://graphql.anilist.co", body = requestBody)
+        val headers = Headers.Builder()
+            .add("Referer", "https://anilist.co")
+            .build()
+
+        return POST("https://graphql.anilist.co", headers = headers, body = requestBody)
     }
 
     private fun parseSearchJson(jsonLine: String?, isLatestQuery: Boolean = false): AnimesPage {
