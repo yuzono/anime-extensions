@@ -565,7 +565,7 @@ class Jellyfin(private val suffix: String) :
                     },
                     videoUrl = mediaSource.path,
                     bitrate = Int.MAX_VALUE,
-                    preferred = mediaSource.bitrate == preferences.quality.toInt(),
+                    preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
                     subtitleTracks = externalSubtitleList,
                     initialized = true,
                 ),
@@ -595,7 +595,7 @@ class Jellyfin(private val suffix: String) :
             videoUrl = staticUrl,
             bitrate = Int.MAX_VALUE,
             headers = videoHeaders,
-            preferred = mediaSource.bitrate == preferences.quality.toInt(),
+            preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
             subtitleTracks = externalSubtitleList,
             initialized = true,
         )
@@ -620,7 +620,7 @@ class Jellyfin(private val suffix: String) :
                     videoTitle = it.description,
                     bitrate = it.videoBitrate,
                     headers = videoHeaders,
-                    preferred = it.videoBitrate == preferences.quality.toInt(),
+                    preferred = it.videoBitrate == preferences.quality.toIntOrNull(),
                     subtitleTracks = subtitleList,
                     internalData = TranscodingInfo(
                         videoBitrate = it.videoBitrate,

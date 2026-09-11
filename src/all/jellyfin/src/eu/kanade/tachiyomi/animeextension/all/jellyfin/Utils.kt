@@ -212,7 +212,9 @@ fun format(values: Map<String, Any>, input: String): String {
                 }
             }
 
-            else -> throw IllegalStateException("Unsupported value: ${value!!::class.java}")
+            null -> throw IllegalArgumentException("Missing value: $valueKey")
+
+            else -> throw IllegalStateException("Unsupported value: ${value::class.java}")
         }
 
         val format = "%$formatStr"
