@@ -120,8 +120,10 @@ data class ItemDto(
             } else {
                 title = buildString {
                     if (concatenateNames) {
-                        append(seriesName)
-                        append(" ")
+                        seriesName?.takeIf { it.isNotBlank() }?.let {
+                            append(it)
+                            append(" ")
+                        }
                     }
                     append(name)
                 }
