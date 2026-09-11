@@ -557,7 +557,7 @@ class Jellyfin(private val suffix: String) :
 
         if (mediaSource.isRemote && mediaSource.path != null && preferences.useRemote) {
             return listOf(
-                legacyVideo(
+                Video(
                     videoTitle = buildString {
                         append("Source (Remote)")
                         mediaSource.name?.let { append("\n$it") }
@@ -590,7 +590,7 @@ class Jellyfin(private val suffix: String) :
             addQueryParameter("PlaySessionId", sessionData.playSessionId)
         }.build().toString()
 
-        val staticVideo = legacyVideo(
+        val staticVideo = Video(
             videoTitle = "Source - ${videoBitrate}ps",
             videoUrl = staticUrl,
             bitrate = Int.MAX_VALUE,
@@ -615,7 +615,7 @@ class Jellyfin(private val suffix: String) :
         val qualities = Constants.QUALITIES_LIST.takeWhile { it.videoBitrate <= referenceBitrate }
         qualities.forEach {
             videoList.add(
-                legacyVideo(
+                Video(
                     videoUrl = "",
                     videoTitle = it.description,
                     bitrate = it.videoBitrate,
@@ -697,7 +697,7 @@ class Jellyfin(private val suffix: String) :
         )
 
         return sessionData.mediaSources.firstOrNull()?.transcodingUrl?.let {
-            video.copyLegacy(
+            video.copy(
                 videoUrl = baseUrl + it,
             )
         }
@@ -987,12 +987,11 @@ class Jellyfin(private val suffix: String) :
                         .items
                         .filterNot { it.collectionType in LIBRARY_BLACKLIST }
                         .map { MediaLibraryDto(it.name, it.id) }
-                    val libraryListJson = libraryList.toJsonString(json)
 
                     displayToast("Login successful")
 
                     handler.post {
-                        preferences.libraryList = libraryListJson
+                        preferences.libraryList = libraryList.toJsonString(json)
                         onCompleteLogin(true)
                     }
                 } catch (e: Exception) {
