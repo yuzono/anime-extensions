@@ -142,7 +142,7 @@ data class ItemDto(
         markdown = ITALICS_REGEX.replace(markdown, "*$2*")
         markdown = BREAK_REGEX.replace(markdown, "\n")
         markdown = HORIZONTAL_RULE_REGEX.replace(markdown, "\n---\n")
-        markdown = TAG_REGEX.replace(markdown, "")
+        markdown = TAG_REGEX.replace(markdown, " ")
         return Parser.unescapeEntities(markdown, false)
     }
 

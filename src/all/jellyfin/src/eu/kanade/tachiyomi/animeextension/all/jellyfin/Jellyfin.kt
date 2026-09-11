@@ -342,10 +342,6 @@ class Jellyfin(private val suffix: String) :
     private var itemTypes by LazyMutable {
         if (preferences.saveTypes) {
             preferences.saveTypesValue.parseAs<List<ItemType>>(json)
-                .ifEmpty {
-                    // Fallback to default list if saved types are empty
-                    listOf(ItemType.Movie, ItemType.Series, ItemType.BoxSet)
-                }
         } else {
             listOf(ItemType.Movie, ItemType.Series, ItemType.BoxSet)
         }
