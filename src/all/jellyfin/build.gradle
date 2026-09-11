@@ -2,7 +2,7 @@ ext {
     extName = 'Jellyfin'
     extClass = '.JellyfinFactory'
     libVersion = 16
-    extVersionCode = 31
+    extVersionCode = 30
     extNames = ["Jellyfin (1)", "Jellyfin (2)", "Jellyfin (3)"]
 }
 
