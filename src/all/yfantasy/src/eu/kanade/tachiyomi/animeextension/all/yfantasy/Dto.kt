@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.util.Locale
 
 interface VideoEntry {
     val videoId: String
@@ -33,8 +34,24 @@ class AnimeDto(
     override val segments: List<SegmentDto>
         get() = (listOfNotNull(currentSegment) + hiddenSegments).sortedByDescending { it.segmentIndex }
 
-    override fun toSAnime() = createSAnime(videoId, displayTitle, tags, currentSegment?.imageUrl)
+    override fun toSAnime() = createSAnime(videoId, displayTitle, tags, currentSegment)
 }
+
+@Serializable
+class AuthRequestDto(
+    private val token: String,
+)
+
+@Serializable
+class AuthDto(
+    val sessionToken: String,
+)
+
+@Serializable
+class ClaimRequestDto(
+    private val videoId: String,
+    private val segmentId: String,
+)
 
 @Serializable
 class FeedDto(
@@ -51,7 +68,7 @@ class FeedItemDto(
     override val segments: List<SegmentDto>
         get() = listOfNotNull(publicSegment)
 
-    override fun toSAnime() = createSAnime(videoId, displayTitle, tags, publicSegment?.imageUrl)
+    override fun toSAnime() = createSAnime(videoId, displayTitle, tags, publicSegment)
 }
 
 @Serializable
@@ -59,6 +76,7 @@ class SegmentDto(
     private val id: String,
     val segmentIndex: Int,
     val imageUrl: String? = null,
+    val speechLanguage: String? = null,
     private val signedUrl: String? = null,
 ) {
     /**
@@ -89,12 +107,16 @@ private fun createSAnime(
     videoId: String,
     title: String,
     tags: List<String>,
-    imageUrl: String?,
+    segment: SegmentDto?,
 ) = SAnime.create().apply {
     this.url = videoId
     this.title = title
-    thumbnail_url = imageUrl
+    thumbnail_url = segment?.imageUrl
     genre = tags.joinToString()
+    description = segment?.speechLanguage?.let { "Speech language: ${it.toLanguageName()}" }
     initialized = true
     update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE
 }
+
+/** Turns a language code such as `zh` into `Chinese`, keeping the code when it is unknown. */
+private fun String.toLanguageName(): String = Locale.forLanguageTag(this).getDisplayLanguage(Locale.ENGLISH).ifEmpty { this }

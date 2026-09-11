@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import keiyoushi.utils.Source
-import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.get
@@ -28,7 +27,7 @@ class YFantasy : Source() {
 
     override val supportsLatest = true
 
-    /** The video CDN serves thumbnails and streams only to requests refered from the site. */
+    /** The video CDN serves thumbnails and streams only to requests referred from the site. */
     override fun headersBuilder() = super.headersBuilder()
         .set("Origin", baseUrl)
         .set("Referer", "$baseUrl/")
@@ -111,25 +110,47 @@ class YFantasy : Source() {
 
     // ============================== Episodes ==============================
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = getEntry(anime.url).segments.map { it.toSEpisode() }
+    /** Feed entries only carry their public segment, so the rest is extracted from the site. */
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val entry = getCatalog().firstOrNull { it.videoId == anime.url }
+            ?: episodeExtractor.getAnime(anime.url)
+            ?: getFeedEntry(anime.url)
+            ?: throw Exception("Video ${anime.url} not found")
 
-    override fun getEpisodeUrl(episode: SEpisode): String = episode.videoUrl
+        return entry.segments.map { it.toSEpisode() }
+    }
+
+    override fun getEpisodeUrl(episode: SEpisode): String = if (episode.isLocked) {
+        "$baseUrl/en?video=${episode.url.substringBefore("_")}"
+    } else {
+        episode.videoUrl
+    }
 
     // ============================ Video Links =============================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         if (episode.isLocked) return emptyList()
 
-        return listOf(
-            legacyVideo(
-                videoUrl = episode.videoUrl,
-                videoTitle = if (preferences.useFallbackUrl) "Fallback" else "Default",
-                headers = headers,
-            ),
-        ).toHosterList()
+        // Only the master playlist is offered: it ties the separate audio renditions to the
+        // video ones by itself, while the single renditions are video only.
+        val masterVideo = legacyVideo(
+            videoUrl = episode.videoUrl,
+            videoTitle = "Auto",
+            headers = headers,
+        )
+
+        val fallbackVideo = legacyVideo(
+            videoUrl = "${episode.url}/$FALLBACK_FILE",
+            videoTitle = "Fallback - 720p",
+            headers = headers,
+        )
+
+        return (listOf(masterVideo) + fallbackVideo).toHosterList()
     }
 
     // ============================= Utilities ==============================
+
+    private val episodeExtractor by lazy { EpisodeExtractor(client, headers, baseUrl) }
 
     private suspend fun getCatalog(): List<AnimeDto> = client.get(CATALOG_URL, headers).parseAs()
 
@@ -169,22 +190,13 @@ class YFantasy : Source() {
         get() = !url.startsWith("http")
 
     private val SEpisode.videoUrl: String
-        get() = "$url/" + if (preferences.useFallbackUrl) FALLBACK_FILE else PLAYLIST_FILE
+        get() = "$url/$PLAYLIST_FILE"
 
     // ============================ Preferences =============================
 
     private var SharedPreferences.latestId by preferences.delegate(PREF_LATEST_ID_KEY, PREF_LATEST_ID_DEFAULT)
 
-    private val SharedPreferences.useFallbackUrl by preferences.delegate(PREF_FALLBACK_KEY, PREF_FALLBACK_DEFAULT)
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addSwitchPreference(
-            key = PREF_FALLBACK_KEY,
-            default = PREF_FALLBACK_DEFAULT,
-            title = "Use fallback video url",
-            summary = "Play the progressive $FALLBACK_FILE stream instead of $PLAYLIST_FILE",
-        )
-    }
+    override fun setupPreferenceScreen(screen: PreferenceScreen) = Unit
 
     companion object {
         private const val FEED_URL = "https://yfantasy.me/api/videos/feed"
@@ -200,8 +212,5 @@ class YFantasy : Source() {
 
         private const val PREF_LATEST_ID_KEY = "pref_latest_video_id"
         private const val PREF_LATEST_ID_DEFAULT = FIRST_VIDEO_ID
-
-        private const val PREF_FALLBACK_KEY = "pref_fallback_url"
-        private const val PREF_FALLBACK_DEFAULT = false
     }
 }
