@@ -2,28 +2,25 @@ package eu.kanade.tachiyomi.animeextension.en.animetake
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
 
-object AnimeTakeFilters {
+object Filters {
     open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
-
     inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-        name: String,
-    ): String = (getFirst<R>() as CheckBoxFilterList).state
+    ): List<String> = (firstInstance<R>() as CheckBoxFilterList).state
         .filter { it.state }
         .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
         .filter(String::isNotBlank)
-        .joinToString("&") { "$name[]=$it" }
 
-    internal class LetterFilter : CheckBoxFilterList("Letter", AnimeTakeFiltersData.LETTER)
-    internal class GenresFilter : CheckBoxFilterList("Genre", AnimeTakeFiltersData.GENRE)
-    internal class ScoreFilter : CheckBoxFilterList("Score", AnimeTakeFiltersData.SCORE)
-    internal class YearFilter : CheckBoxFilterList("Year", AnimeTakeFiltersData.YEAR)
-    internal class RatingFilter : CheckBoxFilterList("Rating", AnimeTakeFiltersData.RATING)
+    internal class LetterFilter : CheckBoxFilterList("Letter", FiltersData.LETTER)
+    internal class GenresFilter : CheckBoxFilterList("Genre", FiltersData.GENRE)
+    internal class ScoreFilter : CheckBoxFilterList("Score", FiltersData.SCORE)
+    internal class YearFilter : CheckBoxFilterList("Year", FiltersData.YEAR)
+    internal class RatingFilter : CheckBoxFilterList("Rating", FiltersData.RATING)
 
     val FILTER_LIST
         get() = AnimeFilterList(
@@ -36,26 +33,26 @@ object AnimeTakeFilters {
         )
 
     internal data class FilterSearchParams(
-        val letters: String = "",
-        val genres: String = "",
-        val score: String = "",
-        val years: String = "",
-        val ratings: String = "",
+        val letters: List<String> = emptyList(),
+        val genres: List<String> = emptyList(),
+        val score: List<String> = emptyList(),
+        val years: List<String> = emptyList(),
+        val ratings: List<String> = emptyList(),
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
 
         return FilterSearchParams(
-            filters.parseCheckbox<LetterFilter>(AnimeTakeFiltersData.LETTER, "letters"),
-            filters.parseCheckbox<GenresFilter>(AnimeTakeFiltersData.GENRE, "genres"),
-            filters.parseCheckbox<ScoreFilter>(AnimeTakeFiltersData.SCORE, "score"),
-            filters.parseCheckbox<YearFilter>(AnimeTakeFiltersData.YEAR, "years"),
-            filters.parseCheckbox<RatingFilter>(AnimeTakeFiltersData.RATING, "ratings"),
+            filters.parseCheckbox<LetterFilter>(FiltersData.LETTER),
+            filters.parseCheckbox<GenresFilter>(FiltersData.GENRE),
+            filters.parseCheckbox<ScoreFilter>(FiltersData.SCORE),
+            filters.parseCheckbox<YearFilter>(FiltersData.YEAR),
+            filters.parseCheckbox<RatingFilter>(FiltersData.RATING),
         )
     }
 
-    private object AnimeTakeFiltersData {
+    private object FiltersData {
         val LETTER = ('A'..'Z').map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
