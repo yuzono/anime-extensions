@@ -13,6 +13,9 @@ interface VideoEntry {
 
     val title: String
 
+    /** Catalog tags, e.g. `Romance`, used to relate entries to each other. */
+    val tags: List<String>
+
     /** Some entries have no title upstream, so the id, which is also the site slug, stands in. */
     val displayTitle: String
         get() = title.ifEmpty { videoId }
@@ -27,7 +30,7 @@ interface VideoEntry {
 class AnimeDto(
     override val videoId: String,
     override val title: String,
-    private val tags: List<String> = emptyList(),
+    override val tags: List<String> = emptyList(),
     private val currentSegment: SegmentDto? = null,
     private val hiddenSegments: List<SegmentDto> = emptyList(),
 ) : VideoEntry {
@@ -62,7 +65,7 @@ class FeedDto(
 class FeedItemDto(
     @SerialName("id") override val videoId: String,
     override val title: String,
-    private val tags: List<String> = emptyList(),
+    override val tags: List<String> = emptyList(),
     private val publicSegment: SegmentDto? = null,
 ) : VideoEntry {
     override val segments: List<SegmentDto>

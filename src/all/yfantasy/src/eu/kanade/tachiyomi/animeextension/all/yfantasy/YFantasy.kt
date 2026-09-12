@@ -2,13 +2,14 @@ package eu.kanade.tachiyomi.animeextension.all.yfantasy
 
 import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animeextension.all.yfantasy.YFantasy.Companion.MAX_ID_GAP
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
-import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.Source
 import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstanceOrNull
@@ -108,6 +109,26 @@ class YFantasy : Source() {
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/en?video=${anime.url}"
 
+    // =========================== Related Anime ============================
+
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
+        val catalog = getCatalog()
+        val tags = (catalog.firstOrNull { it.videoId == anime.url } ?: getFeedEntry(anime.url))
+            ?.tags
+            ?.toSet()
+            .orEmpty()
+
+        if (tags.isEmpty()) return emptyList()
+
+        return catalog.asSequence()
+            .filterNot { it.videoId == anime.url }
+            .map { entry -> entry to entry.tags.count(tags::contains) }
+            .filter { (_, shared) -> shared > 0 }
+            .sortedByDescending { (_, shared) -> shared }
+            .take(MAX_RELATED_ENTRIES)
+            .map { (entry, _) -> entry.toSAnime() }.toList()
+    }
+
     // ============================== Episodes ==============================
 
     /** Feed entries only carry their public segment, so the rest is extracted from the site. */
@@ -133,19 +154,24 @@ class YFantasy : Source() {
 
         // Only the master playlist is offered: it ties the separate audio renditions to the
         // video ones by itself, while the single renditions are video only.
-        val masterVideo = legacyVideo(
+        val masterVideo = Video(
             videoUrl = episode.videoUrl,
             videoTitle = "Auto",
             headers = headers,
         )
 
-        val fallbackVideo = legacyVideo(
+        val fallbackVideo = Video(
             videoUrl = "${episode.url}/$FALLBACK_FILE",
             videoTitle = "Fallback - 720p",
             headers = headers,
         )
 
-        return (listOf(masterVideo) + fallbackVideo).toHosterList()
+        return listOf(
+            Hoster(
+                hosterName = "CDN",
+                videoList = listOf(masterVideo, fallbackVideo),
+            ),
+        )
     }
 
     // ============================= Utilities ==============================
@@ -204,6 +230,7 @@ class YFantasy : Source() {
             "https://raw.githubusercontent.com/baka-bon/truyen/refs/heads/master/yfantasy.json"
 
         private const val FIRST_VIDEO_ID = 10000
+        private const val MAX_RELATED_ENTRIES = 20
         private const val MAX_ID_GAP = 3
         private const val MAX_ID_PROBES = 30
 
