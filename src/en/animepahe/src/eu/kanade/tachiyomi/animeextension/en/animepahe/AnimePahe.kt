@@ -603,6 +603,7 @@ class AnimePahe :
 
     // ========================== Hoster Sorting ============================
     override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val preferredLang = getPreferredLang()
         val preferredLangDisplay = when (preferredLang) {
             "sub" -> "Sub"
             "eng" -> "English"
@@ -676,6 +677,7 @@ class AnimePahe :
             },
         )
 
+        val preferredLang = getPreferredLang()
         val preferredLangDisplay = when (preferredLang) {
             "sub" -> "Sub"
             "eng" -> "English"
@@ -907,7 +909,7 @@ class AnimePahe :
         .replace(NORMALIZE_REGEX, "")
         .trim()
 
-    private val preferredLang: String by lazy {
+    private fun getPreferredLang(): String {
         var lang = preferences.getString(PREF_LANG_KEY, null)
         if (lang == null) {
             val oldSub = preferences.getString("preferred_sub", "jpn")
@@ -917,7 +919,7 @@ class AnimePahe :
                 .remove("preferred_sub")
                 .apply()
         }
-        lang
+        return lang
     }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
