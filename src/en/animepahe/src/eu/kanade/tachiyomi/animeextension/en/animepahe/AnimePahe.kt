@@ -531,6 +531,8 @@ class AnimePahe :
 
     // ============================ Video Links =============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        // Strip the `?anime_id=...` query parameter.
+        // This parameter is strictly for database mapping and orphaning prevention.
         val urlPath = episode.url.substringBefore("?")
         val request = GET("$baseUrl$urlPath", headers)
 
