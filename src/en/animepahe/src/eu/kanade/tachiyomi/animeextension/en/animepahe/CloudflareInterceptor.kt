@@ -10,6 +10,8 @@ class CloudflareInterceptor(
     private val cfBypassUserAgentProvider: () -> String = { AnimePahe.UA },
 ) : Interceptor {
 
+    private val bypassLock = Any()
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val response = chain.proceed(originalRequest)
@@ -24,10 +26,14 @@ class CloudflareInterceptor(
 
         if (isCloudflare) {
             val customUA = cfBypassUserAgentProvider()
-            val bypassResult = CloudflareBypass().getCookies(
-                pageUrl = originalRequest.url.toString(),
-                customUserAgent = customUA,
-            )
+
+            // Serialize the bypass so only one thread spawns a WebView and touches cookies at a time
+            val bypassResult = synchronized(bypassLock) {
+                CloudflareBypass().getCookies(
+                    pageUrl = originalRequest.url.toString(),
+                    customUserAgent = customUA,
+                )
+            }
 
             if (bypassResult != null) {
                 return chain.proceed(
