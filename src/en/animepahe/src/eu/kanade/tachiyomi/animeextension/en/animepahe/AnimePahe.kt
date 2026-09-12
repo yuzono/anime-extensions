@@ -640,8 +640,8 @@ class AnimePahe :
                         videoUrl = "",
                         videoTitle = quality,
                         internalData = "mp4_pahe::$paheWinLink",
-                        initialized = false
-                    )
+                        initialized = false,
+                    ),
                 )
             } else {
                 val hlsVideos = try {
@@ -653,7 +653,7 @@ class AnimePahe :
                 } catch (_: Exception) {
                     emptyList()
                 }
-                
+
                 val proxiedHlsVideos = AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
                 videoList.addAll(proxiedHlsVideos)
             }
@@ -667,13 +667,13 @@ class AnimePahe :
                 video.videoTitle.lowercase().contains(preferredQuality)
             }.thenByDescending { video ->
                 val title = video.videoTitle.lowercase()
-                !shouldBeAv1 || title.contains("av1")
+                title.contains("av1") == shouldBeAv1
             }.thenByDescending { video ->
                 val title = video.videoTitle.lowercase()
                 QUALITY_REGEX_P.find(title)?.groupValues?.get(1)?.toIntOrNull()
                     ?: QUALITY_REGEX.find(title)?.groupValues?.get(1)?.toIntOrNull()
                     ?: 0
-            }
+            },
         )
 
         val preferredLangDisplay = when (preferredLang) {
