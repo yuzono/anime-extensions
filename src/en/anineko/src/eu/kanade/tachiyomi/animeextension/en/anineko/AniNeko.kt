@@ -56,18 +56,14 @@ class AniNeko :
 
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage {
-        return client.newCall(popularAnimeRequest(page)).awaitSuccess().use { popularAnimeParse(it) }
-    }
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.newCall(popularAnimeRequest(page)).awaitSuccess().use { popularAnimeParse(it) }
 
     // ============================= Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse?sort=recently_updated&page=$page", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage {
-        return client.newCall(latestUpdatesRequest(page)).awaitSuccess().use { latestUpdatesParse(it) }
-    }
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.newCall(latestUpdatesRequest(page)).awaitSuccess().use { latestUpdatesParse(it) }
 
     // ============================== Search ==============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -127,13 +123,18 @@ class AniNeko :
         val document = response.useAsJsoup()
         val cards = document.select("article.nv-anime-card.nv-browse-card")
 
-        val animes = cards.map { card ->
+        val animes = cards.mapNotNull { card ->
+            val linkEl = card.selectFirst("a.nv-anime-thumb") ?: card.selectFirst("a") ?: return@mapNotNull null
+            val url = linkEl.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+            val title = card.selectFirst("h3.nv-anime-title a")?.text()
+                ?: linkEl.selectFirst("img")?.attr("alt")
+                ?: return@mapNotNull null
+
             SAnime.create().apply {
-                val linkEl = card.selectFirst("a.nv-anime-thumb") ?: card.selectFirst("a")!!
-                url = linkEl.attr("href")
-                title = card.selectFirst("h3.nv-anime-title a")?.text()
-                    ?: linkEl.selectFirst("img")?.attr("alt")!!
-                thumbnail_url = linkEl.selectFirst("img")?.attr("src")
+                this.url = url
+                this.title = title
+                this.thumbnail_url = linkEl.selectFirst("img")?.attr("src")
             }
         }
 
@@ -141,9 +142,7 @@ class AniNeko :
         return AnimesPage(animes, hasNextPage)
     }
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        return client.newCall(searchAnimeRequest(page, query, filters)).awaitSuccess().use { searchAnimeParse(it) }
-    }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = client.newCall(searchAnimeRequest(page, query, filters)).awaitSuccess().use { searchAnimeParse(it) }
 
     // ============================= Filters ==============================
     open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
@@ -378,7 +377,7 @@ class AniNeko :
         val versionType = hoster.hosterName.substringAfter(" - ").trim()
 
         val subtitleTracks = hoster.internalData.split("|||").mapNotNull { subStr ->
-            val parts = subStr.split("::")
+            val parts = subStr.split("::", limit = 2)
             if (parts.size == 2) Track(parts[0], parts[1]) else null
         }
 
@@ -392,6 +391,8 @@ class AniNeko :
                         referer = iframeUrl,
                         videoNameGen = { quality -> "$serverName - $versionType - $quality" },
                         subtitleList = subtitleTracks,
+                        masterHeaders = headers,
+                        videoHeaders = headers,
                     ).map { video ->
                         video.copy(
                             mpvArgs = forceTsArgs,
@@ -439,9 +440,17 @@ class AniNeko :
         val preferredQuality = preferences.getString(QUALITY_KEY, QUALITY_DEFAULT)!!
         val preferredHost = preferences.getString(HOST_KEY, HOST_DEFAULT)!!
         val preferredAudioType = preferences.getString(TYPE_KEY, TYPE_DEFAULT)!!
+        val excludedServers = preferences.getStringSet(EXCLUDE_SERVERS_KEY, emptySet())!!
+        val excludedAudios = preferences.getStringSet(EXCLUDE_AUDIO_KEY, emptySet())!!
         val qualitiesList = QUALITY_ENTRIES.reversed()
 
-        val sortedVideos = videos.sortedWith(
+        val filteredVideos = videos.filterNot { video ->
+            val title = video.videoTitle
+            excludedServers.any { title.contains(it, ignoreCase = true) } ||
+                excludedAudios.any { title.contains(it, ignoreCase = true) }
+        }
+
+        val sortedVideos = filteredVideos.sortedWith(
             compareByDescending<Video> { it.videoTitle.contains(preferredQuality, true) }
                 .thenByDescending { it.videoTitle.contains(preferredHost, true) }
                 .thenByDescending { it.videoTitle.contains(preferredAudioType, true) }
