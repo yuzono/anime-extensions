@@ -56,10 +56,18 @@ class AniNeko :
 
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        return client.newCall(popularAnimeRequest(page)).awaitSuccess().use { popularAnimeParse(it) }
+    }
+
     // ============================= Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse?sort=recently_updated&page=$page", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        return client.newCall(latestUpdatesRequest(page)).awaitSuccess().use { latestUpdatesParse(it) }
+    }
 
     // ============================== Search ==============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -124,14 +132,17 @@ class AniNeko :
                 val linkEl = card.selectFirst("a.nv-anime-thumb") ?: card.selectFirst("a")!!
                 url = linkEl.attr("href")
                 title = card.selectFirst("h3.nv-anime-title a")?.text()
-                    ?: linkEl.selectFirst("img")?.attr("alt")
-                    ?: ""
+                    ?: linkEl.selectFirst("img")?.attr("alt")!!
                 thumbnail_url = linkEl.selectFirst("img")?.attr("src")
             }
         }
 
         val hasNextPage = document.selectFirst("li.page-item.next") != null
         return AnimesPage(animes, hasNextPage)
+    }
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        return client.newCall(searchAnimeRequest(page, query, filters)).awaitSuccess().use { searchAnimeParse(it) }
     }
 
     // ============================= Filters ==============================
