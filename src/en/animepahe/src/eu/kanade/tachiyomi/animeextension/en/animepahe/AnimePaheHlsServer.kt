@@ -340,7 +340,7 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
 
         return try {
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            val cipher = Cipher.getInstance("AES/CBC/NoPadding")
             cipher.init(
                 Cipher.DECRYPT_MODE,
                 SecretKeySpec(key, "AES"),

@@ -705,7 +705,9 @@ class AnimePahe :
             return try {
                 val resolvedVideo = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, video.videoTitle)
 
-                AnimePaheHlsServer.processMp4VideoList(client, listOf(resolvedVideo)).firstOrNull()
+                val proxiedVideo = AnimePaheHlsServer.processMp4VideoList(client, listOf(resolvedVideo)).firstOrNull()
+
+                proxiedVideo?.copy(preferred = video.preferred)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
