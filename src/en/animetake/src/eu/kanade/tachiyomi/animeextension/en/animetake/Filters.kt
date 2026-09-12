@@ -2,28 +2,26 @@ package eu.kanade.tachiyomi.animeextension.en.animetake
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
+import java.util.Calendar
 
-object AnimeTakeFilters {
+object Filters {
     open class CheckBoxFilterList(name: String, pairs: Array<Pair<String, String>>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, pairs.map { CheckBoxVal(it.first, false) })
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    inline fun <reified R> AnimeFilterList.getFirst(): R = first { it is R } as R
-
     inline fun <reified R> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-        name: String,
-    ): String = (getFirst<R>() as CheckBoxFilterList).state
+    ): List<String> = (firstInstance<R>() as CheckBoxFilterList).state
         .filter { it.state }
         .map { checkbox -> options.find { it.first == checkbox.name }!!.second }
         .filter(String::isNotBlank)
-        .joinToString("&") { "$name[]=$it" }
 
-    internal class LetterFilter : CheckBoxFilterList("Letter", AnimeTakeFiltersData.LETTER)
-    internal class GenresFilter : CheckBoxFilterList("Genre", AnimeTakeFiltersData.GENRE)
-    internal class ScoreFilter : CheckBoxFilterList("Score", AnimeTakeFiltersData.SCORE)
-    internal class YearFilter : CheckBoxFilterList("Year", AnimeTakeFiltersData.YEAR)
-    internal class RatingFilter : CheckBoxFilterList("Rating", AnimeTakeFiltersData.RATING)
+    internal class LetterFilter : CheckBoxFilterList("Letter", FiltersData.LETTER)
+    internal class GenresFilter : CheckBoxFilterList("Genre", FiltersData.GENRE)
+    internal class ScoreFilter : CheckBoxFilterList("Score", FiltersData.SCORE)
+    internal class YearFilter : CheckBoxFilterList("Year", FiltersData.YEAR)
+    internal class RatingFilter : CheckBoxFilterList("Rating", FiltersData.RATING)
 
     val FILTER_LIST
         get() = AnimeFilterList(
@@ -36,26 +34,26 @@ object AnimeTakeFilters {
         )
 
     internal data class FilterSearchParams(
-        val letters: String = "",
-        val genres: String = "",
-        val score: String = "",
-        val years: String = "",
-        val ratings: String = "",
+        val letters: List<String> = emptyList(),
+        val genres: List<String> = emptyList(),
+        val score: List<String> = emptyList(),
+        val years: List<String> = emptyList(),
+        val ratings: List<String> = emptyList(),
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
 
         return FilterSearchParams(
-            filters.parseCheckbox<LetterFilter>(AnimeTakeFiltersData.LETTER, "letters"),
-            filters.parseCheckbox<GenresFilter>(AnimeTakeFiltersData.GENRE, "genres"),
-            filters.parseCheckbox<ScoreFilter>(AnimeTakeFiltersData.SCORE, "score"),
-            filters.parseCheckbox<YearFilter>(AnimeTakeFiltersData.YEAR, "years"),
-            filters.parseCheckbox<RatingFilter>(AnimeTakeFiltersData.RATING, "ratings"),
+            filters.parseCheckbox<LetterFilter>(FiltersData.LETTER),
+            filters.parseCheckbox<GenresFilter>(FiltersData.GENRE),
+            filters.parseCheckbox<ScoreFilter>(FiltersData.SCORE),
+            filters.parseCheckbox<YearFilter>(FiltersData.YEAR),
+            filters.parseCheckbox<RatingFilter>(FiltersData.RATING),
         )
     }
 
-    private object AnimeTakeFiltersData {
+    private object FiltersData {
         val LETTER = ('A'..'Z').map {
             Pair(it.toString(), it.toString())
         }.toTypedArray()
@@ -123,36 +121,14 @@ object AnimeTakeFilters {
             Pair("Unwatchable (2+)", "unwatchable"),
         )
 
-        val YEAR = arrayOf(
-            Pair("2024", "2024"),
-            Pair("2023", "2023"),
-            Pair("2022", "2022"),
-            Pair("2021", "2021"),
-            Pair("2020", "2020"),
-            Pair("2019", "2019"),
-            Pair("2018", "2018"),
-            Pair("2017", "2017"),
-            Pair("2016", "2016"),
-            Pair("2015", "2015"),
-            Pair("2014", "2014"),
-            Pair("2013", "2013"),
-            Pair("2012", "2012"),
-            Pair("2011", "2011"),
-            Pair("2010", "2010"),
-            Pair("2009", "2009"),
-            Pair("2008", "2008"),
-            Pair("2007", "2007"),
-            Pair("2006", "2006"),
-            Pair("2005", "2005"),
-            Pair("2004", "2004"),
-            Pair("2003", "2003"),
-            Pair("2002", "2002"),
-            Pair("2001", "2001"),
-            Pair("2000", "2000"),
-            Pair("1990-1999", "1990"),
-            Pair("1980-1989", "1980"),
-            Pair("1970-1979", "1970"),
-        )
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val YEAR = (
+            (currentYear downTo 2000).map { Pair(it.toString(), it.toString()) } + arrayOf(
+                Pair("1990-1999", "1990"),
+                Pair("1980-1989", "1980"),
+                Pair("1970-1979", "1970"),
+            )
+            ).toTypedArray()
 
         val RATING = arrayOf(
             Pair("G - All Ages", "allages"),
