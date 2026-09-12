@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -51,14 +52,14 @@ class AnimePahe :
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private val interceptor = DdosGuardInterceptor(network.client) { cfBypassUserAgent }
+    private val interceptor = CloudflareInterceptor(network.client) { cfBypassUserAgent }
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
 
     private val extractorClient by lazy {
         client.newBuilder().apply {
-            interceptors().removeAll { it is DdosGuardInterceptor }
+            interceptors().removeAll { it is CloudflareInterceptor }
         }.build()
     }
 
@@ -196,15 +197,15 @@ class AnimePahe :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         if (page > 1) {
-            Thread.sleep(3000)
+            delay(3000.milliseconds)
         }
         val request = popularAnimeRequest(page)
-        var response = client.newCall(request).execute()
+        var response = client.newCall(request).await()
 
         if (response.code == 429) {
             response.close()
-            Thread.sleep(12000)
-            response = client.newCall(request).execute()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
         }
 
         if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
@@ -297,16 +298,17 @@ class AnimePahe :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val isApiCall = query.isNotBlank() || filters.isEmpty()
         if (page > 1 && isApiCall) {
-            Thread.sleep(3000)
+            delay(3000.milliseconds)
         }
 
         val request = searchAnimeRequest(page, query, filters)
-        var response = client.newCall(request).execute()
+
+        var response = client.newCall(request).await()
 
         if (response.code == 429) {
             response.close()
-            Thread.sleep(12000)
-            response = client.newCall(request).execute()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
         }
 
         if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
@@ -348,14 +350,14 @@ class AnimePahe :
         return AnimesPage(emptyList(), false)
     }
 
-    // ============================== Latest ===============================
+    // ============================= Latest =================================
     // This source doesn't have a popular animes page,
     // so we use latest animes page instead.
     override suspend fun getLatestUpdates(page: Int) = throw UnsupportedOperationException()
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
     override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
 
-    // =============================== Relation/Suggestions ===============================
+    // ======================== Relation/Suggestions ========================
     override val disableRelatedAnimesBySearch = true
 
     override fun relatedAnimeListRequest(anime: SAnime) = animeDetailsRequest(anime)
@@ -528,75 +530,167 @@ class AnimePahe :
     }.toMutableList()
 
     // ============================ Video Links =============================
-    override fun hosterListRequest(episode: SEpisode): Request {
-        // Strip the `?anime_id=...` query parameter.
-        // This parameter is strictly for database mapping and orphaning prevention.
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val urlPath = episode.url.substringBefore("?")
-        return GET("$baseUrl$urlPath", headers)
-    }
+        val request = GET("$baseUrl$urlPath", headers)
 
-    override fun hosterListParse(response: Response): List<Hoster> {
+        val response = client.newCall(request).awaitSuccess()
+
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        return document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
-            val kwikLink = btn.attr("data-src")
-            val quality = btn.text()
-            val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
-            legacyHoster(
-                hosterUrl = kwikLink,
-                hosterName = quality,
-                internalData = paheWinLink ?: "",
+        val buttons = document.select("div#resolutionMenu > button").withIndex().toList()
+
+        val grouped = buttons.groupBy { (_, btn) ->
+            val text = btn.text()
+            val providerName = if (text.contains(" · ")) {
+                text.substringBefore(" · ")
+            } else {
+                text
+            }
+
+            val qualityText = if (text.contains(" · ")) {
+                text.substringAfter(" · ")
+            } else {
+                text
+            }
+
+            val lang = when {
+                qualityText.contains("eng", ignoreCase = true) -> "English"
+                qualityText.contains("kor", ignoreCase = true) -> "Korean"
+                qualityText.contains("chi", ignoreCase = true) -> "Chinese"
+                else -> "Sub"
+            }
+
+            "$providerName ($lang)"
+        }
+
+        return grouped.map { (hosterName, entries) ->
+            val combinedData = entries.joinToString("|||") { (index, btn) ->
+                val kwikLink = btn.attr("data-src")
+                val fullText = btn.text()
+
+                var qualityText = if (fullText.contains(" · ")) {
+                    fullText.substringAfter(" · ")
+                } else {
+                    fullText
+                }
+
+                qualityText = qualityText
+                    .replace("eng", "", ignoreCase = true)
+                    .replace("kor", "", ignoreCase = true)
+                    .replace("chi", "", ignoreCase = true)
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+
+                val paheWinLink = downloadLinks.getOrNull(index)?.attr("href") ?: ""
+                "$kwikLink###$qualityText###$paheWinLink"
+            }
+
+            Hoster(
+                hosterUrl = "",
+                hosterName = hosterName,
+                videoList = null,
+                internalData = combinedData,
+                lazy = false,
             )
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val kwikLink = hoster.hosterUrl
-        val paheWinLink = hoster.internalData
-        val quality = hoster.hosterName
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
-        val cfUA = cfBypassUserAgent // Get the custom UA once
-
-        val videos = if (!useHLS && paheWinLink.isNotBlank()) {
-            val mp4Videos = runCatching {
-                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
-            }.getOrNull()
-            mp4Videos?.let { AnimePaheHlsServer.processMp4VideoList(client, it) } ?: emptyList()
-        } else {
-            emptyList()
+    // ========================== Hoster Sorting ============================
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val preferredLang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        val preferredLangDisplay = when (preferredLang) {
+            "sub" -> "Sub"
+            "eng" -> "English"
+            "kor" -> "Korean"
+            "chi" -> "Chinese"
+            else -> "Sub"
         }
-
-        return videos.ifEmpty {
-            val hlsVideos = runCatching {
-                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
-                    .let(::listOf)
-            }.getOrNull()
-            hlsVideos?.let { AnimePaheHlsServer.processVideoList(extractorClient, it) } ?: emptyList()
-        }
-    }
-
-    override fun List<Video>.sortVideos(): List<Video> {
-        val subPreference = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
-        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
-        val shouldEndWithEng = subPreference == "eng"
 
         return this.sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
-                .thenByDescending {
-                    val quality = it.videoTitle
-                    QUALITY_REGEX_P.find(quality)?.groupValues?.get(1)?.toIntOrNull()
-                        ?: QUALITY_REGEX.find(quality)?.groupValues?.get(1)?.toIntOrNull()
-                        ?: 0
-                }
-                .thenByDescending {
-                    val quality = it.videoTitle.lowercase()
-                    val isDub = quality.contains("eng")
-                    if (shouldEndWithEng) isDub else !isDub
-                }
-                .thenByDescending { it.videoTitle.lowercase().contains("av1") == shouldBeAv1 },
+            compareByDescending { hoster ->
+                hoster.hosterName.contains("($preferredLangDisplay)", ignoreCase = true)
+            },
         )
+    }
+
+    // ==================== Video Extraction & Sorting ======================
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        if (hoster.internalData.isBlank()) return emptyList()
+
+        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
+        val cfUA = cfBypassUserAgent
+        val videoList = mutableListOf<Video>()
+
+        hoster.internalData.split("|||").forEach { dataStr ->
+            val parts = dataStr.split("###")
+            if (parts.size != 3) return@forEach
+
+            val kwikLink = parts[0]
+            val quality = parts[1]
+            val paheWinLink = parts[2]
+
+            val videos = if (!useHLS && paheWinLink.isNotBlank()) {
+                val mp4Videos = runCatching {
+                    KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
+                }.getOrNull()
+                mp4Videos?.let { AnimePaheHlsServer.processMp4VideoList(client, it) } ?: emptyList()
+            } else {
+                emptyList()
+            }
+
+            val finalVideos = videos.ifEmpty {
+                val hlsVideos = runCatching {
+                    KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                        .let(::listOf)
+                }.getOrNull()
+                hlsVideos?.let { AnimePaheHlsServer.processVideoList(extractorClient, it) } ?: emptyList()
+            }
+
+            videoList.addAll(finalVideos)
+        }
+
+        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.lowercase()
+        val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
+
+        val sortedVideos = videoList.sortedWith(
+            compareByDescending<Video> { video ->
+                val title = video.videoTitle.lowercase()
+                val codec = !shouldBeAv1 || title.contains("av1")
+                val quality = title.contains(preferredQuality)
+                when {
+                    quality && codec -> 2
+                    quality || codec -> 1
+                    else -> 0
+                }
+            }.thenByDescending { video ->
+                val title = video.videoTitle.lowercase()
+                QUALITY_REGEX_P.find(title)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: QUALITY_REGEX.find(title)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: 0
+            },
+        )
+
+        val preferredLang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        val preferredLangDisplay = when (preferredLang) {
+            "sub" -> "Sub"
+            "eng" -> "English"
+            "kor" -> "Korean"
+            "chi" -> "Chinese"
+            else -> "Sub"
+        }
+
+        val isPreferredLangHoster = hoster.hosterName.contains("($preferredLangDisplay)", ignoreCase = true)
+
+        return sortedVideos.mapIndexed { index, video ->
+            if (index == 0 && isPreferredLangHoster) {
+                video.copy(preferred = true)
+            } else {
+                video.copy(preferred = false)
+            }
+        }
     }
 
     // ============================== Filters ===============================
@@ -631,11 +725,11 @@ class AnimePahe :
             summary = "%s",
         )
         screen.addListPreference(
-            key = PREF_SUB_KEY,
-            title = PREF_SUB_TITLE,
-            entries = PREF_SUB_ENTRIES,
-            entryValues = PREF_SUB_VALUES,
-            default = PREF_SUB_DEFAULT,
+            key = PREF_LANG_KEY,
+            title = PREF_LANG_TITLE,
+            entries = PREF_LANG_ENTRIES,
+            entryValues = PREF_LANG_VALUES,
+            default = PREF_LANG_DEFAULT,
             summary = "%s",
         )
         screen.addSwitchPreference(
@@ -835,11 +929,11 @@ class AnimePahe :
         private val PREF_DOMAIN_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
-        private const val PREF_SUB_KEY = "preferred_sub"
-        private const val PREF_SUB_TITLE = "Preferred Type"
-        private const val PREF_SUB_DEFAULT = "jpn"
-        private val PREF_SUB_ENTRIES = listOf("Sub", "Dub")
-        private val PREF_SUB_VALUES = listOf("jpn", "eng")
+        private const val PREF_LANG_KEY = "preferred_lang"
+        private const val PREF_LANG_TITLE = "Preferred Language"
+        private const val PREF_LANG_DEFAULT = "sub"
+        private val PREF_LANG_ENTRIES = listOf("Sub", "English", "Chinese", "Korean")
+        private val PREF_LANG_VALUES = listOf("sub", "eng", "chi", "kor")
 
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS Links"
