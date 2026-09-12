@@ -26,6 +26,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -602,7 +603,6 @@ class AnimePahe :
 
     // ========================== Hoster Sorting ============================
     override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val preferredLang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         val preferredLangDisplay = when (preferredLang) {
             "sub" -> "Sub"
             "eng" -> "English"
@@ -634,24 +634,29 @@ class AnimePahe :
             val quality = parts[1]
             val paheWinLink = parts[2]
 
-            val videos = if (!useHLS && paheWinLink.isNotBlank()) {
-                val mp4Videos = runCatching {
-                    KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
-                }.getOrNull()
-                mp4Videos?.let { AnimePaheHlsServer.processMp4VideoList(client, it) } ?: emptyList()
+            if (!useHLS && paheWinLink.isNotBlank()) {
+                videoList.add(
+                    Video(
+                        videoUrl = "",
+                        videoTitle = quality,
+                        internalData = "mp4_pahe::$paheWinLink",
+                        initialized = false,
+                    ),
+                )
             } else {
-                emptyList()
-            }
-
-            val finalVideos = videos.ifEmpty {
-                val hlsVideos = runCatching {
-                    KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                val hlsVideos = try {
+                    KwikExtractor(extractorClient, headers, cfUA)
+                        .getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
                         .let(::listOf)
-                }.getOrNull()
-                hlsVideos?.let { AnimePaheHlsServer.processVideoList(extractorClient, it) } ?: emptyList()
-            }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
 
-            videoList.addAll(finalVideos)
+                hlsVideos.let { AnimePaheHlsServer.processVideoList(extractorClient, it) }
+                videoList.addAll(hlsVideos)
+            }
         }
 
         val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.lowercase()
@@ -659,14 +664,10 @@ class AnimePahe :
 
         val sortedVideos = videoList.sortedWith(
             compareByDescending<Video> { video ->
+                video.videoTitle.lowercase().contains(preferredQuality)
+            }.thenByDescending { video ->
                 val title = video.videoTitle.lowercase()
-                val codec = !shouldBeAv1 || title.contains("av1")
-                val quality = title.contains(preferredQuality)
-                when {
-                    quality && codec -> 2
-                    quality || codec -> 1
-                    else -> 0
-                }
+                !shouldBeAv1 || title.contains("av1")
             }.thenByDescending { video ->
                 val title = video.videoTitle.lowercase()
                 QUALITY_REGEX_P.find(title)?.groupValues?.get(1)?.toIntOrNull()
@@ -675,7 +676,6 @@ class AnimePahe :
             },
         )
 
-        val preferredLang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         val preferredLangDisplay = when (preferredLang) {
             "sub" -> "Sub"
             "eng" -> "English"
@@ -683,7 +683,6 @@ class AnimePahe :
             "chi" -> "Chinese"
             else -> "Sub"
         }
-
         val isPreferredLangHoster = hoster.hosterName.contains("($preferredLangDisplay)", ignoreCase = true)
 
         return sortedVideos.mapIndexed { index, video ->
@@ -693,6 +692,25 @@ class AnimePahe :
                 video.copy(preferred = false)
             }
         }
+    }
+
+    // ======================== Video Resolution ============================
+    override suspend fun resolveVideo(video: Video): Video? {
+        if (video.internalData.startsWith("mp4_pahe::")) {
+            val paheWinLink = video.internalData.removePrefix("mp4_pahe::")
+            val cfUA = cfBypassUserAgent
+
+            return try {
+                val resolvedVideo = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, video.videoTitle)
+
+                AnimePaheHlsServer.processMp4VideoList(client, listOf(resolvedVideo)).firstOrNull()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+        return video
     }
 
     // ============================== Filters ===============================
@@ -888,6 +906,19 @@ class AnimePahe :
         .lowercase()
         .replace(NORMALIZE_REGEX, "")
         .trim()
+
+    private val preferredLang: String by lazy {
+        var lang = preferences.getString(PREF_LANG_KEY, null)
+        if (lang == null) {
+            val oldSub = preferences.getString("preferred_sub", "jpn")
+            lang = if (oldSub == "eng") "eng" else "sub"
+            preferences.edit()
+                .putString(PREF_LANG_KEY, lang)
+                .remove("preferred_sub")
+                .apply()
+        }
+        lang
+    }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING

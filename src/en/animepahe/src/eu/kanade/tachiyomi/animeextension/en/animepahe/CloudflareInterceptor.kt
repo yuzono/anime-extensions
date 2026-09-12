@@ -10,6 +10,7 @@ class CloudflareInterceptor(
     private val cfBypassUserAgentProvider: () -> String = { AnimePahe.UA },
 ) : Interceptor {
 
+    // Shared lock to serialize WebView bypass attempts across concurrent requests
     private val bypassLock = Any()
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -36,6 +37,7 @@ class CloudflareInterceptor(
             }
 
             if (bypassResult != null) {
+                response.close()
                 return chain.proceed(
                     originalRequest.newBuilder()
                         .header("Cookie", bypassResult.cookies)
@@ -45,8 +47,8 @@ class CloudflareInterceptor(
             }
         }
 
-        // If all bypasses fail, proceed with the original request anyway
-        return chain.proceed(originalRequest)
+        // Do not blindly proceed with the original request again.
+        return response
     }
 
     companion object {
