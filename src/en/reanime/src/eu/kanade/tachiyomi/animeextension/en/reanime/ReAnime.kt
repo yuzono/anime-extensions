@@ -699,14 +699,12 @@ class ReAnime :
 
                     val hosterName = "$label Download"
 
-                    mkvResolutionCache.put(hosterName, ddlData.resolution)
-
                     listOf(
                         Hoster(
                             hosterUrl = "",
                             hosterName = hosterName,
                             videoList = null,
-                            internalData = "mkv_flixcloud_res::${ddlData.base}|||${ddlData.fileId}|||${ddlData.token}",
+                            internalData = "mkv_flixcloud_res::${ddlData.base}|||${ddlData.fileId}|||${ddlData.token}|||${ddlData.resolution}",
                             lazy = false,
                         ),
                     )
@@ -735,7 +733,7 @@ class ReAnime :
             compareByDescending<Hoster> { getBaseServer(it.hosterName) == preferredBase }
                 .thenByDescending {
                     if (it.hosterName.contains("Download")) {
-                        mkvResolutionCache.get(it.hosterName)?.contains(preferredQuality) ?: false
+                        it.internalData.substringAfterLast("|||").contains(preferredQuality, ignoreCase = true)
                     } else {
                         true
                     }
@@ -755,7 +753,8 @@ class ReAnime :
                 extractFromServer(dataLink, hoster.hosterName)
             }
             hoster.internalData.startsWith("mkv_flixcloud_res::") -> {
-                val resolution = mkvResolutionCache.get(hoster.hosterName)
+                val resolution = hoster.internalData.substringAfterLast("|||")
+
                 val video = Video(
                     videoUrl = "",
                     videoTitle = "$resolution MKV",
@@ -958,13 +957,13 @@ class ReAnime :
         if (video.internalData.startsWith("mkv_flixcloud_res::")) {
             val data = video.internalData.removePrefix("mkv_flixcloud_res::")
             val parts = data.split("|||")
-            if (parts.size != 3) return null
+            if (parts.size < 3) return null
 
             val ddlData = FlixCloudDdl.DdlData(
                 base = parts[0],
                 fileId = parts[1],
                 token = parts[2],
-                resolution = RESOLUTION_REGEX.find(video.videoTitle)?.groupValues?.get(1),
+                resolution = parts.getOrNull(3),
             )
 
             val dlHeaders = headers.newBuilder()
@@ -974,7 +973,12 @@ class ReAnime :
 
             val fileUrl = FlixCloudDdl.resolveUrl(client, dlHeaders, ddlData) ?: return null
 
-            return video.copy(videoUrl = fileUrl, internalData = "", initialized = true)
+            return video.copy(
+                videoUrl = fileUrl,
+                internalData = "",
+                initialized = true,
+                headers = dlHeaders,
+            )
         }
         return video
     }
