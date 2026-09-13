@@ -15,10 +15,10 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -43,7 +43,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
 class AnimePahe :
-    AnimeHttpHosterSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
@@ -384,6 +384,9 @@ class AnimePahe :
     }
 
     // ============================== Episodes ==============================
+
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
     private val newAnimeIdRegex by lazy { Regex("""/a/(\d+)""") }
     private val oldQueryIdRegex by lazy { Regex("""\?anime_id=(\d+)""") }
@@ -590,11 +593,8 @@ class AnimePahe :
             }
 
             Hoster(
-                hosterUrl = "",
                 hosterName = hosterName,
-                videoList = null,
                 internalData = combinedData,
-                lazy = false,
             )
         }
     }

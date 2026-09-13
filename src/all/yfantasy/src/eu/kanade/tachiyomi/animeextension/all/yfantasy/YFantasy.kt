@@ -170,7 +170,6 @@ class YFantasy : Source() {
             Hoster(
                 hosterName = "CDN",
                 videoList = listOf(masterVideo, fallbackVideo),
-                lazy = false,
             ),
         )
     }

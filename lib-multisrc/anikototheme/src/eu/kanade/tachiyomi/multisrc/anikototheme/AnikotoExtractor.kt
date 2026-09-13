@@ -122,7 +122,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         videos.map { video ->
             theme.run {
-                video.copyLegacy(
+                video.copy(
                     mpvArgs = video.mpvArgs.filterNot { it.first == "demuxer-lavf-o" } +
                         ("demuxer-lavf-o" to "force_mpegts=1"),
                     ffmpegStreamArgs = video.ffmpegStreamArgs.filterNot { it.first == "force_mpegts" } +

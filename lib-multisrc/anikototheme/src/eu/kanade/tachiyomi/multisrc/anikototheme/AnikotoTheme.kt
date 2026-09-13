@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
@@ -21,7 +22,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.get
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
@@ -51,7 +51,7 @@ abstract class AnikotoTheme(
     override val name: String,
     private val domainEntries: List<String>,
     private val hosterNames: List<String>,
-) : AnimeHttpHosterSource(),
+) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -433,6 +433,8 @@ abstract class AnikotoTheme(
     }
     // ============================== Episodes ==============================
 
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
     open fun episodeListSelector() = "div.episodes ul > li > a"
 
@@ -574,9 +576,7 @@ abstract class AnikotoTheme(
                 Hoster(
                     hosterUrl = server.serverId,
                     hosterName = server.serverName,
-                    videoList = null,
                     internalData = "${server.type}$INTERNAL_DATA_SEPARATOR$epUrl",
-                    lazy = false,
                 )
             }
         }

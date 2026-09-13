@@ -498,7 +498,7 @@ class Jellyfin(private val suffix: String) :
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> = getVideoList(episode).toHosterList()
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    private suspend fun getVideoList(episode: SEpisode): List<Video> {
         val item = client.get(episode.url).parseAs<ItemDto>(json)
         val mediaSource = item.mediaSources?.firstOrNull() ?: return emptyList()
         val itemId = item.id

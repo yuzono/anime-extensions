@@ -17,12 +17,11 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.tryParse
@@ -38,7 +37,7 @@ import java.util.Locale
 import kotlin.math.min
 
 class JavGuru :
-    AnimeHttpHosterSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Jav Guru"
@@ -270,6 +269,8 @@ class JavGuru :
 
     // ========================= Episodes =========================
 
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.useAsJsoup()
         val dateText = document.selectFirst("span.thedate")?.text()?.substringAfter("Posted:")?.trim()
@@ -341,7 +342,7 @@ class JavGuru :
             return null
         }
 
-        return legacyHoster(
+        return Hoster(
             hosterUrl = redirectUrl,
             hosterName = redirectUrl.toHttpUrlOrNull()?.host ?: "Unknown",
         )
@@ -369,7 +370,7 @@ class JavGuru :
                         .set("Referer", "$baseUrl/")
                         .set("Origin", baseUrl)
                         .build()
-                    video.copyLegacy(
+                    video.copy(
                         headers = newHeaders,
                     )
                 }
