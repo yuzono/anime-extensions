@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpHosterSource
@@ -78,7 +79,7 @@ class AniZone :
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val response = if (page == 1) {
             resetAnimeListState(slug = "/anime")
-            client.newCall(GET("$baseUrl/anime?sort=title-asc", headers)).execute()
+            client.newCall(GET("$baseUrl/anime?sort=title-asc", headers)).awaitSuccess()
         } else {
             newLivewireCall(ANIME_SNAPSHOT_KEY, buildJsonObject { }, buildLoadPageCalls(nextCursor), currentSlug)
         }
@@ -289,7 +290,7 @@ class AniZone :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         snapShots[EPISODE_SNAPSHOT_KEY] = ""
-        val response = client.newCall(GET(baseUrl + anime.url, headers)).execute()
+        val response = client.newCall(GET(baseUrl + anime.url, headers)).awaitSuccess()
         return parseEpisodeList(response)
     }
 
@@ -449,15 +450,58 @@ class AniZone :
         }.getOrNull()
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val response = client.newCall(GET(hoster.hosterUrl, headers)).execute()
-        return extractVideos(response)
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val urlPath = episode.url
+        val request = GET("$baseUrl$urlPath", headers)
+
+        val response = client.newCall(request).awaitSuccess()
+
+        val document = response.asJsoup()
+        snapShots[VIDEO_SNAPSHOT_KEY] = document.getSnapshot() ?: ""
+
+        val serverButtons = document.select("button[wire:click]")
+            .filter { it.attr("wire:click").contains("setVideo") }
+
+        return serverButtons.map { btn ->
+            val videoId = SET_VIDEO_REGEX.find(btn.attr("wire:click"))
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: "0"
+
+            // The server whose stream is already embedded in this page load
+            // is rendered 'disabled'
+            val isDefault = btn.hasAttr("disabled")
+
+            val hosterName = btn.selectFirst("div.text-lg")?.text()?.takeIf { it.isNotEmpty() } ?: btn.text()
+
+            val combinedData = "$urlPath###$videoId###$isDefault"
+
+            Hoster(
+                hosterUrl = "",
+                hosterName = hosterName,
+                videoList = null,
+                internalData = combinedData,
+                lazy = false,
+            )
+        }
     }
 
-    private fun extractVideos(response: Response): List<Video> {
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val parts = hoster.internalData.split("###")
+        val urlPath = parts.getOrNull(0) ?: return emptyList()
+        val videoId = parts.getOrNull(1) ?: "0"
+        val isDefault = parts.getOrNull(2)?.toBoolean() ?: false
+
+        val response = client.newCall(GET("$baseUrl$urlPath", headers)).awaitSuccess()
+        return extractVideos(response, hoster.hosterName, videoId, isDefault)
+    }
+
+    private fun extractVideos(response: Response, hosterName: String, videoId: String, isDefault: Boolean): List<Video> {
         val res = response.retryOn419 { client.newCall(it).execute() }
 
-        val document = res.asJsoup()
+        val initialDocument = res.asJsoup()
+        snapShots[VIDEO_SNAPSHOT_KEY] = initialDocument.getSnapshot() ?: ""
+
         val loadAll = preferences.loadAll
 
         val audioValue = preferences.audio
@@ -490,93 +534,35 @@ class AniZone :
             return (initial + others).take(subCount)
         }
 
-        val serverSelects = document.select("button[wire:click]")
-            .filter { it.attr("wire:click").contains("setVideo") }
-
-        val filteredServers = if (loadAll) {
-            serverSelects
+        val document = if (isDefault) {
+            initialDocument
         } else {
-            // Sort servers: preferred audio first, then fallback audio, then others
-
-            val sorted = serverSelects.sortedWith(
-                compareByDescending<Element> { it.text().containsLang(audioValue, audioEntry, audioRegex) }
-                    .thenByDescending { it.text().containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) },
-            )
-            // Take the best match
-            listOfNotNull(sorted.firstOrNull())
-        }.ifEmpty { serverSelects }
-
-        val m3u8List = mutableListOf<VideoData>()
-
-        if (serverSelects.firstOrNull() in filteredServers) {
-            val vidstack = document.vidstackData()
-
-            val subtitles = filterSubs(
-                vidstack?.subtitles?.map { Track(it.file.replace("\\/", "/"), it.title) }
-                    ?: document.select("track[kind=subtitles]").map {
-                        Track(it.attr("src").replace("\\/", "/"), it.attr("label"))
-                    },
-            )
-
-            val videoUrl = vidstack?.src ?: document.selectFirst("media-player")?.attr("src")
-
-            videoUrl?.also {
-                m3u8List.add(
-                    VideoData(
-                        url = it,
-                        name = serverSelects.firstOrNull()?.text() ?: "Default",
-                        subtitles = subtitles,
-                    ),
-                )
-            }
-        }
-
-        snapShots[VIDEO_SNAPSHOT_KEY] = document.getSnapshot() ?: ""
-
-        filteredServers.filter { it != serverSelects.firstOrNull() }.forEach { video ->
-            val matchResult = SET_VIDEO_REGEX.find(video.attr("wire:click"))
-            val videoId = if (matchResult != null && matchResult.groupValues.size == 2) {
-                matchResult.groupValues[1]
-            } else {
-                "0"
-            }
-            val updates = buildJsonObject { }
             val calls = listOf(
-                LivewireCall(method = "setVideo", params = listOf(JsonPrimitive(videoId.toInt()))),
+                LivewireCall(method = "setVideo", params = listOf(JsonPrimitive(videoId.toIntOrNull() ?: 0))),
             )
 
-            val resp = newLivewireCall(VIDEO_SNAPSHOT_KEY, updates, calls, res.request.url.encodedPath)
-            val doc = resp.parseAs<LivewireDto>().getHtml(VIDEO_SNAPSHOT_KEY)
-            val vidstack = doc.vidstackData()
-
-            val subs = filterSubs(
-                vidstack?.subtitles?.map { Track(it.file, it.title) }
-                    ?: doc.select("track[kind=subtitles]").map {
-                        Track(it.attr("src"), it.attr("label"))
-                    },
-            )
-
-            val videoUrl = vidstack?.src ?: doc.selectFirst("media-player")?.attr("src")
-
-            videoUrl?.also {
-                m3u8List.add(
-                    VideoData(
-                        url = it,
-                        name = video.text(),
-                        subtitles = subs,
-                    ),
-                )
-            }
+            val resp = newLivewireCall(VIDEO_SNAPSHOT_KEY, buildJsonObject { }, calls, res.request.url.encodedPath)
+            resp.parseAs<LivewireDto>().getHtml(VIDEO_SNAPSHOT_KEY)
         }
 
-        val allVideos = m3u8List.flatMap {
-            playlistUtils.extractFromHls(
-                playlistUrl = it.url,
-                referer = "$baseUrl/",
-                videoNameGen = { q -> "${it.name} - $q" },
-                subtitleList = it.subtitles,
-            )
-        }
+        val vidstack = document.vidstackData()
+
+        val subtitles = filterSubs(
+            vidstack?.subtitles?.map { Track(it.file.replace("\\/", "/"), it.title) }
+                ?: document.select("track[kind=subtitles]").map {
+                    Track(it.attr("src").replace("\\/", "/"), it.attr("label"))
+                },
+        )
+
+        val videoUrl = vidstack?.src ?: document.selectFirst("media-player")?.attr("src")
+            ?: return emptyList()
+
+        val allVideos = playlistUtils.extractFromHls(
+            playlistUrl = videoUrl,
+            referer = "$baseUrl/",
+            videoNameGen = { q -> "$hosterName - $q" },
+            subtitleList = subtitles,
+        )
 
         if (loadAll) return allVideos
 
@@ -586,23 +572,19 @@ class AniZone :
                 video.audioTracks.filter { it.lang.containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) }
             }
             val finalSubs = filterSubs(video.subtitleTracks)
-            legacyVideo(
+            Video(
                 videoUrl = video.videoUrl,
                 videoTitle = video.videoTitle,
                 headers = video.headers,
                 subtitleTracks = finalSubs,
                 audioTracks = finalAudio,
+                initialized = true,
             )
         }.filter { video ->
             video.videoTitle.containsLang(audioValue, audioEntry, audioRegex) ||
                 video.videoTitle.containsLang(fallbackAudioValue, fallbackAudioEntry, fallbackAudioRegex) ||
                 video.audioTracks.isNotEmpty()
         }.ifEmpty { allVideos }
-    }
-
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        // AniZone doesn't have multiple hosters, so return a single dummy hoster
-        return listOf(legacyHoster(hosterUrl = baseUrl + episode.url, hosterName = "Default"))
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
@@ -916,7 +898,7 @@ class AniZone :
         val jsonString = this.substringAfter("$prefix: JSON.parse('", "").substringBefore("')")
         if (jsonString.isEmpty()) return null
 
-        val cleanJson = org.jsoup.parser.Parser.unescapeEntities(jsonString, true)
+        val cleanJson = Parser.unescapeEntities(jsonString, true)
             .replace("\\u0022", "\"")
             .replace("\\\\", "\\")
             .replace("\\/", "/")
