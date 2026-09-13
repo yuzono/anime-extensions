@@ -35,22 +35,23 @@ class M3u8Integration(
 
     /**
      * Processes an M3U8 video through the local server. The original
-     * [Video.headers] is consulted to derive `Referer` and `User-Agent`,
-     * which are then re-encoded into the proxied URL so the m3u8 server
-     * can re-issue them on the upstream fetch even if the media player
+     * [Video.headers] is consulted to derive `Referer`, `User-Agent`, and
+     * `Origin`, which are then re-encoded into the proxied URL so the m3u8
+     * server can re-issue them on the upstream fetch even if the media player
      * (mpv / ExoPlayer) does not carry them through to localhost.
      */
     private fun processM3u8Video(originalVideo: Video): Video {
         val referer = originalVideo.headers?.get("Referer")
         val userAgent = originalVideo.headers?.get("User-Agent")
-        val processedUrl = serverManager.processM3u8Url(originalVideo.videoUrl, referer, userAgent)
+        val origin = originalVideo.headers?.get("Origin")
+        val processedUrl = serverManager.processM3u8Url(originalVideo.videoUrl, referer, userAgent, origin)
         return Video(
-            videoUrl = processedUrl ?: originalVideo.videoUrl,
             url = originalVideo.videoUrl,
             quality = originalVideo.videoTitle,
+            videoUrl = processedUrl ?: originalVideo.videoUrl,
+            headers = originalVideo.headers,
             subtitleTracks = originalVideo.subtitleTracks,
             audioTracks = originalVideo.audioTracks,
-            headers = originalVideo.headers,
         )
     }
 
