@@ -2,7 +2,7 @@ ext {
     extName = 'Stremio'
     extClass = '.Stremio'
     libVersion = 16
-    extVersionCode = 10
+    extVersionCode = 11
     extNames = ["Stremio"]
 }
 

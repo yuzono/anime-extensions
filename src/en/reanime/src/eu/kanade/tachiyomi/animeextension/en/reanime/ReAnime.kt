@@ -20,10 +20,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
-import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
@@ -50,7 +50,7 @@ import java.util.TimeZone.getTimeZone
 import kotlin.math.roundToInt
 
 class ReAnime :
-    AnimeHttpHosterSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Re:ANIME"
@@ -513,6 +513,9 @@ class ReAnime :
     }
 
     // ============================== Episodes ==============================
+
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     override fun episodeListRequest(anime: SAnime): Request {
         val url = "$detailsFromApiUrl/${anime.url}/episodes".toHttpUrl().newBuilder()
             .addQueryParameter("limit", "2000")
@@ -667,11 +670,8 @@ class ReAnime :
             if (!isExcluded(server.serverName)) {
                 hosters.add(
                     Hoster(
-                        hosterUrl = "",
                         hosterName = label,
-                        videoList = null,
                         internalData = "hls_flixcloud::$dataLink",
-                        lazy = false,
                     ),
                 )
             }
@@ -701,11 +701,8 @@ class ReAnime :
 
                     listOf(
                         Hoster(
-                            hosterUrl = "",
                             hosterName = hosterName,
-                            videoList = null,
                             internalData = "mkv_flixcloud_res::${ddlData.base}|||${ddlData.fileId}|||${ddlData.token}|||${ddlData.resolution}",
-                            lazy = false,
                         ),
                     )
                 },

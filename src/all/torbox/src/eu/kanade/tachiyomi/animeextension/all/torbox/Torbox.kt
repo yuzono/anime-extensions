@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.Source
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addSetPreference
@@ -279,7 +280,7 @@ class Torbox :
         val videoUrl = client.get(url).parseAs<DataDto<String>>().data
 
         return listOf(
-            legacyVideo(
+            Video(
                 videoUrl = videoUrl,
                 videoTitle = episode.name,
             ),

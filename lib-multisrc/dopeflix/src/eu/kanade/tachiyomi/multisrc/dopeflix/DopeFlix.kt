@@ -21,7 +21,6 @@ import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
-import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
@@ -383,7 +382,7 @@ abstract class DopeFlix(
 
             return embedLinks.parallelCatchingFlatMap(::extractVideo)
                 .map { video ->
-                    video.copyLegacy(
+                    video.copy(
                         subtitleTracks = subLangOrder(video.subtitleTracks),
                         audioTracks = subLangOrder(video.audioTracks),
                     )
