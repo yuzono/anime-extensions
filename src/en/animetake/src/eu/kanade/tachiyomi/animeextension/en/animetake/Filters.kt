@@ -121,6 +121,8 @@ object Filters {
         )
 
         val YEAR = arrayOf(
+            Pair("2026", "2026"),
+            Pair("2025", "2025"),
             Pair("2024", "2024"),
             Pair("2023", "2023"),
             Pair("2022", "2022"),
