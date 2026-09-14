@@ -94,7 +94,9 @@ class AnimeTake :
                 .addQueryParameter("page", page.toString())
                 .apply {
                     params.letters.forEach { addQueryParameter("letters[]", it) }
-                    params.genres.forEach { addQueryParameter("genres[]", it) }
+                    params.genres.forEach {
+                        addQueryParameter("genres[]", it.replace('+', ' '))
+                    }
                     params.score.forEach { addQueryParameter("score[]", it) }
                     params.years.forEach { addQueryParameter("years[]", it) }
                     params.ratings.forEach { addQueryParameter("ratings[]", it) }
@@ -228,7 +230,7 @@ class AnimeTake :
     // ============================= Utilities ==============================
 
     override fun List<Video>.sortVideos(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.lowercase()
+        val quality = preferredQuality
 
         return this.sortedByDescending { it.videoTitle.lowercase().contains(quality) }
     }
