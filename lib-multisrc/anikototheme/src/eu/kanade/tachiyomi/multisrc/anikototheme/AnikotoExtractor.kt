@@ -229,17 +229,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
     }
 
     private fun parseMegaPlayMediaId(html: String): String? {
-        val dataId = Regex(
-            """data-id=["']([^"']+)["']""",
-            RegexOption.IGNORE_CASE,
-        ).find(html)?.groupValues?.get(1)?.trim()
+        val dataId = DATA_ID_REGEX.find(html)?.groupValues?.get(1)?.trim()
 
         if (!dataId.isNullOrBlank()) return dataId
 
-        return Regex(
-            """File\s+(\d+)""",
-            RegexOption.IGNORE_CASE,
-        ).find(html)?.groupValues?.get(1)
+        return FILE_ID_REGEX.find(html)?.groupValues?.get(1)
     }
 
     private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String): String {
@@ -290,7 +284,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                 val decrypted = cipher.doFinal(encrypted)
                 val json = String(decrypted, StandardCharsets.UTF_8)
 
-                val fileMatch = Regex(""""file"\s*:\s*"([^"]+)"""").find(json)
+                val fileMatch = FILE_JSON_REGEX.find(json)
                 if (fileMatch != null) {
                     m3u8 = fileMatch.groupValues[1]
                 }
@@ -302,14 +296,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         if (m3u8.isNullOrBlank()) return null
 
-        if (Regex("""[?&]token=""", RegexOption.IGNORE_CASE).containsMatchIn(m3u8)) {
+        if (TOKEN_PARAM_REGEX.containsMatchIn(m3u8)) {
             return m3u8
         }
 
-        val match = Regex(
-            """/([a-f0-9]{32})/([a-f0-9]{32})/""",
-            RegexOption.IGNORE_CASE,
-        ).find(m3u8) ?: return m3u8
+        val match = PATH_KEY_REGEX.find(m3u8) ?: return m3u8
 
         val pathKey = "${match.groupValues[1].lowercase()}/${match.groupValues[2].lowercase()}"
         val expiry = (System.currentTimeMillis() / 1000) + 90
@@ -430,6 +421,12 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
 
         private val MEGAPLAY_HOST_REGEX = Regex("""megaplay\.[^/]+/stream/""", RegexOption.IGNORE_CASE)
+
+        private val DATA_ID_REGEX = Regex("""data-id=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+        private val FILE_ID_REGEX = Regex("""File\s+(\d+)""", RegexOption.IGNORE_CASE)
+        private val FILE_JSON_REGEX = Regex(""""file"\s*:\s*"([^"]+)"""")
+        private val TOKEN_PARAM_REGEX = Regex("""[?&]token=""", RegexOption.IGNORE_CASE)
+        private val PATH_KEY_REGEX = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
 
         private val HOST_MAP_REGEX = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
         private val HOST_ENTRY_REGEX = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
