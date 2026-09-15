@@ -18,7 +18,8 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQuer
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.network.get
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpHosterSource
 import keiyoushi.utils.LazyMutable
@@ -65,7 +66,9 @@ abstract class AnikotoTheme(
             if (value == baseUrl) return
             preferences.edit().putString(PREF_DOMAIN_KEY, value).apply()
             docHeaders = headersBuilder().build()
-            client = network.client.newBuilder().build()
+            client = network.client.newBuilder()
+                .rateLimit(rateLimit)
+                .build()
         }
 
     private val domainValues = domainEntries.map { "https://$it" }
@@ -89,7 +92,9 @@ abstract class AnikotoTheme(
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
     override var client: OkHttpClient by LazyMutable {
-        network.client.newBuilder().build()
+        network.client.newBuilder()
+            .rateLimit(rateLimit)
+            .build()
     }
 
     internal val playlistClient by lazy {
@@ -200,7 +205,7 @@ abstract class AnikotoTheme(
         }
     }
 
-    protected open fun extractBaseServerName(rawName: String): String = rawName.replace(Regex("-*\\d+\\s*$"), "").trimEnd('-', ' ').trim()
+    protected open fun extractBaseServerName(rawName: String): String = rawName.replace(Regex("-\\*\\d+\\s*$"), "").trimEnd('-', ' ').trim()
 
     protected open fun getHosterDisplayName(baseName: String): String = baseName
 
@@ -406,9 +411,12 @@ abstract class AnikotoTheme(
             document.select(recommendedSectionSelector).firstOrNull {
                 it.select(".head .title").text().equals("Recommended", ignoreCase = true)
             }?.select("a.item")?.forEach { element ->
-                val path = extractAnimePath(element.attr("href").substringBefore("?").trim()) ?: return@forEach
+                val path = extractAnimePath(element.attr("href").substringBefore("?").trim(),) ?: return@forEach
+
                 if (path == currentAnimePath) return@forEach
-                val nameElement = element.selectFirst(".info .name") ?: return@forEach
+                val nameElement = element.selectFirst(".info .name")
+                    ?: return@forEach
+
                 resultList.add(
                     SAnime.create().apply {
                         url = path
@@ -423,7 +431,6 @@ abstract class AnikotoTheme(
             emptyList()
         }
     }
-
     // ============================== Episodes ==============================
 
     override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
@@ -434,7 +441,7 @@ abstract class AnikotoTheme(
         val animeUrl = anime.url.substringBefore("#")
 
         val id = animeId.ifBlank {
-            client.newCall(GET(baseUrl + animeUrl, docHeaders)).awaitSuccess().use { response ->
+            client.get(baseUrl + animeUrl, docHeaders).use { response ->
                 val doc = resolveSearchAnime(response.asJsoup())
                 doc.selectFirst("[data-id]")?.attr("data-id")
                     ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
@@ -448,8 +455,12 @@ abstract class AnikotoTheme(
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
 
-        val response = client.newCall(GET("$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}", listHeaders)).awaitSuccess()
-        return response.use { episodeListParse(it) }
+        client.get(
+            "$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}",
+            listHeaders,
+        ).use { response ->
+            return episodeListParse(response)
+        }
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -540,7 +551,10 @@ abstract class AnikotoTheme(
             throw Exception("The site's video servers have changed. Please open the extension settings to update your Preferred Server.")
         }
 
-        client.newCall(videoListRequest(episode)).awaitSuccess().use { response ->
+        client.get(
+            videoListRequest(episode).url,
+            videoListRequest(episode).headers,
+        ).use { response ->
             val referer = response.request.header("Referer")
             if (referer.isNullOrBlank()) return emptyList()
             val epUrl = try {
@@ -739,7 +753,7 @@ abstract class AnikotoTheme(
         typeElements.flatMap { elem ->
             elem.select("li")
                 .filter { !it.hasClass("download-icon") }
-                .mapNotNull { it -> it.text().takeIf { it.isNotEmpty() } }
+                .mapNotNull { it.text().takeIf { it.isNotEmpty() } }
         }.also { updateDiscoveredServers(it, isMapper = false) }
 
         val effectiveTypeToggle = typeToggle

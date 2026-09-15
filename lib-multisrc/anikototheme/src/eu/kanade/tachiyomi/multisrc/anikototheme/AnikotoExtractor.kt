@@ -10,8 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MegaPlaySourcesDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.network.get
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
@@ -36,8 +35,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
 
-        return theme.client.newCall(GET("${theme.baseUrl}/ajax/server?get=$serverId", listHeaders))
-            .awaitSuccess().use { response ->
+        return theme.client.get("${theme.baseUrl}/ajax/server?get=$serverId", listHeaders)
+            .use { response ->
                 if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
                 response.parseAs<ServerResponseDto>().result.url
             }
@@ -61,7 +60,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                 add("Origin", theme.baseUrl)
             }.build()
 
-            theme.client.newCall(GET(apiUrl, mapperHeaders)).awaitSuccess().use { apiResponse ->
+            theme.client.get(apiUrl, mapperHeaders).use { apiResponse ->
                 val mapperJson = apiResponse.parseAs<Map<String, MapperServerDto?>>()
 
                 mapperJson.keys
@@ -159,7 +158,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .add("Referer", "${theme.baseUrl}/")
             .build()
 
-        val pageBody = theme.client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
+        val pageBody = theme.client.get(embedUrl, pageHeaders).use {
             if (!it.isSuccessful) throw Exception("MegaPlay page failed: HTTP ${it.code}")
             it.body.string()
         }
@@ -175,7 +174,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             add("Referer", embedUrl)
         }.build()
 
-        val sourcesDto = theme.client.newCall(GET(getSourcesUrl, apiHeaders)).awaitSuccess().use { response ->
+        val sourcesDto = theme.client.get(getSourcesUrl, apiHeaders).use { response ->
             if (!response.isSuccessful) throw Exception("MegaPlay getSources failed: HTTP ${response.code}")
             response.parseAs<MegaPlaySourcesDto>()
         }
@@ -367,8 +366,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return videos
     }
 
-    private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: AnikotoTheme.VideoData): List<Video> {
-        val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
+    private suspend fun extractFromMewcdnPlayer(serverUrl: String, server: AnikotoTheme.VideoData): List<Video> {
+        val fragment = serverUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
             ?: throw Exception("No fragment found in mewcdn player URL")
 
         val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
@@ -380,7 +379,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .add("Referer", "${theme.baseUrl}/")
             .build()
 
-        val hostMap = theme.client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use { response ->
+        val hostMap = theme.client.get(serverUrl, pageHeaders).use { response ->
             parseHostMap(response.body.string())
         }
 
