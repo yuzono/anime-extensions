@@ -411,7 +411,7 @@ abstract class AnikotoTheme(
             document.select(recommendedSectionSelector).firstOrNull {
                 it.select(".head .title").text().equals("Recommended", ignoreCase = true)
             }?.select("a.item")?.forEach { element ->
-                val path = extractAnimePath(element.attr("href").substringBefore("?").trim(),) ?: return@forEach
+                val path = extractAnimePath(element.attr("href").substringBefore("?").trim()) ?: return@forEach
 
                 if (path == currentAnimePath) return@forEach
                 val nameElement = element.selectFirst(".info .name")
