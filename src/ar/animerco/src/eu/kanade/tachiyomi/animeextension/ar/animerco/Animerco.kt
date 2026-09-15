@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.animerco
 
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -41,7 +42,7 @@ class Animerco :
 
     override val name = "Animerco"
 
-    override val baseUrl = "https://zeta.animerco.org"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -134,11 +135,11 @@ class Animerco :
             }
         }
 
-        status = document.select("ul.chapters-list a.se-title > span.badge")
+        status = document.select("ul.episodes-lists span.badge")
             .eachText()
             .let { items ->
                 when {
-                    items.all { it.contains("مكتمل") } -> SAnime.COMPLETED
+                    items.isNotEmpty() && items.all { it.contains("مكتمل") } -> SAnime.COMPLETED
                     items.any { it.contains("يعرض الأن") } -> SAnime.ONGOING
                     else -> SAnime.UNKNOWN
                 }
@@ -213,7 +214,14 @@ class Animerco :
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
 
     private suspend fun getPlayerVideos(player: Element): List<Video> {
-        val url = getPlayerUrl(player) ?: return emptyList()
+        var url = getPlayerUrl(player) ?: return emptyList()
+        // New domain wraps the real embed in an intermediate jwplayer page
+        if ("/jwplayer/" in url) {
+            url = client.newCall(GET(url, headers))
+                .awaitSuccess().useAsJsoup()
+                .selectFirst("iframe")?.attr("abs:src")
+                .takeIf { !it.isNullOrBlank() } ?: return emptyList()
+        }
         val name = player.selectFirst("span.server")?.text()?.lowercase() ?: "Unknown"
         return when {
             "ok.ru" in url -> okruExtractor.videosFromUrl(url)
@@ -246,6 +254,7 @@ class Animerco :
     private suspend fun getPlayerUrl(player: Element): String? {
         val body = FormBody.Builder()
             .add("action", "player_ajax")
+            .add("security", player.attr("data-nonce"))
             .add("post", player.attr("data-post"))
             .add("nume", player.attr("data-nume"))
             .add("type", player.attr("data-type"))
@@ -356,10 +365,23 @@ class Animerco :
                 preferences.edit().putString(key, entry).commit()
             }
         }.also(screen::addPreference)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
     companion object {
+        private const val DEFAULT_BASE_URL = "https://det.animerco.org"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
