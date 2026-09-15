@@ -256,7 +256,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
     }
 
     private fun processMegaPlaySource(enc: String?, source: String?): String? {
-        var m3u8 = source
+        var m3u8: String? = null
+        var wasDecrypted = false
 
         if (!enc.isNullOrBlank()) {
             try {
@@ -271,32 +272,34 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                     Base64.DEFAULT,
                 )
 
-                if (encrypted.isEmpty() || encrypted.size % 16 != 0) {
-                    return null
-                }
+                if (encrypted.isNotEmpty() && encrypted.size % 16 == 0) {
+                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                    cipher.init(
+                        Cipher.DECRYPT_MODE,
+                        SecretKeySpec(keyBytes, "AES"),
+                        IvParameterSpec(iv),
+                    )
+                    val decrypted = cipher.doFinal(encrypted)
+                    val json = String(decrypted, StandardCharsets.UTF_8)
 
-                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                cipher.init(
-                    Cipher.DECRYPT_MODE,
-                    SecretKeySpec(keyBytes, "AES"),
-                    IvParameterSpec(iv),
-                )
-                val decrypted = cipher.doFinal(encrypted)
-                val json = String(decrypted, StandardCharsets.UTF_8)
-
-                val fileMatch = FILE_JSON_REGEX.find(json)
-                if (fileMatch != null) {
-                    m3u8 = fileMatch.groupValues[1]
+                    val fileMatch = FILE_JSON_REGEX.find(json)
+                    if (fileMatch != null) {
+                        m3u8 = fileMatch.groupValues[1]
+                        wasDecrypted = true
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("AnikotoExtractor", "MegaPlay AES decrypt failed: ${e.message}")
-                return null
             }
+        }
+
+        if (m3u8.isNullOrBlank()) {
+            m3u8 = source
         }
 
         if (m3u8.isNullOrBlank()) return null
 
-        if (TOKEN_PARAM_REGEX.containsMatchIn(m3u8)) {
+        if (!wasDecrypted || TOKEN_PARAM_REGEX.containsMatchIn(m3u8)) {
             return m3u8
         }
 
@@ -329,7 +332,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             m3u8
         }
     }
-
     // ======================== Other paths ========================
 
     private fun extractDirectM3u8(
