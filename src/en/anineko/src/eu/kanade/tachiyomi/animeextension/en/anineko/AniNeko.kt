@@ -353,20 +353,15 @@ class AniNeko :
         }.toMutableList()
 
         return hosters
+            .filterNot { it.hosterName.isExcluded() }
     }
 
     // ========================== Hoster Sorting ============================
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val preferredAudioType = preferences.getString(TYPE_KEY, TYPE_DEFAULT)!!
         val preferredHost = preferences.getString(HOST_KEY, HOST_DEFAULT)!!
-        val excludedServers = preferences.getStringSet(EXCLUDE_SERVERS_KEY, emptySet())!!
-        val excludedAudios = preferences.getStringSet(EXCLUDE_AUDIO_KEY, emptySet())!!
 
-        return this.filter { hoster ->
-            val name = hoster.hosterName
-            excludedServers.none { name.contains(it, ignoreCase = true) } &&
-                excludedAudios.none { name.contains(it, ignoreCase = true) }
-        }.sortedWith(
+        return sortedWith(
             compareByDescending<Hoster> { it.hosterName.contains(preferredHost, true) }
                 .thenByDescending { it.hosterName.contains(preferredAudioType, true) },
         )
@@ -374,6 +369,8 @@ class AniNeko :
 
     // ==================== Video Extraction & Sorting ======================
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        if (hoster.hosterName.isExcluded()) return emptyList()
+
         val iframeUrl = hoster.hosterUrl
 
         val subtitleTracks = hoster.internalData.split("|||").mapNotNull { subStr ->
@@ -423,9 +420,20 @@ class AniNeko :
         }
 
         return videos.filterNot { video ->
-            video.videoTitle.contains("Video", ignoreCase = true) &&
-                QUALITY_ENTRIES.none { video.videoTitle.contains(it, ignoreCase = true) }
-        }
+            video.videoTitle.isExcluded() ||
+                (
+                    video.videoTitle.contains("Video", ignoreCase = true) &&
+                        QUALITY_ENTRIES.none { video.videoTitle.contains(it, ignoreCase = true) }
+                    )
+        }.sortVideos()
+    }
+
+    private fun String.isExcluded(): Boolean {
+        val excludedServers = preferences.getStringSet(EXCLUDE_SERVERS_KEY, emptySet())!!
+        val excludedAudios = preferences.getStringSet(EXCLUDE_AUDIO_KEY, emptySet())!!
+
+        return excludedServers.any { contains(it, ignoreCase = true) } ||
+            excludedAudios.any { contains(it, ignoreCase = true) }
     }
 
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> = throw UnsupportedOperationException()
