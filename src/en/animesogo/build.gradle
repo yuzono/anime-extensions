@@ -3,6 +3,7 @@ ext {
     extClass = '.AnimeSogo'
     themePkg = 'anikototheme'
     baseUrl = 'https://animesogo.to'
+    libVersion = 16
     overrideVersionCode = 0
 }
 

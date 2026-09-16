@@ -10,15 +10,13 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Track
-import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import kotlinx.serialization.json.Json
-import okhttp3.Headers
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
 abstract class Source :
-    AnimeHttpHosterSource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
     protected val context: Application by injectLazy()
 
@@ -60,20 +58,3 @@ abstract class Source :
         hoster: Hoster,
     ) = throw UnsupportedOperationException()
 }
-
-fun Video.copyLegacy(
-    // This is quick fix for the bug in Anikku preview r8888 (caused by a bug upstream)
-    url: String = this.videoUrl,
-    quality: String = this.videoTitle,
-    videoUrl: String? = this.videoUrl,
-    headers: Headers? = this.headers,
-    subtitleTracks: List<Track> = this.subtitleTracks,
-    audioTracks: List<Track> = this.audioTracks,
-): Video = Video(
-    url = url,
-    quality = quality,
-    videoUrl = videoUrl,
-    headers = headers,
-    subtitleTracks = subtitleTracks,
-    audioTracks = audioTracks,
-)
