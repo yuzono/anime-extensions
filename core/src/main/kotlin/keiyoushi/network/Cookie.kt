@@ -1,7 +1,7 @@
 package keiyoushi.network
 
 import android.webkit.CookieManager
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import keiyoushi.utils.firstInstanceOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -11,7 +11,7 @@ import okhttp3.Response
 /**
  * Adds cookies to requests matching the current source [HttpSource.baseUrl].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 fun OkHttpClient.Builder.addCookie(
     cookies: List<Pair<String, String>>,
 ): OkHttpClient.Builder = addCookie({ source.baseUrl.toHttpUrl().host }, cookies)
@@ -19,7 +19,7 @@ fun OkHttpClient.Builder.addCookie(
 /**
  * Adds a cookie to requests matching the current source [HttpSource.baseUrl].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 fun OkHttpClient.Builder.addCookie(
     cookie: Pair<String, String>,
 ): OkHttpClient.Builder = addCookie({ source.baseUrl.toHttpUrl().host }, cookie)
@@ -27,7 +27,7 @@ fun OkHttpClient.Builder.addCookie(
 /**
  * Adds dynamically resolved cookies to requests matching the current source [HttpSource.baseUrl].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 fun OkHttpClient.Builder.addCookie(
     cookies: () -> List<Pair<String, String>>,
 ): OkHttpClient.Builder = addCookie({ source.baseUrl.toHttpUrl().host }, cookies)

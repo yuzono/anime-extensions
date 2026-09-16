@@ -14,7 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -33,7 +33,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.collections.associate
 import kotlin.collections.isNotEmpty
-import kotlin.time.Duration.Companion.seconds
 
 class Anikage :
     AnimeHttpLegacySource(),
@@ -54,7 +53,7 @@ class Anikage :
         .set("Referer", "$baseUrl/")
 
     override val client = network.client.newBuilder()
-        .rateLimitHost(baseUrl.toHttpUrl(), 3, 1.seconds)
+        .rateLimit(3)
         .build()
 
     private val preferences by getPreferencesLazy()

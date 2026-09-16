@@ -26,7 +26,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
@@ -835,6 +835,7 @@ class Miruro :
         private val PREF_MIRROR_DEFAULT = DEFAULT_MIRROR_VALUES.first()
         private const val PREF_CACHED_MIRRORS_KEY = "cached_mirrors_json"
         private const val STATUS_PAGE_API_URL = "https://status.miruro.com/api"
+        private val STATUS_PAGE_API_HOST = STATUS_PAGE_API_URL.toHttpUrl().host
 
         private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
         private val CLOSE_P_REGEX = Regex("</p>", RegexOption.IGNORE_CASE)
@@ -845,8 +846,8 @@ class Miruro :
         val SUB_TYPE_DISPLAY_ORDER = listOf("sub", "dub", "ssub", "h-sub")
     }
 
-    private val statusPageClient: OkHttpClient = network.client.newBuilder()
-        .rateLimitHost("$STATUS_PAGE_API_URL/".toHttpUrl(), permits = 1, period = 2.seconds)
+    private val statusPageClient = network.client.newBuilder()
+        .rateLimit(1, 2.seconds) { it.host == STATUS_PAGE_API_HOST }
         .build()
 
     // ============================== Pipe Search ==============================

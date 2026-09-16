@@ -8,7 +8,7 @@ import okhttp3.OkHttpClient
 class CoverProviders(private val client: OkHttpClient, private val headers: Headers) {
     fun getMALCovers(malId: String): List<String> {
         return client.newCall(
-            GET("https://api.jikan.moe/v4/anime/$malId/pictures", headers),
+            GET("https://api.tenrai.org/v1/anime/$malId/pictures", headers),
         ).execute().use { response ->
             if (!response.isSuccessful) return@use emptyList()
 

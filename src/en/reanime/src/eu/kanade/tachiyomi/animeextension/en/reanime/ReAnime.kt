@@ -23,7 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
@@ -40,7 +40,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
@@ -106,11 +105,9 @@ class ReAnime :
         .add("Sec-Fetch-Site", "same-origin")
         .build()
 
-    override val client: OkHttpClient by lazy {
-        network.client.newBuilder()
-            .rateLimit(5)
-            .build()
-    }
+    override val client = network.client.newBuilder()
+        .rateLimit(5)
+        .build()
 
     private val playlistUtils by lazy { PlaylistUtils(network.client, headers) }
 

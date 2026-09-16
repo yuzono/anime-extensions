@@ -27,7 +27,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -42,7 +42,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
@@ -57,9 +56,9 @@ class XAnime :
 
     override val baseUrl: String get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN)!!
 
-    private val cryptoClient: OkHttpClient = client.newBuilder()
-        .rateLimit(5)
+    private val cryptoClient = client.newBuilder()
         .addInterceptor(Crypto())
+        .rateLimit(5)
         .build()
 
     private val api = Queries(cryptoClient, { baseUrl }, headers)

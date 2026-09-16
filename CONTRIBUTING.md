@@ -29,15 +29,14 @@ or fixing it directly by submitting a Pull Request.
       - [Adding a lib dependency](#adding-a-lib-dependency)
       - [i18n library](#i18n-library)
       - [Creating a new lib](#creating-a-new-lib)
-      - [keiyoushi.utils (core utilities)](#keiyoushiutils-core-utilities)
+      - [Core utilities (keiyoushi.utils and keiyoushi.network)](#core-utilities-keiyoushiutils-and-keiyoushinetwork)
         - [JSON parsing - `parseAs`](#json-parsing---parseas)
         - [JSON serialization - `toJsonString` / `toJsonRequestBody`](#json-serialization---tojsonstring--tojsonrequestbody)
         - [JSON models (DTOs) and serialization](#json-models-dtos-and-serialization)
         - [Protobuf parsing and serialization - `parseAsProto` / `toRequestBodyProto`](#protobuf-parsing-and-serialization---parseasproto--torequestbodyproto)
-        - [Date parsing - `tryParse` helpers](#date-parsing---tryparse-helpers)
+        - [Date parsing - `tryParse`](#date-parsing---tryparse)
         - [HTTP requests - `OkHttpClient.get` / `post` / `put` / `head`](#http-requests---okhttpclientget--post--put--head)
         - [Custom cookies - `addCookie`](#custom-cookies---addcookie)
-        - [WebView execution - `runWebView` / `getLocalStorage`](#webview-execution---runwebview--getlocalstorage)
         - [Filter helpers - `firstInstance` / `firstInstanceOrNull`](#filter-helpers---firstinstance--firstinstanceornull)
         - [Next.js data extraction - `extractNextJs` / `extractNextJsRsc`](#nextjs-data-extraction---extractnextjs--extractnextjsrsc)
         - [Extracting URLs - `setUrlWithoutDomain` + `absUrl`](#extracting-urls---seturlwithoutdomain--absurl)
@@ -307,7 +306,7 @@ apply plugin: "kei.plugins.extension.legacy"
 | `extVersionCode` | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function. |
 | `isNsfw`         | Flag to indicate that a source contains NSFW content. Should always be set explicitly to either `true` or `false`. Falls back to `false` if not set.                                                                 |
 
-The extension's version name is generated automatically by concatenating `16` and `extVersionCode`. With the example used above, the version would be `16.1`.
+The extension's version name is generated automatically by concatenating `14` and the resolved version code. With the example used above, the version would be `14.1`.
 
 ### Core dependencies
 
@@ -425,11 +424,11 @@ dependencies {
 Place your code in the package `keiyoushi.lib.<mylibname>` or `aniyomi.lib.<mylibname>`. Document public API with KDoc so
 contributors can understand the lib without needing to read `CONTRIBUTING.md`.
 
-#### keiyoushi.utils (core utilities)
+#### Core utilities (keiyoushi.utils and keiyoushi.network)
 
-The `core/utils` module provides a set of shared extension functions that are available to all extensions
+The `core` module provides a set of shared extension functions that are available to all extensions
 without any extra Gradle dependency. Prefer using these helpers instead of implementing your own equivalents, as they provide standardized and maintained solutions.
-The utilities live in the `keiyoushi.utils` package and are imported individually.
+Parsing and preference helpers live in the `keiyoushi.utils` package, HTTP client helpers in `keiyoushi.network`, and they are imported individually.
 
 ##### JSON parsing - `parseAs`
 
@@ -562,6 +561,61 @@ Two common mistakes to avoid:
   // Also correct (Z without quotes parses the timezone offset from the string):
   SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.ROOT)
   ```
+
+##### HTTP requests - `OkHttpClient.get` / `post` / `put` / `head`
+
+`keiyoushi.network` provides suspend helpers that build the `Request` and await the call in a single
+step, so you don't have to pair a `GET()`/`POST()` with `client.newCall(...).awaitSuccess()`.
+
+```kotlin
+import keiyoushi.network.get
+import keiyoushi.network.post
+
+// Inside the source class the headers are taken from the source automatically:
+val response = client.get("$baseUrl/api/popular")
+
+// Anywhere else, pass them explicitly:
+val response = client.get(url, headers)
+
+// POST and PUT take a RequestBody:
+val response = client.post("$baseUrl/api/search", searchDto.toJsonRequestBody())
+```
+
+Every helper accepts either a `String` or an `HttpUrl`. The call is awaited with `awaitSuccess()` by
+default, which throws on a non-2xx response; pass `ensureSuccess = false` to get the `Response` back
+whatever the status code is.
+
+`get` and `head` also take a `cacheControl` parameter that defaults to a 10 minute `max-age`. Pass
+your own `CacheControl` when a response should be cached for longer, or not at all.
+
+##### Custom cookies - `addCookie`
+
+`keiyoushi.network.addCookie` registers cookies on the client builder. It also writes them to the
+WebView `CookieManager`, so "Open in WebView" and Cloudflare challenge solving see the same values.
+
+```kotlin
+import keiyoushi.network.addCookie
+
+// Inside the source class the cookies apply to the source's own baseUrl host:
+override val client = network.client.newBuilder()
+    .addCookie("player_type" to "hls")
+    .build()
+
+// For any other domain, pass it as a lambda:
+override val client = network.client.newBuilder()
+    .addCookie({ "cdn.example.org" }, listOf("a" to "1", "b" to "2"))
+    .build()
+
+// Resolve the values lazily when they depend on a preference or a login:
+override val client = network.client.newBuilder()
+    .addCookie { listOf("session" to preferences.getString(PREF_TOKEN_KEY, "")!!) }
+    .build()
+```
+
+Chain the call once per domain. The first registered domain that matches the request host - exactly
+or as a subdomain - is the one applied, and only cookies with the same names are replaced: anything
+else already on the request is preserved. That is why you should never set the `Cookie` header by
+hand.
 
 ##### Filter helpers - `firstInstance` / `firstInstanceOrNull`
 

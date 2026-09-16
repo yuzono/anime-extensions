@@ -1,8 +1,8 @@
 package keiyoushi.network
 
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.source.online.HttpSource
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -72,7 +72,7 @@ suspend fun OkHttpClient.get(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.get(
     url: HttpUrl,
     cacheControl: CacheControl = DEFAULT_CACHE_CONTROL,
@@ -88,7 +88,7 @@ suspend fun OkHttpClient.get(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.get(
     url: String,
     cacheControl: CacheControl = DEFAULT_CACHE_CONTROL,
@@ -149,7 +149,7 @@ suspend fun OkHttpClient.post(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.post(
     url: HttpUrl,
     body: RequestBody,
@@ -165,7 +165,7 @@ suspend fun OkHttpClient.post(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.post(
     url: String,
     body: RequestBody,
@@ -226,7 +226,7 @@ suspend fun OkHttpClient.put(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.put(
     url: String,
     body: RequestBody,
@@ -242,7 +242,7 @@ suspend fun OkHttpClient.put(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.put(
     url: HttpUrl,
     body: RequestBody,
@@ -304,7 +304,7 @@ suspend fun OkHttpClient.head(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.head(
     url: String,
     cacheControl: CacheControl = DEFAULT_CACHE_CONTROL,
@@ -320,7 +320,7 @@ suspend fun OkHttpClient.head(
  * @param ensureSuccess If true, throws an exception if the response code is not 2xx.
  * @return The HTTP [Response].
  */
-context(source: HttpSource)
+context(source: AnimeHttpSource)
 suspend fun OkHttpClient.head(
     url: HttpUrl,
     cacheControl: CacheControl = DEFAULT_CACHE_CONTROL,

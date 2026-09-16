@@ -13,7 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -25,13 +25,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 class AniList :
     AnimeHttpLegacySource(),
@@ -48,7 +46,7 @@ class AniList :
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
-        .rateLimitHost("https://api.jikan.moe".toHttpUrl(), 1, 1L, TimeUnit.SECONDS)
+        .rateLimit(1) { it.host == "api.tenrai.org" }
         .build()
 
     private val json: Json by injectLazy()
@@ -324,7 +322,7 @@ class AniList :
 
     private fun getSingleEpisodeFromMal(malId: Int): List<SEpisode> {
         val animeData = client.newCall(
-            GET("https://api.jikan.moe/v4/anime/$malId", headers),
+            GET("https://api.tenrai.org/v1/anime/$malId", headers),
         ).execute().parseAs<JikanAnimeDto>().data
 
         return listOf(
@@ -345,7 +343,7 @@ class AniList :
         var page = 1
         while (hasNextPage) {
             val data = client.newCall(
-                GET("https://api.jikan.moe/v4/anime/$malId/episodes?page=$page", headers),
+                GET("https://api.tenrai.org/v1/anime/$malId/episodes?page=$page", headers),
             ).execute().parseAs<JikanEpisodesDto>()
 
             if (data.pagination.lastPage == 1 && data.data.isEmpty()) {

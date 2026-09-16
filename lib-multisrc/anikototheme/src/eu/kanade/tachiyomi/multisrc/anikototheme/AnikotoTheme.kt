@@ -20,8 +20,8 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryPar
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.get
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
@@ -31,7 +31,6 @@ import keiyoushi.utils.useAsJsoup
 import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -66,9 +65,9 @@ abstract class AnikotoTheme(
             if (value == baseUrl) return
             preferences.edit().putString(PREF_DOMAIN_KEY, value).apply()
             docHeaders = headersBuilder().build()
-            client = network.client.newBuilder()
-                .rateLimit(rateLimit)
-                .build()
+            client = buildClient()
+            playlistClient = buildPlaylistClient()
+            playlistUtils = PlaylistUtils(playlistClient, headers)
         }
 
     private val domainValues = domainEntries.map { "https://$it" }
@@ -91,20 +90,23 @@ abstract class AnikotoTheme(
 
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
-    override var client: OkHttpClient by LazyMutable {
-        network.client.newBuilder()
-            .rateLimit(rateLimit)
-            .build()
-    }
+    // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
+    override var client by LazyMutable { buildClient() }
 
-    internal val playlistClient by lazy {
-        client.newBuilder()
-            .readTimeout(30, TimeUnit.SECONDS)
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .build()
-    }
+    // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
+    // Derived from [client], so both are rebuilt by the [baseUrl] setter on a domain change
+    internal var playlistClient by LazyMutable { buildPlaylistClient() }
 
-    internal val playlistUtils by lazy { PlaylistUtils(playlistClient, headers) }
+    internal var playlistUtils by LazyMutable { PlaylistUtils(playlistClient, headers) }
+
+    private fun buildClient() = network.client.newBuilder()
+        .rateLimit(rateLimit)
+        .build()
+
+    private fun buildPlaylistClient() = client.newBuilder()
+        .readTimeout(30, TimeUnit.SECONDS)
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .build()
 
     private val extractors by lazy { AnikotoExtractor(this) }
 
