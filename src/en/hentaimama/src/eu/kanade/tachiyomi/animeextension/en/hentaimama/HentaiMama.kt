@@ -114,7 +114,7 @@ class HentaiMama :
     }
 
     private fun List<Hoster>.sortByPreferredServer(): List<Hoster> {
-        val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_VALUES.first())
+        val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_VALUES[1])
         val newList = mutableListOf<Hoster>()
         var preferred = 0
         for (hoster in this) {
