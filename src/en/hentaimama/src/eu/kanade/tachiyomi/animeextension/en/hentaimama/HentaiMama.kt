@@ -221,19 +221,7 @@ class HentaiMama :
 
         val document = response.asJsoup()
 
-        return if (query.isNotEmpty()) {
-            AnimesPage(animeListFromDocument(document), hasNextPage(document))
-        } else {
-            val animes = document.select("article").map { element ->
-                SAnime.create().apply {
-                    setUrlWithoutDomain(element.select("a").attr("href"))
-                    title = element.select("div.data h3 a").text()
-                    thumbnail_url = element.select("div.poster img").attr("data-src")
-                }
-            }
-            val hasNext = document.select("div.pagination-wraper div.resppages a").isNotEmpty()
-            AnimesPage(animes, hasNext)
-        }
+        return AnimesPage(animeListFromDocument(document), hasNextPage(document))
     }
 
     // Details
