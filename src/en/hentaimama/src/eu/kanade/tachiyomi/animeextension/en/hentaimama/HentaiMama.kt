@@ -208,7 +208,6 @@ class HentaiMama :
     }
 
     // Search
-    private var filterSearch = false
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val parameters = getSearchParameters(filters)
