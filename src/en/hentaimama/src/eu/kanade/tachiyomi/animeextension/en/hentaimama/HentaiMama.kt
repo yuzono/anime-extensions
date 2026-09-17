@@ -12,12 +12,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
 import keiyoushi.utils.tryParse
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
@@ -60,7 +59,7 @@ class HentaiMama :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val url = if (page == 1) "$baseUrl/hentai-series/?filter=weekly" else "$baseUrl/hentai-series/page/$page/?filter=weekly"
-        val document = client.newCall(GET(url, headers)).awaitSuccess().asJsoup()
+        val document = client.get(url, headers).asJsoup()
         return AnimesPage(animeListFromDocument(document), hasNextPage(document))
     }
     private fun animeListFromDocument(document: Document): List<SAnime> = document.select("article.series-card").map { element ->
@@ -76,7 +75,7 @@ class HentaiMama :
     // Episodes
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val document = client.newCall(GET(baseUrl + anime.url, headers)).awaitSuccess().asJsoup()
+        val document = client.get(baseUrl + anime.url, headers).asJsoup()
         return episodeListFromDocument(document)
     }
 
@@ -95,7 +94,7 @@ class HentaiMama :
     // Video Extractor
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val response = client.newCall(GET(baseUrl + episode.url, headers)).awaitSuccess()
+        val response = client.get(baseUrl + episode.url, headers)
         val document = response.asJsoup()
 
         val postId = document.select("#post_report input[name=idpost]").attr("value")
@@ -104,22 +103,24 @@ class HentaiMama :
             val optionNumber = tab.attr("href").removePrefix("#option-")
             if (optionNumber.isBlank()) return@mapNotNull null
 
+            val serverId = tab.text().trim()
+
             Hoster(
-                hosterName = tab.text(),
-                internalData = "$postId###$optionNumber",
+                hosterName = serverId,
+                internalData = "$postId###$optionNumber###$serverId",
             )
         }
 
-        return hosters.sortByPreferredServer()
+        return hosters
     }
 
-    private fun List<Hoster>.sortByPreferredServer(): List<Hoster> {
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
         val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_VALUES[1])
         val newList = mutableListOf<Hoster>()
         var preferred = 0
         for (hoster in this) {
-            val optionNumber = hoster.internalData.substringAfterLast("###")
-            val serverId = "mi-$optionNumber"
+            val serverId = hoster.internalData.substringAfterLast("###")
+
             if (serverId == preferredServer) {
                 newList.add(preferred, hoster)
                 preferred++
@@ -140,9 +141,7 @@ class HentaiMama :
             .build()
 
         val newHeaders = Headers.headersOf("referer", "$baseUrl/")
-        val mirrorResponse = client.newCall(
-            POST("$baseUrl/wp-admin/admin-ajax.php", newHeaders, body),
-        ).awaitSuccess()
+        val mirrorResponse = client.post("$baseUrl/wp-admin/admin-ajax.php", newHeaders, body)
 
         // Response is a JSON array of HTML fragments; this mirror's fragment
         // sits at index (optionNumber - 1).
@@ -153,7 +152,7 @@ class HentaiMama :
         val iframeSrc = Jsoup.parseBodyFragment(fragment, baseUrl).selectFirst("iframe")?.attr("abs:src")
             ?: return emptyList()
 
-        val playerBody = client.newCall(GET(iframeSrc, headers)).awaitSuccess().asJsoup().body().toString()
+        val playerBody = client.get(iframeSrc, headers).asJsoup().body().toString()
 
         val sourcesJson = SOURCES_ARRAY_REGEX.find(playerBody)?.groupValues?.get(1)
             ?: return emptyList()
@@ -211,16 +210,16 @@ class HentaiMama :
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val parameters = getSearchParameters(filters)
-        val request = if (query.isNotEmpty()) {
-            GET("$baseUrl/page/$page/?s=${query.replace(Regex("[\\W]"), " ")}", headers)
+        val response = if (query.isNotEmpty()) {
+            client.get("$baseUrl/page/$page/?s=${query.replace(QUERY_REGEX, " ")}", headers)
         } else {
-            GET(
+            client.get(
                 if (page == 1) "$baseUrl/advance-search/?$parameters" else "$baseUrl/advance-search/page/$page/?$parameters",
                 headers,
             )
         }
 
-        val document = client.newCall(request).awaitSuccess().asJsoup()
+        val document = response.asJsoup()
 
         return if (query.isNotEmpty()) {
             AnimesPage(animeListFromDocument(document), hasNextPage(document))
@@ -260,7 +259,7 @@ class HentaiMama :
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val url = if (page == 1) "$baseUrl/hentai-series/?filter=recent" else "$baseUrl/hentai-series/page/$page/?filter=recent"
-        val document = client.newCall(GET(url, headers)).awaitSuccess().asJsoup()
+        val document = client.get(url, headers).asJsoup()
         return AnimesPage(animeListFromDocument(document), hasNextPage(document))
     }
 
@@ -636,5 +635,6 @@ class HentaiMama :
         private val EPISODE_NUMBER_REGEX = Regex("Episode (\\d+\\.?\\d*)")
         private val EPISODE_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.US)
         private val SOURCES_ARRAY_REGEX = Regex("sources:\\s*(\\[.+?\\])", RegexOption.DOT_MATCHES_ALL)
+        private val QUERY_REGEX = Regex("[\\W]")
     }
 }
