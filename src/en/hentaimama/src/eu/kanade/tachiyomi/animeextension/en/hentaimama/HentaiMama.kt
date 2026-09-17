@@ -59,7 +59,7 @@ class HentaiMama :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val url = if (page == 1) "$baseUrl/hentai-series/?filter=weekly" else "$baseUrl/hentai-series/page/$page/?filter=weekly"
-        val document = client.get(url, headers).asJsoup()
+        val document = client.get(url).asJsoup()
         return AnimesPage(animeListFromDocument(document), hasNextPage(document))
     }
     private fun animeListFromDocument(document: Document): List<SAnime> = document.select("article.series-card").map { element ->
@@ -75,7 +75,7 @@ class HentaiMama :
     // Episodes
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val document = client.get(baseUrl + anime.url, headers).asJsoup()
+        val document = client.get(baseUrl + anime.url).asJsoup()
         return episodeListFromDocument(document)
     }
 
@@ -94,7 +94,7 @@ class HentaiMama :
     // Video Extractor
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val response = client.get(baseUrl + episode.url, headers)
+        val response = client.get(baseUrl + episode.url)
         val document = response.asJsoup()
 
         val postId = document.select("#post_report input[name=idpost]").attr("value")
@@ -103,7 +103,7 @@ class HentaiMama :
             val optionNumber = tab.attr("href").removePrefix("#option-")
             if (optionNumber.isBlank()) return@mapNotNull null
 
-            val serverId = tab.text().trim()
+            val serverId = tab.text()
 
             Hoster(
                 hosterName = serverId,
@@ -141,7 +141,8 @@ class HentaiMama :
             .build()
 
         val newHeaders = Headers.headersOf("referer", "$baseUrl/")
-        val mirrorResponse = client.post("$baseUrl/wp-admin/admin-ajax.php", newHeaders, body)
+        val mirrorResponse = client.post(
+            url = "$baseUrl/wp-admin/admin-ajax.php", newHeaders, body)
 
         // Response is a JSON array of HTML fragments; this mirror's fragment
         // sits at index (optionNumber - 1).
@@ -152,7 +153,7 @@ class HentaiMama :
         val iframeSrc = Jsoup.parseBodyFragment(fragment, baseUrl).selectFirst("iframe")?.attr("abs:src")
             ?: return emptyList()
 
-        val playerBody = client.get(iframeSrc, headers).asJsoup().body().toString()
+        val playerBody = client.get(iframeSrc).asJsoup().body().toString()
 
         val sourcesJson = SOURCES_ARRAY_REGEX.find(playerBody)?.groupValues?.get(1)
             ?: return emptyList()
@@ -211,12 +212,9 @@ class HentaiMama :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val parameters = getSearchParameters(filters)
         val response = if (query.isNotEmpty()) {
-            client.get("$baseUrl/page/$page/?s=${query.replace(QUERY_REGEX, " ")}", headers)
+            client.get("$baseUrl/page/$page/?s=${query.replace(QUERY_REGEX, " ")}")
         } else {
-            client.get(
-                if (page == 1) "$baseUrl/advance-search/?$parameters" else "$baseUrl/advance-search/page/$page/?$parameters",
-                headers,
-            )
+            client.get(if (page == 1) "$baseUrl/advance-search/?$parameters" else "$baseUrl/advance-search/page/$page/?$parameters")
         }
 
         val document = response.asJsoup()
@@ -247,7 +245,7 @@ class HentaiMama :
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val url = if (page == 1) "$baseUrl/hentai-series/?filter=recent" else "$baseUrl/hentai-series/page/$page/?filter=recent"
-        val document = client.get(url, headers).asJsoup()
+        val document = client.get(url).asJsoup()
         return AnimesPage(animeListFromDocument(document), hasNextPage(document))
     }
 
