@@ -110,15 +110,17 @@ class HentaiMama :
             )
         }
 
-        return hosters.sortByPreferredQuality()
+        return hosters.sortByPreferredServer()
     }
 
-    private fun List<Hoster>.sortByPreferredQuality(): List<Hoster> {
-        val quality = preferences.getString(PREF_SERVER_KEY, null) ?: return this
+    private fun List<Hoster>.sortByPreferredServer(): List<Hoster> {
+        val preferredServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_VALUES.first())
         val newList = mutableListOf<Hoster>()
         var preferred = 0
         for (hoster in this) {
-            if (hoster.hosterName.contains(quality)) {
+            val optionNumber = hoster.internalData.substringAfterLast("###")
+            val serverId = "mi-$optionNumber"
+            if (serverId == preferredServer) {
                 newList.add(preferred, hoster)
                 preferred++
             } else {
@@ -144,8 +146,8 @@ class HentaiMama :
 
         // Response is a JSON array of HTML fragments; this mirror's fragment
         // sits at index (optionNumber - 1).
-        val fragment = mirrorResponse.parseAs<List<String>>().getOrNull(optionNumber.toInt() - 1)
-            ?.takeUnless { it.isBlank() }
+        val optionIndex = optionNumber.toIntOrNull() ?: return emptyList()
+        val fragment = mirrorResponse.parseAs<List<String>>().getOrNull(optionIndex - 1)?.takeUnless { it.isBlank() }
             ?: return emptyList()
 
         val iframeSrc = Jsoup.parseBodyFragment(fragment, baseUrl).selectFirst("iframe")?.attr("abs:src")
