@@ -141,8 +141,7 @@ class HentaiMama :
             .build()
 
         val newHeaders = Headers.headersOf("referer", "$baseUrl/")
-        val mirrorResponse = client.post(
-            url = "$baseUrl/wp-admin/admin-ajax.php", newHeaders, body)
+        val mirrorResponse = client.post("$baseUrl/wp-admin/admin-ajax.php", newHeaders, body)
 
         // Response is a JSON array of HTML fragments; this mirror's fragment
         // sits at index (optionNumber - 1).
