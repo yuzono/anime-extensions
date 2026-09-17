@@ -33,6 +33,12 @@ data class AuthorInfo(
 )
 
 @Serializable
+data class AnimeType(
+    val id: Int,
+    val label: String? = null,
+)
+
+@Serializable
 data class AnimeData(
     val id: Int,
     @SerialName("rus_name") val rusName: String? = null,
@@ -42,6 +48,7 @@ data class AnimeData(
     val cover: CoverInfo,
 
     // Optional
+    val type: AnimeType? = null,
     @SerialName("is_licensed") val licensed: Boolean? = null,
     val summary: JsonElement? = null,
     val genres: List<GenreInfo>? = null,
