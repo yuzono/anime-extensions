@@ -223,38 +223,18 @@ class HentaiMama :
 
         val document = client.newCall(request).awaitSuccess().asJsoup()
 
-        return AnimesPage(animeListFromDocument(document), hasNextPage(document))
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = if (filterSearch) {
-            document.select("article").map { element ->
+        return if (query.isNotEmpty()) {
+            AnimesPage(animeListFromDocument(document), hasNextPage(document))
+        } else {
+            val animes = document.select("article").map { element ->
                 SAnime.create().apply {
                     setUrlWithoutDomain(element.select("a").attr("href"))
                     title = element.select("div.data h3 a").text()
                     thumbnail_url = element.select("div.poster img").attr("data-src")
                 }
             }
-        } else {
-            animeListFromDocument(document) // same markup as popular/latest
-        }
-        val hasNext = if (filterSearch) {
-            document.select("div.pagination-wraper div.resppages a").isNotEmpty()
-        } else {
-            hasNextPage(document)
-        }
-        return AnimesPage(animes, hasNext)
-    }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val parameters = getSearchParameters(filters)
-        return if (query.isNotEmpty()) {
-            filterSearch = false
-            GET("$baseUrl/page/$page/?s=${query.replace(Regex("[\\W]"), " ")}") // regular search
-        } else {
-            filterSearch = true
-            GET("$baseUrl/advance-search/page/$page/?$parameters") // filter search
+            val hasNext = document.select("div.pagination-wraper div.resppages a").isNotEmpty()
+            AnimesPage(animes, hasNext)
         }
     }
 
@@ -291,6 +271,8 @@ class HentaiMama :
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
     override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
     override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException()
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
+    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     // Settings
 
