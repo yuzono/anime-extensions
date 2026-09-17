@@ -274,7 +274,7 @@ class AnimeTake :
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
 
-        private const val PREF_SERVER_KEY = "preferred_server"
+        private const val PREF_SERVER_KEY = "preferred_server_v1"
 
         private const val PREF_SERVER_TITLE = "Preferred server"
         private const val PREF_SERVER_DEFAULT = "Vidara"
