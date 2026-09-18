@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.egydead
 
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -31,9 +32,7 @@ class EgyDead :
 
     override val name = "Egy Dead"
 
-    // TODO: Check frequency of url changes to potentially
-    // add back overridable baseurl preference
-    override val baseUrl = "https://egydead.space"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -303,10 +302,23 @@ class EgyDead :
             summary = "%s"
         }
         screen.addPreference(videoQualityPref)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     // like|kharabnahk
     companion object {
+        private const val DEFAULT_BASE_URL = "https://tv10.egydead.live"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
         private val DOOD_REGEX = Regex("(do*d(?:stream)?\\.(?:com?|watch|to|s[ho]|cx|la|w[sf]|pm|re|yt|stream))/[de]/([0-9a-zA-Z]+)|ds2play")
         private val STREAMWISH_REGEX = Regex("ajmidyad|alhayabambi|atabknh[ks]|https://.*\\.sbs/e/")
     }
