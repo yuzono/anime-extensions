@@ -399,6 +399,8 @@ class Mapple :
                 apiHeaders,
                 encryptPayload.toJsonRequestBody(),
             ).parseAs<EncryptResponse>()
+        }.onFailure {
+            if (it is CancellationException) throw it
         }.getOrNull() ?: return null
 
         val streamRequestUrl = (
@@ -420,12 +422,13 @@ class Mapple :
         headers: Headers,
     ): String = runCatching {
         // Execute a request that follows redirects to capture the final endpoint
-        val response = client.get(
+        client.get(
             url = initialUrl.toHttpUrl(),
             headers = headers,
-        )
-        // Returns the final URL after following all redirects
-        response.request.url.toString()
+        ).use { response ->
+            // Returns the final URL after following all redirects
+            response.request.url.toString()
+        }
     }.getOrDefault(initialUrl)
     private fun extractVideos(
         hoster: Hoster,
@@ -572,7 +575,7 @@ class Mapple :
     }
 
     /**
-     * Fetches the page HTML and extracts the requestToken.
+     * Calls the /api/request-token API and extracts the requestToken from the token response.
      */
     private suspend fun getRequestToken(): String = client.post(
         "$baseUrl/api/request-token",
@@ -776,7 +779,7 @@ class Mapple :
     override fun videoListParse(response: Response, hoster: Hoster): List<Video> = throw UnsupportedOperationException("Not used")
 
     companion object {
-        private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        private val dateFormat get() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         private val animeUrlRegex = Regex("""/(tv|movie)/(\d+)""")
 
         private const val TMDB_API_KEY = BuildConfig.TMDB_API
