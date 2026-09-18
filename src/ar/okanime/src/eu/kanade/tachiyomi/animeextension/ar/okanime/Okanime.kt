@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.okanime
 
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -32,7 +33,7 @@ class Okanime :
 
     override val name = "Okanime"
 
-    override val baseUrl = "https://www.okanime.xyz"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -46,17 +47,17 @@ class Okanime :
     override fun popularAnimeSelector() = "div.container > div.section:last-child div.anime-card"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        element.selectFirst("div.anime-title > h4 > a")!!.also {
+        element.selectFirst("div.anime-title > h4 > a")?.also {
             setUrlWithoutDomain(it.attr("href"))
             title = it.text()
         }
-        thumbnail_url = element.selectFirst("img")!!.attr("src")
+        thumbnail_url = element.selectFirst("img")?.attr("src")
     }
 
     override fun popularAnimeNextPageSelector() = null
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/espisode-list?page=$page")
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/recently-uploaded-episodes?page=$page")
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
 
@@ -68,7 +69,7 @@ class Okanime :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host != "www.okanime.xyz") {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -108,41 +109,51 @@ class Okanime :
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         setUrlWithoutDomain(document.location())
-        title = document.selectFirst("div.author-info-title > h1")!!.text()
-        genre = document.select("div.review-author-info a").eachText().joinToString()
+        title = document.selectFirst("h1.animepage-h1, div.author-info-title > h1")?.text()
+            ?: document.title().substringBefore(" مترجم").substringBefore(" |")
+        genre = document.select("div.animepage-genres a, div.review-author-info a").eachText().joinToString()
 
-        val infosdiv = document.selectFirst("div.text-right")!!
-        thumbnail_url = infosdiv.selectFirst("img")!!.attr("src")
-        status = infosdiv.selectFirst("div.full-list-info:contains(حالة الأنمي) a").let {
-            when (it?.text() ?: "") {
-                "يعرض الان" -> SAnime.ONGOING
-                "مكتمل" -> SAnime.COMPLETED
+        thumbnail_url = document.selectFirst("img.animepage-poster, div.text-right img")?.attr("src")
+        status = document.select("dl.animepage-meta div.animepage-meta-row, div.text-right div.full-list-info").firstOrNull { row ->
+            row.selectFirst("dt")?.text()?.contains("الحالة") == true ||
+                row.text().contains("حالة الأنمي")
+        }?.selectFirst("dd, a")?.text().let {
+            when {
+                it?.contains("يعرض") == true -> SAnime.ONGOING
+                it?.contains("مكتمل") == true -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
         }
         description = buildString {
-            document.selectFirst("div.review-content")
+            document.selectFirst("div.animepage-synopsis div.synopsis-text, div.review-content")
                 ?.text()
+                ?.takeIf { it.isNotBlank() }
                 ?.let { append("$it\n") }
 
-            infosdiv.select("div.full-list-info").forEach { info ->
-                info.select("small")
+            document.select("dl.animepage-meta div.animepage-meta-row, div.text-right div.full-list-info").forEach { info ->
+                info.selectFirst("dt")?.text()?.let { label ->
+                    val value = info.selectFirst("dd")?.text().orEmpty()
+                    if (value.isNotBlank()) append("\n$label: $value")
+                } ?: info.select("small")
                     .eachText()
                     .joinToString(": ")
-                    .let { append("\n$it") }
+                    .takeIf { it.isNotBlank() }
+                    ?.let { append("\n$it") }
             }
-        }
+        }.trim().takeIf { it.isNotBlank() }
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.row div.episode-card div.anime-title a"
+    override fun episodeListSelector() = "a.ep-compact-btn, div.row div.episode-card div.anime-title a"
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
         setUrlWithoutDomain(element.attr("href"))
-        element.text().also {
-            name = it
-            episode_number = it.substringAfterLast(" ").toFloatOrNull() ?: 1F
-        }
+        val label = element.attr("title").ifBlank { element.text() }.trim()
+        episode_number = label.substringAfterLast(" ").trim().toFloatOrNull()
+            ?: element.text().trim().toFloatOrNull()
+            ?: element.attr("href").substringAfterLast("-").substringBefore("/").toFloatOrNull()
+            ?: 1F
+        name = label.ifBlank { "الحلقة $episode_number" }
     }
 
     // ============================ Video Links =============================
@@ -159,9 +170,24 @@ class Okanime :
                         else -> "240p"
                     }
                 }
-                val url = element.attr("data-src")
+                val url = serverUrlFromElement(element)
+                if (url.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
                 extractVideosFromUrl(url, quality, hosterSelection)
             }
+    }
+
+    // Site renders server urls in Alpine.js attrs (@click="setServer('...')")
+    // instead of data-src; legacy data-src kept as fallback.
+    private fun serverUrlFromElement(element: Element): String {
+        element.attr("data-src").takeIf { it.isNotBlank() }?.let { return it }
+        val attrs = element.attributes().asList().map { it.value }
+        attrs.firstOrNull { "setServer('" in it }
+            ?.substringAfter("setServer('").substringBefore("'")
+            .takeIf { it.isNotBlank() }?.let { return it }
+        attrs.firstOrNull { "activeUrl === '" in it }
+            ?.substringAfter("activeUrl === '").substringBefore("'")
+            .takeIf { it.isNotBlank() }?.let { return it }
+        return ""
     }
 
     // Inspirated by JavGuru(all)
@@ -236,11 +262,26 @@ class Okanime :
                 preferences.edit().putStringSet(key, newValue as Set<String>).commit()
             }
         }.also(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        private const val DEFAULT_BASE_URL = "https://ww3.okanime.xyz"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
 
         private val VID_BOM_DOMAINS = listOf("vidbam", "vadbam", "vidbom", "vidbm")
 
