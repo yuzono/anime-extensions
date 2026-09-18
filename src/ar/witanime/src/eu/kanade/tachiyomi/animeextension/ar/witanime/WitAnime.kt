@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.witanime
 
-import android.util.Base64
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
@@ -31,7 +31,7 @@ class WitAnime :
 
     override val name = "WIT ANIME"
 
-    override val baseUrl = "https://witanime.cyou"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -42,93 +42,100 @@ class WitAnime :
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeSelector() = "div.anime-list-content div.row div.anime-card-poster div.ehover6"
+    override fun popularAnimeSelector() = "div.anime-card"
 
-    override fun popularAnimeNextPageSelector() = "ul.pagination a.next"
+    override fun popularAnimeNextPageSelector() = "ul.pagination li:last-child a"
 
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/قائمة-الانمي/page/$page")
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/anime/page/$page/")
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        element.selectFirst("a")!!.run {
-            attr("href").takeUnless { it.contains("javascript:") }
-                ?: getEncodedUrl() // Get base64-encoded URLs
-        }.also { setUrlWithoutDomain(it) }
+        val link = element.selectFirst("a.image") ?: element.selectFirst("a")
 
-        element.selectFirst("img")!!.also {
-            title = it.attr("alt")
-            thumbnail_url = it.attr("abs:src")
-        }
+        link?.attr("href")?.also { setUrlWithoutDomain(it) }
+
+        title = element.selectFirst("div.info h3")?.text()
+            ?: link?.attr("title").orEmpty()
+
+        thumbnail_url = link?.bgImageUrl()
     }
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/episode/page/$page/")
 
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
+    override fun latestUpdatesSelector() = "div.episode-card"
+    override fun latestUpdatesNextPageSelector() = "ul.pagination li:last-child a"
+    override fun latestUpdatesFromElement(element: Element) = SAnime.create().apply {
+        // Episode cards link both the episode and its anime; the entry must
+        // point at the anime page so details parse correctly.
+        val animeLink = element.select("div.info a").firstOrNull { it.attr("href").contains("/anime/") }
+
+        animeLink?.attr("href")?.also { setUrlWithoutDomain(it) }
+
+        title = animeLink?.selectFirst("h4")?.text()
+            ?: animeLink?.text()
+            ?: element.selectFirst("div.info h3")?.text().orEmpty()
+
+        thumbnail_url = element.selectFirst("a.image")?.bgImageUrl()
+    }
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/?search_param=animes&s=$query")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/?s=$query")
 
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
-    override fun searchAnimeSelector() = popularAnimeSelector()
+    override fun searchAnimeFromElement(element: Element) = latestUpdatesFromElement(element)
+    override fun searchAnimeNextPageSelector() = latestUpdatesNextPageSelector()
+    override fun searchAnimeSelector() = latestUpdatesSelector()
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        val doc = getRealDoc(document)
+        title = document.selectFirst("div.media-title h1")?.text().orEmpty()
 
-        thumbnail_url = doc.selectFirst("img.thumbnail")!!.attr("src")
-        title = doc.selectFirst("h1.anime-details-title")!!.text()
+        thumbnail_url = document.selectFirst("div.anime-card div.image")?.bgImageUrl()
+
         // Genres + useful info
-        genre = doc.select("ul.anime-genres > li > a, div.anime-info > a").eachText().joinToString()
+        genre = document.select("ul.media-info li").eachText().joinToString()
 
         description = buildString {
             // Additional info
-            doc.select("div.anime-info").eachText().forEach {
+            document.select("ul.media-info li").eachText().forEach {
                 append("$it\n")
             }
-            // Description
-            doc.selectFirst("p.anime-story")?.text()?.also {
+            // Story
+            document.selectFirst("div.media-story div.content")?.text()?.also {
                 append("\n$it")
             }
         }
 
-        doc.selectFirst("div.anime-info:contains(حالة الأنمي)")?.text()?.also {
+        document.selectFirst("a[href*=\"/anime-status/\"]")?.text()?.also {
             status = when {
-                it.contains("يعرض الان", true) -> SAnime.ONGOING
-                it.contains("مكتمل", true) -> SAnime.COMPLETED
+                it.contains("يعرض") -> SAnime.ONGOING
+                it.contains("مكتمل") -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
         }
     }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) = getRealDoc(response.asJsoup())
+    override fun episodeListParse(response: Response) = response.asJsoup()
         .select(episodeListSelector())
         .map(::episodeFromElement)
         .reversed()
 
-    override fun episodeListSelector() = "div.ehover6 > div.episodes-card-title > h3 a"
+    override fun episodeListSelector() = "ul.episodes-lists a.title"
 
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
-        setUrlWithoutDomain(element.getEncodedUrl())
+        element.attr("href").also { setUrlWithoutDomain(it) }
         name = element.text()
-        episode_number = name.substringAfterLast(" ").toFloatOrNull() ?: 0F
+        episode_number = EPISODE_NUMBER_REGEX.find(name)?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: 0F
     }
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
-        return document.select("ul#episode-servers li a")
-            .distinctBy { it.text().substringBefore(" -") } // remove duplicates by server name
+        return document.select("ul.server-list a.episode-server")
+            .filter { it.attr("data-url").isNotBlank() }
+            .distinctBy { it.text().trim() } // remove duplicates by server name
             .parallelCatchingFlatMapBlocking {
-                val url = it.attr("data-url")
-                    .takeUnless(String::isBlank)
-                    ?.let { String(Base64.decode(it, Base64.DEFAULT)) }
-                    ?: it.getEncodedUrl()
-
-                extractVideos(url)
+                extractVideos(it.attr("data-url"))
             }
     }
 
@@ -233,19 +240,31 @@ class WitAnime :
                 preferences.edit().putString(key, entry).commit()
             }
         }.also(screen::addPreference)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
-    private fun getRealDoc(document: Document): Document = document.selectFirst("div.anime-page-link a")?.let {
-        client.newCall(GET(it.attr("href"), headers)).execute().asJsoup()
-    } ?: document
-
-    private fun Element.getEncodedUrl() = attr("onclick")
-        .substringAfter("'")
-        .substringBefore("'")
-        .let { String(Base64.decode(it, Base64.DEFAULT)) }
+    private fun Element.bgImageUrl(): String? = BG_IMAGE_REGEX
+        .find(attr("style"))
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeUnless(String::isBlank)
 
     companion object {
+        private const val DEFAULT_BASE_URL = "https://witanime.onl"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
+        private val BG_IMAGE_REGEX by lazy { Regex("""url\(['"]?(.*?)['"]?\)""") }
+        private val EPISODE_NUMBER_REGEX by lazy { Regex("""الحلقة\s+(\d+)""") }
         // From TukTukCinema(AR)
         private val VIDBOM_REGEX by lazy { Regex("//v[aie]d[bp][aoe]?m") }
 
