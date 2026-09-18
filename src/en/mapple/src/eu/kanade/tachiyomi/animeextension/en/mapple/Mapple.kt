@@ -368,13 +368,10 @@ class Mapple :
         val apiHeaders = buildApiHeaders()
         val streamHeaders = buildStreamHeaders()
 
-        val rawStreamUrl = resolveStreamUrl(data, apiHeaders, streamHeaders) ?: return emptyList()
-
-        // Resolve all redirects to get the final target playlist URL
-        val finalStreamUrl = resolveFinalUrl(rawStreamUrl, streamHeaders)
+        val streamUrl = resolveStreamUrl(data, apiHeaders, streamHeaders) ?: return emptyList()
         val subtitles = getSubtitles(data.episodeData)
 
-        return extractVideos(hoster, finalStreamUrl, streamHeaders, subtitles)
+        return extractVideos(hoster, streamUrl, streamHeaders, subtitles)
     }
 
     private suspend fun resolveStreamUrl(
@@ -416,20 +413,6 @@ class Mapple :
 
         return streamResponse?.takeIf { it.success && it.data != null }?.data?.streamUrl
     }
-
-    private suspend fun resolveFinalUrl(
-        initialUrl: String,
-        headers: Headers,
-    ): String = runCatching {
-        // Execute a request that follows redirects to capture the final endpoint
-        client.get(
-            url = initialUrl.toHttpUrl(),
-            headers = headers,
-        ).use { response ->
-            // Returns the final URL after following all redirects
-            response.request.url.toString()
-        }
-    }.getOrDefault(initialUrl)
     private fun extractVideos(
         hoster: Hoster,
         streamUrl: String,
