@@ -97,14 +97,22 @@ class Em3u8KeyStore(
         // Primary: the two arrays are declared back-to-back in the bundle.
         val pair = KEY_PAIR_REGEX.find(chunkJs)?.groupValues
         val key = if (pair != null) {
-            xor(parseArray(pair[0]), parseArray(pair[1])) ?: return@runCatching null
+            // Capture groups 1 & 2: groupValues[0] is the full match text.
+            xor(parseArray(pair[1]), parseArray(pair[2]))
+                // If the adjacent-pair capture is malformed (site restructured),
+                // fall through to the standalone-array scan instead of failing.
+                ?: run {
+                    val arrays = KEY_ARRAY_REGEX.findAll(chunkJs).mapNotNull {
+                        parseArray(it.groupValues[1])
+                    }.toList()
+                    if (arrays.size == 2) xor(arrays[0], arrays[1]) else null
+                }
         } else {
-            // Fallback: any two standalone 32-element arrays, only if that's all there are.
-            val arrays = KEY_ARRAY_REGEX.findAll(chunkJs).mapNotNull { parseArray(it.groupValues[1]) }
-                .toList()
-            if (arrays.size != 2) return@runCatching null
-            xor(arrays[0], arrays[1]) ?: return@runCatching null
-        }
+            val arrays = KEY_ARRAY_REGEX.findAll(chunkJs).mapNotNull {
+                parseArray(it.groupValues[1])
+            }.toList()
+            if (arrays.size == 2) xor(arrays[0], arrays[1]) else null
+        } ?: return@runCatching null
 
         cachedKey = key
         preferences.edit()
