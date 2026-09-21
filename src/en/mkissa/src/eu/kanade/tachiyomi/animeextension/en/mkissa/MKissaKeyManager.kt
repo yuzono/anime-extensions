@@ -58,13 +58,11 @@ class MKissaKeyManager(
             storedBuild = handshake.build.serialize()
 
             val now = System.currentTimeMillis()
-            // The server rotates keys at switchAt; never serve material past it.
-            val expiresAt = minOf(now + MATERIAL_TTL_MS, handshake.bootstrap.switchAt ?: Long.MAX_VALUE)
             Material(
                 key = MKissaCrypto.deriveKey(handshake.mask, partB),
                 epoch = handshake.bootstrap.epoch,
                 buildId = handshake.build.buildId,
-                expiresAt = expiresAt,
+                expiresAt = now + MATERIAL_TTL_MS,
                 fetchedAt = now,
             ).also { cachedMaterial = it }
         }
@@ -222,7 +220,7 @@ class MKissaKeyManager(
 
         private const val KEY_GROUP = "mkissa"
 
-        private const val PREF_BUILD_KEY = "client_build_cache_v4"
+        private const val PREF_BUILD_KEY = "client_build_cache_v3"
         private const val FIELD_SEPARATOR = "|"
 
         private const val MAX_BUILD_CHUNKS = 40

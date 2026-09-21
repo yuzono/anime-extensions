@@ -1,7 +1,7 @@
 ext {
     extName = 'MKissa'
     extClass = '.MKissa'
-    extVersionCode = 68
+    extVersionCode = 67
 }
 
 apply plugin: "kei.plugins.extension.legacy"
