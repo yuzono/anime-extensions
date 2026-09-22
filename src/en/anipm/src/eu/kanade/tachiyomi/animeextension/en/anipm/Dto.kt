@@ -10,6 +10,7 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
@@ -65,7 +66,7 @@ class TitleItemDto(
         val t = title?.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
-            url = handle
+            url = routeId ?: handle
             title = t
             thumbnail_url = absoluteCover(baseUrl, poster)
             status = parseStatus(this@TitleItemDto.status)
@@ -124,7 +125,7 @@ class SeriesResponseDto(
     }
 
     fun toSAnime(baseUrl: String): SAnime = SAnime.create().apply {
-        url = "set-$id"
+        url = routeId ?: "set-$id"
         title = this@SeriesResponseDto.title
         thumbnail_url = absoluteCover(baseUrl, poster)
         status = parseStatus(this@SeriesResponseDto.status)
@@ -225,7 +226,7 @@ class RecommendItemDto(
         val t = title?.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
-            url = handle
+            url = routeId ?: handle
             title = t
             thumbnail_url = absoluteCover(baseUrl, poster)
         }
@@ -370,16 +371,12 @@ private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 private val INLINE_TAG_REGEX = Regex("</?(?:i|b|em|strong)>", RegexOption.IGNORE_CASE)
 
 /**
- * Absolute cover URL. Resize params are only appended where the API
- * supports them — endpoints that already carry a query string
- * (/api/anime/cover?key=…). Bare paths like episode stills
- * (/api/anime/art/still/{id}/{n}) are passed through untouched.
+ * Absolute cover URL. Pass paths and URLs through completely untouched,
+ * without appending any reformatting or resizing query parameters.
  */
 internal fun absoluteCover(baseUrl: String, path: String?): String? {
     val p = path?.takeIf(String::isNotBlank) ?: return null
-    val full = if (p.startsWith("/")) baseUrl + p else p
-    if ("w=" in full || "format=" in full) return full
-    return if ("?" in full) "$full&format=webp" else full
+    return if (p.startsWith("/")) baseUrl + p else p
 }
 
 /**
@@ -399,6 +396,7 @@ object FlexibleStringSerializer : KSerializer<String?> {
     override val descriptor = PrimitiveSerialDescriptor("FlexibleString?", PrimitiveKind.STRING)
 
     override fun deserialize(decoder: Decoder): String? = when (val el = (decoder as JsonDecoder).decodeJsonElement()) {
+        is JsonNull -> null
         is JsonPrimitive -> el.content.takeIf(String::isNotBlank)
         else -> null
     }
@@ -413,6 +411,7 @@ object FlexibleLongSerializer : KSerializer<Long?> {
     override val descriptor = PrimitiveSerialDescriptor("FlexibleLong?", PrimitiveKind.LONG)
 
     override fun deserialize(decoder: Decoder): Long? = when (val el = (decoder as JsonDecoder).decodeJsonElement()) {
+        is JsonNull -> null
         is JsonPrimitive -> el.longOrNull ?: el.content.toLongOrNull()
         else -> null
     }

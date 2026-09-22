@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.anipm
 
 import android.content.SharedPreferences
-import android.util.LruCache
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
@@ -120,11 +119,6 @@ class AniPM :
     private fun parseCatalog(response: Response): AnimesPage {
         val dto = response.parseAs<CatalogResponseDto>()
 
-        dto.items.forEach { item ->
-            val handle = item.toHandle() ?: return@forEach
-            item.routeId?.let { routeIdCache.put(handle, it) }
-        }
-
         val animes = dto.items.mapNotNull { it.toSAnime(baseUrl) }
         return AnimesPage(animes, dto.hasNextPage)
     }
@@ -199,10 +193,49 @@ class AniPM :
 
     override fun animeDetailsParse(response: Response): SAnime = response.parseAs<SeriesResponseDto>().toSAnime(baseUrl)
 
-    override fun getAnimeUrl(anime: SAnime): String {
-        val routeId = routeIdCache.get(anime.url)
-        return "$baseUrl/anime/$routeId"
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/anime/${anime.url}"
+
+    // ============================ Related ============================
+    override val disableRelatedAnimesBySearch = true
+
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
+        val series = fetchSeries(anime.url)
+
+        val related = series.relations.mapNotNull { rel ->
+            val handle = rel.toHandle() ?: return@mapNotNull null
+            SAnime.create().apply {
+                url = handle
+                title = rel.title ?: return@mapNotNull null
+                thumbnail_url = absoluteCover(baseUrl, rel.poster)
+            }
+        }
+
+        val recommended = fetchRecommendations(series.id)
+
+        return buildList {
+            val seen = HashSet<String>()
+            related.forEach { if (seen.add(it.url)) add(it) }
+            recommended.forEach { if (seen.add(it.url)) add(it) }
+        }
     }
+
+    private suspend fun fetchRecommendations(seriesId: Long): List<SAnime> = try {
+        val context = "anime:$seriesId"
+        val res = client.get(
+            "$apiUrl/recommend".toHttpUrl().newBuilder()
+                .addQueryParameter("limit", "25")
+                .addQueryParameter("context", context)
+                .build(),
+            apiHeaders(),
+        )
+        val dto = res.use { it.parseAs<RecommendResponseDto>() }
+
+        dto.items.mapNotNull { it.toSAnime(baseUrl) }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================== Episodes ==============================
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
@@ -236,62 +269,12 @@ class AniPM :
 
     override fun getEpisodeUrl(episode: SEpisode): String {
         val (handle, num) = episode.url.split("/").let { it[0] to it.getOrElse(1) { "" } }
-        val routeId = routeIdCache.get(handle) ?: return baseUrl
-        return "$baseUrl/anime/$routeId?ep=$num"
+        return "$baseUrl/anime/$handle?ep=$num"
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
-
-    // ============================ Related ============================
-    override val disableRelatedAnimesBySearch = true
-
-    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
-        val series = fetchSeries(anime.url)
-
-        val related = series.relations.mapNotNull { rel ->
-            val handle = rel.toHandle() ?: return@mapNotNull null
-            SAnime.create().apply {
-                url = handle
-                title = rel.title ?: return@mapNotNull null
-                thumbnail_url = absoluteCover(baseUrl, rel.poster)
-            }
-        }
-
-        val recommended = fetchRecommendations(anime.url)
-
-        return buildList {
-            val seen = HashSet<String>()
-            related.forEach { if (seen.add(it.url)) add(it) }
-            recommended.forEach { if (seen.add(it.url)) add(it) }
-        }
-    }
-
-    private suspend fun fetchRecommendations(handle: String): List<SAnime> = try {
-        val context = when {
-            handle.startsWith("ani-") -> "ani:${handle.removePrefix("ani-")}"
-            else -> "anime:${handle.removePrefix("set-")}"
-        }
-        val res = client.get(
-            "$apiUrl/recommend".toHttpUrl().newBuilder()
-                .addQueryParameter("limit", "25")
-                .addQueryParameter("context", context)
-                .build(),
-            apiHeaders(),
-        )
-        val dto = res.use { it.parseAs<RecommendResponseDto>() }
-
-        dto.items.forEach { item ->
-            item.toHandle()?.let { h -> item.routeId?.let { r -> routeIdCache.put(h, r) } }
-        }
-
-        dto.items.mapNotNull { it.toSAnime(baseUrl) }
-    } catch (_: Exception) {
-        emptyList()
-    }
-
-    override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================== Hosters ===============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
@@ -303,10 +286,10 @@ class AniPM :
 
         return buildList {
             if (ep.sub && "[Sub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Sub]", internalData = "anipm::$handle/$epNum/sub"))
+                add(Hoster(hosterName = "[Sub]", internalData = "anipm::${dto.id}/$epNum/sub"))
             }
             if (ep.dub && "[Dub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Dub]", internalData = "anipm::$handle/$epNum/dub"))
+                add(Hoster(hosterName = "[Dub]", internalData = "anipm::${dto.id}/$epNum/dub"))
             }
         }
     }
@@ -331,7 +314,7 @@ class AniPM :
         val (handle, epNum, lang) = hoster.internalData.removePrefix("anipm::").split("/")
         return try {
             // 1) Bootstrap — numeric settlar ID (verified: /playback-bootstrap/settlar/8922)
-            val settlarId = handle.removePrefix("set-")
+            val settlarId = handle
             val boot = client.get(
                 "$apiUrl/anime/playback-bootstrap/settlar/$settlarId?ep=$epNum&lang=$lang",
                 apiHeaders(),
@@ -400,28 +383,11 @@ class AniPM :
     }
 
     // ============================ Series fetch ============================
-    private val routeIdCache by lazy { LruCache<String, String>(256) }
-
     private fun seriesUrl(handle: String): String = "$apiUrl/anime/series/${handle.removePrefix("set-")}?routes=e3"
 
-    private suspend fun resolveRouteId(handle: String): String? {
-        routeIdCache.get(handle)?.let { return it }
-        val id = handle.removePrefix("set-")
-        return try {
-            val res = client.get("$apiUrl/anime/meta?ids=anime:$id", apiHeaders())
-            res.use { it.parseAs<MetaResponseDto>() }.meta["anime:$id"]?.routeId
-                ?.also { routeIdCache.put(handle, it) }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private suspend fun fetchSeries(handle: String): SeriesResponseDto {
-        resolveRouteId(handle)
         val res = client.get(seriesUrl(handle), apiHeaders())
-        val dto = res.use { it.parseAs<SeriesResponseDto>() }
-        dto.routeId?.let { routeIdCache.put(handle, it) }
-        return dto
+        return res.use { it.parseAs<SeriesResponseDto>() }
     }
 
     private suspend fun fetchFillerSet(anilistId: Long?, title: String?): Set<Double> = try {
@@ -451,7 +417,7 @@ class AniPM :
 
     private fun fmtNum(n: Double): String = if (n % 1.0 == 0.0) n.toInt().toString() else n.toString()
 
-    // ============================ Preferences ============================
+    // ============================ Preferences =============================
     override fun setupPreferenceScreen(screen: PreferenceScreen): Unit = with(screen) {
         addPreference(
             SwitchPreferenceCompat(context).apply {
@@ -489,7 +455,7 @@ class AniPM :
         )
     }
 
-    // ============================ Proxy ============================
+    // ============================== Proxy =================================
     @Volatile
     private var proxy: SettlarProxy? = null
 

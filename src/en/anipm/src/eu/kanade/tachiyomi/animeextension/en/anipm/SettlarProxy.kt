@@ -62,7 +62,7 @@ class SettlarProxy(
             }
 
             val contentType = response.header("Content-Type") ?: ""
-            val isManifest = url.endsWith(".m3u8", true) || contentType.contains("mpegurl", true)
+            val isManifest = url.toHttpUrl().encodedPath.endsWith(".m3u8", true) || contentType.contains("mpegurl", true)
 
             if (!isManifest) {
                 val body = response.body
