@@ -401,12 +401,7 @@ class AniPM :
                     },
             )
 
-            val isPreferredAudio = when (preferredAudio) {
-                "subhard" -> lang == "subhard" || lang == "sub"
-                "dub" -> lang == "dub" || lang == "dubhard"
-                "dubhard" -> lang == "dubhard" || lang == "dub"
-                else -> lang == "sub" || lang == "subhard"
-            }
+            val isPreferredAudio = lang == preferredAudio
             val marked = sorted.mapIndexed { index, video ->
                 when {
                     index == 0 && isPreferredAudio -> video.copy(preferred = true)
