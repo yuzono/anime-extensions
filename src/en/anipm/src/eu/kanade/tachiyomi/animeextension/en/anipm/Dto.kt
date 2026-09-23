@@ -242,6 +242,8 @@ class SeriesEpisodeDto(
     val description: String? = null,
     val sub: Boolean = false,
     val dub: Boolean = false,
+    val subhard: Boolean = false,
+    val dubhard: Boolean = false,
     val subExact: Boolean = false,
     val dubExact: Boolean = false,
     val runtimeSeconds: Long? = null,
@@ -302,6 +304,21 @@ class BootstrapDto(
     val skip: SkipDto? = null,
     val settlarSelection: String? = null,
     val episodeRouteId: String? = null,
+    val anipmPackages: AniPMPackagesDto? = null,
+)
+
+@Serializable
+class AniPMPackagesDto(
+    val episodes: Map<String, AniPMEpisodePackageDto> = emptyMap(),
+)
+
+@Serializable
+class AniPMEpisodePackageDto(
+    val key: String? = null,
+    val sub: Boolean = false,
+    val dub: Boolean = false,
+    val subhard: Boolean = false,
+    val dubhard: Boolean = false,
 )
 
 @Serializable
