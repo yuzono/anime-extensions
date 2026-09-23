@@ -284,8 +284,8 @@ class AniPM :
         val ep = dto.episodes.firstOrNull { fmtNum(it.number) == epNum }
             ?: return emptyList()
 
+        val epParam = ep.routeId ?: epNum
         val bootPackage = try {
-            val epParam = ep.routeId ?: epNum
             val bootRes = client.get(
                 "$apiUrl/anime/playback-bootstrap/settlar/${dto.id}?ep=$epParam&lang=sub",
                 apiHeaders(),
@@ -304,16 +304,16 @@ class AniPM :
 
         return buildList {
             if (hasSub && "[Sub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Sub]", internalData = "anipm::${dto.id}/$epNum/sub"))
+                add(Hoster(hosterName = "[Sub]", internalData = "anipm::${dto.id}/$epParam/sub"))
             }
             if (hasSubhard && "[Hard Sub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Hard Sub]", internalData = "anipm::${dto.id}/$epNum/subhard"))
+                add(Hoster(hosterName = "[Hard Sub]", internalData = "anipm::${dto.id}/$epParam/subhard"))
             }
             if (hasDub && "[Dub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Dub]", internalData = "anipm::${dto.id}/$epNum/dub"))
+                add(Hoster(hosterName = "[Dub]", internalData = "anipm::${dto.id}/$epParam/dub"))
             }
             if (hasDubhard && "[Hard Dub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Hard Dub]", internalData = "anipm::${dto.id}/$epNum/dubhard"))
+                add(Hoster(hosterName = "[Hard Dub]", internalData = "anipm::${dto.id}/$epParam/dubhard"))
             }
         }
     }
@@ -343,13 +343,13 @@ class AniPM :
         .build()
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val (handle, epNum, lang) = hoster.internalData.removePrefix("anipm::").split("/")
+        val (handle, epParam, lang) = hoster.internalData.removePrefix("anipm::").split("/")
         return try {
             // 1) Bootstrap — numeric settlar ID (verified: /playback-bootstrap/settlar/8922)
             val settlarId = handle
             val bootLang = if (lang.startsWith("dub")) "dub" else "sub"
             val boot = client.get(
-                "$apiUrl/anime/playback-bootstrap/settlar/$settlarId?ep=$epNum&lang=$bootLang",
+                "$apiUrl/anime/playback-bootstrap/settlar/$settlarId?ep=$epParam&lang=$bootLang",
                 apiHeaders(),
             ).use { it.parseAs<BootstrapDto>() }
             val selection = boot.settlarSelection?.takeIf(String::isNotBlank)
@@ -360,7 +360,7 @@ class AniPM :
                 "$apiUrl/anime/settlar/session".toHttpUrl().newBuilder()
                     .addQueryParameter("selection", selection)
                     .addQueryParameter("provider", "anipm")
-                    .addQueryParameter("ep", epNum)
+                    .addQueryParameter("ep", epParam)
                     .addQueryParameter("channel", lang)
                     .addQueryParameter("telemetry", "0")
                     .build(),
