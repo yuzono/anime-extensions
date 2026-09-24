@@ -13,6 +13,11 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
+                    android:host="ww3.okanime.xyz"
+                    android:pathPattern="/anime/..*"
+                    android:scheme="https" />
+
+                <data
                     android:host="www.okanime.xyz"
                     android:pathPattern="/anime/..*"
                     android:scheme="https" />
