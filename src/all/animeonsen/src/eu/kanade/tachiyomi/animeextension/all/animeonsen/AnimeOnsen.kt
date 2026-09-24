@@ -216,7 +216,10 @@ class AnimeOnsen :
 
         val subs = videoData.uri.subtitles.sortSubs().mapNotNull { (langPrefix, subUrl) ->
             val language = subtitleLangs[langPrefix] ?: return@mapNotNull null
-            Track(subUrl, language)
+            val subUrlWithFormat = if (subUrl.contains("format=")) subUrl else {
+                if (subUrl.contains("?")) "$subUrl&format=ass" else "$subUrl?format=ass"
+            }
+            Track(subUrlWithFormat, language)
         }
 
         val video = Video(videoUrl, "Default (720p)", videoUrl, headers, subtitleTracks = subs)
