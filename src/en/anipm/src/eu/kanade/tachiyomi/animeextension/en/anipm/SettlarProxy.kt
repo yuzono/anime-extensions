@@ -12,6 +12,7 @@ import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -39,9 +40,51 @@ class SettlarProxy(
         .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
         .build()
 
+    private val subtitleCache = ConcurrentHashMap<String, String>()
+
     fun proxyUrl(url: String): String = "http://127.0.0.1:$listeningPort/proxy?url=${URLEncoder.encode(url, "UTF-8")}"
 
+    fun subtitleUrl(url: String): String = "http://127.0.0.1:$listeningPort/subtitle.vtt?url=${URLEncoder.encode(url, "UTF-8")}"
+
+    private fun getOrCacheSubtitle(originalUrl: String): String {
+        subtitleCache[originalUrl]?.let { return it }
+        return try {
+            val res = client.newCall(
+                Request.Builder().url(originalUrl).headers(upstreamHeaders).build(),
+            ).execute()
+            val text = res.body.string()
+            res.close()
+
+            val targetUrl = if (text.startsWith("#EXTM3U")) {
+                val firstLine = text.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
+                if (firstLine != null) resolveUrl(originalUrl, firstLine) else originalUrl
+            } else {
+                originalUrl
+            }
+
+            val subRes = client.newCall(
+                Request.Builder().url(targetUrl).headers(upstreamHeaders).build(),
+            ).execute()
+            val subText = subRes.body.string()
+            subRes.close()
+
+            subtitleCache[originalUrl] = subText
+            subText
+        } catch (_: Exception) {
+            "WEBVTT\n\n"
+        }
+    }
+
     override fun handle(session: IHTTPSession): Response {
+        val uri = session.uri ?: ""
+        if (uri.endsWith(".vtt", true) || uri.contains("subtitle", true)) {
+            val url = session.parameters["url"]?.firstOrNull()
+                ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
+
+            val vttContent = getOrCacheSubtitle(url)
+            return newFixedLengthResponse(Status.OK, "text/vtt", vttContent)
+        }
+
         val url = session.parameters["url"]?.firstOrNull()
             ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
 
@@ -62,7 +105,8 @@ class SettlarProxy(
             }
 
             val contentType = response.header("Content-Type") ?: ""
-            val isManifest = url.toHttpUrl().encodedPath.endsWith(".m3u8", true) || contentType.contains("mpegurl", true)
+            val parsedUrl = url.toHttpUrl()
+            val isManifest = parsedUrl.encodedPath.endsWith(".m3u8", true) || contentType.contains("mpegurl", true)
 
             if (!isManifest) {
                 val body = response.body
