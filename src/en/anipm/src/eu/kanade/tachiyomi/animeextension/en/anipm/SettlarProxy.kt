@@ -12,7 +12,8 @@ import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,7 +41,11 @@ class SettlarProxy(
         .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
         .build()
 
-    private val subtitleCache = ConcurrentHashMap<String, String>()
+    private val subtitleCache: MutableMap<String, String> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, String>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>): Boolean = size > 50
+        },
+    )
 
     fun proxyUrl(url: String): String = "http://127.0.0.1:$listeningPort/proxy?url=${URLEncoder.encode(url, "UTF-8")}"
 
@@ -70,10 +75,11 @@ class SettlarProxy(
                 subRes.body.string()
             }
 
-            if (subText.isBlank()) return "WEBVTT\n\n"
-
-            subtitleCache[originalUrl] = subText
-            subText
+            val result = if (subText.isNotBlank()) subText else text
+            if (result.isNotBlank()) {
+                subtitleCache[originalUrl] = result
+            }
+            result.ifBlank { "WEBVTT\n\n" }
         } catch (_: Exception) {
             "WEBVTT\n\n"
         }
@@ -85,8 +91,12 @@ class SettlarProxy(
             val url = session.parameters["url"]?.firstOrNull()
                 ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
 
-            val vttContent = getOrCacheSubtitle(url)
-            return newFixedLengthResponse(Status.OK, "text/vtt", vttContent)
+            return try {
+                val vttContent = getOrCacheSubtitle(url)
+                newFixedLengthResponse(Status.OK, "text/vtt", vttContent)
+            } catch (e: Exception) {
+                newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", e.toString())
+            }
         }
 
         val url = session.parameters["url"]?.firstOrNull()
