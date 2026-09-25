@@ -1,12 +1,14 @@
 ext {
     extName = 'Oploverz'
     extClass = '.Oploverz'
+    libVersion = 16
     extVersionCode = 27
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
+    implementation(project(':lib:bloggerextractor'))
     implementation(project(':lib:dailymotionextractor'))
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:unpacker'))

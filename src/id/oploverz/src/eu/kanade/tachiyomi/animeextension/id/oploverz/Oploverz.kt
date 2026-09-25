@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.id.oploverz
 
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import aniyomi.lib.dailymotionextractor.DailymotionExtractor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.universalextractor.UniversalExtractor
@@ -12,13 +12,16 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -96,6 +99,7 @@ class Oploverz :
 
     // ============================ Video Links =============================
 
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
     private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -115,10 +119,11 @@ class Oploverz :
         return sortedWith(compareByDescending { it.videoTitle.contains(quality) })
     }
 
-    private fun getVideosFromStream(stream: StreamDto): List<Video> {
+    private suspend fun getVideosFromStream(stream: StreamDto): List<Video> {
         val url = stream.url
         val prefix = stream.source
         return when {
+            "blogger.com" in url || "video.g?token=" in url -> bloggerExtractor.videosFromUrl(url, videoHeaders, prefix)
             "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url, "$prefix Dailymotion - ")
             "filedon.co" in url -> getFiledonVideo(url, prefix)
             else -> getXFileSharingVideos(url, prefix).ifEmpty {
@@ -127,16 +132,16 @@ class Oploverz :
         }
     }
 
-    private fun getFiledonVideo(url: String, quality: String): List<Video> {
-        val doc = client.newCall(GET(url, videoHeaders)).execute().asJsoup()
+    private suspend fun getFiledonVideo(url: String, quality: String): List<Video> {
+        val doc = client.get(url, videoHeaders).useAsJsoup()
         val dataPage = doc.selectFirst("div#app")?.attr("data-page") ?: return emptyList()
         val videoUrl = dataPage.parseAs<FiledonPageDto>().videoUrl
-        return listOf(Video(videoUrl, quality, videoUrl, videoHeaders))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = videoHeaders))
     }
 
     // Handles XFileSharing-style hosts (e.g. upbolt.to): the embed page auto-submits
     // a form to /dl, whose response contains a (usually packed) player script with the source.
-    private fun getXFileSharingVideos(url: String, quality: String): List<Video> = runCatching {
+    private suspend fun getXFileSharingVideos(url: String, quality: String): List<Video> = runCatching {
         val embedUrl = url.toHttpUrl()
         val code = embedUrl.pathSegments.last()
         val origin = "${embedUrl.scheme}://${embedUrl.host}"
@@ -147,7 +152,7 @@ class Oploverz :
             .add("referer", "")
             .build()
         val dlHeaders = videoHeaders.newBuilder().set("Referer", url).build()
-        val body = client.newCall(POST("$origin/dl", dlHeaders, form)).execute().body.string()
+        val body = client.post("$origin/dl", dlHeaders, form).bodyString()
         val unpacked = autoUnpacker(body) ?: body
         val videoUrl = XFS_SOURCE_REGEX.find(unpacked)?.groupValues?.get(1) ?: return@runCatching emptyList()
         if ("m3u8" in videoUrl) {
@@ -159,7 +164,7 @@ class Oploverz :
                 videoNameGen = { "$quality - $it" },
             )
         } else {
-            listOf(Video(videoUrl, quality, videoUrl, dlHeaders))
+            listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = dlHeaders))
         }
     }.getOrDefault(emptyList())
 
@@ -175,21 +180,14 @@ class Oploverz :
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            summary = "%s"
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_ENTRIES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            default = PREF_QUALITY_DEFAULT,
+            title = PREF_QUALITY_TITLE,
+            summary = "%s",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+        )
     }
 
     companion object {
@@ -201,6 +199,6 @@ class Oploverz :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
     }
 }
