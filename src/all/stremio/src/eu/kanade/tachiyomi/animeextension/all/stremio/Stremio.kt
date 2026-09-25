@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.Source
 import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstance
 import keiyoushi.utils.get
@@ -545,13 +546,13 @@ class Stremio : Source() {
                     val episodeData = if (season == "#") {
                         videos
                     } else {
-                        videos.filter { it.season == season.toInt() }
+                        videos.filter { (it.season ?: 0) == season.toInt() }
                     }
 
                     return episodeData
                         .sortedWith(
                             compareBy(
-                                { it.season ?: 1 },
+                                { it.season ?: 0 },
                                 { it.episode ?: 1 },
                             ),
                         )
@@ -579,7 +580,7 @@ class Stremio : Source() {
                 }.build().toString() +
                     ".json"
 
-                legacyHoster(
+                Hoster(
                     hosterUrl = url,
                     hosterName = addon.manifest.name,
                     internalData = episode.url,
@@ -602,7 +603,7 @@ class Stremio : Source() {
         val data = video.internalData.parseAs<VideoData>()
         val subtitleList = getSubtitleList(data)
 
-        return video.copyLegacy(
+        return video.copy(
             subtitleTracks = subtitleList,
         )
     }
@@ -962,20 +963,19 @@ class Stremio : Source() {
             validationMessage = { "Invalid scanlator format" },
         )
 
-        // TODO: enable after bumping to lib-16
-        // screen.addSwitchPreference(
-        //    key = PREF_SPLIT_SEASONS_KEY,
-        //    default = PREF_SPLIT_SEASONS_DEFAULT,
-        //    title = "Split seasons",
-        //    summary = "Split seasons into its own entry",
-        // )
-//
-        // screen.addSwitchPreference(
-        //    key = PREF_CONCAT_NAMES_KEY,
-        //    default = PREF_CONCAT_NAMES_DEFAULT,
-        //    title = "Concatenate series and season names",
-        //    summary = "",
-        // )
+        screen.addSwitchPreference(
+            key = PREF_SPLIT_SEASONS_KEY,
+            default = PREF_SPLIT_SEASONS_DEFAULT,
+            title = "Split seasons",
+            summary = "Split seasons into its own entry",
+        )
+
+        screen.addSwitchPreference(
+            key = PREF_CONCAT_NAMES_KEY,
+            default = PREF_CONCAT_NAMES_DEFAULT,
+            title = "Concatenate series and season names",
+            summary = "",
+        )
 
         val limitSummary: (String) -> String = { if (it == "0") "No limit" else "Limit: $it" }
         screen.addEditTextPreference(

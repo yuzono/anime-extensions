@@ -1,7 +1,8 @@
 ext {
     extName = 'Mapple'
     extClass = '.Mapple'
-    extVersionCode = 4
+    libVersion = 16
+    extVersionCode = 6
     isNsfw = true
 }
 

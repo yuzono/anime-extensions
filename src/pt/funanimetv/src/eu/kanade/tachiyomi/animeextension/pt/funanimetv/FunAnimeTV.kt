@@ -15,7 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -30,7 +30,6 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
 import java.security.MessageDigest
-import kotlin.time.Duration.Companion.seconds
 
 class FunAnimeTV :
     AnimeHttpLegacySource(),
@@ -54,12 +53,10 @@ class FunAnimeTV :
         set("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 16; M2007J20CG Build/BP3A.250905.014)")
     }
 
-    override val client by lazy {
-        network.client.newBuilder()
-            .rateLimit(5, 1.seconds)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
+    override val client = network.client.newBuilder()
+        .rateLimit(5)
+        .retryOnConnectionFailure(true)
+        .build()
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {

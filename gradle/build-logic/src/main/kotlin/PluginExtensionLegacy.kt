@@ -122,6 +122,7 @@ class PluginExtensionLegacy : Plugin<Project> {
                     buildConfigField("String", "KISSKH_SUB_API", "\"https://script.google.com/macros/s/AKfycbyq6hTj0ZhlinYC6xbggtgo166tp6XaDKBCGtnYk8uOfYBUFwwxBui0sGXiu_zIFmA/exec?id=\"")
                     buildConfigField("String", "KAISVA", "\"https://c-kai-8090.amarullz.com\"")
                     buildConfigField("String", "TMDB_API", "\"${System.getenv("TMDB_API")}\"")
+                    buildConfigField("String", "WYZIE_API", "\"${System.getenv("WYZIE_API")}\"")
                 }
             }
 

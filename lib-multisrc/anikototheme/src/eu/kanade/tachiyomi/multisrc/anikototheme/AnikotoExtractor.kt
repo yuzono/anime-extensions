@@ -2,35 +2,30 @@ package eu.kanade.tachiyomi.multisrc.anikototheme
 
 import android.util.Base64
 import android.util.Log
+import eu.kanade.tachiyomi.animesource.model.ChapterType
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
+import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MegaPlaySourcesDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
-import eu.kanade.tachiyomi.multisrc.anikototheme.dto.SourceResponseDto
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.parallelCatchingFlatMap
+import eu.kanade.tachiyomi.network.get
 import keiyoushi.utils.parseAs
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
-
-private data class ExtractionResult(
-    val videos: List<Video>,
-    val requiresProxy: Boolean,
-)
+import java.nio.charset.StandardCharsets
+import javax.crypto.Cipher
+import javax.crypto.Mac
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class AnikotoExtractor(private val theme: AnikotoTheme) {
 
-    suspend fun extractVideos(document: Document, episode: SEpisode, epUrl: String): List<Video> {
+    suspend fun getServerData(document: Document, episode: SEpisode): List<AnikotoTheme.VideoData> {
         val serverData = theme.parseServerListData(document).toMutableList()
-        val mapperServers = fetchMapperServers(episode)
-        serverData.addAll(mapperServers)
-
-        return serverData.parallelCatchingFlatMap { server ->
-            extractVideo(server, epUrl)
-        }
+        serverData.addAll(fetchMapperServers(episode))
+        return serverData
     }
 
     private suspend fun getEmbedLink(serverId: String, epUrl: String): String {
@@ -40,8 +35,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
 
-        return theme.client.newCall(GET("${theme.baseUrl}/ajax/server?get=$serverId", listHeaders))
-            .awaitSuccess().use { response ->
+        return theme.client.get("${theme.baseUrl}/ajax/server?get=$serverId", listHeaders)
+            .use { response ->
                 if (!response.isSuccessful) throw Exception("Server API returned HTTP ${response.code}")
                 response.parseAs<ServerResponseDto>().result.url
             }
@@ -65,7 +60,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                 add("Origin", theme.baseUrl)
             }.build()
 
-            theme.client.newCall(GET(apiUrl, mapperHeaders)).awaitSuccess().use { apiResponse ->
+            theme.client.get(apiUrl, mapperHeaders).use { apiResponse ->
                 val mapperJson = apiResponse.parseAs<Map<String, MapperServerDto?>>()
 
                 mapperJson.keys
@@ -88,7 +83,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
                             else -> null
                         } ?: return@forEach
 
-                        val linkId = linkDto.url.takeIf { it.isNotBlank() } ?: return@forEach
+                        val linkId = linkDto.url?.takeIf { it.isNotBlank() } ?: return@forEach
 
                         if (!theme.hostToggle.contains(serverName)) return@forEach
                         if (!theme.isTypeEnabled(typeLabel, theme.typeToggle)) return@forEach
@@ -105,123 +100,110 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
     }
 
-    private suspend fun extractVideo(server: AnikotoTheme.VideoData, epUrl: String): List<Video> = try {
+    suspend fun extractVideo(server: AnikotoTheme.VideoData, epUrl: String): List<Video> = try {
         val embedLink = if (server.serverId.startsWith("http")) {
             server.serverId
         } else {
             getEmbedLink(server.serverId, epUrl)
         }
 
-        val result = when {
+        val videos = when {
+            isMegaPlayServer(server.serverName) || isMegaPlayUrl(embedLink) ->
+                extractFromMegaPlay(embedLink, server)
             embedLink.contains("mewcdn.online/player/plyr.php") ->
                 extractFromMewcdnPlayer(embedLink, server)
             embedLink.endsWith(".m3u8") || (embedLink.contains(".m3u8") && !embedLink.contains("/stream/")) ->
                 extractDirectM3u8(embedLink, server)
-            else ->
-                extractFromPlayer(embedLink, server)
+            else -> {
+                Log.w("AnikotoExtractor", "No extractor for ${server.serverName}: $embedLink")
+                emptyList()
+            }
         }
 
-        val needsProxy = result.requiresProxy || theme.alwaysNeedsProxy(server.serverName)
-
-        if (needsProxy) proxyVideoList(result.videos) else result.videos
+        videos.map { video ->
+            theme.run {
+                video.copy(
+                    mpvArgs = video.mpvArgs.filterNot { it.first == "demuxer-lavf-o" } +
+                        ("demuxer-lavf-o" to "force_mpegts=1"),
+                    ffmpegStreamArgs = video.ffmpegStreamArgs.filterNot { it.first == "force_mpegts" } +
+                        ("force_mpegts" to "1"),
+                )
+            }
+        }
     } catch (e: Exception) {
         Log.e("AnikotoExtractor", "Failed to extract from ${server.serverName}: ${e.message}")
         emptyList()
     }
 
-    private suspend fun extractFromPlayer(
+    // ======================== MegaPlay ========================
+
+    private fun isMegaPlayServer(serverName: String): Boolean {
+        val name = serverName.lowercase().replace(" ", "").replace("-", "")
+        return name in setOf(
+            "vidstream2",
+            "hd1",
+            "hd2",
+        ) || name.contains("vidstream") || name.contains("hd1") || name.contains("hd2")
+    }
+
+    private fun isMegaPlayUrl(url: String): Boolean = MEGAPLAY_HOST_REGEX.containsMatchIn(url)
+
+    private suspend fun extractFromMegaPlay(
         embedUrl: String,
         server: AnikotoTheme.VideoData,
-        pageReferer: String = "${theme.baseUrl}/",
-    ): ExtractionResult {
-        val host = try {
-            embedUrl.toHttpUrl().host
-        } catch (_: Exception) {
-            return ExtractionResult(emptyList(), false)
-        }
-
+    ): List<Video> {
         val pageHeaders = theme.headers.newBuilder()
-            .add("Referer", pageReferer)
+            .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .add("X-Requested-With", "XMLHttpRequest")
+            .add("Referer", "${theme.baseUrl}/")
             .build()
 
-        val pageBody = theme.client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use {
-            if (!it.isSuccessful) throw Exception("Player page failed: HTTP ${it.code}")
+        val pageBody = theme.client.get(embedUrl, pageHeaders).use {
+            if (!it.isSuccessful) throw Exception("MegaPlay page failed: HTTP ${it.code}")
             it.body.string()
         }
 
-        val dataId = DATA_ID_REGEX.find(pageBody)?.groupValues?.get(1)
-        if (dataId != null) {
-            return fetchSourcesFromApi(dataId, host, embedUrl, server)
-        }
+        val mediaId = parseMegaPlayMediaId(pageBody)
+            ?: throw Exception("Failed to find MegaPlay media ID")
 
-        val iframeSrc = IFRAME_SRC_REGEX.find(pageBody)?.groupValues?.get(1)
-        if (iframeSrc != null) {
-            val resolvedSrc = resolveUrl(iframeSrc, embedUrl)
-            return extractFromPlayer(resolvedSrc, server, pageReferer = embedUrl)
-        }
-
-        val directM3u8 = M3U8_REGEX.find(pageBody)?.groupValues?.get(0)
-        if (directM3u8 != null) {
-            return extractDirectM3u8(directM3u8, server, "https://$host/")
-        }
-
-        val sourceSrc = SOURCE_TAG_REGEX.find(pageBody)?.groupValues?.get(1)
-        if (sourceSrc != null) {
-            val resolvedSrc = resolveUrl(sourceSrc, embedUrl)
-            return extractDirectM3u8(resolvedSrc, server, "https://$host/")
-        }
-
-        val jsVarUrl = JS_VAR_M3U8_REGEX.find(pageBody)?.let { match ->
-            match.groupValues.getOrNull(1)?.takeIf(String::isNotEmpty)
-                ?: match.groupValues.getOrNull(2)?.takeIf(String::isNotEmpty)
-        }
-        if (jsVarUrl != null) {
-            val resolvedUrl = resolveUrl(jsVarUrl, embedUrl)
-            if (resolvedUrl.contains(".m3u8") || resolvedUrl.contains("/stream/")) {
-                return try {
-                    fetchSourcesFromPage(resolvedUrl, server, "https://$host/")
-                } catch (_: Exception) {
-                    extractDirectM3u8(resolvedUrl, server, "https://$host/")
-                }
-            }
-        }
-
-        Log.e("AnikotoExtractor", "No extraction strategy matched for ${server.serverName} at $embedUrl")
-        return ExtractionResult(emptyList(), false)
-    }
-
-    private suspend fun fetchSourcesFromApi(
-        dataId: String,
-        host: String,
-        embedUrl: String,
-        server: AnikotoTheme.VideoData,
-    ): ExtractionResult {
-        val streamType = try {
-            embedUrl.toHttpUrl().pathSegments.lastOrNull()
-                ?.takeIf { it == "sub" || it == "dub" || it == "hsub" }
-        } catch (_: Exception) {
-            null
-        } ?: ""
+        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId)
 
         val apiHeaders = theme.headers.newBuilder().apply {
-            add("Accept", "*/*")
+            add("Accept", "application/json,*/*")
             add("X-Requested-With", "XMLHttpRequest")
             add("Referer", embedUrl)
-            add("Origin", "https://$host")
         }.build()
 
-        val (data, usedGetSourcesNew) = fetchSourceData(dataId, host, apiHeaders, streamType)
+        val sourcesDto = theme.client.get(getSourcesUrl, apiHeaders).use { response ->
+            if (!response.isSuccessful) throw Exception("MegaPlay getSources failed: HTTP ${response.code}")
+            response.parseAs<MegaPlaySourcesDto>()
+        }
 
-        val m3u8 = data.sources.takeIf { it.startsWith("http") }
-            ?: throw Exception("No valid m3u8 found")
+        val m3u8 = processMegaPlaySource(sourcesDto.enc, sourcesDto.sources)
+            ?: throw Exception("Failed to decrypt/find MegaPlay source")
 
-        val subtitles = data.tracks
-            ?.filter { it.kind == "captions" }
+        val tracks = sourcesDto.tracks
+            ?.filter { it.label.isNotBlank() }
             ?.map { Track(it.file, it.label) }
             .orEmpty()
 
+        val skipTimeStamps = buildList {
+            sourcesDto.intro?.takeIf { it.start != 0 || it.end != 0 }?.let {
+                add(TimeStamp(it.start.toDouble(), it.end.toDouble(), name = "Intro", type = ChapterType.Opening))
+            }
+            sourcesDto.outro?.takeIf { it.start != 0 || it.end != 0 }?.let {
+                add(TimeStamp(it.start.toDouble(), it.end.toDouble(), name = "Outro", type = ChapterType.Ending))
+            }
+        }
+
         val displayName = theme.getServerDisplayName(server.serverName)
         val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
+
+        val host = try {
+            embedUrl.toHttpUrl().host
+        } catch (_: Exception) {
+            "megaplay.buzz"
+        }
 
         val vidHeaders = theme.headers.newBuilder()
             .set("Referer", "https://$host/")
@@ -233,74 +215,130 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoNameGen = { quality ->
                 "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
             },
-            subtitleList = subtitles,
+            subtitleList = tracks,
             referer = "https://$host/",
             masterHeaders = vidHeaders,
             videoHeaders = vidHeaders,
         )
 
-        return ExtractionResult(videos, usedGetSourcesNew)
+        return if (skipTimeStamps.isNotEmpty()) {
+            videos.map { it.copy(timestamps = skipTimeStamps) }
+        } else {
+            videos
+        }
     }
 
-    private suspend fun fetchSourceData(
-        dataId: String,
-        host: String,
-        apiHeaders: Headers,
-        streamType: String,
-    ): Pair<SourceResponseDto, Boolean> {
-        val primaryResult = try {
-            val data = theme.client.newCall(GET("https://$host/stream/getSources?id=$dataId&id=$dataId&type=$streamType&type=$streamType", apiHeaders))
-                .awaitSuccess().use { response ->
-                    if (!response.isSuccessful) throw Exception("getSources failed: HTTP ${response.code}")
-                    response.parseAs<SourceResponseDto>()
-                }
-            data to false
+    private fun parseMegaPlayMediaId(html: String): String? {
+        val dataId = DATA_ID_REGEX.find(html)?.groupValues?.get(1)?.trim()
+
+        if (!dataId.isNullOrBlank()) return dataId
+
+        return FILE_ID_REGEX.find(html)?.groupValues?.get(1)
+    }
+
+    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String): String {
+        val base = try {
+            val u = embedUrl.toHttpUrl()
+            "${u.scheme}://${u.host}/stream/getSources"
         } catch (_: Exception) {
-            null
+            "https://megaplay.buzz/stream/getSources"
         }
 
-        if (primaryResult != null) return primaryResult
+        val urlBuilder = base.toHttpUrl().newBuilder()
+            .addQueryParameter("id", id)
 
-        val newUrl = "https://$host/stream/getSourcesNew?id=$dataId&id=$dataId&type=$streamType&type=$streamType"
+        try {
+            val original = embedUrl.toHttpUrl()
+            original.queryParameter("s")?.let { urlBuilder.addQueryParameter("s", it) }
+        } catch (_: Exception) { }
 
-        val data = theme.client.newCall(GET(newUrl, apiHeaders))
-            .awaitSuccess().use { response ->
-                if (!response.isSuccessful) throw Exception("getSourcesNew failed: HTTP ${response.code}")
-                response.parseAs<SourceResponseDto>()
+        return urlBuilder.build().toString()
+    }
+
+    private fun processMegaPlaySource(enc: String?, source: String?): String? {
+        var m3u8: String? = null
+        var wasDecrypted = false
+
+        if (!enc.isNullOrBlank()) {
+            try {
+                val keyBytes = ByteArray(32)
+                val keySrc = MEGAPLAY_AES_KEY.toByteArray(StandardCharsets.UTF_8)
+                System.arraycopy(keySrc, 0, keyBytes, 0, keySrc.size.coerceAtMost(32))
+
+                val iv = MEGAPLAY_AES_IV.toByteArray(StandardCharsets.UTF_8)
+
+                val encrypted = Base64.decode(
+                    enc.replace('-', '+').replace('_', '/'),
+                    Base64.DEFAULT,
+                )
+
+                if (encrypted.isNotEmpty() && encrypted.size % 16 == 0) {
+                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                    cipher.init(
+                        Cipher.DECRYPT_MODE,
+                        SecretKeySpec(keyBytes, "AES"),
+                        IvParameterSpec(iv),
+                    )
+                    val decrypted = cipher.doFinal(encrypted)
+                    val json = String(decrypted, StandardCharsets.UTF_8)
+
+                    val fileMatch = FILE_JSON_REGEX.find(json)
+                    if (fileMatch != null) {
+                        m3u8 = fileMatch.groupValues[1]
+                        wasDecrypted = true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AnikotoExtractor", "MegaPlay AES decrypt failed: ${e.message}")
             }
-
-        return data to true
-    }
-
-    private suspend fun fetchSourcesFromPage(
-        url: String,
-        server: AnikotoTheme.VideoData,
-        referer: String,
-    ): ExtractionResult {
-        val pageHeaders = theme.headers.newBuilder()
-            .add("Referer", referer)
-            .build()
-
-        val body = theme.client.newCall(GET(url, pageHeaders)).awaitSuccess().use {
-            if (!it.isSuccessful) throw Exception("Page fetch failed: HTTP ${it.code}")
-            it.body.string()
         }
 
-        if (body.trimStart().startsWith("#EXTM3U")) {
-            return extractDirectM3u8(url, server, referer)
+        if (m3u8.isNullOrBlank()) {
+            m3u8 = source
         }
 
-        val m3u8 = M3U8_REGEX.find(body)?.groupValues?.get(0)
-            ?: throw Exception("No m3u8 found in page")
+        if (m3u8.isNullOrBlank()) return null
 
-        return extractDirectM3u8(m3u8, server, referer)
+        if (!wasDecrypted || TOKEN_PARAM_REGEX.containsMatchIn(m3u8)) {
+            return m3u8
+        }
+
+        val match = PATH_KEY_REGEX.find(m3u8) ?: return m3u8
+
+        val pathKey = "${match.groupValues[1].lowercase()}/${match.groupValues[2].lowercase()}"
+        val expiry = (System.currentTimeMillis() / 1000) + 90
+        val payload = "$expiry|$pathKey"
+
+        return try {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(MEGAPLAY_TOKEN_SECRET.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
+            val signatureBytes = mac.doFinal(payload.toByteArray(StandardCharsets.UTF_8))
+            val signature = Base64.encodeToString(signatureBytes, Base64.URL_SAFE or Base64.NO_WRAP)
+                .trimEnd('=')
+
+            val payloadB64 = Base64.encodeToString(
+                payload.toByteArray(StandardCharsets.UTF_8),
+                Base64.URL_SAFE or Base64.NO_WRAP,
+            ).trimEnd('=')
+
+            val token = "$payloadB64.$signature"
+
+            m3u8.toHttpUrl().newBuilder()
+                .setQueryParameter("token", token)
+                .build()
+                .toString()
+        } catch (e: Exception) {
+            Log.e("AnikotoExtractor", "MegaPlay token generation failed: ${e.message}")
+            m3u8
+        }
     }
+    // ======================== Other paths ========================
 
-    private suspend fun extractDirectM3u8(
+    private fun extractDirectM3u8(
         m3u8Url: String,
         server: AnikotoTheme.VideoData,
         referer: String = "${theme.baseUrl}/",
-    ): ExtractionResult {
+    ): List<Video> {
         val displayName = theme.getServerDisplayName(server.serverName)
         val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
 
@@ -318,11 +356,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoHeaders = vidHeaders,
         )
 
-        return ExtractionResult(videos, false)
+        return videos
     }
 
-    private suspend fun extractFromMewcdnPlayer(embedUrl: String, server: AnikotoTheme.VideoData): ExtractionResult {
-        val fragment = embedUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
+    private suspend fun extractFromMewcdnPlayer(serverUrl: String, server: AnikotoTheme.VideoData): List<Video> {
+        val fragment = serverUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
             ?: throw Exception("No fragment found in mewcdn player URL")
 
         val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
@@ -334,7 +372,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             .add("Referer", "${theme.baseUrl}/")
             .build()
 
-        val hostMap = theme.client.newCall(GET(embedUrl, pageHeaders)).awaitSuccess().use { response ->
+        val hostMap = theme.client.get(serverUrl, pageHeaders).use { response ->
             parseHostMap(response.body.string())
         }
 
@@ -358,39 +396,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoHeaders = vidHeaders,
         )
 
-        return ExtractionResult(videos, true)
-    }
-
-    private fun proxyVideoList(videos: List<Video>): List<Video> {
-        if (!theme.m3u8ServerManager.isRunning()) {
-            Log.e("AnikotoExtractor", "M3U8 server not running, dropping ${videos.size} videos")
-            return emptyList()
-        }
-        return videos.mapNotNull { video ->
-            val referer = video.headers?.get("Referer") ?: runCatching { "https://${video.videoUrl.toHttpUrl().host}/" }.getOrNull()
-            val userAgent = video.headers?.get("User-Agent")
-            val processedUrl = proxyThroughM3u8Server(video.videoUrl, referer, userAgent)
-            if (processedUrl == null) {
-                Log.w("AnikotoExtractor", "Proxy failed for: ${video.videoTitle}")
-            }
-            processedUrl?.let {
-                Video(
-                    url = it,
-                    quality = video.videoTitle,
-                    videoUrl = it,
-                    headers = video.headers,
-                    subtitleTracks = video.subtitleTracks,
-                    audioTracks = video.audioTracks,
-                )
-            }
-        }
-    }
-
-    private fun proxyThroughM3u8Server(originalUrl: String, referer: String? = null, userAgent: String? = null): String? = try {
-        theme.m3u8ServerManager.processM3u8Url(originalUrl, referer, userAgent)
-    } catch (e: Exception) {
-        Log.e("AnikotoExtractor", "Proxy process failed: ${e.message}")
-        null
+        return videos
     }
 
     private fun parseHostMap(html: String): Map<String, String> {
@@ -411,25 +417,19 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return result
     }
 
-    private fun resolveUrl(url: String, base: String): String {
-        if (url.startsWith("http")) return url
-        val baseUrl = try {
-            base.toHttpUrl()
-        } catch (_: Exception) {
-            return url
-        }
-        return baseUrl.resolve(url)?.toString() ?: url
-    }
-
     companion object {
-        private val DATA_ID_REGEX = Regex("""data-id="([^"]+)"""")
-        private val IFRAME_SRC_REGEX = Regex("""<iframe[^>]+src="([^"]+)"""")
-        private val M3U8_REGEX = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
-        private val SOURCE_TAG_REGEX = Regex("""<source[^>]+src="([^"]+\.m3u8[^"]*)"""")
-        private val JS_VAR_M3U8_REGEX = Regex(
-            """(?:var|let|const)\s+\w+\s*=\s*["']([^"']*(?:\.m3u8|/stream/)[^"']*)["']""" +
-                """|(?:file|source|url|src)\s*[:=]\s*["']([^"']*(?:\.m3u8|/stream/)[^"']*)["']""",
-        )
+        private const val MEGAPLAY_AES_KEY = "i?LMTAx0Q6,:}50U"
+        private const val MEGAPLAY_AES_IV = "W0;27ToaUpl_P%'c"
+        private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
+
+        private val MEGAPLAY_HOST_REGEX = Regex("""megaplay\.[^/]+/stream/""", RegexOption.IGNORE_CASE)
+
+        private val DATA_ID_REGEX = Regex("""data-id=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+        private val FILE_ID_REGEX = Regex("""File\s+(\d+)""", RegexOption.IGNORE_CASE)
+        private val FILE_JSON_REGEX = Regex(""""file"\s*:\s*"([^"]+)"""")
+        private val TOKEN_PARAM_REGEX = Regex("""[?&]token=""", RegexOption.IGNORE_CASE)
+        private val PATH_KEY_REGEX = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
+
         private val HOST_MAP_REGEX = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
         private val HOST_ENTRY_REGEX = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
     }

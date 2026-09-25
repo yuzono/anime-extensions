@@ -1,0 +1,14 @@
+ext {
+    extName = 'AniPM'
+    extClass = '.AniPM'
+    libVersion = 16
+    extVersionCode = 2
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
+    implementation(project(':lib:playlistutils'))
+}

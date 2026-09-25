@@ -161,20 +161,36 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
 
     private fun Video.copyWithLocalUrl(localUrl: String): Video = Video(
         videoUrl = localUrl,
-        url = videoUrl,
-        quality = videoTitle,
+        videoTitle = videoTitle,
+        resolution = resolution,
+        bitrate = bitrate,
+        headers = headers,
+        preferred = preferred,
         subtitleTracks = subtitleTracks,
         audioTracks = audioTracks,
-        headers = headers,
+        timestamps = timestamps,
+        mpvArgs = mpvArgs,
+        ffmpegStreamArgs = ffmpegStreamArgs,
+        ffmpegVideoArgs = ffmpegVideoArgs,
+        internalData = internalData,
+        initialized = initialized,
     )
 
     private fun Video.copyWithLocalMp4Url(localUrl: String): Video = Video(
         videoUrl = localUrl,
-        url = localUrl,
-        quality = videoTitle,
+        videoTitle = videoTitle,
+        resolution = resolution,
+        bitrate = bitrate,
+        headers = headers,
+        preferred = preferred,
         subtitleTracks = subtitleTracks,
         audioTracks = audioTracks,
-        headers = headers,
+        timestamps = timestamps,
+        mpvArgs = mpvArgs,
+        ffmpegStreamArgs = ffmpegStreamArgs,
+        ffmpegVideoArgs = ffmpegVideoArgs,
+        internalData = internalData,
+        initialized = initialized,
     )
 
     private fun extractHeadersFromSession(session: IHTTPSession): Headers = Headers.Builder().apply {
@@ -324,7 +340,7 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
 
         return try {
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            val cipher = Cipher.getInstance("AES/CBC/NoPadding")
             cipher.init(
                 Cipher.DECRYPT_MODE,
                 SecretKeySpec(key, "AES"),

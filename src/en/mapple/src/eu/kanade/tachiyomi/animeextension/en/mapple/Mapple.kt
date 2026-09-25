@@ -8,36 +8,49 @@ import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import keiyoushi.network.get
+import keiyoushi.network.post
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
+import keiyoushi.utils.firstInstance
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.jsonInstance
 import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.tryParse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.comparisons.thenByDescending
+import kotlin.coroutines.cancellation.CancellationException
 
 class Mapple :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Mapple"
@@ -50,44 +63,62 @@ class Mapple :
         get() = preferences.domainPref
 
     private val apiUrl = "https://api.themoviedb.org/3"
-    private val mappleApi = "https://mapple.uk" // for payload only
-    private val decryptApi = "https://enc-dec.app/api"
-    private val subtitleApi = "https://sub.wyzie.ru"
+    private val subtitleApi = "https://sub.wyzie.io"
 
     override val lang = "en"
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
+    private val customJson by lazy { Json { explicitNulls = false } }
+
+    private val EpisodeData.tvSlug: String
+        get() = if (type == "tv") "$season-$episode" else ""
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
+    private val apiKey: String
+        get() = preferences.tmdbKeyPref.trim().ifBlank { TMDB_API_KEY }
+
+    private val wyzieApiKey: String
+        get() = preferences.wyzieKeyPref.trim().ifBlank { WYZIE_API_KEY }
+
+    @Serializable
+    private class HosterInternalData(
+        val hosterKey: String,
+        val requestToken: String,
+        val playbackToken: String,
+        val episodeData: EpisodeData,
+    )
+
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request {
+
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
         val url = apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("trending")
             addPathSegment("all")
             addPathSegment("week")
-            addQueryParameter("api_key", TMDB_API_KEY)
+            addQueryParameter("api_key", apiKey)
             addQueryParameter("language", "en-US")
             addQueryParameter("page", page.toString())
         }.build()
-        return GET(url)
+        return parseMediaPage(client.get(url))
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
-
     // =============================== Latest ===============================
+
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val types = if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
 
-        return types.parallelMapNotNull { mediaType ->
+        val results = types.parallelMap { mediaType ->
             runCatching {
-                client.newCall(latestUpdatesRequest(page, mediaType))
-                    .awaitSuccess()
-                    .use { latestUpdatesParse(it) }
-            }.getOrNull()
-        }.let { animePages ->
+                latestUpdatesParse(client.get(latestUpdatesUrl(page, mediaType)))
+            }
+        }
+        val animePages = results.mapNotNull { it.getOrNull() }
+        if (animePages.isEmpty()) {
+            results.first().exceptionOrNull()?.let { throw it }
+        }
+        return animePages.let { animePages ->
             val animes = animePages.flatMap { it.animes }
             val hasNextPage = animePages.any { it.hasNextPage }
             AnimesPage(animes, hasNextPage)
@@ -96,66 +127,61 @@ class Mapple :
 
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    private fun latestUpdatesRequest(page: Int, mediaType: String): Request {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val url = apiUrl.toHttpUrl().newBuilder().apply {
+    private fun latestUpdatesUrl(page: Int, mediaType: String): HttpUrl {
+        val date = dateFormat.format(Date())
+        return apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("discover")
             addPathSegment(mediaType)
-            addQueryParameter("api_key", TMDB_API_KEY)
+            addQueryParameter("api_key", apiKey)
             addQueryParameter("language", "en-US")
             addQueryParameter("sort_by", "primary_release_date.desc")
             addQueryParameter("page", page.toString())
             addQueryParameter("vote_count.gte", "50")
             addQueryParameter("primary_release_date.lte", date)
         }.build()
-        return GET(url)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage = parseMediaPage(response)
 
     // =============================== Search ===============================
+
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.isNotBlank()) {
             val types = if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
 
             val pageDtos = types.parallelMapNotNull { mediaType ->
                 runCatching {
-                    client.newCall(searchAnimeRequest(page, query, mediaType))
-                        .awaitSuccess()
-                        .use { it.parseAs<PageDto<MediaItemDto>>() }
+                    client.get(searchAnimeUrl(page, query, mediaType)).parseAs<PageDto<MediaItemDto>>()
                 }.getOrNull()
             }
 
             // Combine, sort by popularity, then convert to SAnime
             val animes = pageDtos.flatMap { it.results }
                 .sortedByDescending { it.popularity ?: 0.0 }
-                .map(::mediaItemToSAnime)
+                .map { it.toSAnime() }
 
             val hasNextPage = pageDtos.any { it.page < it.totalPages }
 
             return AnimesPage(animes, hasNextPage)
         } else {
-            return super.getSearchAnime(page, query, filters)
+            return parseMediaPage(client.get(filterSearchUrl(page, filters)))
         }
     }
 
-    private fun searchAnimeRequest(page: Int, query: String, mediaType: String): Request {
-        val url = apiUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("search")
-            addPathSegment(mediaType)
-            addQueryParameter("api_key", TMDB_API_KEY)
-            addQueryParameter("language", "en-US")
-            addQueryParameter("page", page.toString())
-            addQueryParameter("query", query)
-        }.build()
-        return GET(url)
-    }
+    private fun searchAnimeUrl(page: Int, query: String, mediaType: String): HttpUrl = apiUrl.toHttpUrl().newBuilder().apply {
+        addPathSegment("search")
+        addPathSegment(mediaType)
+        addQueryParameter("api_key", apiKey)
+        addQueryParameter("language", "en-US")
+        addQueryParameter("page", page.toString())
+        addQueryParameter("query", query)
+    }.build()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val type = filters.filterIsInstance<MappleFilters.TypeFilter>().first().state.let {
+    private fun filterSearchUrl(page: Int, filters: AnimeFilterList): HttpUrl {
+        val type = filters.firstInstanceOrNull<Filters.TypeFilter>()?.state?.let {
             if (it == 0) "movie" else "tv"
-        }
-        val sortFilter = filters.filterIsInstance<MappleFilters.SortFilter>().first()
+        } ?: "movie"
+        val sortFilter = filters.firstInstance<Filters.SortFilter>()
         val sortBy = sortFilter.state?.run {
             when (index) {
                 0 -> "popularity"
@@ -164,21 +190,20 @@ class Mapple :
             } + if (ascending) ".asc" else ".desc"
         } ?: "popularity.desc"
 
-        val genreMap = if (type == "movie") MappleFilters.MOVIE_GENRE_MAP else MappleFilters.TV_GENRE_MAP
-        val genres = filters.filterIsInstance<MappleFilters.GenreFilter>().first()
+        val genreMap = if (type == "movie") Filters.MOVIE_GENRE_MAP else Filters.TV_GENRE_MAP
+        val genres = filters.firstInstance<Filters.GenreFilter>()
             .state.filter { it.state }.mapNotNull { genreMap[it.name] }.joinToString(",")
 
-        val providers = filters.filterIsInstance<MappleFilters.WatchProviderFilter>()
-            .firstOrNull()
+        val providers = filters.firstInstanceOrNull<Filters.WatchProviderFilter>()
             ?.state
             ?.filter { it.state }
             ?.joinToString("|") { it.id }
             .orEmpty()
 
-        val url = apiUrl.toHttpUrl().newBuilder().apply {
+        return apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("discover")
             addPathSegment(type)
-            addQueryParameter("api_key", TMDB_API_KEY)
+            addQueryParameter("api_key", apiKey)
             addQueryParameter("sort_by", sortBy)
             addQueryParameter("language", "en-US")
             addQueryParameter("page", page.toString())
@@ -188,132 +213,77 @@ class Mapple :
                 addQueryParameter("watch_region", "US")
             }
         }.build()
-        return GET(url)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = parseMediaPage(response)
-
     // ============================== Filters ===============================
-    override fun getFilterList(): AnimeFilterList = MappleFilters.getFilterList()
+    override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
 
     // ============================== Details ===============================
+
     override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val (type, id) = animeUrlToId(anime)
+        val response = client.get(animeDetailsUrl(type, id))
+
+        return try {
+            if (type == "movie") movieDetailsParse(response) else tvDetailsParse(response)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw Exception("Failed to parse details. The API might have returned an error page.", e)
+        }
+    }
     private fun animeUrlToId(anime: SAnime): Pair<String, String> = animeUrlRegex.find(anime.url)?.let { matchResult ->
         val type = matchResult.groupValues[1]
         val rawId = matchResult.groupValues[2]
         type to rawId
     } ?: throw IllegalArgumentException("Invalid anime URL: ${anime.url}")
 
-    override fun animeDetailsRequest(anime: SAnime): Request {
-        val (type, id) = animeUrlToId(anime)
+    private fun animeDetailsUrl(type: String, id: String): HttpUrl = apiUrl.toHttpUrl().newBuilder().apply {
+        addPathSegment(type)
+        addPathSegment(id)
+        addQueryParameter("api_key", apiKey)
+        addQueryParameter("append_to_response", "external_ids")
+    }.build()
+    private fun movieDetailsParse(response: Response): SAnime = response.parseAs<MovieDetailDto>().toSAnime()
 
-        val url = apiUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment(type)
-            addPathSegment(id)
-            addQueryParameter("api_key", TMDB_API_KEY)
-            addQueryParameter("append_to_response", "external_ids")
-        }.build()
-        return GET(url)
-    }
-
-    override fun animeDetailsParse(response: Response): SAnime = try {
-        if ("/movie/" in response.request.url.toString()) {
-            movieDetailsParse(response)
-        } else {
-            tvDetailsParse(response)
-        }
-    } catch (e: Exception) {
-        throw Exception("Failed to parse details. The API might have returned an error page.", e)
-    }
-
-    private fun movieDetailsParse(response: Response): SAnime {
-        val movie = response.parseAs<MovieDetailDto>()
-        return SAnime.create().apply {
-            title = movie.title
-            url = "/movie/${movie.id}"
-            thumbnail_url = movie.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-            author = movie.productionCompanies.joinToString { it.name }
-            genre = movie.genres.joinToString { it.name }
-            status = parseStatus(movie.status)
-            description = buildString {
-                movie.overview?.also { append(it + "\n\n") }
-                val details = listOfNotNull(
-                    "**Type:** Movie",
-                    movie.voteAverage.takeIf { it > 0f }?.let { "**Score:** ★ ${String.format(Locale.US, "%.1f", it)}" },
-                    movie.tagline?.takeIf(String::isNotBlank)?.let { "**Tagline:** *$it*" },
-                    movie.releaseDate?.takeIf(String::isNotBlank)?.let { "**Release Date:** $it" },
-                    movie.countries?.takeIf { it.isNotEmpty() }?.let { "**Country:** ${it.joinToString()}" },
-                    movie.originalTitle?.takeIf { it.isNotBlank() && it.trim() != movie.title.trim() }?.let { "**Original Title:** $it" },
-                    movie.runtime?.takeIf { it > 0 }?.let {
-                        val hours = it / 60
-                        val minutes = it % 60
-                        "**Runtime:** ${if (hours > 0) "${hours}h " else ""}${minutes}m"
-                    },
-                    movie.homepage?.takeIf(String::isNotBlank)?.let { "**[Official Site]($it)**" },
-                    movie.externalIds?.imdbId?.let { "**[IMDB](https://www.imdb.com/title/$it)**" },
-                )
-                if (details.isNotEmpty()) {
-                    append(details.joinToString("\n"))
-                }
-                movie.backdropPath?.let {
-                    if (isNotEmpty()) append("\n\n")
-                    append("![Backdrop](https://image.tmdb.org/t/p/w1280$it)")
-                }
-            }
-        }
-    }
-
-    private fun tvDetailsParse(response: Response): SAnime {
-        val tv = response.parseAs<TvDetailDto>()
-        return SAnime.create().apply {
-            title = tv.name
-            url = "/tv/${tv.id}"
-            thumbnail_url = tv.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-            author = tv.productionCompanies.joinToString { it.name }
-            artist = tv.networks.joinToString { it.name }
-            genre = tv.genres.joinToString { it.name }
-            status = parseStatus(tv.status)
-            description = buildString {
-                tv.overview?.also { append(it + "\n\n") }
-                val details = listOfNotNull(
-                    "**Type:** TV Show",
-                    tv.voteAverage.takeIf { it > 0f }?.let { "**Score:** ★ ${String.format(Locale.US, "%.1f", it)}" },
-                    tv.tagline?.takeIf(String::isNotBlank)?.let { "**Tagline:** *$it*" },
-                    tv.firstAirDate?.takeIf(String::isNotBlank)?.let { "**First Air Date:** $it" },
-                    tv.lastAirDate?.takeIf(String::isNotBlank)?.let { "**Last Air Date:** $it" },
-                    tv.countries?.takeIf { it.isNotEmpty() }?.let { "**Country:** ${it.joinToString()}" },
-                    tv.originalName?.takeIf { it.isNotBlank() && it.trim() != tv.name.trim() }?.let { "**Original Name:** $it" },
-                    tv.homepage?.takeIf(String::isNotBlank)?.let { "**[Official Site]($it)**" },
-                    tv.externalIds?.imdbId?.let { "**[IMDB](https://www.imdb.com/title/$it)**" },
-                )
-                if (details.isNotEmpty()) {
-                    append(details.joinToString("\n"))
-                }
-                tv.backdropPath?.let {
-                    if (isNotEmpty()) append("\n\n")
-                    append("![Backdrop](https://image.tmdb.org/t/p/w1280$it)")
-                }
-            }
-        }
-    }
+    private fun tvDetailsParse(response: Response): SAnime = response.parseAs<TvDetailDto>().toSAnime()
 
     // ========================== Related Titles ============================
-    override fun relatedAnimeListRequest(anime: SAnime): Request {
+
+    override suspend fun getRelatedAnimeList(
+        anime: SAnime,
+        exceptionHandler: (Throwable) -> Unit,
+        pushResults: suspend (relatedAnime: Pair<String, List<SAnime>>, completed: Boolean) -> Unit,
+    ) {
+        try {
+            val animes = client.get(relatedAnimeUrl(anime))
+                .parseAs<PageDto<MediaItemDto>>()
+                .results
+                .map { it.toSAnime() }
+            pushResults("Related" to animes, true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            exceptionHandler(e)
+        }
+    }
+
+    private fun relatedAnimeUrl(anime: SAnime): HttpUrl {
         val (type, id) = animeUrlToId(anime)
-        val url = apiUrl.toHttpUrl().newBuilder().apply {
+        return apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment(type)
             addPathSegment(id)
             addPathSegment("recommendations")
-            addQueryParameter("api_key", TMDB_API_KEY)
+            addQueryParameter("api_key", apiKey)
             addQueryParameter("page", "1")
         }.build()
-        return GET(url, headers)
     }
 
     // ============================== Episodes ==============================
     @Serializable
-    private data class EpisodeData(
+    private class EpisodeData(
         val title: String,
         val year: String,
         val tmdbId: String,
@@ -324,20 +294,17 @@ class Mapple :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val (type, tmdbId) = animeUrlToId(anime)
-        val response = client.newCall(animeDetailsRequest(anime)).awaitSuccess()
+        val response = client.get(animeDetailsUrl(type, tmdbId))
         return if (type == "tv") {
             val tv = response.parseAs<TvDetailDto>()
             tv.seasons
                 .filter { it.seasonNumber > 0 }
                 .parallelCatchingFlatMap { season ->
-                    val seasonDetail = client.newCall(
-                        GET(
-                            "$apiUrl/tv/${tv.id}/season/${season.seasonNumber}".toHttpUrl()
-                                .newBuilder()
-                                .addQueryParameter("api_key", TMDB_API_KEY)
-                                .build(),
-                        ),
-                    ).awaitSuccess().parseAs<TvSeasonDetailDto>()
+                    val seasonUrl = "$apiUrl/tv/${tv.id}/season/${season.seasonNumber}".toHttpUrl()
+                        .newBuilder()
+                        .addQueryParameter("api_key", apiKey)
+                        .build()
+                    val seasonDetail = client.get(seasonUrl).parseAs<TvSeasonDetailDto>()
                     seasonDetail.episodes.map { episode ->
                         val extraData = EpisodeData(
                             title = tv.name,
@@ -347,12 +314,12 @@ class Mapple :
                             episode = episode.episodeNumber.toString(),
                             type = "tv",
                         )
-                        val extraDataEncoded = json.encodeToString(extraData)
+                        val extraDataEncoded = jsonInstance.encodeToString(extraData)
                         SEpisode.create().apply {
                             name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
                             episode_number = episode.episodeNumber.toFloat()
                             scanlator = "Season ${season.seasonNumber}"
-                            date_upload = parseDate(episode.airDate)
+                            date_upload = dateFormat.tryParse(episode.airDate)
                             url = "tv/$tmdbId/${season.seasonNumber}/${episode.episodeNumber}#$extraDataEncoded"
                         }
                     }
@@ -369,105 +336,135 @@ class Mapple :
                 tmdbId = movie.id.toString(),
                 type = "movie",
             )
-            val extraDataEncoded = json.encodeToString(extraData)
+            val extraDataEncoded = jsonInstance.encodeToString(extraData)
             listOf(
                 SEpisode.create().apply {
                     name = "Movie"
                     episode_number = 1.0f
-                    date_upload = parseDate(movie.releaseDate)
+                    date_upload = dateFormat.tryParse(movie.releaseDate)
                     url = "movie/$tmdbId#$extraDataEncoded"
                 },
             )
         }
     }
+    private fun buildApiHeaders(): Headers = headers.newBuilder()
+        .add("Content-Type", "application/json")
+        .add("Accept", "*/*")
+        .add("Origin", baseUrl)
+        .add("Referer", "$baseUrl/")
+        .build()
 
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used")
+    private fun buildStreamHeaders(): Headers = headers.newBuilder()
+        .add("Referer", "$baseUrl/")
+        .add("Origin", baseUrl)
+        .add("Accept", "*/*")
+        .add("Accept-Language", "en-US,en;q=0.9")
+        .add("User-Agent", DEFAULT_USER_AGENT)
+        .build()
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val extraDataEncoded = episode.url.split("#").last()
-        val episodeData = json.decodeFromString<EpisodeData>(extraDataEncoded)
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val data = jsonInstance.decodeFromString<HosterInternalData>(hoster.internalData)
+        val apiHeaders = buildApiHeaders()
+        val streamHeaders = buildStreamHeaders()
 
-        val session = try {
-            client.newCall(GET("$decryptApi/enc-mapple")).awaitSuccess()
-                .parseAs<SessionResponseDto>().result
-        } catch (_: Exception) {
-            throw Exception("Failed to fetch session data")
+        val streamUrl = resolveStreamUrl(data, apiHeaders, streamHeaders) ?: return emptyList()
+        val subtitles = getSubtitles(data.episodeData)
+
+        return extractVideos(hoster, streamUrl, streamHeaders, subtitles)
+    }
+
+    private suspend fun resolveStreamUrl(
+        data: HosterInternalData,
+        apiHeaders: Headers,
+        streamHeaders: Headers,
+    ): String? {
+        val encryptPayload = EncryptRequest(
+            data = EncryptPayload(
+                mediaId = data.episodeData.tmdbId.toInt(),
+                mediaType = data.episodeData.type,
+                tvSlug = data.episodeData.tvSlug,
+                source = data.hosterKey,
+            ),
+            endpoint = "stream-encrypted",
+            requestToken = data.requestToken,
+        )
+
+        val encryptResponse = runCatching {
+            client.post(
+                "$baseUrl/api/encrypt",
+                apiHeaders,
+                encryptPayload.toJsonRequestBody(),
+            ).parseAs<EncryptResponse>()
+        }.onFailure {
+            if (it is CancellationException) throw it
+        }.getOrNull() ?: return null
+
+        val streamRequestUrl = (
+            baseUrl.toHttpUrl().resolve(encryptResponse.url) ?: return null
+            ).newBuilder()
+            .addQueryParameter("requestToken", data.requestToken)
+            .addQueryParameter("token", data.playbackToken)
+            .build()
+
+        val streamResponse = runCatching {
+            client.get(streamRequestUrl, streamHeaders).parseAs<StreamEncryptedResponse>()
+        }.getOrNull()
+
+        return streamResponse?.takeIf { it.success && it.data != null }?.data?.streamUrl
+    }
+    private fun extractVideos(
+        hoster: Hoster,
+        streamUrl: String,
+        streamHeaders: Headers,
+        subtitles: List<Track>,
+    ): List<Video> = playlistUtils.extractFromHls(
+        playlistUrl = streamUrl,
+        videoNameGen = { quality -> "${hoster.hosterName} - $quality" },
+        subtitleList = subtitles,
+        masterHeaders = streamHeaders,
+        videoHeaders = streamHeaders,
+    )
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val extraDataEncoded = episode.url.substringAfter('#', "")
+        val episodeData = jsonInstance.decodeFromString<EpisodeData>(extraDataEncoded)
+
+        val requestToken = getRequestToken()
+        val playbackToken = getPlaybackToken(episodeData, requestToken)
+
+        return HOSTERS.map { hosterEntry ->
+            val internalData = jsonInstance.encodeToString(
+                HosterInternalData(hosterEntry.key, requestToken, playbackToken, episodeData),
+            )
+            Hoster(
+                hosterName = hosterEntry.name,
+                internalData = internalData,
+            )
         }
+    }
 
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
         val hosterSelection = preferences.hostersPref
         val preferredServer = preferences.serverPref
 
-        val serversToQuery = if (preferredServer in hosterSelection) {
-            val priorityServer = HOSTERS.first { it.name == preferredServer }
-            val otherServers = HOSTERS.filter { it.name != preferredServer && it.name in hosterSelection }
-            listOf(priorityServer) + otherServers
+        val enabled = filter { it.hosterName in hosterSelection }
+
+        return if (preferredServer in hosterSelection) {
+            val priority = enabled.firstOrNull { it.hosterName == preferredServer }
+            val others = enabled.filter { it.hosterName != preferredServer }
+            listOfNotNull(priority) + others
         } else {
-            HOSTERS.filter { it.name in hosterSelection }
+            enabled
         }
-
-        val videoList = serversToQuery.parallelCatchingFlatMap { hoster ->
-            val payload = listOf(
-                VideoRequestDto(
-                    mediaId = episodeData.tmdbId,
-                    mediaType = episodeData.type,
-                    tvSlug = if (episodeData.type == "tv") "${episodeData.season}-${episodeData.episode}" else "",
-                    source = hoster.key,
-                    sessionId = session.sessionId,
-                ),
-            )
-
-            val requestBody = json.encodeToString(payload).toJsonRequestBody()
-            val requestUrl = "$mappleApi/watch/${episodeData.type}/${episodeData.tmdbId}"
-
-            val headers = headers.newBuilder()
-                .add("Next-Action", session.nextAction) // Necessary header
-                .build()
-
-            val responseText = client.newCall(POST(requestUrl, headers, requestBody))
-                .awaitSuccess()
-                .use { it.body.string() }
-
-            // Handle JSONP-like response: 1:{...}
-            val dataLine = responseText.lines().find { it.startsWith("1:") }?.substringAfter("1:")
-                ?: return@parallelCatchingFlatMap emptyList()
-
-            val videoResponse = runCatching {
-                json.decodeFromString<VideoResponseDto>(dataLine)
-            }.getOrNull()
-
-            if (videoResponse == null || !videoResponse.success || videoResponse.data == null) {
-                return@parallelCatchingFlatMap emptyList()
-            }
-
-            val streamUrl = videoResponse.data.streamUrl
-            val masterHeaders = headers.newBuilder()
-                .set("Referer", "$baseUrl/") // Necessary header
-                .build()
-
-            // Fetch subtitles from Wyzie
-            val subtitles = getSubtitles(episodeData)
-
-            playlistUtils.extractFromHls(
-                playlistUrl = streamUrl,
-                videoNameGen = { quality -> "${hoster.name} - $quality" },
-                subtitleList = subtitles,
-                masterHeaders = masterHeaders,
-                videoHeaders = masterHeaders,
-            )
-        }
-
-        return videoList
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.qualityPref
-        val server = preferences.serverPref
         val qualityValues = QUALITY_VALUES.reversed()
 
         return sortedWith(
             compareByDescending<Video> { it.videoTitle.contains(quality) }
-                .thenByDescending { it.videoTitle.contains(server) }
                 .thenByDescending { video -> qualityValues.indexOfFirst { video.videoTitle.contains(it) } },
         )
     }
@@ -479,12 +476,15 @@ class Mapple :
             "$subtitleApi/search?id=${data.tmdbId}&season=${data.season}&episode=${data.episode}"
         }
 
+        val subUrl = url.toHttpUrl().newBuilder().apply {
+            addQueryParameter("key", wyzieApiKey)
+        }.build()
+
         return try {
             val subLimit = preferences.subLimitPref.toIntOrNull() ?: PREF_SUB_LIMIT_DEFAULT.toInt()
             val preferredSubLang = preferences.subLangPref
 
-            val subtitles = client.newCall(GET(url, headers))
-                .awaitSuccess().use { it.parseAs<List<SubtitleDto>>() }
+            val subtitles = client.get(subUrl).parseAs<List<SubtitleDto>>()
             subtitles
                 .take(subLimit)
                 .map { sub ->
@@ -497,6 +497,118 @@ class Mapple :
         }
     }
 
+    private suspend fun getPlaybackToken(
+        episodeData: EpisodeData,
+        requestToken: String,
+    ): String {
+        val initPayload = PlaybackInitRequest(
+            mediaId = episodeData.tmdbId.toInt(),
+            mediaType = episodeData.type,
+            tvSlug = episodeData.tvSlug,
+            requestToken = requestToken,
+        )
+
+        val apiHeaders = headers.newBuilder()
+            .set("Content-Type", "application/json")
+            .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            .set("Accept-Language", "en-US,en;q=0.9")
+            .set("Origin", baseUrl)
+            .set("Referer", "$baseUrl/")
+            .build()
+
+        // First call: get challenge
+        val challengeResponse = client.post(
+            "$baseUrl/api/playback-init",
+            apiHeaders,
+            initPayload.toJsonRequestBody(customJson),
+        ).parseAs<PlaybackInitResponse>()
+
+        if (challengeResponse.success && challengeResponse.token != null) {
+            // No PoW required
+            return challengeResponse.token
+        }
+
+        if (!challengeResponse.requiresPow || challengeResponse.pow == null) {
+            throw Exception("Playback init failed: ${challengeResponse.success}")
+        }
+
+        // Solve PoW
+        val pow = challengeResponse.pow
+        val nonce = solvePow(pow.challenge, pow.difficulty)
+
+        // Second call: with solved PoW
+        val powPayload = initPayload.copy(
+            pow = PowSolution(
+                challengeId = pow.challengeId,
+                nonce = nonce,
+            ),
+        )
+
+        val tokenResponse = client.post(
+            "$baseUrl/api/playback-init",
+            apiHeaders,
+            powPayload.toJsonRequestBody(customJson),
+        ).parseAs<PlaybackInitResponse>()
+
+        if (!tokenResponse.success || tokenResponse.token == null) {
+            throw Exception("Playback init (with PoW) failed")
+        }
+
+        return tokenResponse.token
+    }
+
+    /**
+     * Calls the /api/request-token API and extracts the requestToken from the token response.
+     */
+    private suspend fun getRequestToken(): String = client.post(
+        "$baseUrl/api/request-token",
+        headers,
+        "".toJsonRequestBody(),
+    ).parseAs<RequestTokenResponse>().token
+
+    private suspend fun solvePow(challenge: String, difficulty: Int): String = withContext(Dispatchers.Default) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val challengeBytes = challenge.toByteArray(Charsets.UTF_8)
+        val hash = ByteArray(32)
+        var nonce = 0L
+        val maxAttempts = 50_000_000L // Matched to Web Worker cap
+
+        while (nonce < maxAttempts) {
+            if (nonce % 10_000L == 0L) {
+                currentCoroutineContext().ensureActive()
+            }
+
+            digest.reset()
+            digest.update(challengeBytes)
+            digest.update(nonce.toString().toByteArray(Charsets.UTF_8))
+            digest.digest(hash, 0, 32) // Writes into buffer without allocating
+
+            if (countLeadingZeroBits(hash) >= difficulty) {
+                return@withContext nonce.toString()
+            }
+            nonce++
+        }
+        throw Exception("PoW solve exceeded max attempts (difficulty=$difficulty)")
+    }
+
+    private fun countLeadingZeroBits(bytes: ByteArray): Int {
+        var count = 0
+        for (byte in bytes) {
+            val unsigned = byte.toInt() and 0xFF
+            if (unsigned == 0) {
+                count += 8
+            } else {
+                for (bit in 7 downTo 0) {
+                    if (unsigned and (1 shl bit) != 0) {
+                        return count
+                    }
+                    count++
+                }
+            }
+        }
+        return count
+    }
+
     // ============================== Settings ==============================
     private val SharedPreferences.domainPref by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
     private val SharedPreferences.latestPref by preferences.delegate(PREF_LATEST_KEY, PREF_LATEST_DEFAULT)
@@ -505,6 +617,8 @@ class Mapple :
     private val SharedPreferences.subLimitPref by preferences.delegate(PREF_SUB_LIMIT_KEY, PREF_SUB_LIMIT_DEFAULT)
     private val SharedPreferences.serverPref by preferences.delegate(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
     private val SharedPreferences.hostersPref by preferences.delegate(PREF_HOSTERS_KEY, DEFAULT_ENABLED_HOSTERS)
+    private val SharedPreferences.tmdbKeyPref by preferences.delegate(PREF_TMDB_KEY_KEY, PREF_TMDB_KEY_DEFAULT)
+    private val SharedPreferences.wyzieKeyPref by preferences.delegate(PREF_WYZIE_KEY_KEY, PREF_WYZIE_KEY_DEFAULT)
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         val domain = getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.removePrefix("https://")
@@ -578,6 +692,34 @@ class Mapple :
             },
         )
 
+        screen.addEditTextPreference(
+            key = PREF_TMDB_KEY_KEY,
+            title = "Custom TMDB API Key",
+            summary = "Overrides the built-in TMDB API key. Leave blank to use the default.\n" +
+                "Status: ${if (preferences.tmdbKeyPref.isBlank()) "Using default key" else "Using custom key"}",
+            getSummary = {
+                "Overrides the built-in TMDB API key. Leave blank to use the default.\n" +
+                    "Status: ${if (it.isBlank()) "Using default key" else "Using custom key"}"
+            },
+            default = PREF_TMDB_KEY_DEFAULT,
+            inputType = InputType.TYPE_CLASS_TEXT,
+            onChange = { _, _ -> true },
+        )
+
+        screen.addEditTextPreference(
+            key = PREF_WYZIE_KEY_KEY,
+            title = "Custom Wyzie API Key",
+            summary = "Overrides the built-in subtitle API key. Leave blank to use the default.\n" +
+                "Status: ${if (preferences.wyzieKeyPref.isBlank()) "Using default key" else "Using custom key"}",
+            getSummary = {
+                "Overrides the built-in subtitle API key. Leave blank to use the default.\n" +
+                    "Status: ${if (it.isBlank()) "Using default key" else "Using custom key"}"
+            },
+            default = PREF_WYZIE_KEY_DEFAULT,
+            inputType = InputType.TYPE_CLASS_TEXT,
+            onChange = { _, _ -> true },
+        )
+
         val hosterNames = HOSTERS.map { it.name }
 
         screen.addListPreference(
@@ -603,37 +745,34 @@ class Mapple :
     private fun parseMediaPage(response: Response): AnimesPage {
         val pageDto = response.parseAs<PageDto<MediaItemDto>>()
         val hasNextPage = pageDto.page < pageDto.totalPages
-        val animeList = pageDto.results.map(::mediaItemToSAnime)
+        val animeList = pageDto.results.map { it.toSAnime() }
         return AnimesPage(animeList, hasNextPage)
     }
 
-    private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
-        title = media.realTitle
-        val type = media.mediaType ?: if (media.title != null) "movie" else "tv"
-        url = "/$type/${media.id}"
-        thumbnail_url = media.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-    }
-
-    private fun parseStatus(status: String?): Int = when (status) {
-        "Released", "Ended" -> SAnime.COMPLETED
-        "Returning Series", "In Production" -> SAnime.ONGOING
-        else -> SAnime.UNKNOWN
-    }
-
-    private fun parseDate(dateStr: String?): Long = runCatching {
-        SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr ?: "")?.time ?: 0L
-    }.getOrDefault(0L)
+    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException("Not used")
+    override fun animeDetailsRequest(anime: SAnime): Request = throw UnsupportedOperationException("Not used")
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Not used")
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException("Not used")
+    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException("Not used")
+    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException("Not used")
+    override fun relatedAnimeListRequest(anime: SAnime): Request = throw UnsupportedOperationException("Not used")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException("Not used")
+    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException("Not used")
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException("Not used")
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = throw UnsupportedOperationException("Not used")
 
     companion object {
+        private val dateFormat get() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         private val animeUrlRegex = Regex("""/(tv|movie)/(\d+)""")
 
         private const val TMDB_API_KEY = BuildConfig.TMDB_API
 
-        private const val PREF_DOMAIN_KEY = "pref_domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://mapple.uk"
-        private val DOMAIN_ENTRIES = arrayOf("mapple.uk", "mappl.tv", "mapple.mov")
-        private val DOMAIN_VALUES = arrayOf("https://mapple.uk", "https://mappl.tv", "https://mapple.mov")
+        private const val WYZIE_API_KEY = BuildConfig.WYZIE_API
 
+        private const val PREF_DOMAIN_KEY = "pref_domain"
+        private const val PREF_DOMAIN_DEFAULT = "https://mapple.fun"
+        private val DOMAIN_ENTRIES = arrayOf("mapple.fun")
+        private val DOMAIN_VALUES = arrayOf("https://mapple.fun")
         private const val PREF_LATEST_KEY = "pref_latest"
         private const val PREF_LATEST_DEFAULT = "movie"
 
@@ -647,22 +786,39 @@ class Mapple :
 
         private const val PREF_SUB_LIMIT_KEY = "pref_sub_limit"
         private const val PREF_SUB_LIMIT_DEFAULT = "35"
+        private const val PREF_TMDB_KEY_KEY = "pref_tmdb_key"
+        private const val PREF_TMDB_KEY_DEFAULT = ""
 
+        private const val PREF_WYZIE_KEY_KEY = "pref_wyzie_key"
+        private const val PREF_WYZIE_KEY_DEFAULT = ""
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
+        private class HosterEntry(val name: String, val key: String)
         private val HOSTERS = listOf(
-            Hoster("Mapple", "mapple"),
-            Hoster("Sakura", "sakura"),
-            Hoster("Pinecone", "alfa"),
-            Hoster("Oak", "oak"),
-            Hoster("Willow", "wiggles"),
+            HosterEntry("Zeus", "mapple"),
+            HosterEntry("Poseidon", "s25"),
+            HosterEntry("Athena", "s2"),
+            HosterEntry("Apollo", "s19"),
+            HosterEntry("Artemis", "s13"),
+            HosterEntry("Hermes", "s26"),
+            HosterEntry("Hera", "s4"),
+            HosterEntry("Ares", "s24"),
+            HosterEntry("Aphrodite", "s6"),
+            HosterEntry("Hephaestus", "s15"),
+            HosterEntry("Demeter", "s7"),
+            HosterEntry("Dionysus", "s8"),
+            HosterEntry("Hestia", "s3"),
+            HosterEntry("Hades", "s16"),
+            HosterEntry("Persephone", "s12"),
+            HosterEntry("Nike", "s5"),
+            HosterEntry("Atlas", "s1"),
+            HosterEntry("Prometheus", "s10"),
         )
 
-        // First 3: Mapple, Sakura, Pinecone
         private val DEFAULT_ENABLED_HOSTERS = HOSTERS.take(3).map { it.name }.toSet()
 
-        private data class Hoster(val name: String, val key: String)
-
-        private const val PREF_SERVER_KEY = "preferred_server"
-        private val PREF_SERVER_DEFAULT = HOSTERS.first().name // "Mapple"
+        private const val PREF_SERVER_KEY = "preferred_server_v1"
+        private val PREF_SERVER_DEFAULT = HOSTERS.first().name
 
         private const val PREF_HOSTERS_KEY = "hoster_selection"
 

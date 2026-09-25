@@ -9,18 +9,18 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
-import keiyoushi.utils.copyLegacy
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -31,7 +31,7 @@ import okhttp3.Request
 import okhttp3.Response
 
 class AniNeko :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "AniNeko"
@@ -44,29 +44,28 @@ class AniNeko :
 
     override val disableRelatedAnimesBySearch = true
 
-    override fun headersBuilder() = super.headersBuilder()
-        .set("Referer", "$baseUrl/")
-
     private val preferences by getPreferencesLazy()
-
-    private val localProxy by lazy { LocalProxy(client) }
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    // ============================= Popular ==============================
+    private val forceTsArgs = listOf("demuxer-lavf-o" to "force_mpegts=1")
+    private val forceFfmpegArgs = listOf("force_mpegts" to "1")
 
+    // ============================= Popular ==============================
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/browse?sort=release_date&page=$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    // ============================= Latest ===============================
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.newCall(popularAnimeRequest(page)).awaitSuccess().use { popularAnimeParse(it) }
 
+    // ============================= Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse?sort=recently_updated&page=$page", headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
 
-    // ============================== Search ==============================
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = client.newCall(latestUpdatesRequest(page)).awaitSuccess().use { latestUpdatesParse(it) }
 
+    // ============================== Search ==============================
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val urlBuilder = "$baseUrl/browse".toHttpUrl().newBuilder()
         urlBuilder.addQueryParameter("page", page.toString())
@@ -124,14 +123,18 @@ class AniNeko :
         val document = response.useAsJsoup()
         val cards = document.select("article.nv-anime-card.nv-browse-card")
 
-        val animes = cards.map { card ->
+        val animes = cards.mapNotNull { card ->
+            val linkEl = card.selectFirst("a.nv-anime-thumb") ?: card.selectFirst("a") ?: return@mapNotNull null
+            val url = linkEl.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+            val title = card.selectFirst("h3.nv-anime-title a")?.text()
+                ?: linkEl.selectFirst("img")?.attr("alt")
+                ?: return@mapNotNull null
+
             SAnime.create().apply {
-                val linkEl = card.selectFirst("a.nv-anime-thumb") ?: card.selectFirst("a")!!
-                url = linkEl.attr("href")
-                title = card.selectFirst("h3.nv-anime-title a")?.text()
-                    ?: linkEl.selectFirst("img")?.attr("alt")
-                    ?: ""
-                thumbnail_url = linkEl.selectFirst("img")?.attr("src")
+                this.url = url
+                this.title = title
+                this.thumbnail_url = linkEl.selectFirst("img")?.attr("src")
             }
         }
 
@@ -139,8 +142,9 @@ class AniNeko :
         return AnimesPage(animes, hasNextPage)
     }
 
-    // ============================= Filters ==============================
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = client.newCall(searchAnimeRequest(page, query, filters)).awaitSuccess().use { searchAnimeParse(it) }
 
+    // ============================= Filters ==============================
     open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
         fun isDefault() = state == 0
@@ -156,20 +160,14 @@ class AniNeko :
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
         Filters.SortFilter(),
-        AnimeFilter.Separator(),
         Filters.GenreFilter(),
-        AnimeFilter.Separator(),
         Filters.TypeFilter(),
-        AnimeFilter.Separator(),
         Filters.StatusFilter(),
-        AnimeFilter.Separator(),
         Filters.LanguageFilter(),
-        AnimeFilter.Separator(),
         Filters.YearFilter(),
     )
 
     // =========================== Anime Details ==========================
-
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -189,7 +187,7 @@ class AniNeko :
             val statusStr = document.selectFirst("div.nv-info-list div:contains(Status) strong, div.nv-info-stats div:contains(Status) strong")?.text() ?: ""
             status = when {
                 statusStr.contains("Currently Airing", ignoreCase = true) -> SAnime.ONGOING
-                statusStr.contains("Completed", ignoreCase = true) -> SAnime.COMPLETED
+                statusStr.contains("Finished Airing", ignoreCase = true) -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
 
@@ -206,7 +204,6 @@ class AniNeko :
     }
 
     // =========================== Related Anime ==========================
-
     override fun relatedAnimeListRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}", headers)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
@@ -279,6 +276,8 @@ class AniNeko :
 
     // =========================== Episode List ===========================
 
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     override fun episodeListRequest(anime: SAnime): Request = GET("$baseUrl${anime.url}", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
@@ -294,22 +293,32 @@ class AniNeko :
                 name = titleEl?.text() ?: linkEl.text()
 
                 episode_number = name.substringAfter("Episode").trim().toFloatOrNull() ?: 1.0f
+
+                scanlator = element.select("div.nv-info-episode-badges span").mapNotNull { badge ->
+                    when (badge.text().uppercase()) {
+                        "SUB" -> "Soft Sub"
+                        "HSUB" -> "Hard Sub"
+                        "DUB" -> "Dub"
+                        else -> null
+                    }
+                }.distinct().joinToString(" & ")
             }
         }
         return list.reversed()
     }
 
-    // ============================ Video List ============================
+    // ============================ Video Links =============================
+    override fun hosterListRequest(episode: SEpisode): Request = GET("$baseUrl${episode.url}", headers)
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl${episode.url}", headers)
-
-    override fun videoListParse(response: Response): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val response = client.newCall(hosterListRequest(episode)).awaitSuccess()
         val document = response.useAsJsoup()
         val buttons = document.select("button.server-video")
 
-        val videos = buttons.parallelCatchingFlatMapBlocking { button ->
+        val hosters = buttons.mapNotNull { button ->
             val iframeUrl = button.attr("data-video")
-            if (iframeUrl.isBlank()) return@parallelCatchingFlatMapBlocking emptyList()
+            if (iframeUrl.isBlank()) return@mapNotNull null
 
             val serverName = button.ownText().trim()
             val rawType = button.selectFirst("span")?.text() ?: ""
@@ -334,112 +343,121 @@ class AniNeko :
                 }
             }
 
-            when {
-                iframeUrl.contains("vivibebe.site") || iframeUrl.contains("vibevibe.workers.dev") || iframeUrl.contains("bibiemb.xyz") -> {
-                    val iframeHtml = client.newCall(GET(iframeUrl, headers)).execute().body.string()
-                    val m3u8Url = vibeRegex.find(iframeHtml)?.groupValues?.get(1)
-                    if (m3u8Url != null) {
-                        val finalM3u8 = if (iframeUrl.contains("bibiemb.xyz")) {
-                            m3u8Url
-                        } else {
-                            localProxy.getProxyUrl(m3u8Url, headers)
-                        }
-                        playlistUtils.extractFromHls(
-                            finalM3u8,
-                            referer = iframeUrl,
-                            videoNameGen = { quality -> "$serverName - $versionType - $quality" },
-                            subtitleList = subtitleTracks,
-                        )
-                    } else {
-                        emptyList()
-                    }
-                }
+            val subData = subtitleTracks.joinToString("|||") { "${it.url}::${it.lang}" }
 
-                iframeUrl.contains("otakuhg.site") || iframeUrl.contains("otakuvid.online") -> {
-                    val extractor = VidHideExtractor(client, headers)
-                    extractor.videosFromUrl(iframeUrl) { quality -> "$versionType - $quality" }.map { video ->
-                        video.copyLegacy(
-                            quality = addServerName(serverName, video.videoTitle),
-                            subtitleTracks = video.subtitleTracks + subtitleTracks,
-                        )
-                    }
-                }
+            Hoster(
+                hosterUrl = iframeUrl,
+                hosterName = "$serverName - $versionType",
+                internalData = subData,
+            )
+        }.toMutableList()
 
-                iframeUrl.contains("playmogo.com") || iframeUrl.contains("dood") -> {
-                    val extractor = DoodExtractor(client)
-                    extractor.videosFromUrl(iframeUrl, quality = versionType).map { video ->
-                        video.copyLegacy(
-                            quality = addServerName(serverName, video.videoTitle),
-                            subtitleTracks = video.subtitleTracks + subtitleTracks,
-                        )
-                    }
-                }
+        return hosters
+            .filterNot { it.hosterName.isExcluded() }
+    }
 
-                else -> emptyList()
-            }
-        }
-
-        val excludedServers = preferences.getStringSet(EXCLUDE_SERVERS_KEY, emptySet())!!
-        val excludedAudios = preferences.getStringSet(EXCLUDE_AUDIO_KEY, emptySet())!!
-
-        val preferredQuality = preferences.getString(QUALITY_KEY, QUALITY_DEFAULT)!!
+    // ========================== Hoster Sorting ============================
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
         val preferredAudioType = preferences.getString(TYPE_KEY, TYPE_DEFAULT)!!
         val preferredHost = preferences.getString(HOST_KEY, HOST_DEFAULT)!!
 
-        val filteredVideos = videos
-            .filter { video ->
-                val matchesServer = excludedServers.any { video.videoTitle.contains(it, ignoreCase = true) }
-                val matchesAudio = excludedAudios.any { video.videoTitle.contains(it, ignoreCase = true) }
-                !matchesServer && !matchesAudio
+        return sortedWith(
+            compareByDescending<Hoster> { it.hosterName.contains(preferredHost, true) }
+                .thenByDescending { it.hosterName.contains(preferredAudioType, true) },
+        )
+    }
+
+    // ==================== Video Extraction & Sorting ======================
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        if (hoster.hosterName.isExcluded()) return emptyList()
+
+        val iframeUrl = hoster.hosterUrl
+
+        val subtitleTracks = hoster.internalData.split("|||").mapNotNull { subStr ->
+            val parts = subStr.split("::", limit = 2)
+            if (parts.size == 2) Track(parts[0], parts[1]) else null
+        }
+
+        val videos = when {
+            iframeUrl.contains("vivibebe.site") || iframeUrl.contains("vibevibe.workers.dev") || iframeUrl.contains("bibiemb.xyz") -> {
+                val iframeHtml = client.newCall(GET(iframeUrl, headers)).awaitSuccess().bodyString()
+                val m3u8Url = vibeRegex.find(iframeHtml)?.groupValues?.get(1)
+                if (m3u8Url != null) {
+                    playlistUtils.extractFromHls(
+                        m3u8Url,
+                        referer = iframeUrl,
+                        subtitleList = subtitleTracks,
+                        masterHeaders = headers,
+                        videoHeaders = headers,
+                    ).map { video ->
+                        video.copy(
+                            mpvArgs = forceTsArgs,
+                            ffmpegStreamArgs = forceFfmpegArgs,
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
             }
-            // Filter out bare "Video" tracks that lack a standard resolution
-            .filterNot { video ->
-                video.videoTitle.contains("Video", ignoreCase = true) &&
-                    QUALITY_ENTRIES.none { video.videoTitle.contains(it, ignoreCase = true) }
+
+            iframeUrl.contains("otakuhg.site") || iframeUrl.contains("otakuvid.online") -> {
+                VidHideExtractor(client, headers).videosFromUrl(iframeUrl) { quality -> quality }.map { video ->
+                    video.copy(
+                        subtitleTracks = video.subtitleTracks + subtitleTracks,
+                    )
+                }
             }
 
-        val isDoodPreferred = preferredHost.equals("Doodstream", ignoreCase = true)
+            iframeUrl.contains("playmogo.com") || iframeUrl.contains("dood") -> {
+                DoodExtractor(client).videosFromUrl(iframeUrl).map { video ->
+                    video.copy(
+                        subtitleTracks = video.subtitleTracks + subtitleTracks,
+                    )
+                }
+            }
 
-        fun isDoodVideo(video: Video): Boolean = video.videoTitle.contains("Doodstream", ignoreCase = true) ||
-            video.videoTitle.contains("dood", ignoreCase = true)
+            else -> emptyList()
+        }
 
+        return videos.filterNot { video ->
+            video.videoTitle.isExcluded() ||
+                (
+                    video.videoTitle.contains("Video", ignoreCase = true) &&
+                        QUALITY_ENTRIES.none { video.videoTitle.contains(it, ignoreCase = true) }
+                    )
+        }.sortVideos()
+    }
+
+    private fun String.isExcluded(): Boolean {
+        val excludedServers = preferences.getStringSet(EXCLUDE_SERVERS_KEY, emptySet())!!
+        val excludedAudios = preferences.getStringSet(EXCLUDE_AUDIO_KEY, emptySet())!!
+
+        return excludedServers.any { contains(it, ignoreCase = true) } ||
+            excludedAudios.any { contains(it, ignoreCase = true) }
+    }
+
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = throw UnsupportedOperationException()
+
+    // ======================== Episode Video List =========================
+    override fun List<Video>.sortVideos(): List<Video> {
+        val preferredQuality = preferences.getString(QUALITY_KEY, QUALITY_DEFAULT)!!
         val qualitiesList = QUALITY_ENTRIES.reversed()
 
-        return if (isDoodPreferred) {
-            val (doodVideos, otherVideos) = filteredVideos.partition { isDoodVideo(it) }
+        val sortedVideos = sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(preferredQuality, true) }
+                .thenByDescending { vid -> qualitiesList.indexOfLast { vid.videoTitle.contains(it, true) } },
+        )
 
-            val sortedDood = doodVideos.sortedWith(
-                compareByDescending<Video> { it.videoTitle.contains(preferredAudioType, true) }
-                    .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it, true) } }
-                    .thenByDescending { it.videoTitle.contains(preferredHost, true) },
-            )
-
-            val sortedOthers = otherVideos.sortedWith(
-                compareByDescending<Video> { it.videoTitle.contains(preferredQuality, true) }
-                    .thenByDescending { it.videoTitle.contains(preferredAudioType, true) }
-                    .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it, true) } }
-                    .thenByDescending { it.videoTitle.contains(preferredHost, true) },
-            )
-
-            sortedDood + sortedOthers
+        return if (sortedVideos.isNotEmpty()) {
+            sortedVideos.mapIndexed { index, video ->
+                if (index == 0) video.copy(preferred = true) else video.copy(preferred = false)
+            }
         } else {
-            filteredVideos.sortedWith(
-                compareByDescending<Video> { it.videoTitle.contains(preferredQuality, true) }
-                    .thenByDescending { it.videoTitle.contains(preferredAudioType, true) }
-                    .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it, true) } }
-                    .thenByDescending { it.videoTitle.contains(preferredHost, true) },
-            )
+            sortedVideos
         }
     }
 
-    private fun addServerName(serverName: String, quality: String): String = if (serverName.isBlank() || quality.startsWith("$serverName - ", ignoreCase = true)) {
-        quality
-    } else {
-        "$serverName - $quality"
-    }
-
     // ============================ Preferences ===========================
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
             key = TITLE_LANG_KEY,

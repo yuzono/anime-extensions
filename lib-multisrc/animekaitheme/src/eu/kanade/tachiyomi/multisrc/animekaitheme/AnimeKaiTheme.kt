@@ -19,8 +19,8 @@ import eu.kanade.tachiyomi.multisrc.animekaitheme.dto.VideoData
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
@@ -45,7 +45,6 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
 
 abstract class AnimeKaiTheme(
@@ -72,10 +71,10 @@ abstract class AnimeKaiTheme(
 
     protected var docHeaders by LazyMutable { headersBuilder().build() }
 
-    // Go back to deprecated rate limit method, as apps e.g. Dantotsu do not support kotlin.time yet
+    // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
     override var client: OkHttpClient by LazyMutable {
         network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimit(rateLimit)
             .build()
     }
 
@@ -361,7 +360,7 @@ abstract class AnimeKaiTheme(
 
     protected open fun updateDomainConfig() {
         client = network.client.newBuilder()
-            .rateLimitHost(baseUrl.toHttpUrl(), permits = rateLimit, period = 1L, unit = TimeUnit.SECONDS)
+            .rateLimit(rateLimit)
             .build()
         docHeaders = headersBuilder().build()
         megaUpExtractor = MegaUpExtractor(client, docHeaders, context)
