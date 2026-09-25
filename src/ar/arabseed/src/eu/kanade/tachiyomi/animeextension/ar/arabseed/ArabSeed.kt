@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.arabseed
 
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
@@ -28,9 +29,7 @@ class ArabSeed :
 
     override val name = "عرب سيد"
 
-    // TODO: Check frequency of url changes to potentially
-    // add back overridable baseurl preference
-    override val baseUrl = "https://m.asd.homes"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -214,10 +213,23 @@ class ArabSeed :
             summary = "%s"
         }
         screen.addPreference(videoQualityPref)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
     companion object {
+        private const val DEFAULT_BASE_URL = "https://arabseed.rent"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
