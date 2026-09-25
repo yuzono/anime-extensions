@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.ar.animeiat
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.ar.animeiat.dto.AnimeEpisodesList
@@ -30,7 +31,7 @@ class Animeiat :
 
     override val name = "Animeiat"
 
-    override val baseUrl = "https://api.animeiat.co/v1"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -49,7 +50,7 @@ class Animeiat :
             SAnime.create().apply {
                 url = "/anime/${it.slug}"
                 title = it.anime_name
-                thumbnail_url = "https://api.animeiat.co/storage/${it.poster_path}"
+                thumbnail_url = "https://api.animeiat.tv/storage/${it.poster_path}"
             }
         }
         val hasNextPage = responseJson.meta.current_page < responseJson.meta.last_page
@@ -121,7 +122,7 @@ class Animeiat :
             author = details.studios.joinToString { it.name }
             genre = details.genres.joinToString { it.name }
             description = details.story
-            thumbnail_url = "https://api.animeiat.co/storage/${details.poster_path}"
+            thumbnail_url = "https://api.animeiat.tv/storage/${details.poster_path}"
         }
         return anime
     }
@@ -161,7 +162,7 @@ class Animeiat :
             SAnime.create().apply {
                 url = "/anime/${it.slug.substringBefore("-episode-")}"
                 title = it.title
-                thumbnail_url = "https://api.animeiat.co/storage/${it.poster_path}"
+                thumbnail_url = "https://api.animeiat.tv/storage/${it.poster_path}"
             }
         }
         val hasNextPage = responseJson.meta.current_page < responseJson.meta.last_page
@@ -217,9 +218,22 @@ class Animeiat :
             }
         }
         screen.addPreference(videoQualityPref)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
     }
 
     companion object {
+        private const val DEFAULT_BASE_URL = "https://api.animeiat.tv/v1"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
