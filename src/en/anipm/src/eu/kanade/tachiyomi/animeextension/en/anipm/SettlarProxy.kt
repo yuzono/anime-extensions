@@ -53,36 +53,59 @@ class SettlarProxy(
 
     private fun getOrCacheSubtitle(originalUrl: String): String {
         subtitleCache[originalUrl]?.let { return it }
-        return try {
-            val text = client.newCall(
-                Request.Builder().url(originalUrl).headers(upstreamHeaders).build(),
-            ).execute().use { res ->
-                if (!res.isSuccessful) return@use ""
-                res.body.string()
-            }
 
-            val targetUrl = if (text.startsWith("#EXTM3U")) {
-                val firstLine = text.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
-                if (firstLine != null) resolveUrl(originalUrl, firstLine) else originalUrl
-            } else {
-                originalUrl
-            }
+        val res = client.newCall(
+            Request.Builder().url(originalUrl).headers(upstreamHeaders).build(),
+        ).execute()
 
-            val subText = client.newCall(
-                Request.Builder().url(targetUrl).headers(upstreamHeaders).build(),
-            ).execute().use { subRes ->
-                if (!subRes.isSuccessful) return@use ""
-                subRes.body.string()
-            }
-
-            val result = if (subText.isNotBlank()) subText else text
-            if (result.isNotBlank()) {
-                subtitleCache[originalUrl] = result
-            }
-            result.ifBlank { "WEBVTT\n\n" }
-        } catch (_: Exception) {
-            "WEBVTT\n\n"
+        if (!res.isSuccessful) {
+            val code = res.code
+            res.close()
+            throw Exception("Upstream error: $code")
         }
+
+        val text = res.body.string()
+        res.close()
+
+        // If direct VTT file, cache and return verbatim
+        if (!text.startsWith("#EXTM3U")) {
+            if (text.isNotBlank() && !text.trimStart().startsWith("<")) {
+                subtitleCache[originalUrl] = text
+            }
+            return text.ifBlank { "WEBVTT\n\n" }
+        }
+
+        // If HLS playlist (.m3u8), fetch and combine all segment .vtt files verbatim in playlist order
+        val vttUrls = text.split("\n")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .map { resolveUrl(originalUrl, it) }
+
+        val combinedVtt = buildString {
+            for (vttUrl in vttUrls) {
+                try {
+                    val subRes = client.newCall(
+                        Request.Builder().url(vttUrl).headers(upstreamHeaders).build(),
+                    ).execute()
+                    if (subRes.isSuccessful) {
+                        val subText = subRes.body.string()
+                        subRes.close()
+                        if (subText.isNotBlank()) {
+                            append(subText)
+                            append("\n\n")
+                        }
+                    } else {
+                        subRes.close()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        val result = combinedVtt.ifBlank { text }
+        if (result.isNotBlank() && !result.trimStart().startsWith("<")) {
+            subtitleCache[originalUrl] = result
+        }
+        return result.ifBlank { "WEBVTT\n\n" }
     }
 
     override fun handle(session: IHTTPSession): Response {
