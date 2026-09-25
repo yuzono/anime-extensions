@@ -121,7 +121,9 @@ object TitleListSerializer : KSerializer<Map<String, String>> {
         val input = decoder as? JsonDecoder ?: error("Only JSON supported")
         return when (val element = input.decodeJsonElement()) {
             is JsonArray -> emptyMap()
-            is JsonObject -> element.mapValues { it.value.jsonPrimitive.content }
+            is JsonObject -> element.entries.mapNotNull { (key, value) ->
+                runCatching { value.jsonPrimitive.content }.getOrNull()?.let { key to it }
+            }.toMap()
             else -> emptyMap()
         }
     }
@@ -133,14 +135,14 @@ object TitleListSerializer : KSerializer<Map<String, String>> {
 
 @Serializable
 class VidstackConfig(
-    val src: String,
+    val src: String? = null,
     val subtitles: List<VidstackSubtitle> = emptyList(),
 )
 
 @Serializable
 class VidstackSubtitle(
-    val title: String,
-    val file: String,
+    val title: String? = null,
+    val file: String? = null,
 )
 
 class VideoData(
