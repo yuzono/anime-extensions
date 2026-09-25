@@ -49,11 +49,12 @@ class SettlarProxy(
     private fun getOrCacheSubtitle(originalUrl: String): String {
         subtitleCache[originalUrl]?.let { return it }
         return try {
-            val res = client.newCall(
+            val text = client.newCall(
                 Request.Builder().url(originalUrl).headers(upstreamHeaders).build(),
-            ).execute()
-            val text = res.body.string()
-            res.close()
+            ).execute().use { res ->
+                if (!res.isSuccessful) return@use ""
+                res.body.string()
+            }
 
             val targetUrl = if (text.startsWith("#EXTM3U")) {
                 val firstLine = text.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
@@ -62,11 +63,14 @@ class SettlarProxy(
                 originalUrl
             }
 
-            val subRes = client.newCall(
+            val subText = client.newCall(
                 Request.Builder().url(targetUrl).headers(upstreamHeaders).build(),
-            ).execute()
-            val subText = subRes.body.string()
-            subRes.close()
+            ).execute().use { subRes ->
+                if (!subRes.isSuccessful) return@use ""
+                subRes.body.string()
+            }
+
+            if (subText.isBlank()) return "WEBVTT\n\n"
 
             subtitleCache[originalUrl] = subText
             subText
