@@ -1,0 +1,14 @@
+ext {
+    extName = 'KimCartoon'
+    extClass = '.KimCartoon'
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply from: "$rootDir/common.gradle"
+
+dependencies {
+    implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:streamtapeextractor'))
+    implementation(project(':lib:mixdropextractor'))
+}
