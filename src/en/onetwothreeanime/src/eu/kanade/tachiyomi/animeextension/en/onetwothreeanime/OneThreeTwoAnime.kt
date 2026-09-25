@@ -121,17 +121,22 @@ class OneThreeTwoAnime :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = OneThreeTwoAnimeFilters.getSearchParameters(filters)
+        val hasFilters = params.queryPairs.isNotEmpty()
 
-        val filterBase = if (page > 1) "$baseUrl/filter?page=$page" else "$baseUrl/filter"
+        // Plain keyword search (no filters selected) use  /search else /filters
+        val endpoint = if (hasFilters) "filter" else "search"
+        val base = if (page > 1) "$baseUrl/$endpoint?page=$page" else "$baseUrl/$endpoint"
 
-        val url = filterBase.toHttpUrl().newBuilder().apply {
+        val url = base.toHttpUrl().newBuilder().apply {
+            addQueryParameter("keyword", query.trim())
+
             params.queryPairs.forEach { (key, value) ->
                 addQueryParameter(key, value)
             }
-            if (params.queryPairs.none { it.first == "sort" }) {
+
+            if (hasFilters && params.queryPairs.none { it.first == "sort" }) {
                 addQueryParameter("sort", "default")
             }
-            addQueryParameter("keyword", query.trim())
 
             // Inject Sub/Dub language filter only when the user's explicit
             // filter selection doesn't already include a language[] param
