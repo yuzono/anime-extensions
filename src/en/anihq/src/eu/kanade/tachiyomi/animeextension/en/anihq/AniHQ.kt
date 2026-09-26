@@ -195,7 +195,20 @@ class AniHQ :
 
     // =========================== Anime Details ============================
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val realDoc = getDetailsDocument(anime)
+        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
+        return parseDetails(anime, document)
+    }
+
+    private fun parseDetails(anime: SAnime, document: Document): SAnime {
+        val href = document.selectFirst("div.anime-information h4 a")
+            ?.attr("abs:href")
+            ?.toHttpUrlOrNull()
+        val realDoc: Document =
+            if (href != null && href.host == baseHost && href.toString() != document.location()) {
+                client.newCall(GET(href.toString(), headers)).execute().useAsJsoup()
+            } else {
+                document
+            }
 
         val infoRoot: Element = realDoc.selectFirst("div.anime-information") ?: realDoc
         val info = infoRoot.select("dt").associate { dt ->
@@ -245,18 +258,6 @@ class AniHQ :
             ).joinToString("\n\n").takeIf(String::isNotBlank)
             initialized = true
         }
-    }
-
-    private suspend fun getDetailsDocument(anime: SAnime): Document {
-        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
-
-        val href = document.selectFirst("div.anime-information h4 a")
-            ?.attr("abs:href")
-            ?.toHttpUrlOrNull()
-            ?.takeIf { it.host == baseHost && it.toString() != document.location() }
-            ?: return document
-
-        return client.get(href.toString()).useAsJsoup()
     }
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl/anime-show/${anime.url}", headers)
