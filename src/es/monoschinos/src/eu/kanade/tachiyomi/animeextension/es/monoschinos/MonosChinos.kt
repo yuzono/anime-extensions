@@ -107,7 +107,8 @@ class MonosChinos :
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
             }
         }
-        return AnimesPage(animeList, document.hasNextPage())
+        // The front page this always loads does not paginate.
+        return AnimesPage(animeList, hasNextPage = false)
     }
 
     // ====================== BÚSQUEDA ======================
