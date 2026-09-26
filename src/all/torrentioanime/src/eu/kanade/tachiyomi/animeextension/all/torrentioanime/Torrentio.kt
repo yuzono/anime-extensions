@@ -8,11 +8,10 @@ import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
-import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AniZipResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMetaLatest
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.DetailsById
-import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.KitsuMappingsResponse
+import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.KitsuMetaResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -27,7 +26,6 @@ import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.tryParse
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -43,6 +41,7 @@ import org.jsoup.Jsoup
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 class Torrentio :
     AnimeHttpLegacySource(),
@@ -303,138 +302,171 @@ class Torrentio :
         return anime
     }
 
-    // ============================== Fetch KitsuId ==============================
-    private fun resolveKitsuId(aniZipResponse: AniZipResponse, response: Response): String? {
-        aniZipResponse.mappings?.kitsuId?.let {
-            return it.toString()
-        }
-
-        val anilistId = response.request.url.queryParameter("anilist_id") ?: run {
-            return null
-        }
-
-        return client.newCall(
-            GET(
-                "https://kitsu.io/api/edge/mappings?filter[externalSite]=anilist/anime&filter[externalId]=$anilistId&include=item",
-            ),
-        ).execute().use { kitsuResponse ->
-            if (!kitsuResponse.isSuccessful) {
-                return null
-            }
-
-            val kitsuId = json.decodeFromString<KitsuMappingsResponse>(
-                kitsuResponse.body.string(),
-            ).data.firstOrNull()?.relationships?.item?.data?.id
-            kitsuId
-        }
-    }
-
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime): Request = GET("https://api.ani.zip/mappings?anilist_id=${anime.url}")
+    override fun episodeListRequest(anime: SAnime): Request = GET("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val aniZipResponse = json.decodeFromString<AniZipResponse>(response.body.string())
-        val kitsuId = resolveKitsuId(aniZipResponse, response) ?: run {
-            return emptyList()
-        }
+        val kitsuMetaResponse = json.decodeFromString<KitsuMetaResponse>(response.body.string())
+        val meta = kitsuMetaResponse.meta ?: return emptyList()
+        val kitsuId = meta.kitsuId
+        val type = meta.type ?: "series"
 
-        return when (aniZipResponse.mappings?.type) {
-            "TV", "ONA", "OVA" -> {
-                aniZipResponse.episodes?.let { episodes ->
-                    if (preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)) {
-                        episodes
-                    } else {
-                        episodes.filter { (_, episode) ->
-                            episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
-                        }
-                    }
-                }?.mapNotNull { (_, episode) ->
-                    val episodeNumber = runCatching {
-                        episode?.episode?.toFloat()
-                    }.getOrNull() ?: return@mapNotNull null
+        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
+        val now = System.currentTimeMillis()
 
-                    val title = episode?.title?.get("en")
+        return meta.videos.orEmpty()
+            .mapNotNull { video ->
+                val epNum = video.episode ?: return@mapNotNull null
 
-                    SEpisode.create().apply {
-                        episode_number = episodeNumber
-                        url = "/stream/series/kitsu:$kitsuId:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                        date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
-                        name = title?.let {
-                            "Episode ${episode.episode}: $it"
-                        } ?: "Episode ${episode?.episode}"
-                        scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
-                            ?.let { "Upcoming" } ?: ""
-                    }
-                }.orEmpty().reversed()
-            }
+                SEpisode.create().apply {
+                    episode_number = epNum.toFloat()
 
-            "MOVIE" -> {
-                val dateUpload = if (!aniZipResponse.episodes.isNullOrEmpty()) {
-                    aniZipResponse.episodes["1"]?.airDate.let(DATE_FORMATTER::tryParse)
-                } else {
-                    0L
+                    // kitsuId|imdbId|ep|season|imdbEp|type
+                    url = listOf(
+                        kitsuId.orEmpty(),
+                        video.imdbId.orEmpty(),
+                        epNum.toString(),
+                        (video.imdbSeason ?: 1).toString(),
+                        (video.imdbEpisode ?: epNum).toString(),
+                        type,
+                    ).joinToString("|")
+
+                    date_upload = video.released
+                        ?.let { runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull() }
+                        ?: 0L
+
+                    name = video.title
+                        ?.takeIf { it.isNotBlank() && it != "Episode $epNum" }
+                        ?.let { "Episode $epNum: $it" }
+                        ?: "Episode $epNum"
+
+                    scanlator = date_upload.takeIf { it > now }
+                        ?.let { "Upcoming" }
+                        ?: ""
+
+                    summary = video.overview
+                    preview_url = video.thumbnail
                 }
-
-                listOf(
-                    SEpisode.create().apply {
-                        episode_number = 1.0F
-                        url = "/stream/movie/kitsu:$kitsuId.json"
-                        name = "Movie"
-                        date_upload = dateUpload
-                    },
-                ).reversed()
             }
-
-            else -> emptyList()
-        }
+            .filter { showUpcoming || it.date_upload <= now }
+            .reversed()
     }
 
-    // ============================ Video Links =============================
+// ============================ Video Links =============================
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val parts = episode.url.split("|")
+        val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
+        val imdbId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+        val epNum = parts.getOrNull(2) ?: "1"
+        val season = parts.getOrNull(3) ?: "1"
+        val imdbEp = parts.getOrNull(4) ?: epNum
+        val type = parts.getOrNull(5)?.takeIf { it.isNotBlank() } ?: "series"
+        val isMovie = type == "movie"
+
+        // 1. Try kitsu first
+        if (kitsuId != null) {
+            val path = if (isMovie) {
+                "/stream/movie/kitsu:$kitsuId.json"
+            } else {
+                "/stream/series/kitsu:$kitsuId:$epNum.json"
+            }
+
+            val videos = fetchVideos(path)
+            if (videos.isNotEmpty()) return videos
+        }
+
+        // 2. Fallback to imdb
+        if (imdbId != null) {
+            val path = if (isMovie) {
+                "/stream/movie/imdb:$imdbId.json"
+            } else {
+                "/stream/series/imdb:$imdbId:$season:$imdbEp.json"
+            }
+
+            val videos = fetchVideos(path)
+            if (videos.isNotEmpty()) return videos
+        }
+
+        return emptyList()
+    }
+
+    private fun fetchVideos(streamPath: String): List<Video> = runCatching {
+        val res = client.newCall(GET(buildUrl(streamPath), headers)).execute()
+        if (!res.isSuccessful) return emptyList()
+        parseVideos(res.body.string())
+    }.getOrDefault(emptyList())
 
     override fun videoListRequest(episode: SEpisode): Request {
-        val mainURL = buildString {
-            append("$baseUrl/")
+        val parts = episode.url.split("|")
+        val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
+        val epNum = parts.getOrNull(2) ?: "1"
+        val type = parts.getOrNull(5)?.takeIf { it.isNotBlank() } ?: "series"
 
-            val appendQueryParam: (String, Set<String>?) -> Unit = { key, values ->
-                values?.takeIf { it.isNotEmpty() }?.let {
-                    append("$key=${it.filter(String::isNotBlank).joinToString(",")}|")
-                }
+        val streamPath = if (kitsuId != null) {
+            if (type == "movie") {
+                "/stream/movie/kitsu:$kitsuId.json"
+            } else {
+                "/stream/series/kitsu:$kitsuId:$epNum.json"
             }
-
-            appendQueryParam("providers", preferences.getStringSet(PREF_PROVIDER_KEY, PREF_PROVIDERS_DEFAULT))
-            appendQueryParam("language", preferences.getStringSet(PREF_LANG_KEY, PREF_LANG_DEFAULT))
-            appendQueryParam("qualityfilter", preferences.getStringSet(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT))
-
-            val sortKey = preferences.getString(PREF_SORT_KEY, "quality")
-            appendQueryParam("sort", sortKey?.let { setOf(it) })
-
-            val token = preferences.getString(PREF_TOKEN_KEY, null)
-            val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
-
-            when {
-                token.isNullOrBlank() && debridProvider != "none" -> {
-                    handler.post {
-                        applicationContext.let {
-                            Toast.makeText(
-                                it,
-                                "Kindly input the debrid token in the extension settings.",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
-                    throw UnsupportedOperationException()
-                }
-
-                !token.isNullOrBlank() && debridProvider != "none" -> append("$debridProvider=$token|")
+        } else {
+            val imdbId = parts.getOrNull(1).orEmpty()
+            val season = parts.getOrNull(3) ?: "1"
+            val imdbEp = parts.getOrNull(4) ?: epNum
+            if (type == "movie") {
+                "/stream/movie/$imdbId.json"
+            } else {
+                "/stream/series/$imdbId:$season:$imdbEp.json"
             }
-            append(episode.url)
-        }.removeSuffix("|")
-        return GET(mainURL)
+        }
+
+        return GET(buildUrl(streamPath))
     }
 
-    override fun videoListParse(response: Response): List<Video> {
-        val responseString = response.body.string()
-        val streamList = json.decodeFromString<StreamDataTorrent>(responseString)
+    override fun videoListParse(response: Response): List<Video> = parseVideos(response.body.string())
+
+    private fun buildUrl(streamPath: String): String = buildString {
+        append("$baseUrl/")
+
+        val appendQueryParam: (String, Set<String>?) -> Unit = { key, values ->
+            values?.takeIf { it.isNotEmpty() }?.let {
+                append("$key=${it.filter(String::isNotBlank).joinToString(",")}|")
+            }
+        }
+
+        appendQueryParam("providers", preferences.getStringSet(PREF_PROVIDER_KEY, PREF_PROVIDERS_DEFAULT))
+        appendQueryParam("language", preferences.getStringSet(PREF_LANG_KEY, PREF_LANG_DEFAULT))
+        appendQueryParam("qualityfilter", preferences.getStringSet(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT))
+
+        val sortKey = preferences.getString(PREF_SORT_KEY, "quality")
+        appendQueryParam("sort", sortKey?.let { setOf(it) })
+
+        val token = preferences.getString(PREF_TOKEN_KEY, null)
+        val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
+
+        when {
+            token.isNullOrBlank() && debridProvider != "none" -> {
+                handler.post {
+                    Toast.makeText(
+                        applicationContext,
+                        "Kindly input the debrid token in the extension settings.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                throw UnsupportedOperationException()
+            }
+
+            !token.isNullOrBlank() && debridProvider != "none" -> append("$debridProvider=$token|")
+        }
+
+        append(streamPath)
+    }.removeSuffix("|")
+
+    private fun parseVideos(body: String): List<Video> {
+        val streamList = runCatching {
+            json.decodeFromString<StreamDataTorrent>(body)
+        }.getOrNull() ?: return emptyList()
+
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
 
         val animeTrackers = """
@@ -471,14 +503,9 @@ class Torrentio :
                 buildString {
                     append("magnet:?xt=urn:btih:${stream.infoHash}")
                     append("&dn=${stream.infoHash}")
-
-                    animeTrackers.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tracker ->
-                        append("&tr=$tracker")
-                    }
-
-                    stream.fileIdx?.let {
-                        append("&index=$it")
-                    }
+                    animeTrackers.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        .forEach { append("&tr=$it") }
+                    stream.fileIdx?.let { append("&index=$it") }
                 }
             } else {
                 stream.url ?: ""
@@ -960,7 +987,9 @@ class Torrentio :
         private val PREF_CODEC_DEFAULT = setOf<String>() // Empty by default to show all
 
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
     }
 }
