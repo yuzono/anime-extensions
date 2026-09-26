@@ -195,7 +195,7 @@ class AniHQ :
 
         val realDoc = document.selectFirst("div.anime-information h4 a")?.attr("abs:href")
             ?.takeIf { it.isNotBlank() && it != document.location() }
-            ?.let { client.newCall(GET(it, headers)).awaitSuccess().useAsJsoup() }
+            ?.let { client.get(it).useAsJsoup() }
             ?: document
 
         val info = (realDoc.selectFirst("div.anime-information") ?: realDoc)
