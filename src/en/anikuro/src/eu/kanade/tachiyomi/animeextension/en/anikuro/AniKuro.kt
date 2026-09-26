@@ -14,10 +14,10 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -47,7 +47,7 @@ class AniKuro :
     private val forceFfmpegArgs = listOf("force_mpegts" to "1")
 
     override val client = network.client.newBuilder()
-        .rateLimit(10)
+        .rateLimit(3) { it.host.contains("anikuro") }
         .build()
 
     // ============================== Popular ===============================
@@ -171,15 +171,17 @@ class AniKuro :
     private fun parseAnimeSearchPage(response: Response): AnimesPage {
         val dto = response.parseAs<SearchResponseDto>()
         val items = dto.data?.items ?: emptyList()
-        val animeList = items.map { item ->
-            SAnime.create().apply {
-                url = "/watch/${item.id}"
-                title = item.title.getTitle()
-                thumbnail_url = item.coverImage?.extraLarge
-                    ?: item.coverImage?.large
-                    ?: item.images?.cover
-                    ?: item.banner
-                fetch_type = FetchType.Episodes
+        val animeList = items.mapNotNull { item ->
+            item.id?.let { id ->
+                SAnime.create().apply {
+                    url = "/watch/$id"
+                    title = item.title.getTitle()
+                    thumbnail_url = item.coverImage?.extraLarge
+                        ?: item.coverImage?.large
+                        ?: item.images?.cover
+                        ?: item.banner
+                    fetch_type = FetchType.Episodes
+                }
             }
         }
         val perPage = dto.meta?.filters?.perPage ?: 20
@@ -403,8 +405,9 @@ class AniKuro :
                 video.videoTitle.startsWith(prefType, ignoreCase = true)
             }.thenByDescending { video ->
                 video.videoTitle.contains(prefQuality)
-            }.thenByDescending { video ->
+            }.thenBy { video ->
                 PREF_QUALITY_VALUES.indexOfFirst { video.videoTitle.contains(it) }
+                    .let { if (it < 0) Int.MAX_VALUE else it }
             },
         )
 
@@ -420,7 +423,7 @@ class AniKuro :
         get() = preferences.getString(PREF_TITLE_KEY, PREF_TITLE_DEFAULT) ?: PREF_TITLE_DEFAULT
 
     private fun TitleDto?.getTitle(): String {
-        if (this == null) return ""
+        requireNotNull(this) { "Title is required" }
         return when (preferredTitleLanguage) {
             "english" -> english ?: userPreferred ?: romaji ?: native!!
             "native" -> native ?: userPreferred ?: romaji ?: english!!
@@ -494,7 +497,7 @@ class AniKuro :
         private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
 
         private const val PREF_TYPE_KEY = "pref_type"
-        private const val PREF_TYPE_DEFAULT = "Sub"
+        private const val PREF_TYPE_DEFAULT = "SUB"
         private val PREF_TYPE_ENTRIES = listOf("Sub", "Dub", "Soft-Sub")
         private val PREF_TYPE_VALUES = listOf("SUB", "DUB", "SOFT-SUB")
         private const val PREF_EXCLUDE_TYPE_KEY = "pref_exclude_type"
