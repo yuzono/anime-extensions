@@ -28,6 +28,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import okio.ByteString.Companion.decodeBase64
@@ -66,6 +67,8 @@ class AniHQ :
 
     private val preferredTitleLanguage: String
         get() = preferences.getString(PREF_TITLE_KEY, PREF_TITLE_DEFAULT) ?: PREF_TITLE_DEFAULT
+
+    private val baseHost = baseUrl.toHttpUrl().host
 
     // ============================== Nonce ================================
     private val nonceRegex by lazy { Regex("""search_actions"\s*:\s*"(\w+)""") }
@@ -194,8 +197,9 @@ class AniHQ :
         val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
 
         val realDoc = document.selectFirst("div.anime-information h4 a")?.attr("abs:href")
-            ?.takeIf { it.isNotBlank() && it != document.location() }
-            ?.let { client.get(it).useAsJsoup() }
+            ?.toHttpUrlOrNull()
+            ?.takeIf { it.host == baseHost && it.toString() != document.location() }
+            ?.let { client.get(it.toString()).useAsJsoup() }
             ?: document
 
         val info = (realDoc.selectFirst("div.anime-information") ?: realDoc)
@@ -512,7 +516,7 @@ class AniHQ :
     companion object {
         const val PREFIX_SEARCH = "id:"
 
-        private const val EPISODE_FETCH_BATCH = 8
+        private const val EPISODE_FETCH_BATCH = 6
 
         private const val PREF_TITLE_KEY = "preferred_title_language"
         private const val PREF_TITLE_DEFAULT = "english"
