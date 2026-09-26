@@ -1,14 +1,16 @@
 ext {
     extName = 'Kuronime'
     extClass = '.Kuronime'
-    extVersionCode = 13
+    extVersionCode = 14
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation(project(':lib:streamlareextractor'))
+    implementation(project(':lib:cryptoaes'))
+    implementation(project(':lib:doodextractor'))
     implementation(project(':lib:mp4uploadextractor'))
+    implementation(project(':lib:pixeldrainextractor'))
+    implementation(project(':lib:vidhideextractor'))
     implementation(project(':lib:youruploadextractor'))
-    implementation(project(":lib:unpacker"))
 }
