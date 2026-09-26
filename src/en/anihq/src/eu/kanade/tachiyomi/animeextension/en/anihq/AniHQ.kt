@@ -335,8 +335,9 @@ class AniHQ :
             }
         }
 
-        return@coroutineScope episodes.map { it.toSEpisode(dateFormat) }
-            .sortedByDescending { it.episode_number }
+        return@coroutineScope episodes.map {
+            it.toSEpisode(SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH))
+        }.sortedByDescending { it.episode_number }
     }
 
     private suspend fun Request.fetchEpisodePage(): EpisodeResponseDto {
@@ -504,8 +505,6 @@ class AniHQ :
         const val PREFIX_SEARCH = "id:"
 
         private const val EPISODE_FETCH_BATCH = 6
-
-        private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
 
         private const val PREF_TITLE_KEY = "preferred_title_language"
         private const val PREF_TITLE_DEFAULT = "english"
