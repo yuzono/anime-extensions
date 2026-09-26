@@ -21,9 +21,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.network.get
+import eu.kanade.tachiyomi.network.post
+import keiyoushi.network.post
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -36,6 +37,7 @@ import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -56,6 +58,10 @@ class Torrentio :
 
     override val supportsLatest = true
 
+    override val client: OkHttpClient = network.client.newBuilder()
+        .rateLimit(RATE_LIMIT_PERMITS)
+        .build()
+
     private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
@@ -63,6 +69,7 @@ class Torrentio :
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== Anilist API Request ===================
+
     private fun makeGraphQLRequest(query: String, variables: String): Request {
         val requestBody = FormBody.Builder()
             .add("query", query)
@@ -73,7 +80,11 @@ class Torrentio :
             .add("Referer", "https://anilist.co")
             .build()
 
-        return POST("https://graphql.anilist.co", headers = headers, body = requestBody)
+        return Request.Builder()
+            .url("https://graphql.anilist.co")
+            .headers(headers)
+            .post(requestBody)
+            .build()
     }
 
     private fun parseSearchJson(jsonLine: String?, isLatestQuery: Boolean = false): AnimesPage {
@@ -184,7 +195,7 @@ class Torrentio :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/anime/$id")).awaitSuccess().use(::searchAnimeByIdParse)
+            return searchAnimeByIdParse(client.get("$baseUrl/anime/$id"))
         }
 
         return super.getSearchAnime(page, query, filters)
@@ -254,7 +265,9 @@ class Torrentio :
         val variables = """{"id": ${anime.url}}"""
 
         val metaData = runCatching {
-            json.decodeFromString<DetailsById>(client.newCall(makeGraphQLRequest(getDetailsQuery(), variables)).awaitSuccess().bodyString())
+            val request = makeGraphQLRequest(getDetailsQuery(), variables)
+            val response = client.post(request.url, request.headers, request.body!!)
+            json.decodeFromString<DetailsById>(response.bodyString())
         }.getOrNull()?.data?.media
 
         anime.title = metaData?.title?.let { title ->
@@ -304,11 +317,13 @@ class Torrentio :
     }
 
     // =============================== Seasons ===============================
-    // unsupported idk
+    // Unsupported stuff 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime): Request = GET("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
+    override fun episodeListRequest(anime: SAnime): Request = Request.Builder()
+        .url("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
+        .build()
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val kitsuMetaResponse = json.decodeFromString<KitsuMetaResponse>(response.body.string())
@@ -430,8 +445,8 @@ class Torrentio :
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
-    private fun fetchStreamData(streamPath: String): StreamDataTorrent? = runCatching {
-        val res = client.newCall(GET(buildUrl(streamPath), headers)).execute()
+    private suspend fun fetchStreamData(streamPath: String): StreamDataTorrent? = runCatching {
+        val res = client.get(buildUrl(streamPath), headers)
         if (!res.isSuccessful) return@runCatching null
         json.decodeFromString<StreamDataTorrent>(res.body.string())
     }.getOrNull()
@@ -497,7 +512,7 @@ class Torrentio :
         return "unknown"
     }
 
-    private fun buildAnimeTrackers(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    private suspend fun buildAnimeTrackers(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
     private val codecPreferences
         get() = preferences.getStringSet(PREF_CODEC_KEY, PREF_CODEC_DEFAULT) ?: setOf()
@@ -536,13 +551,10 @@ class Torrentio :
         else -> "other"
     }
 
-    private fun fetchTrackers(): String {
-        val request = Request.Builder().url("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt").build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("Unexpected code $response")
-            return response.body.string().trim()
-        }
+    private suspend fun fetchTrackers(): String {
+        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
+        if (!response.isSuccessful) throw Exception("Unexpected code $response")
+        return response.body.string().trim()
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -660,6 +672,8 @@ class Torrentio :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        private const val RATE_LIMIT_PERMITS = 5
 
         // Token
         private const val PREF_TOKEN_KEY = "token"
