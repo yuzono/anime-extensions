@@ -16,13 +16,14 @@ import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.StreamDataTorre
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -44,7 +45,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 class Torrentio :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Torrentio Anime (Torrent / Debrid)"
@@ -302,6 +303,10 @@ class Torrentio :
         return anime
     }
 
+    // =============================== Seasons ===============================
+    // unsupported idk
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
     // ============================== Episodes ==============================
     override fun episodeListRequest(anime: SAnime): Request = GET("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
 
@@ -352,9 +357,8 @@ class Torrentio :
             .reversed()
     }
 
-// ============================ Video Links =============================
-
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    // ============================== Hosters ================================
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val parts = episode.url.split("|")
         val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
         val imdbId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
@@ -364,6 +368,8 @@ class Torrentio :
         val type = parts.getOrNull(5)?.takeIf { it.isNotBlank() } ?: "series"
         val isMovie = type == "movie"
 
+        var streamData: StreamDataTorrent? = null
+
         // 1. Try kitsu first
         if (kitsuId != null) {
             val path = if (isMovie) {
@@ -371,59 +377,64 @@ class Torrentio :
             } else {
                 "/stream/series/kitsu:$kitsuId:$epNum.json"
             }
-
-            val videos = fetchVideos(path)
-            if (videos.isNotEmpty()) return videos
+            streamData = fetchStreamData(path)
         }
 
         // 2. Fallback to imdb
-        if (imdbId != null) {
+        if (streamData?.streams.isNullOrEmpty() && imdbId != null) {
             val path = if (isMovie) {
                 "/stream/movie/imdb:$imdbId.json"
             } else {
                 "/stream/series/imdb:$imdbId:$season:$imdbEp.json"
             }
-
-            val videos = fetchVideos(path)
-            if (videos.isNotEmpty()) return videos
+            streamData = fetchStreamData(path)
         }
 
-        return emptyList()
+        val streams = streamData?.streams.orEmpty()
+        if (streams.isEmpty()) return emptyList()
+
+        val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
+        val animeTrackers = if (debridProvider == "none") buildAnimeTrackers() else emptyList()
+
+        return streams
+            .groupBy { getProviderName(it.title, it.name) }
+            .map { (provider, providerStreams) ->
+                val videoList = providerStreams.map { stream ->
+                    val urlOrHash = if (debridProvider == "none") {
+                        buildString {
+                            append("magnet:?xt=urn:btih:${stream.infoHash}")
+                            append("&dn=${stream.infoHash}")
+                            animeTrackers.forEach { append("&tr=$it") }
+                            stream.fileIdx?.let { append("&index=$it") }
+                        }
+                    } else {
+                        stream.url ?: ""
+                    }
+
+                    Video(
+                        videoUrl = urlOrHash,
+                        videoTitle = (stream.name?.removePrefix("Torrentio\n") ?: "") + "\n" + (stream.title ?: ""),
+                    )
+                }
+
+                Hoster(
+                    hosterName = PROVIDER_DISPLAY_NAMES[provider] ?: provider.replaceFirstChar { it.uppercase() },
+                    videoList = videoList,
+                )
+            }
     }
 
-    private fun fetchVideos(streamPath: String): List<Video> = runCatching {
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    // ============================ Video Links =============================
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+
+    private fun fetchStreamData(streamPath: String): StreamDataTorrent? = runCatching {
         val res = client.newCall(GET(buildUrl(streamPath), headers)).execute()
-        if (!res.isSuccessful) return emptyList()
-        parseVideos(res.body.string())
-    }.getOrDefault(emptyList())
-
-    override fun videoListRequest(episode: SEpisode): Request {
-        val parts = episode.url.split("|")
-        val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
-        val epNum = parts.getOrNull(2) ?: "1"
-        val type = parts.getOrNull(5)?.takeIf { it.isNotBlank() } ?: "series"
-
-        val streamPath = if (kitsuId != null) {
-            if (type == "movie") {
-                "/stream/movie/kitsu:$kitsuId.json"
-            } else {
-                "/stream/series/kitsu:$kitsuId:$epNum.json"
-            }
-        } else {
-            val imdbId = parts.getOrNull(1).orEmpty()
-            val season = parts.getOrNull(3) ?: "1"
-            val imdbEp = parts.getOrNull(4) ?: epNum
-            if (type == "movie") {
-                "/stream/movie/$imdbId.json"
-            } else {
-                "/stream/series/$imdbId:$season:$imdbEp.json"
-            }
-        }
-
-        return GET(buildUrl(streamPath))
-    }
-
-    override fun videoListParse(response: Response): List<Video> = parseVideos(response.body.string())
+        if (!res.isSuccessful) return@runCatching null
+        json.decodeFromString<StreamDataTorrent>(res.body.string())
+    }.getOrNull()
 
     private fun buildUrl(streamPath: String): String = buildString {
         append("$baseUrl/")
@@ -462,62 +473,31 @@ class Torrentio :
         append(streamPath)
     }.removeSuffix("|")
 
-    private fun parseVideos(body: String): List<Video> {
-        val streamList = runCatching {
-            json.decodeFromString<StreamDataTorrent>(body)
-        }.getOrNull() ?: return emptyList()
+    // ============================ Provider Naming ==========================
+    private fun getProviderName(title: String?, name: String?): String {
+        val titleLower = title.orEmpty().lowercase()
+        val nameLower = name.orEmpty().lowercase()
 
-        val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
-
-        val animeTrackers = """
-        http://anidex.moe:6969/announce,
-        http://tracker.anirena.com:80/announce,
-        udp://tracker.uw0.xyz:6969/announce,
-        http://share.camoe.cn:8080/announce,
-        http://t.nyaatracker.com:80/announce,
-        udp://47.ip-51-68-199.eu:6969/announce,
-        udp://9.rarbg.me:2940,
-        udp://9.rarbg.to:2820,
-        udp://exodus.desync.com:6969/announce,
-        udp://explodie.org:6969/announce,
-        udp://ipv4.tracker.harry.lu:80/announce,
-        udp://open.stealth.si:80/announce,
-        udp://opentor.org:2710/announce,
-        udp://opentracker.i2p.rocks:6969/announce,
-        udp://retracker.lanta-net.ru:2710/announce,
-        udp://tracker.cyberia.is:6969/announce,
-        udp://tracker.dler.org:6969/announce,
-        udp://tracker.ds.is:6969/announce,
-        udp://tracker.internetwarriors.net:1337,
-        udp://tracker.openbittorrent.com:6969/announce,
-        udp://tracker.opentrackr.org:1337/announce,
-        udp://tracker.tiny-vps.com:6969/announce,
-        udp://tracker.torrent.eu.org:451/announce,
-        udp://valakas.rollo.dnsabr.com:2710/announce,
-        udp://www.torrent.eu.org:451/announce,
-        ${fetchTrackers().split("\n").joinToString(",")}
-        """.trimIndent()
-
-        return streamList.streams?.map { stream ->
-            val urlOrHash = if (debridProvider == "none") {
-                buildString {
-                    append("magnet:?xt=urn:btih:${stream.infoHash}")
-                    append("&dn=${stream.infoHash}")
-                    animeTrackers.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        .forEach { append("&tr=$it") }
-                    stream.fileIdx?.let { append("&index=$it") }
-                }
-            } else {
-                stream.url ?: ""
+        for (provider in PROVIDER_DISPLAY_NAMES.keys) {
+            if (titleLower.contains(provider) || nameLower.contains(provider)) {
+                return provider
             }
+        }
 
-            Video(
-                urlOrHash,
-                ((stream.name?.removePrefix("Torrentio\n") ?: "") + "\n" + (stream.title ?: "")),
-                urlOrHash,
-            )
-        }.orEmpty()
+        val titleParts = title.orEmpty().split(Regex("\\[|\\]"))
+        for (part in titleParts) {
+            val cleanPart = part.trim().lowercase()
+            for (provider in PROVIDER_DISPLAY_NAMES.keys) {
+                if (cleanPart.contains(provider)) {
+                    return provider
+                }
+            }
+        }
+
+        return "unknown"
     }
+
+    private fun buildAnimeTrackers(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
     private val codecPreferences
         get() = preferences.getStringSet(PREF_CODEC_KEY, PREF_CODEC_DEFAULT) ?: setOf()
@@ -799,6 +779,10 @@ class Torrentio :
             "nekobt",
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
+
+        // Maps a provider's internal preference value (e.g. "1337x") to its
+        // display label (e.g. "1337x", "🇷🇺 Rutor") for Hoster naming.
+        private val PROVIDER_DISPLAY_NAMES: Map<String, String> = PREF_PROVIDERS_VALUE.zip(PREF_PROVIDERS).toMap()
 
         // Qualities/Resolutions
         private const val PREF_QUALITY_KEY = "quality_selection"
