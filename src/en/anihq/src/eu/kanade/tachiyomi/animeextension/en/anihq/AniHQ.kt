@@ -34,7 +34,6 @@ import okhttp3.Response
 import okio.ByteString.Companion.decodeBase64
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -199,21 +198,21 @@ class AniHQ :
         return parseDetails(anime, document)
     }
 
-    private fun parseDetails(anime: SAnime, document: Document): SAnime {
+    private suspend fun parseDetails(anime: SAnime, document: Document): SAnime {
         val href = document.selectFirst("div.anime-information h4 a")
             ?.attr("abs:href")
             ?.toHttpUrlOrNull()
         val realDoc: Document =
             if (href != null && href.host == baseHost && href.toString() != document.location()) {
-                client.newCall(GET(href.toString(), headers)).execute().useAsJsoup()
+                client.get(href.toString()).useAsJsoup()
             } else {
                 document
             }
 
-        val infoRoot: Element = realDoc.selectFirst("div.anime-information") ?: realDoc
-        val info = infoRoot.select("dt").associate { dt ->
-            dt.text() to dt.nextElementSibling()?.text().orEmpty()
-        }
+        val info: Map<String, String> = realDoc.selectFirst("div.anime-information")
+            ?.select("dt")
+            ?.associate { dt -> dt.text() to dt.nextElementSibling()?.text().orEmpty() }
+            ?: emptyMap()
 
         fun infoValue(label: String): String? = info[label]?.takeIf { it.isNotBlank() && !it.equals("N/A", ignoreCase = true) }
 
