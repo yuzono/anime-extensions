@@ -43,7 +43,7 @@ class EpisodeItemDto(
         val variant = audioVariant(this@EpisodeItemDto.url)
         name = number
         episode_number = metaNumber.toFloatOrNull() ?: number.toFloatOrNull() ?: 1F
-        url = "/watch/${this@EpisodeItemDto.url.substringAfter("/watch/")}"
+        url = this@EpisodeItemDto.url
         scanlator = variant
         date_upload = parseReleasedDate(released, dateFormat)
     }

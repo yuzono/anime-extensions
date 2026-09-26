@@ -170,7 +170,7 @@ class AniHQ :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            val details = getAnimeDetails(SAnime.create().apply { url = "/anime-show/$id" })
+            val details = getAnimeDetails(SAnime.create().apply { url = id })
             return AnimesPage(listOf(details), false)
         }
 
@@ -218,7 +218,7 @@ class AniHQ :
         val variantSuffix = variantRegex.find(mainTitle)?.value.orEmpty()
 
         return SAnime.create().apply {
-            setUrlWithoutDomain(realDoc.location())
+            url = realDoc.location().substringAfterLast("/anime-show/")
             title = when (preferredTitleLanguage) {
                 "native" -> infoValue("Native")?.let { "$it $variantSuffix".trim() } ?: mainTitle
                 "english" -> infoValue("English")?.let { "$it $variantSuffix".trim() } ?: mainTitle
@@ -246,6 +246,8 @@ class AniHQ :
             initialized = true
         }
     }
+
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl/anime-show/${anime.url}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
@@ -305,7 +307,7 @@ class AniHQ :
                         ?: card.selectFirst("[class*='-status']")
                     )
                     ?.text()?.let(::parseStatus) ?: SAnime.UNKNOWN
-                setUrlWithoutDomain(animeUrl)
+                url = animeUrl.substringAfterLast("/anime-show/")
             }
         }
     }
@@ -360,6 +362,8 @@ class AniHQ :
             ?.attr("data-season")
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    override fun getEpisodeUrl(episode: SEpisode) = "${baseUrl}/watch/${episode.url}"
 
     // ============================ Hosters ============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
