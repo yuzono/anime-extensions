@@ -34,6 +34,7 @@ import okhttp3.Response
 import okio.ByteString.Companion.decodeBase64
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -196,15 +197,20 @@ class AniHQ :
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
 
-        val realDoc = document.selectFirst("div.anime-information h4 a")?.attr("abs:href")
+        val realDoc: Document
+        val href = document.selectFirst("div.anime-information h4 a")
+            ?.attr("abs:href")
             ?.toHttpUrlOrNull()
-            ?.takeIf { it.host == baseHost && it.toString() != document.location() }
-            ?.let { client.get(it.toString()).useAsJsoup() }
-            ?: document
+        realDoc = if (href != null && href.host == baseHost && href.toString() != document.location()) {
+            client.get(href.toString()).useAsJsoup()
+        } else {
+            document
+        }
 
-        val info = (realDoc.selectFirst("div.anime-information") ?: realDoc)
-            .select("dt")
-            .associate { it.text().trim() to it.nextElementSibling()?.text().orEmpty() }
+        val infoRoot: Element = realDoc.selectFirst("div.anime-information") ?: realDoc
+        val info = infoRoot.select("dt").associate { dt ->
+            dt.text() to dt.nextElementSibling()?.text().orEmpty()
+        }
 
         fun infoValue(label: String): String? = info[label]?.takeIf { it.isNotBlank() && !it.equals("N/A", ignoreCase = true) }
 
