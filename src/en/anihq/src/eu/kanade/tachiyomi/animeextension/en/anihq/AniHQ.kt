@@ -260,6 +260,8 @@ class AniHQ :
 
     private fun String.cleanTitle(): String = replace(titleCleanRegex, "").trim().trimEnd('-', '–', '—', '|', ' ')
 
+    override fun getAnimeUrl(anime: SAnime) = "$baseUrl/anime-show/${anime.url}"
+
     // ============================ Related ============================
     override val disableRelatedAnimesBySearch = true
 
@@ -308,13 +310,15 @@ class AniHQ :
                     )
                     ?.text()?.let(::parseStatus) ?: SAnime.UNKNOWN
                 url = animeUrl.substringAfterLast("/anime-show/")
+                    .takeIf { it != animeUrl }
+                    ?: toAnimeShowSlug(episodeUrl.substringAfterLast("/watch/").trimEnd('/')).orEmpty()
             }
         }
     }
 
     // ============================== Episodes ==============================
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
-        val document = client.newCall(episodeListRequest(anime)).awaitSuccess().useAsJsoup()
+        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
 
         val animeId = document.findAnimeId()
             ?: throw Exception("Could not determine anime ID")
@@ -363,11 +367,11 @@ class AniHQ :
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
-    override fun getEpisodeUrl(episode: SEpisode) = "${baseUrl}/watch/${episode.url}"
+    override fun getEpisodeUrl(episode: SEpisode) = "$baseUrl/watch/${episode.url}"
 
     // ============================ Hosters ============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val rawHtml = client.get(baseUrl + episode.url).body.string()
+        val rawHtml = client.get("$baseUrl/watch/${episode.url}").body.string()
         val document = Jsoup.parse(rawHtml, baseUrl)
 
         val hosters = mutableListOf<Hoster>()
@@ -508,7 +512,7 @@ class AniHQ :
     companion object {
         const val PREFIX_SEARCH = "id:"
 
-        private const val EPISODE_FETCH_BATCH = 6
+        private const val EPISODE_FETCH_BATCH = 8
 
         private const val PREF_TITLE_KEY = "preferred_title_language"
         private const val PREF_TITLE_DEFAULT = "english"
