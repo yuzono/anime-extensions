@@ -29,6 +29,7 @@ import keiyoushi.utils.parseAs
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class MonosChinos :
@@ -65,9 +66,14 @@ class MonosChinos :
         )
 
         private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
-        private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+        private const val ANIME_CARD_SELECTOR = "a.card-wrap[href*=/anime/]"
+        private const val EPISODE_CARD_SELECTOR = "a.card-wrap[href*=/ver/]"
+        private const val MAX_EPISODE_PAGES = 200
     }
+
+    private fun Document.hasNextPage() = selectFirst("a[rel=next]") != null
 
     // ====================== POPULAR ======================
 
@@ -75,49 +81,33 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val elements = document.select("li.ficha_efecto a")
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-        val animeList = elements.mapNotNull { element ->
+        val animeList = document.select(ANIME_CARD_SELECTOR).mapNotNull { element ->
             SAnime.create().apply {
                 title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
-        return AnimesPage(animeList, nextPage)
+        return AnimesPage(animeList, document.hasNextPage())
     }
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
-        return GET(url, headers)
-    }
+    // The front page is the only listing of recent episodes and it does not
+    // paginate, so every page but the first would repeat it.
+    override fun latestUpdatesRequest(page: Int) = GET(baseUrl, headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-        val animeList = episodeItems.mapNotNull { item ->
-            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-            val episodeUrl = episodeLink.attr("abs:href")
-
-            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-            val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
-            val animeUrl = "/anime/$animeSlugBase-sub-espanol"
-
-            val animeTitle = item.selectFirst("h2.fs-5")?.text() ?: return@mapNotNull null
-            val genre = item.selectFirst("span.text-muted")?.text() ?: ""
-
+        val animeList = document.select(EPISODE_CARD_SELECTOR).mapNotNull { element ->
+            val episodeSlug = element.attr("abs:href").substringAfter("/ver/").substringBefore("?")
             SAnime.create().apply {
-                title = animeTitle
-                setUrlWithoutDomain(animeUrl)
-                description = genre
-                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
+                title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
+                setUrlWithoutDomain("/anime/${episodeSlug.replace(EPISODE_SLUG_REGEX, "")}-sub-espanol")
+                thumbnail_url = element.selectFirst("img")?.getImageUrl()
             }
         }
-
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-        return AnimesPage(animeList, nextPage)
+        return AnimesPage(animeList, document.hasNextPage())
     }
 
     // ====================== BÚSQUEDA ======================
@@ -138,17 +128,16 @@ class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text() ?: ""
-            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()
-            genre = document.select("#profile-tab-pane .badge.bg-secondary").joinToString { it.text() }
-            thumbnail_url = document.selectFirst(".d-none.d-sm-flex img.lazy")?.getImageUrl()
-            status = run {
-                val estadoElement = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child")
-                when (estadoElement?.text()) {
-                    "Estreno", "En emisión" -> SAnime.ONGOING
-                    "Finalizado" -> SAnime.COMPLETED
-                    else -> SAnime.UNKNOWN
-                }
+            title = document.selectFirst("h1")?.text() ?: ""
+            description = document.selectFirst("h1 ~ p")?.text()
+            // The page lists the genres twice, in the header and in the info tab.
+            genre = document.select("a[href*=/genero/]").map { it.text() }.distinct().joinToString()
+            thumbnail_url = document.selectFirst("img.lazy")?.getImageUrl()
+            status = when {
+                document.selectFirst("div:containsOwn(Finalizado)") != null -> SAnime.COMPLETED
+                document.selectFirst("div:containsOwn(En emisión)") != null -> SAnime.ONGOING
+                document.selectFirst("div:containsOwn(Estreno)") != null -> SAnime.ONGOING
+                else -> SAnime.UNKNOWN
             }
         }
     }
@@ -165,78 +154,55 @@ class MonosChinos :
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-        val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
-            ?.substringAfter("/ver/")
-            ?.substringBefore("-episodio-")
-            ?: run {
-                val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(SUB_ES_REGEX, "")
-            }
-        if (episodeSlug.isBlank()) return emptyList()
-
-        val episodes = mutableListOf<SEpisode>()
-        var currentPage = 1
-        var hasMore = true
-        val maxPages = 200
-
-        while (hasMore && currentPage <= maxPages) {
-            val paginatedUrl = if (currentPage == 1) {
-                ajaxUrl
-            } else {
-                val separator = if (ajaxUrl.contains("?")) "&" else "?"
-                "$ajaxUrl${separator}page=$currentPage"
-            }
-
-            val formBody = FormBody.Builder()
-                .add("_token", csrfToken)
-                .build()
-
-            val request = Request.Builder()
-                .url(paginatedUrl)
-                .post(formBody)
+        fun ajaxPost(url: String, page: Int?): Request {
+            val form = FormBody.Builder().add("_token", csrfToken)
+            if (page != null) form.add("p", page.toString())
+            return Request.Builder()
+                .url(url)
+                .post(form.build())
                 .header("Referer", referer)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
+        }
 
-            val json = try {
-                client.newCall(request).execute().parseAs<EpisodesDto>()
+        // The old endpoint now always answers with an empty list and points at
+        // the real one through `paginate_url`, which pages with `p`.
+        val index = try {
+            client.newCall(ajaxPost(ajaxUrl, null)).execute().parseAs<EpisodesDto>()
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val listUrl = index.paginateUrl ?: return emptyList()
+        val perPage = index.perpage ?: 0
+
+        val episodes = mutableListOf<SEpisode>()
+        var currentPage = 1
+
+        while (currentPage <= MAX_EPISODE_PAGES) {
+            val caps = try {
+                client.newCall(ajaxPost(listUrl, currentPage)).execute().parseAs<CapListDto>().caps
             } catch (_: Exception) {
                 break
             }
 
-            for (obj in json.eps) {
-                val numStr = obj.num.toString()
-                if (numStr.isBlank()) continue
-
-                val episodeNumber = numStr.toFloatOrNull() ?: continue
-
-                val urlNumber = if (episodeNumber % 1 == 0f) {
-                    episodeNumber.toInt().toString()
-                } else {
-                    numStr
-                }
-
+            caps.forEach { cap ->
+                val episodeNumber = cap.numStr.toFloatOrNull() ?: return@forEach
                 episodes.add(
                     SEpisode.create().apply {
                         name = if (episodeNumber % 1 == 0f) {
                             "Episodio ${episodeNumber.toInt()}"
                         } else {
-                            "Episodio $numStr"
+                            "Episodio ${cap.numStr}"
                         }
                         episode_number = episodeNumber
-                        setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                        setUrlWithoutDomain(cap.url)
                     },
                 )
             }
 
-            val perpage = json.perpage?.toInt() ?: 0
-
-            if (perpage == 0 || json.eps.size < perpage) {
-                hasMore = false
-            } else {
-                currentPage++
-            }
+            if (perPage == 0 || caps.size < perPage) break
+            currentPage++
         }
 
         return episodes.sortedByDescending { it.episode_number }
