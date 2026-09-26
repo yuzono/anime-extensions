@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+// Source of truth: extensions-lib "Index" spec (host app contract).
+// Verbatim copy — field numbers are the wire format, DO NOT edit.
+//
+// Regenerate the Python bindings after any upstream change:
+//   python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. index.proto
+
+message Index {
+  // Display name of the store.
+  string name = 1;
+
+  // Short identifier used to represent the store.
+  string badgeLabel = 2;
+
+  // Public signing key used to verify extension authenticity.
+  string signingKey = 3;
+
+  // Contact and community information for the store.
+  Contact contact = 4;
+
+  // List of all extensions published by this store,
+  // or a URL linking to an extension list file.
+  oneof extensions {
+    ExtensionList extensionList = 101;
+    string extensionListUrl = 102;
+  }
+}
+
+message Contact {
+  // Official website URL.
+  string website = 1;
+
+  // Discord invite or server URL.
+  optional string discord = 2;
+}
+
+message ExtensionList {
+  repeated Extension extensions = 1;
+}
+
+message Extension {
+  // Extension display name.
+  string name = 1;
+
+  // Unique package name of the extension.
+  string packageName = 2;
+
+  // Downloadable resources for this extension.
+  Resources resources = 3;
+
+  // Version of the extension API in MAJOR format.
+  string extensionLib = 4;
+
+  // Version code of the extension build.
+  int64 versionCode = 5;
+
+  // User facing version of the extension.
+  string versionName = 6;
+
+  // Content warning applicable for the extension.
+  ContentWarning contentWarning = 7;
+
+  // Extension that needs torrent capabilities.
+  bool isTorrent = 8;
+
+  // Sources provided by this extension.
+  repeated Source sources = 9;
+}
+
+message Resources {
+  // Direct APK download URL.
+  string apkUrl = 1;
+
+  // Icon image URL.
+  string iconUrl = 2;
+}
+
+message Source {
+  // Unique source identifier.
+  int64 id = 1;
+
+  // Display name of the source.
+  string name = 2;
+
+  // Primary language code (e.g. "en", "ja", "pt-BR").
+  string language = 3;
+
+  // Main website URL of the source.
+  string homeUrl = 4;
+
+  // Alternative home URLs for the source.
+  repeated string mirrorUrls = 5;
+
+  // Optional status or informational message shown for the source.
+  optional string message = 6;
+}
+
+enum ContentWarning {
+  CONTENT_WARNING_UNSPECIFIED = 0;
+  CONTENT_WARNING_SAFE = 1;
+  CONTENT_WARNING_MIXED = 2;
+  CONTENT_WARNING_NSFW = 3;
+}

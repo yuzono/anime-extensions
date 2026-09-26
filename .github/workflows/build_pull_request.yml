@@ -199,6 +199,7 @@ jobs:
           persist-credentials: false
       - name: Merge repo
         run: |
+          pip install "protobuf>=7.35.1,<8"
           cd repo
           python ../PR/.github/scripts/merge-repo.py '${{ needs.prepare.outputs.delete }}' 'PR/repo'
 
