@@ -16,6 +16,10 @@
                     android:host="anihq.cc"
                     android:pathPattern="/anime-show/..*"
                     android:scheme="https" />
+                <data
+                    android:host="anihq.cc"
+                    android:pathPattern="/watch/..*"
+                    android:scheme="https" />
             </intent-filter>
         </activity>
     </application>
