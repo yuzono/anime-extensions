@@ -345,7 +345,7 @@ class Torrentio :
                         episodes
                     } else {
                         episodes.filter { (_, episode) ->
-                            episode?.airDate.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
+                            episode?.airDateUtc.let(DATE_FORMATTER::tryParse) <= System.currentTimeMillis()
                         }
                     }
                 }?.mapNotNull { (_, episode) ->
@@ -358,11 +358,11 @@ class Torrentio :
                     SEpisode.create().apply {
                         episode_number = episodeNumber
                         url = "/stream/series/kitsu:$kitsuId:${String.format(Locale.ENGLISH, "%.0f", episodeNumber)}.json"
-                        date_upload = episode?.airDate.let(DATE_FORMATTER::tryParse)
+                        date_upload = episode?.airDateUtc.let(DATE_FORMATTER::tryParse)
                         name = title?.let {
                             "Episode ${episode.episode}: $it"
                         } ?: "Episode ${episode?.episode}"
-                        scanlator = episode?.airDate.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
+                        scanlator = episode?.airDateUtc.let(DATE_FORMATTER::tryParse).takeIf { it > System.currentTimeMillis() }
                             ?.let { "Upcoming" } ?: ""
                     }
                 }.orEmpty().reversed()
@@ -370,7 +370,7 @@ class Torrentio :
 
             "MOVIE" -> {
                 val dateUpload = if (!aniZipResponse.episodes.isNullOrEmpty()) {
-                    aniZipResponse.episodes["1"]?.airDate.let(DATE_FORMATTER::tryParse)
+                    aniZipResponse.episodes["1"]?.airDateUtc.let(DATE_FORMATTER::tryParse)
                 } else {
                     0L
                 }
@@ -960,7 +960,7 @@ class Torrentio :
         private val PREF_CODEC_DEFAULT = setOf<String>() // Empty by default to show all
 
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.ENGLISH)
         }
     }
 }
