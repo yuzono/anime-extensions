@@ -351,15 +351,14 @@ class AniHQ :
     }
 
     private suspend fun Request.fetchEpisodePage(): EpisodeResponseDto {
-        var lastError: Exception? = null
-        repeat(2) {
+        repeat(2) { attempt ->
             try {
                 return client.newCall(this).awaitSuccess().parseAs()
             } catch (e: Exception) {
-                lastError = e
+                if (attempt == 1) throw e
             }
         }
-        throw lastError ?: IllegalStateException("Episode fetch failed")
+        error("unreachable")
     }
 
     private fun Document.findAnimeId(): String? = select("script").firstNotNullOfOrNull {
