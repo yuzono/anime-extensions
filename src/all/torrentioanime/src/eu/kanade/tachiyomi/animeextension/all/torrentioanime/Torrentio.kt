@@ -21,8 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.get
-import eu.kanade.tachiyomi.network.post
+import keiyoushi.network.get
 import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.applicationContext
@@ -330,9 +329,31 @@ class Torrentio :
         val meta = kitsuMetaResponse.meta ?: return emptyList()
         val kitsuId = meta.kitsuId
         val type = meta.type ?: "series"
+        val isMovie = type == "movie"
 
         val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
         val now = System.currentTimeMillis()
+
+        if (isMovie) {
+            val video = meta.videos.orEmpty().firstOrNull() ?: return emptyList()
+            val imdbId = video.imdbId
+
+            return listOf(
+                SEpisode.create().apply {
+                    episode_number = 1f
+                    name = "Movie"
+                    // kitsuId|imdbId|ep|season|imdbEp|type — ep/season/imdbEp are unused for movies
+                    url = listOf(kitsuId.orEmpty(), imdbId.orEmpty(), "", "", "", type).joinToString("|")
+
+                    date_upload = video.released
+                        ?.let { runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull() }
+                        ?: 0L
+
+                    summary = video.overview
+                    preview_url = video.thumbnail
+                },
+            )
+        }
 
         return meta.videos.orEmpty()
             .mapNotNull { video ->
@@ -346,7 +367,7 @@ class Torrentio :
                         kitsuId.orEmpty(),
                         video.imdbId.orEmpty(),
                         epNum.toString(),
-                        (video.imdbSeason).toString(),
+                        video.imdbSeason?.toString().orEmpty(),
                         (video.imdbEpisode ?: epNum).toString(),
                         type,
                     ).joinToString("|")
@@ -377,9 +398,6 @@ class Torrentio :
         val parts = episode.url.split("|")
         val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
         val imdbId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
-        val epNum = parts.getOrNull(2) ?: "1"
-        val season = parts.getOrNull(3) ?: "1"
-        val imdbEp = parts.getOrNull(4) ?: epNum
         val type = parts.getOrNull(5)?.takeIf { it.isNotBlank() } ?: "series"
         val isMovie = type == "movie"
 
@@ -390,6 +408,7 @@ class Torrentio :
             val path = if (isMovie) {
                 "/stream/movie/kitsu:$kitsuId.json"
             } else {
+                val epNum = parts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: return emptyList()
                 "/stream/series/kitsu:$kitsuId:$epNum.json"
             }
             streamData = fetchStreamData(path)
@@ -398,9 +417,12 @@ class Torrentio :
         // 2. Fallback to imdb
         if (streamData?.streams.isNullOrEmpty() && imdbId != null) {
             val path = if (isMovie) {
-                "/stream/movie/imdb:$imdbId.json"
+                "/stream/movie/$imdbId.json"
             } else {
-                "/stream/series/imdb:$imdbId:$season:$imdbEp.json"
+                val epNum = parts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: return emptyList()
+                val imdbEp = parts.getOrNull(4)?.takeIf { it.isNotBlank() } ?: epNum
+                val season = parts.getOrNull(3)?.takeIf { it.isNotBlank() } ?: "1"
+                "/stream/series/$imdbId:$season:$imdbEp.json"
             }
             streamData = fetchStreamData(path)
         }
@@ -451,21 +473,21 @@ class Torrentio :
         json.decodeFromString<StreamDataTorrent>(res.body.string())
     }.getOrNull()
 
-    private fun buildUrl(streamPath: String): String = buildString {
-        append("$baseUrl/")
+    private fun buildUrl(streamPath: String): String {
+        val configSegments = mutableListOf<String>()
 
-        val appendQueryParam: (String, Set<String>?) -> Unit = { key, values ->
-            values?.takeIf { it.isNotEmpty() }?.let {
-                append("$key=${it.filter(String::isNotBlank).joinToString(",")}|")
+        val addConfigParam: (String, Set<String>?) -> Unit = { key, values ->
+            values?.filter(String::isNotBlank)?.takeIf { it.isNotEmpty() }?.let {
+                configSegments += "$key=${it.joinToString(",")}"
             }
         }
 
-        appendQueryParam("providers", preferences.getStringSet(PREF_PROVIDER_KEY, PREF_PROVIDERS_DEFAULT))
-        appendQueryParam("language", preferences.getStringSet(PREF_LANG_KEY, PREF_LANG_DEFAULT))
-        appendQueryParam("qualityfilter", preferences.getStringSet(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT))
+        addConfigParam("providers", preferences.getStringSet(PREF_PROVIDER_KEY, PREF_PROVIDERS_DEFAULT))
+        addConfigParam("language", preferences.getStringSet(PREF_LANG_KEY, PREF_LANG_DEFAULT))
+        addConfigParam("qualityfilter", preferences.getStringSet(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT))
 
         val sortKey = preferences.getString(PREF_SORT_KEY, "quality")
-        appendQueryParam("sort", sortKey?.let { setOf(it) })
+        addConfigParam("sort", sortKey?.let { setOf(it) })
 
         val token = preferences.getString(PREF_TOKEN_KEY, null)
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
@@ -482,11 +504,18 @@ class Torrentio :
                 throw UnsupportedOperationException()
             }
 
-            !token.isNullOrBlank() && debridProvider != "none" -> append("$debridProvider=$token|")
+            !token.isNullOrBlank() && debridProvider != "none" -> configSegments += "$debridProvider=$token"
         }
 
-        append(streamPath)
-    }.removeSuffix("|")
+        val configString = configSegments.joinToString("|")
+
+        return buildString {
+            append(baseUrl)
+            append("/")
+            append(configString)
+            append(streamPath)
+        }
+    }
 
     // ============================ Provider Naming ==========================
     private fun getProviderName(title: String?, name: String?): String {
