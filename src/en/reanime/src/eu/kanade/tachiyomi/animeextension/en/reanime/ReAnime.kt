@@ -90,9 +90,6 @@ class ReAnime :
         get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, PREF_AUDIO_EXCLUDE_DEFAULT)
             ?: PREF_AUDIO_EXCLUDE_DEFAULT
 
-    private val hideFiller: Boolean
-        get() = preferences.getBoolean(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
-
     private val includeDirectDownloads: Boolean
         get() = preferences.getBoolean(PREF_DOWNLOAD_KEY, PREF_DOWNLOAD_DEFAULT)
 
@@ -446,6 +443,14 @@ class ReAnime :
         return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
     }
 
+    private suspend fun fetchThumbnails(animeId: String, episodeUrl: String): Map<String, String>? = try {
+        client.get("$baseUrl/api/thumbnails/$animeId", apiHeaders(episodeUrl)).use { res ->
+            res.parseAs<ThumbnailsResponseDto>().thumbnails
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     // ============================== Related Anime ==============================
     override val disableRelatedAnimesBySearch = true
 
@@ -522,6 +527,8 @@ class ReAnime :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val meta = animeMetaCache.get(anime.url) ?: fetchAnimeMeta(anime.url)
+        val defaultEpUrl = "$baseUrl/watch/${anime.url}"
+        val thumbnails = fetchThumbnails(meta?.anilistId.toString(), defaultEpUrl)
 
         val response = client.newCall(episodeListRequest(anime)).awaitSuccess()
 
@@ -536,7 +543,7 @@ class ReAnime :
             throw Exception("Could not find any episodes. Check if there are any in WebView.")
         }
 
-        val visibleEpisodes = dto.data.filterNot { it.isFiller && hideFiller }
+        val visibleEpisodes = dto.data
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
 
         val maxSub = meta?.subbed ?: 0
@@ -563,7 +570,6 @@ class ReAnime :
                 name = buildString {
                     append(baseName)
                     if (ep.isRecap) append(" [Recap]")
-                    if (ep.isFiller && !hideFiller) append(" [Filler]")
                 }
 
                 val hasSub = epNum <= maxSub
@@ -576,7 +582,11 @@ class ReAnime :
                     else -> null
                 }
 
+                fillermark = ep.isFiller
+
                 date_upload = dateFormat.tryParse(ep.aired)
+
+                preview_url = thumbnails?.get(epNum.toInt().toString())
             }
         }.reversed()
     }
@@ -1111,15 +1121,6 @@ class ReAnime :
 
         screen.addPreference(
             SwitchPreferenceCompat(screen.context).apply {
-                key = PREF_HIDE_FILLER_KEY
-                title = "Hide Filler Episodes"
-                summary = "Hides episodes marked as filler from the episode list."
-                setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
-            },
-        )
-
-        screen.addPreference(
-            SwitchPreferenceCompat(screen.context).apply {
                 key = PREF_DOWNLOAD_KEY
                 title = "Include Direct Downloads"
                 summary = "Adds the original MKV file of each server as an extra video entry."
@@ -1158,9 +1159,6 @@ class ReAnime :
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
         private val PREF_TITLE_LANG_ENTRIES = listOf("Romaji", "English", "Japanese (Native)")
         private val PREF_TITLE_LANG_VALUES = listOf("romaji", "english", "native")
-
-        private const val PREF_HIDE_FILLER_KEY = "hide_filler"
-        private const val PREF_HIDE_FILLER_DEFAULT = false
 
         private const val PREF_DOWNLOAD_KEY = "include_direct_downloads"
         private const val PREF_DOWNLOAD_DEFAULT = true
