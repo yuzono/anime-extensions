@@ -276,7 +276,7 @@ class Torrentio :
     }
 
     // =============================== Seasons ================================
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException() /// To who ever wants to cook this good luck.
 
     // ============================== Episodes ================================
 
