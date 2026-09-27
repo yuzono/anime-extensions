@@ -18,6 +18,7 @@ data class CinemetaMeta(
     val poster: String? = null,
     val background: String? = null,
     val releaseInfo: String? = null,
+    val popularity: Double? = null,
 )
 
 @Serializable
