@@ -31,6 +31,8 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.tryParse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
@@ -519,8 +521,6 @@ class ReAnime :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val meta = animeMetaCache.get(anime.url) ?: fetchAnimeMeta(anime.url)
-        val defaultEpUrl = "$baseUrl/watch/${anime.url}"
-        val thumbnails = meta?.anilistId?.takeIf { it > 0 }?.let { fetchThumbnails(it.toString(), defaultEpUrl) }
 
         val response = client.newCall(episodeListRequest(anime)).awaitSuccess()
 
@@ -537,6 +537,14 @@ class ReAnime :
 
         val visibleEpisodes = dto.data
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
+
+        val thumbnails = coroutineScope {
+            meta?.anilistId?.takeIf { it > 0 }?.let { anilistId ->
+                async {
+                    fetchThumbnails(anilistId.toString(), "$baseUrl/watch/${anime.url}")
+                }
+            }?.await()
+        }
 
         val maxSub = meta?.subbed ?: 0
         val maxDub = meta?.dubbed ?: 0
