@@ -12,8 +12,6 @@ import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetail
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetailResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaSearchResponse
-import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeList
-import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -80,7 +78,7 @@ class Torrentio :
     }
 
     // =============================== Latest / Trending =====================
-    
+
     override fun latestUpdatesRequest(page: Int): Request {
         val url = buildCinemetaTopUrl("series", page).newBuilder()
             .addQueryParameter("page", page.toString())
@@ -126,33 +124,43 @@ class Torrentio :
         }
 
         if (query.startsWith(PREFIX_SEARCH)) {
-            val id = query.removePrefix(PREFIX_SEARCH)
-            return searchAnimeByIdParse(id)
+            val imdbId = query.removePrefix(PREFIX_SEARCH)
+
+            var meta: CinemetaMetaDetail? = null
+            for (t in listOf("movie", "series")) {
+                meta = runCatching {
+                    val res = client.get("$cinemetaUrl/meta/$t/$imdbId.json")
+                    json.decodeFromString<CinemetaMetaDetailResponse>(res.body.string()).meta
+                }.getOrNull()
+                if (meta != null) break
+            }
+
+            meta ?: return AnimesPage(emptyList(), false)
+
+            val resolvedType = meta.type?.lowercase() ?: "movie"
+
+            return AnimesPage(
+                listOf(
+                    SAnime.create().apply {
+                        url = "$imdbId,$resolvedType"
+                        title = meta.name.orEmpty()
+                        thumbnail_url = meta.poster.orEmpty()
+                        description = meta.description.orEmpty()
+                        genre = meta.genres?.joinToString() ?: meta.genre?.joinToString().orEmpty()
+                        author = meta.writer?.joinToString() ?: meta.director?.joinToString().orEmpty()
+                        artist = meta.cast?.take(4)?.joinToString().orEmpty()
+                        status = when (meta.status?.trim()?.lowercase()) {
+                            "continuing" -> SAnime.ONGOING
+                            "ended" -> SAnime.COMPLETED
+                            else -> SAnime.UNKNOWN
+                        }
+                    },
+                ),
+                false,
+            )
         }
 
         return super.getSearchAnime(page, query, filters)
-    }
-
-    private suspend fun searchAnimeByIdParse(imdbId: String): AnimesPage {
-        var meta = fetchMetaDetail("movie", imdbId)
-        var type = "movie"
-
-        if (meta == null) {
-            meta = fetchMetaDetail("series", imdbId)
-            type = "series"
-        }
-
-        if (meta == null) return AnimesPage(emptyList(), false)
-
-        val anime = SAnime.create().apply {
-            url = "$imdbId,$type"
-            title = meta.name.orEmpty()
-            thumbnail_url = meta.poster.orEmpty()
-            description = meta.description.orEmpty()
-            genre = meta.genres?.joinToString().orEmpty()
-        }
-
-        return AnimesPage(listOf(anime), false)
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -209,32 +217,63 @@ class Torrentio :
 
     // =========================== Anime Details ==============================
 
-    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
+    override fun animeDetailsParse(response: Response): SAnime {
+        val meta = runCatching {
+            json.decodeFromString<CinemetaMetaDetailResponse>(response.body.string()).meta
+        }.getOrNull() ?: return SAnime.create()
 
+        return SAnime.create().apply {
+            title = meta.name.orEmpty()
+            thumbnail_url = meta.poster.orEmpty()
+            description = meta.description.orEmpty()
+            genre = meta.genres?.joinToString() ?: meta.genre?.joinToString().orEmpty()
+            author = meta.writer?.joinToString() ?: meta.director?.joinToString().orEmpty()
+            artist = meta.cast?.take(4)?.joinToString().orEmpty()
+            status = when (meta.status?.trim()?.lowercase()) {
+                "continuing" -> SAnime.ONGOING
+                "ended" -> SAnime.COMPLETED
+                else -> SAnime.UNKNOWN
+            }
+        }
+    }
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val parts = anime.url.split(",")
         val id = parts[0]
         val type = parts.getOrNull(1)?.lowercase()?.ifBlank { "movie" } ?: "movie"
 
-        val meta = fetchMetaDetail(type, id)
+        val types = if (type == "movie") listOf("movie", "series") else listOf("series", "movie")
 
-        if (meta != null) {
-            anime.title = meta.name ?: anime.title
-            if (!meta.poster.isNullOrBlank()) anime.thumbnail_url = meta.poster
-            anime.description = meta.description ?: anime.description
-            anime.genre = meta.genres?.joinToString() ?: anime.genre
-            anime.author = meta.writer?.joinToString() ?: meta.director?.joinToString() ?: anime.author
-            anime.artist = meta.cast?.take(4)?.joinToString() ?: anime.artist
-            anime.status = mapStatus(meta.status, meta.released)
+        var meta: CinemetaMetaDetail? = null
+        for (t in types) {
+            meta = runCatching {
+                val res = client.get("$cinemetaUrl/meta/$t/$id.json")
+                json.decodeFromString<CinemetaMetaDetailResponse>(res.body.string()).meta
+            }.getOrNull()
+            if (meta != null) break
+        }
+
+        meta ?: return anime
+
+        anime.title = meta.name ?: anime.title
+        if (!meta.poster.isNullOrBlank()) anime.thumbnail_url = meta.poster
+        if (!meta.description.isNullOrBlank()) anime.description = meta.description
+        if (!meta.genres.isNullOrEmpty()) {
+            anime.genre = meta.genres.joinToString()
+        } else if (!meta.genre.isNullOrEmpty()) {
+            anime.genre = meta.genre.joinToString()
+        }
+        anime.author = meta.writer?.joinToString()
+            ?: meta.director?.joinToString()
+            ?: anime.author
+        anime.artist = meta.cast?.take(4)?.joinToString() ?: anime.artist
+        anime.status = when (meta.status?.trim()?.lowercase()) {
+            "continuing" -> SAnime.ONGOING
+            "ended" -> SAnime.COMPLETED
+            else -> SAnime.UNKNOWN
         }
 
         return anime
     }
-
-    private suspend fun fetchMetaDetail(type: String, imdbId: String): CinemetaMetaDetail? = runCatching {
-        val response = client.get("$cinemetaUrl/meta/$type/$imdbId.json")
-        json.decodeFromString<CinemetaMetaDetailResponse>(response.body.string()).meta
-    }.getOrNull()
 
     // =============================== Seasons ================================
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
@@ -247,69 +286,103 @@ class Torrentio :
         val id = parts[0]
         return Request.Builder().url("$cinemetaUrl/meta/$type/$id.json").build()
     }
-
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val episodeList = runCatching {
-            json.decodeFromString<EpisodeList>(response.body.string())
+        val meta = runCatching {
+            json.decodeFromString<CinemetaMetaDetailResponse>(response.body.string()).meta
         }.getOrNull() ?: return emptyList()
 
-        return when (episodeList.meta?.type) {
-            "series" -> buildSeriesEpisodes(
-                videos = episodeList.meta.videos.orEmpty(),
-                episodeUrl = { videoId -> "/stream/series/$videoId.json" },
-            )
-            "movie" -> listOf(singleMovieEpisode("/stream/movie/${episodeList.meta.id}.json"))
+        return when (meta.type) {
+            "series" -> {
+                val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
+                val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
+                val now = System.currentTimeMillis()
+
+                meta.videos.orEmpty()
+                    .filter { video ->
+                        !hideSeasonZero || (video.season ?: 0) > 0
+                    }
+                    .mapNotNull { video ->
+                        val releaseTime = (video.firstAired ?: video.released)?.let {
+                            runCatching { DATE_FORMATTER.parse(it.trim())?.time }.getOrNull()
+                                ?: runCatching { SIMPLE_DATE_FORMATTER.parse(it.trim())?.time }.getOrNull()
+                                ?: 0L
+                        } ?: 0L
+
+                        val isReleased = releaseTime in 1L..now
+
+                        if (!showUpcoming && !isReleased) {
+                            return@mapNotNull null
+                        }
+
+                        val season = video.season ?: 1
+                        val number = video.number ?: video.episode ?: 0
+
+                        Triple(season, number, video to releaseTime)
+                    }
+                    .sortedWith(
+                        compareByDescending<Triple<Int, Int, Pair<*, Long>>> { it.first }
+                            .thenByDescending { it.second },
+                    )
+                    .map { (_, _, data) ->
+                        val (video, releaseTime) = data
+                        val isReleased = releaseTime in 1L..now
+
+                        val season = video.season
+                        val number = video.number ?: video.episode
+
+                        SEpisode.create().apply {
+                            episode_number = number!!.toFloat()
+                            url = "/stream/series/${video.id}.json"
+                            date_upload = releaseTime
+
+                            name = buildString {
+                                append("S$season:E$number")
+
+                                video.name
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let {
+                                        append(" - ")
+                                        append(it)
+                                    }
+                            }
+
+                            summary = video.overview ?: video.description ?: ""
+                            preview_url = video.thumbnail
+
+                            scanlator = buildString {
+                                if (!isReleased && releaseTime > 0L) {
+                                    append("Upcoming")
+                                }
+
+                                video.rating
+                                    ?.takeIf { it.isNotBlank() && it != "0" }
+                                    ?.let {
+                                        if (isNotEmpty()) append(" • ")
+                                        append("★ $it")
+                                    }
+                            }
+                        }
+                    }
+            }
+
+            "movie" -> {
+                val releaseTime = meta.released?.let {
+                    runCatching { DATE_FORMATTER.parse(it.trim())?.time }.getOrNull()
+                        ?: runCatching { SIMPLE_DATE_FORMATTER.parse(it.trim())?.time }.getOrNull()
+                        ?: 0L
+                } ?: 0L
+
+                listOf(
+                    SEpisode.create().apply {
+                        episode_number = 1f
+                        url = "/stream/movie/${meta.id}.json"
+                        name = "Complete Movie"
+                        date_upload = releaseTime
+                    },
+                )
+            }
             else -> emptyList()
         }
-    }
-
-    private fun buildSeriesEpisodes(
-        videos: List<EpisodeVideo>,
-        episodeUrl: (String) -> String,
-    ): List<SEpisode> {
-        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
-        val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
-        val now = System.currentTimeMillis()
-
-        return videos
-            .filter { video -> if (hideSeasonZero) video.season != 0 else true }
-            .mapNotNull { video ->
-                val releaseTime = (video.firstAired ?: video.released)?.let(::parseDate) ?: Long.MAX_VALUE
-                val isReleased = releaseTime <= now
-                if (!showUpcoming && !isReleased) return@mapNotNull null
-
-                val episode = SEpisode.create().apply {
-                    episode_number = "${video.season}.${video.number}".toFloat()
-                    this.url = episodeUrl(video.id.orEmpty())
-                    date_upload = if (releaseTime == Long.MAX_VALUE) 0L else releaseTime
-                    name = "S${video.season}:E${video.number} - ${video.name.orEmpty()}"
-                    scanlator = if (!isReleased) "Upcoming" else ""
-                }
-
-                video to episode
-            }
-            .sortedWith(
-                compareByDescending<Pair<EpisodeVideo, SEpisode>> { (video, _) -> (video.season ?: 0) > 0 }
-                    .thenByDescending { (video, _) -> video.season ?: 0 }
-                    .thenByDescending { (video, _) -> video.number ?: 0 },
-            )
-            .map { (_, episode) -> episode }
-    }
-
-    private fun singleMovieEpisode(url: String): SEpisode = SEpisode.create().apply {
-        episode_number = 1f
-        this.url = url
-        name = "Movie"
-    }
-
-    private fun parseDate(dateStr: String): Long {
-        val trimmed = dateStr.trim()
-        if (trimmed.isEmpty()) return 0L
-
-        runCatching { DATE_FORMATTER.parse(trimmed)?.time }.getOrNull()?.let { return it }
-        runCatching { SIMPLE_DATE_FORMATTER.parse(trimmed)?.time }.getOrNull()?.let { return it }
-
-        return 0L
     }
 
     // ============================== Hosters ==================================
@@ -455,19 +528,6 @@ class Torrentio :
         thumbnail_url = poster.orEmpty()
     }
 
-    private fun mapStatus(status: String?, released: String?): Int {
-        if (status != null) {
-            return when (status.trim().lowercase()) {
-                "continuing" -> SAnime.ONGOING
-                "ended" -> SAnime.COMPLETED
-                else -> SAnime.UNKNOWN
-            }
-        }
-
-        val releaseTime = released?.let(::parseDate) ?: return SAnime.UNKNOWN
-        return if (releaseTime > System.currentTimeMillis()) SAnime.ONGOING else SAnime.COMPLETED
-    }
-
     // ============================ Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -566,10 +626,24 @@ class Torrentio :
 
         private const val PREF_DEBRID_KEY = "debrid_provider"
         private val PREF_DEBRID_ENTRIES = arrayOf(
-            "None", "RealDebrid", "Premiumize", "AllDebrid", "DebridLink", "EasyDebrid", "Offcloud", "TorBox",
+            "None",
+            "RealDebrid",
+            "Premiumize",
+            "AllDebrid",
+            "DebridLink",
+            "EasyDebrid",
+            "Offcloud",
+            "TorBox",
         )
         private val PREF_DEBRID_VALUES = arrayOf(
-            "none", "realdebrid", "premiumize", "alldebrid", "debridlink", "easydebrid", "offcloud", "torbox",
+            "none",
+            "realdebrid",
+            "premiumize",
+            "alldebrid",
+            "debridlink",
+            "easydebrid",
+            "offcloud",
+            "torbox",
         )
 
         private const val PREF_SORT_KEY = "sorting_link"
