@@ -27,6 +27,9 @@ import keiyoushi.network.rateLimit
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -316,48 +319,92 @@ class Torrentio :
     }
 
     // =============================== Seasons ===============================
-    // Unsupported stuff
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime): Request = Request.Builder()
-        .url("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
-        .build()
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val kitsuMetaResponse = json.decodeFromString<KitsuMetaResponse>(response.body.string())
-        val meta = kitsuMetaResponse.meta ?: return emptyList()
-        val kitsuId = meta.kitsuId
-        val type = meta.type ?: "series"
+    override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
+
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
+        val kitsuDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val response = client.get("https://anime-kitsu.strem.fun/meta/anime/anilist:${anime.url}.json")
+                json.decodeFromString<KitsuMetaResponse>(response.bodyString())
+            }.getOrNull()
+        }
+
+        val aioDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val response = client.get("https://aiometadata.elfhosted.com/stremio/2c986aae-accd-47b7-9a86-df16f7b932d3/meta/anime/anilist:${anime.url}.json")
+                json.decodeFromString<KitsuMetaResponse>(response.bodyString())
+            }.getOrNull()
+        }
+
+        val kitsuMeta = kitsuDeferred.await()?.meta
+        val aioMeta = aioDeferred.await()?.meta
+
+        val kitsuId = kitsuMeta?.kitsuId ?: aioMeta?.kitsuId
+        val type = kitsuMeta?.type ?: aioMeta?.type ?: "series"
         val isMovie = type == "movie"
 
-        val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
         val now = System.currentTimeMillis()
 
-        if (isMovie) {
-            val video = meta.videos.orEmpty().firstOrNull() ?: return emptyList()
-            val imdbId = video.imdbId
+        fun parseReleased(released: String?): Long? {
+            if (released.isNullOrBlank()) return null
+            val parsed = runCatching { DATE_FORMATTER.parse(released)?.time }.getOrNull() ?: return null
+            return if (parsed > now) null else parsed
+        }
 
-            return listOf(
+        if (isMovie) {
+            val kitsuVideo = kitsuMeta?.videos?.firstOrNull()
+            val aioVideo = aioMeta?.videos?.firstOrNull()
+
+            if (kitsuVideo == null && aioVideo == null) return@coroutineScope emptyList()
+
+            val dateUpload = parseReleased(aioVideo?.released ?: kitsuVideo?.released) ?: return@coroutineScope emptyList()
+
+            return@coroutineScope listOf(
                 SEpisode.create().apply {
                     episode_number = 1f
                     name = "Movie"
-                    // kitsuId|imdbId|ep|season|imdbEp|type — ep/season/imdbEp are unused for movies
-                    url = listOf(kitsuId.orEmpty(), imdbId.orEmpty(), "", "", "", type).joinToString("|")
 
-                    date_upload = video.released
-                        ?.let { runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull() }
-                        ?: 0L
+                    // kitsuId|imdbId|ep|season|imdbEp|type
+                    url = listOf(
+                        kitsuId.orEmpty(),
+                        aioVideo?.imdbId ?: kitsuVideo?.imdbId.orEmpty(),
+                        "",
+                        "",
+                        "",
+                        type,
+                    ).joinToString("|")
 
-                    summary = video.overview
-                    preview_url = video.thumbnail
+                    date_upload = dateUpload
+                    summary = aioVideo?.overview ?: kitsuVideo?.overview
+                    preview_url = aioVideo?.thumbnail ?: kitsuVideo?.thumbnail
                 },
             )
         }
 
-        return meta.videos.orEmpty()
+        val kitsuVideos = kitsuMeta?.videos.orEmpty().filter { it.episode != null }
+        val aioVideos = aioMeta?.videos.orEmpty().filter { it.episode != null }
+
+        val kitsuByEpisode = kitsuVideos.associateBy { it.episode }
+
+
+        val aioHasValid = aioVideos.any { parseReleased(it.released) != null }
+        val primaryVideos = if (aioHasValid) aioVideos else kitsuVideos
+
+        return@coroutineScope primaryVideos
+            .sortedBy { it.episode }
             .mapNotNull { video ->
                 val epNum = video.episode ?: return@mapNotNull null
+
+
+                val dateUpload = parseReleased(video.released) ?: return@mapNotNull null
+
+                val kitsuVideo = if (aioHasValid) kitsuByEpisode[epNum] else video
 
                 SEpisode.create().apply {
                     episode_number = epNum.toFloat()
@@ -365,31 +412,25 @@ class Torrentio :
                     // kitsuId|imdbId|ep|season|imdbEp|type
                     url = listOf(
                         kitsuId.orEmpty(),
-                        video.imdbId.orEmpty(),
+                        kitsuVideo?.imdbId.orEmpty(),
                         epNum.toString(),
-                        video.imdbSeason?.toString().orEmpty(),
-                        (video.imdbEpisode ?: epNum).toString(),
+                        kitsuVideo?.imdbSeason?.toString().orEmpty(),
+                        (kitsuVideo?.imdbEpisode ?: epNum).toString(),
                         type,
                     ).joinToString("|")
 
-                    date_upload = video.released
-                        ?.let { runCatching { DATE_FORMATTER.parse(it)?.time }.getOrNull() }
-                        ?: 0L
+                    date_upload = dateUpload
 
                     name = video.title
                         ?.takeIf { it.isNotBlank() && it != "Episode $epNum" }
                         ?.let { "Episode $epNum: $it" }
                         ?: "Episode $epNum"
 
-                    scanlator = date_upload.takeIf { it > now }
-                        ?.let { "Upcoming" }
-                        ?: ""
-
                     summary = video.overview
                     preview_url = video.thumbnail
+                    scanlator = ""
                 }
             }
-            .filter { showUpcoming || it.date_upload <= now }
             .reversed()
     }
 
@@ -660,11 +701,6 @@ class Torrentio :
             setDefaultValue("romaji")
         }.also(screen::addPreference)
 
-        SwitchPreferenceCompat(screen.context).apply {
-            key = UPCOMING_EP_KEY
-            title = "Show Upcoming Episodes"
-            setDefaultValue(UPCOMING_EP_DEFAULT)
-        }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
             key = IS_DUB_KEY
@@ -987,8 +1023,6 @@ class Torrentio :
             "native",
         )
 
-        private const val UPCOMING_EP_KEY = "upcoming_ep"
-        private const val UPCOMING_EP_DEFAULT = false
 
         private const val IS_DUB_KEY = "dubbed"
         private const val IS_DUB_DEFAULT = false
