@@ -196,10 +196,17 @@ class AniHQ :
     }
 
     private suspend fun parseDetails(anime: SAnime, document: Document): SAnime {
-        val href = document.selectFirst("a[href*='/anime-show/']")
-            ?.attr("abs:href")
-            ?.toHttpUrlOrNull()
-            ?.takeIf { it.host == baseHost && it.toString().trimEnd('/') != document.location().trimEnd('/') }
+        val isCanonical = document.location().contains("/anime-show/${anime.url}")
+
+        val href = if (!isCanonical) {
+            document.selectFirst("link[rel='canonical']")
+                ?.attr("abs:href")
+                ?.toHttpUrlOrNull()
+                ?.takeIf { it.host == baseHost && it.toString().trimEnd('/') != document.location().trimEnd('/') }
+        } else {
+            null
+        }
+
         val realDoc: Document =
             if (href != null) {
                 client.get(href.toString()).useAsJsoup()
@@ -335,12 +342,12 @@ class AniHQ :
     }
 
     // ============================== Episodes ==============================
-    private fun loadEpisodeCache(animeId: String): EpisodeCacheDto? = preferences.getString("episode_cache_v1_$animeId", null)
+    private fun loadEpisodeCache(animeId: String): EpisodeCacheDto? = preferences.getString("episode_cache_$animeId", null)
         ?.let { raw -> runCatching { raw.parseAs<EpisodeCacheDto>() }.getOrNull() }
 
     private fun storeEpisodeCache(animeId: String, cache: EpisodeCacheDto) {
         preferences.edit()
-            .putString("episode_cache_v1_$animeId", cache.toJsonString())
+            .putString("episode_cache_$animeId", cache.toJsonString())
             .apply()
     }
 
@@ -360,34 +367,45 @@ class AniHQ :
         val newMax = firstPage.data.maxEpisodesPage.coerceAtLeast(1)
         val cached = loadEpisodeCache(animeId)
 
-        if (cached != null && newMax == cached.maxPage) {
+        val merged = LinkedHashMap<String, CachedEpisodeDto>()
+        cached?.episodes?.forEach { merged[it.u] = it }
+        firstPage.data.episodes.forEach {
+            val c = it.toCached(dateFormat)
+            merged[c.u] = c
+        }
+
+        if (cached != null && newMax == cached.maxPage && merged.size == cached.episodes.size) {
             return cached.episodes.map(CachedEpisodeDto::toSEpisode)
                 .sortedByDescending { it.episode_number }
         }
 
-        if (cached != null && newMax > cached.maxPage) {
-            val freshAll = firstPage.data.episodes.toMutableList()
-            for (page in 2..(newMax - cached.maxPage)) {
-                freshAll += episodesCall(page).fetchEpisodePage().data.episodes
+        // Only fetch subsequent pages if we detect a change in page count,
+        // or if our first-page merge indicates new content might exist.
+        if (cached != null && (newMax > cached.maxPage || merged.size > cached.episodes.size)) {
+            val cachedSlugs = cached.episodes.map { it.u }.toSet()
+            for (page in 2..newMax) {
+                val pageData = episodesCall(page).fetchEpisodePage().data.episodes
+                var foundOverlap = false
+                for (ep in pageData) {
+                    val c = ep.toCached(dateFormat)
+                    if (!merged.containsKey(c.u)) {
+                        merged[c.u] = c
+                    } else if (cachedSlugs.contains(c.u)) {
+                        foundOverlap = true
+                    }
+                }
+                if (foundOverlap) break
             }
-
-            val merged = LinkedHashMap<String, CachedEpisodeDto>(cached.episodes.size + freshAll.size)
-            cached.episodes.forEach { merged[it.u] = it }
-            freshAll.forEach {
-                val c = it.toCached(dateFormat)
-                merged[c.u] = c
+        } else if (cached == null && newMax > 1) {
+            for (page in 2..newMax) {
+                episodesCall(page).fetchEpisodePage().data.episodes.forEach {
+                    val c = it.toCached(dateFormat)
+                    merged[c.u] = c
+                }
             }
-
-            val out = merged.values.toList()
-            storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out))
-            return out.map(CachedEpisodeDto::toSEpisode).sortedByDescending { it.episode_number }
         }
 
-        val all = firstPage.data.episodes.toMutableList()
-        for (page in 2..newMax) {
-            all += episodesCall(page).fetchEpisodePage().data.episodes
-        }
-        val out = all.map { it.toCached(dateFormat) }
+        val out = merged.values.toList()
         storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out))
         return out.map(CachedEpisodeDto::toSEpisode).sortedByDescending { it.episode_number }
     }

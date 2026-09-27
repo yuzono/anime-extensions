@@ -49,7 +49,7 @@ class EpisodeItemDto(
     }
 
     fun toCached(dateFormat: SimpleDateFormat) = CachedEpisodeDto(
-        u = url.substringAfter("/watch/"),
+        u = url.substringAfter("/watch/").trimEnd('/'),
         n = number,
         e = metaNumber.toFloatOrNull() ?: number.toFloatOrNull() ?: 1F,
         s = audioVariant(url),
