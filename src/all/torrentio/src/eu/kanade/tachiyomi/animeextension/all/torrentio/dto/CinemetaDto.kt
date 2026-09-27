@@ -50,8 +50,6 @@ data class CinemetaMetaDetail(
     val director: List<String>? = null,
     val writer: List<String>? = null,
     val videos: List<EpisodeVideo>? = null,
-    @SerialName("tvdb_id") val tvdbId: Int? = null,
-    @SerialName("moviedb_id") val moviedbId: Int? = null,
     val behaviorHints: BehaviorHints? = null,
 )
 
@@ -63,7 +61,6 @@ data class EpisodeVideo(
     val number: Int? = null,
     val episode: Int? = null,
     @SerialName("firstAired") val firstAired: String? = null,
-    @SerialName("tvdb_id") val tvdbId: Int? = null,
     val rating: String? = null,
     val overview: String? = null,
     val thumbnail: String? = null,
