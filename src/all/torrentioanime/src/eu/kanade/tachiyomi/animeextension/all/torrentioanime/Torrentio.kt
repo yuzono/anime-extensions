@@ -317,7 +317,7 @@ class Torrentio :
     }
 
     // =============================== Seasons ===============================
-    // Unsupported stuff 
+    // Unsupported stuff
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================== Episodes ==============================
@@ -346,7 +346,7 @@ class Torrentio :
                         kitsuId.orEmpty(),
                         video.imdbId.orEmpty(),
                         epNum.toString(),
-                        (video.imdbSeason ?: 1).toString(),
+                        (video.imdbSeason).toString(),
                         (video.imdbEpisode ?: epNum).toString(),
                         type,
                     ).joinToString("|")
