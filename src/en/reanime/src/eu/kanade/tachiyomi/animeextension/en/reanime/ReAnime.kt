@@ -443,14 +443,6 @@ class ReAnime :
         return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
     }
 
-    private suspend fun fetchThumbnails(animeId: String, episodeUrl: String): Map<String, String>? = try {
-        client.get("$baseUrl/api/thumbnails/$animeId", apiHeaders(episodeUrl)).use { res ->
-            res.parseAs<ThumbnailsResponseDto>().thumbnails
-        }
-    } catch (_: Exception) {
-        null
-    }
-
     // ============================== Related Anime ==============================
     override val disableRelatedAnimesBySearch = true
 
@@ -528,7 +520,7 @@ class ReAnime :
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val meta = animeMetaCache.get(anime.url) ?: fetchAnimeMeta(anime.url)
         val defaultEpUrl = "$baseUrl/watch/${anime.url}"
-        val thumbnails = fetchThumbnails(meta?.anilistId.toString(), defaultEpUrl)
+        val thumbnails = meta?.anilistId?.takeIf { it > 0 }?.let { fetchThumbnails(it.toString(), defaultEpUrl) }
 
         val response = client.newCall(episodeListRequest(anime)).awaitSuccess()
 
@@ -586,9 +578,17 @@ class ReAnime :
 
                 date_upload = dateFormat.tryParse(ep.aired)
 
-                preview_url = thumbnails?.get(epNum.toInt().toString())
+                preview_url = thumbnails?.get(epNumStr)
             }
         }.reversed()
+    }
+
+    private suspend fun fetchThumbnails(animeId: String, episodeUrl: String): Map<String, String>? = try {
+        client.get("$baseUrl/api/thumbnails/$animeId", apiHeaders(episodeUrl)).use { res ->
+            res.parseAs<ThumbnailsResponseDto>().thumbnails
+        }
+    } catch (_: Exception) {
+        null
     }
 
     override fun getEpisodeUrl(episode: SEpisode): String {
