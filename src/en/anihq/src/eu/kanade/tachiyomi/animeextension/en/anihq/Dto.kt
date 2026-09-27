@@ -80,6 +80,7 @@ class EpisodeItemDto(
 class EpisodeCacheDto(
     val maxPage: Int,
     val episodes: List<CachedEpisodeDto> = emptyList(),
+    val timestamp: Long = 0L,
 )
 
 @Serializable

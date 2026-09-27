@@ -366,22 +366,26 @@ class AniHQ :
         val firstPage = episodesCall(1).fetchEpisodePage()
         val newMax = firstPage.data.maxEpisodesPage.coerceAtLeast(1)
         val cached = loadEpisodeCache(animeId)
+        val now = System.currentTimeMillis()
+        val isExpired = cached != null && (now - cached.timestamp > 7 * 24 * 60 * 60 * 1000)
 
         val merged = LinkedHashMap<String, CachedEpisodeDto>()
-        cached?.episodes?.forEach { merged[it.u] = it }
+        if (cached != null && !isExpired) {
+            cached.episodes.forEach { merged[it.u] = it }
+        }
         firstPage.data.episodes.forEach {
             val c = it.toCached(dateFormat)
             merged[c.u] = c
         }
 
-        if (cached != null && newMax == cached.maxPage && merged.size == cached.episodes.size) {
+        if (cached != null && !isExpired && newMax == cached.maxPage && merged.size == cached.episodes.size) {
             return cached.episodes.map(CachedEpisodeDto::toSEpisode)
                 .sortedByDescending { it.episode_number }
         }
 
         // Only fetch subsequent pages if we detect a change in page count,
         // or if our first-page merge indicates new content might exist.
-        if (cached != null && (newMax > cached.maxPage || merged.size > cached.episodes.size)) {
+        if (cached != null && !isExpired && (newMax > cached.maxPage || merged.size > cached.episodes.size)) {
             val cachedSlugs = cached.episodes.map { it.u }.toSet()
             for (page in 2..newMax) {
                 val pageData = episodesCall(page).fetchEpisodePage().data.episodes
@@ -396,7 +400,7 @@ class AniHQ :
                 }
                 if (foundOverlap) break
             }
-        } else if (cached == null && newMax > 1) {
+        } else if (cached == null || isExpired || newMax > 1) {
             for (page in 2..newMax) {
                 episodesCall(page).fetchEpisodePage().data.episodes.forEach {
                     val c = it.toCached(dateFormat)
@@ -406,7 +410,7 @@ class AniHQ :
         }
 
         val out = merged.values.toList()
-        storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out))
+        storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out, timestamp = now))
         return out.map(CachedEpisodeDto::toSEpisode).sortedByDescending { it.episode_number }
     }
 
