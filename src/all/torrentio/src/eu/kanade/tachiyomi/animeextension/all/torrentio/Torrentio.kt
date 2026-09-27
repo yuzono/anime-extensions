@@ -25,6 +25,10 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -47,7 +51,7 @@ class Torrentio :
     override val supportsLatest = true
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .rateLimit(RATE_LIMIT_PERMITS)
+        .rateLimit(RATE_LIMIT)
         .build()
 
     private val json: Json by injectLazy()
@@ -59,47 +63,64 @@ class Torrentio :
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== Popular ================================
-    override fun popularAnimeRequest(page: Int): Request {
-        val url = "$streamingCatalogUrl/catalog/movie/$DEFAULT_STREAMING_SERVICE.json"
-        return Request.Builder().url(url).build()
-    }
+    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val movieResults = json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
-        val seriesResults = runCatching {
-            val url = "$streamingCatalogUrl/catalog/series/$DEFAULT_STREAMING_SERVICE.json"
-            val seriesResponse = client.newCall(Request.Builder().url(url).build()).execute()
-            json.decodeFromString<CinemetaSearchResponse>(seriesResponse.body.string()).metas.orEmpty()
-        }.getOrDefault(emptyList())
+    override suspend fun getPopularAnime(page: Int): AnimesPage = coroutineScope {
+        val movieDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val url = "$streamingCatalogUrl/catalog/movie/$DEFAULT_STREAMING_SERVICE.json"
+                val response = client.get(url)
+                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+            }.getOrDefault(emptyList())
+        }
+
+        val seriesDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val url = "$streamingCatalogUrl/catalog/series/$DEFAULT_STREAMING_SERVICE.json"
+                val response = client.get(url)
+                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+            }.getOrDefault(emptyList())
+        }
+
+        val movieResults = movieDeferred.await()
+        val seriesResults = seriesDeferred.await()
 
         val combined = (movieResults + seriesResults).distinctBy { it.id }
-        return AnimesPage(combined.map { it.toSAnime() }, false)
+        AnimesPage(combined.map { it.toSAnime() }, false)
     }
 
     // =============================== Latest / Trending =====================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        val url = buildCinemetaTopUrl("series", page).newBuilder()
-            .addQueryParameter("page", page.toString())
-            .build()
-        return Request.Builder().url(url).build()
-    }
+    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        val seriesResults = json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
-        val movieResults = runCatching {
-            val url = buildCinemetaTopUrl("movie", page)
-            val movieResponse = client.newCall(Request.Builder().url(url).build()).execute()
-            json.decodeFromString<CinemetaSearchResponse>(movieResponse.body.string()).metas.orEmpty()
-        }.getOrDefault(emptyList())
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = coroutineScope {
+        val seriesDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val url = buildCinemetaTopUrl("series", page)
+                val response = client.get(url.toString())
+                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+            }.getOrDefault(emptyList())
+        }
+
+        val movieDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val url = buildCinemetaTopUrl("movie", page)
+                val response = client.get(url.toString())
+                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+            }.getOrDefault(emptyList())
+        }
+
+        val seriesResults = seriesDeferred.await()
+        val movieResults = movieDeferred.await()
 
         val combined = (seriesResults + movieResults).sortedByDescending { it.popularity ?: 0.0 }
         val hasNextPage = seriesResults.size == CINEMETA_PAGE_SIZE || movieResults.size == CINEMETA_PAGE_SIZE
 
-        return AnimesPage(combined.map { it.toSAnime() }, hasNextPage)
+        AnimesPage(combined.map { it.toSAnime() }, hasNextPage)
     }
 
     private fun buildCinemetaTopUrl(type: String, page: Int) = cinemetaUrl.toHttpUrl().newBuilder()
@@ -160,60 +181,37 @@ class Torrentio :
             )
         }
 
-        return super.getSearchAnime(page, query, filters)
-    }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val types = CatalogFilters.mediaType(filters)
         val streamingService = CatalogFilters.streamingService(filters)
         val trimmedQuery = query.trim()
-        val primaryType = types.first()
 
-        val baseSegment = if (trimmedQuery.isBlank()) {
-            "$streamingCatalogUrl/catalog/$primaryType/$streamingService.json"
-        } else {
-            "$cinemetaUrl/catalog/$primaryType/top/search=$trimmedQuery.json"
-        }
-
-        val url = baseSegment.toHttpUrl().newBuilder()
-            .addQueryParameter("types", types.joinToString(","))
-            .addQueryParameter("service", streamingService)
-            .addQueryParameter("q", trimmedQuery)
-            .build()
-
-        return Request.Builder().url(url).build()
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val url = response.request.url
-        val types = url.queryParameter("types")?.split(",")?.filter { it.isNotBlank() } ?: listOf("movie")
-        val streamingService = url.queryParameter("service") ?: DEFAULT_STREAMING_SERVICE
-        val trimmedQuery = url.queryParameter("q").orEmpty()
-
-        val primaryResults = json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
-
-        val secondaryResults = if (types.size > 1) {
-            runCatching {
-                val secondaryType = types[1]
-                val secondaryUrl = if (trimmedQuery.isBlank()) {
-                    "$streamingCatalogUrl/catalog/$secondaryType/$streamingService.json"
-                } else {
-                    "$cinemetaUrl/catalog/$secondaryType/top/search=$trimmedQuery.json"
+        return coroutineScope {
+            val deferredResults = types.map { type ->
+                async(Dispatchers.IO) {
+                    runCatching {
+                        val url = if (trimmedQuery.isBlank()) {
+                            "$streamingCatalogUrl/catalog/$type/$streamingService.json"
+                        } else {
+                            "$cinemetaUrl/catalog/$type/top/search=$trimmedQuery.json"
+                        }
+                        val response = client.get(url)
+                        json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                    }.getOrDefault(emptyList())
                 }
-                val secondaryResponse = client.newCall(Request.Builder().url(secondaryUrl).build()).execute()
-                json.decodeFromString<CinemetaSearchResponse>(secondaryResponse.body.string()).metas.orEmpty()
-            }.getOrDefault(emptyList())
-        } else {
-            emptyList()
-        }
+            }
 
-        val combined = (primaryResults + secondaryResults).distinctBy { it.id }
-        return AnimesPage(combined.map { it.toSAnime() }, false)
+            val combined = deferredResults.awaitAll().flatten().distinctBy { it.id }
+            AnimesPage(combined.map { it.toSAnime() }, false)
+        }
     }
 
     // =============================== Filters ================================
 
     override fun getFilterList(): AnimeFilterList = CatalogFilters.getFilterList()
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
+
+    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     // =========================== Anime Details ==============================
 
@@ -294,12 +292,12 @@ class Torrentio :
         return when (meta.type) {
             "series" -> {
                 val showUpcoming = preferences.getBoolean(UPCOMING_EP_KEY, UPCOMING_EP_DEFAULT)
-                val hideSeasonZero = preferences.getBoolean(HIDE_SEASON_ZERO_KEY, HIDE_SEASON_ZERO_DEFAULT)
+                val showSeasonZero = preferences.getBoolean(SHOW_SEASON_ZERO_KEY, SHOW_SEASON_ZERO_DEFAULT)
                 val now = System.currentTimeMillis()
 
                 meta.videos.orEmpty()
                     .filter { video ->
-                        !hideSeasonZero || (video.season ?: 0) > 0
+                        showSeasonZero || (video.season ?: 0) > 0
                     }
                     .mapNotNull { video ->
                         val releaseTime = (video.firstAired ?: video.released)?.let {
@@ -494,17 +492,12 @@ class Torrentio :
         return "unknown"
     }
 
-    private fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    private suspend fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
-    private fun fetchTrackers(): String {
-        val request = Request.Builder()
-            .url("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("Unexpected code $response")
-            return response.body.string().trim()
-        }
+    private suspend fun fetchTrackers(): String {
+        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
+        if (!response.isSuccessful) throw Exception("Unexpected code $response")
+        return response.body.string().trim()
     }
 
     // ============================ Sorting / Helpers ==========================
@@ -595,9 +588,9 @@ class Torrentio :
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
-            key = HIDE_SEASON_ZERO_KEY
-            title = "Hide Season 0 Episodes"
-            setDefaultValue(HIDE_SEASON_ZERO_DEFAULT)
+            key = SHOW_SEASON_ZERO_KEY
+            title = "Show Season 0 Entries"
+            setDefaultValue(SHOW_SEASON_ZERO_DEFAULT)
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -618,7 +611,7 @@ class Torrentio :
         const val PREFIX_SEARCH = "id:"
         const val DEFAULT_STREAMING_SERVICE = "nfx"
         private const val CINEMETA_PAGE_SIZE = 100
-        private const val RATE_LIMIT_PERMITS = 5
+        private const val RATE_LIMIT = 5
 
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""
@@ -705,8 +698,8 @@ class Torrentio :
         private const val UPCOMING_EP_KEY = "upcoming_ep"
         private const val UPCOMING_EP_DEFAULT = false
 
-        private const val HIDE_SEASON_ZERO_KEY = "hide_season_zero"
-        private const val HIDE_SEASON_ZERO_DEFAULT = false
+        private const val SHOW_SEASON_ZERO_KEY = "show_season_zero"
+        private const val SHOW_SEASON_ZERO_DEFAULT = false
 
         private const val IS_DUB_KEY = "dubbed"
         private const val IS_DUB_DEFAULT = false
