@@ -48,6 +48,14 @@ class EpisodeItemDto(
         date_upload = parseReleasedDate(released, dateFormat)
     }
 
+    fun toCached(dateFormat: SimpleDateFormat) = CachedEpisodeDto(
+        u = url.substringAfter("/watch/"),
+        n = number,
+        e = metaNumber.toFloatOrNull() ?: number.toFloatOrNull() ?: 1F,
+        s = audioVariant(url),
+        d = parseReleasedDate(released, dateFormat),
+    )
+
     private fun audioVariant(slug: String): String? = when {
         slug.contains("dubbed", true) -> "Dub"
         slug.contains("subbed", true) -> "Sub"
@@ -64,5 +72,29 @@ class EpisodeItemDto(
         } ?: dateFormat.tryParse(released)
     } catch (_: Exception) {
         0L
+    }
+}
+
+// ============================ Episode cache ==============================
+@Serializable
+class EpisodeCacheDto(
+    val maxPage: Int,
+    val episodes: List<CachedEpisodeDto> = emptyList(),
+)
+
+@Serializable
+class CachedEpisodeDto(
+    val u: String, // watch slug (identity, includes sub/dub)
+    val n: String, // display name
+    val e: Float, // episode number
+    val s: String? = null, // Sub/Dub variant
+    val d: Long = 0L, // date_upload
+) {
+    fun toSEpisode() = SEpisode.create().apply {
+        name = n
+        episode_number = e
+        url = u
+        scanlator = s
+        date_upload = d
     }
 }

@@ -21,11 +21,8 @@ import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
 import keiyoushi.utils.useAsJsoup
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -199,24 +196,29 @@ class AniHQ :
     }
 
     private suspend fun parseDetails(anime: SAnime, document: Document): SAnime {
-        val href = document.selectFirst("div.anime-information h4 a")
+        val href = document.selectFirst("a[href*='/anime-show/']")
             ?.attr("abs:href")
             ?.toHttpUrlOrNull()
+            ?.takeIf { it.host == baseHost && it.toString().trimEnd('/') != document.location().trimEnd('/') }
         val realDoc: Document =
-            if (href != null && href.host == baseHost && href.toString() != document.location()) {
+            if (href != null) {
                 client.get(href.toString()).useAsJsoup()
             } else {
                 document
             }
 
-        val info: Map<String, String> = realDoc.selectFirst("div.anime-information")
+        val info: Map<String, String> = realDoc
+            .selectFirst("dl.space-y-3")
             ?.select("dt")
-            ?.associate { dt -> dt.text() to dt.nextElementSibling()?.text().orEmpty() }
+            ?.associate { it.text() to it.nextElementSibling()?.text().orEmpty() }
             ?: emptyMap()
 
         fun infoValue(label: String): String? = info[label]?.takeIf { it.isNotBlank() && !it.equals("N/A", ignoreCase = true) }
 
-        val mainTitle = (realDoc.selectFirst("h1")?.text() ?: realDoc.selectFirst("title")?.text())
+        val mainTitle = (
+            realDoc.selectFirst("title")?.text()
+                ?: realDoc.select("h1 span").lastOrNull()?.text()
+            )
             ?.cleanTitle().orEmpty()
 
         val aired = infoValue("Aired")
@@ -227,12 +229,16 @@ class AniHQ :
             realDoc.selectFirst("section[aria-label='Anime Overview'] p")?.html(),
         )
 
-        val variantSuffix = variantRegex.find(mainTitle)?.value.orEmpty()
+        val h1Spans = realDoc.select("h1 span").map { it.text() }
+        val browseTitle = h1Spans.firstOrNull().orEmpty()
+        val entryTitle = h1Spans.lastOrNull().orEmpty()
+        val variantSuffix = variantRegex.find(entryTitle)?.value.orEmpty()
 
         return SAnime.create().apply {
             url = realDoc.location().substringAfterLast("/anime-show/")
             title = when (preferredTitleLanguage) {
                 "native" -> infoValue("Native")?.let { "$it $variantSuffix".trim() } ?: mainTitle
+                "japanese" -> browseTitle.takeIf(String::isNotBlank)?.let { "$it $variantSuffix".trim() } ?: mainTitle
                 "english" -> infoValue("English")?.let { "$it $variantSuffix".trim() } ?: mainTitle
                 else -> mainTitle
             }
@@ -329,9 +335,17 @@ class AniHQ :
     }
 
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = coroutineScope {
-        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
+    private fun loadEpisodeCache(animeId: String): EpisodeCacheDto? = preferences.getString("episode_cache_v1_$animeId", null)
+        ?.let { raw -> runCatching { raw.parseAs<EpisodeCacheDto>() }.getOrNull() }
 
+    private fun storeEpisodeCache(animeId: String, cache: EpisodeCacheDto) {
+        preferences.edit()
+            .putString("episode_cache_v1_$animeId", cache.toJsonString())
+            .apply()
+    }
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val document = client.newCall(animeDetailsRequest(anime)).awaitSuccess().useAsJsoup()
         val animeId = document.findAnimeId()
             ?: throw Exception("Could not determine anime ID")
 
@@ -340,22 +354,42 @@ class AniHQ :
             headers,
         )
 
-        val firstPage = episodesCall(1).fetchEpisodePage()
-        val episodes = firstPage.data.episodes.toMutableList()
-        val totalPages = firstPage.data.maxEpisodesPage.coerceAtLeast(1)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
 
-        if (totalPages > 1) {
-            (2..totalPages).chunked(EPISODE_FETCH_BATCH).forEach { batch ->
-                val fetched = batch.map { page ->
-                    async(Dispatchers.IO) { episodesCall(page).fetchEpisodePage() }
-                }.awaitAll()
-                episodes += fetched.flatMap { it.data.episodes }
-            }
+        val firstPage = episodesCall(1).fetchEpisodePage()
+        val newMax = firstPage.data.maxEpisodesPage.coerceAtLeast(1)
+        val cached = loadEpisodeCache(animeId)
+
+        if (cached != null && newMax == cached.maxPage) {
+            return cached.episodes.map(CachedEpisodeDto::toSEpisode)
+                .sortedByDescending { it.episode_number }
         }
 
-        return@coroutineScope episodes.map {
-            it.toSEpisode(SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH))
-        }.sortedByDescending { it.episode_number }
+        if (cached != null && newMax > cached.maxPage) {
+            val freshAll = firstPage.data.episodes.toMutableList()
+            for (page in 2..(newMax - cached.maxPage)) {
+                freshAll += episodesCall(page).fetchEpisodePage().data.episodes
+            }
+
+            val merged = LinkedHashMap<String, CachedEpisodeDto>(cached.episodes.size + freshAll.size)
+            cached.episodes.forEach { merged[it.u] = it }
+            freshAll.forEach {
+                val c = it.toCached(dateFormat)
+                merged[c.u] = c
+            }
+
+            val out = merged.values.toList()
+            storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out))
+            return out.map(CachedEpisodeDto::toSEpisode).sortedByDescending { it.episode_number }
+        }
+
+        val all = firstPage.data.episodes.toMutableList()
+        for (page in 2..newMax) {
+            all += episodesCall(page).fetchEpisodePage().data.episodes
+        }
+        val out = all.map { it.toCached(dateFormat) }
+        storeEpisodeCache(animeId, EpisodeCacheDto(maxPage = newMax, episodes = out))
+        return out.map(CachedEpisodeDto::toSEpisode).sortedByDescending { it.episode_number }
     }
 
     private suspend fun Request.fetchEpisodePage(): EpisodeResponseDto {
@@ -522,13 +556,10 @@ class AniHQ :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
-
-        private const val EPISODE_FETCH_BATCH = 6
-
         private const val PREF_TITLE_KEY = "preferred_title_language"
         private const val PREF_TITLE_DEFAULT = "english"
-        private val PREF_TITLE_ENTRIES = listOf("English", "Native")
-        private val PREF_TITLE_VALUES = listOf("english", "native")
+        private val PREF_TITLE_ENTRIES = listOf("English", "Japanese", "Native")
+        private val PREF_TITLE_VALUES = listOf("english", "japanese", "native")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
