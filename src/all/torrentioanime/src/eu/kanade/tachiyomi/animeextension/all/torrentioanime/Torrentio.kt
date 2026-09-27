@@ -392,7 +392,6 @@ class Torrentio :
 
         val kitsuByEpisode = kitsuVideos.associateBy { it.episode }
 
-
         val aioHasValid = aioVideos.any { parseReleased(it.released) != null }
         val primaryVideos = if (aioHasValid) aioVideos else kitsuVideos
 
@@ -400,7 +399,6 @@ class Torrentio :
             .sortedBy { it.episode }
             .mapNotNull { video ->
                 val epNum = video.episode ?: return@mapNotNull null
-
 
                 val dateUpload = parseReleased(video.released) ?: return@mapNotNull null
 
@@ -700,7 +698,6 @@ class Torrentio :
             entryValues = PREF_TITLE_VALUES
             setDefaultValue("romaji")
         }.also(screen::addPreference)
-
 
         SwitchPreferenceCompat(screen.context).apply {
             key = IS_DUB_KEY
@@ -1022,7 +1019,6 @@ class Torrentio :
             "english",
             "native",
         )
-
 
         private const val IS_DUB_KEY = "dubbed"
         private const val IS_DUB_DEFAULT = false
