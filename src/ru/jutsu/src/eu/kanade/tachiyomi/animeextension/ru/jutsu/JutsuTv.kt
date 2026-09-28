@@ -9,16 +9,20 @@ import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -29,7 +33,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class JutsuTv :
-    ParsedAnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Jutsu TV"
@@ -47,26 +51,34 @@ class JutsuTv :
     // "Топ 100" — a single page with the 100 most popular titles.
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/top/", headers)
 
-    override fun popularAnimeSelector(): String = "div.krasik"
+    private fun popularAnimeSelector(): String = "div.krasik"
 
-    override fun popularAnimeNextPageSelector(): String? = null
+    private fun popularAnimeNextPageSelector(): String? = null
 
-    override fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
+    private fun popularAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
         val link = element.selectFirst("a.krasik__title")!!
         setUrlWithoutDomain(link.attr("href"))
         title = link.text()
         thumbnail_url = element.selectFirst("div.krasik__img img")?.absUrl("src")
     }
 
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).map { popularAnimeFromElement(it) }
+        val hasNextPage = popularAnimeNextPageSelector()?.let { document.selectFirst(it) != null } == true
+        return AnimesPage(animes, hasNextPage)
+    }
+
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/anime/page/$page/", headers)
 
-    override fun latestUpdatesSelector(): String = popularAnimeSelector()
-
-    override fun latestUpdatesNextPageSelector(): String = "div.pagination__pages span:not(.nav_ext) + a"
-
-    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).map { popularAnimeFromElement(it) }
+        val hasNextPage = document.selectFirst("div.pagination__pages span:not(.nav_ext) + a") != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // =============================== Search ===============================
 
@@ -111,11 +123,12 @@ class JutsuTv :
         }
     }
 
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
-
-    override fun searchAnimeNextPageSelector(): String = latestUpdatesNextPageSelector()
-
-    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector()).map { popularAnimeFromElement(it) }
+        val hasNextPage = document.selectFirst("div.pagination__pages span:not(.nav_ext) + a") != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // ============================== Filters ===============================
 
@@ -200,45 +213,52 @@ class JutsuTv :
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        title = document.selectFirst("h1")?.text()
-            ?: throw Exception("Название не найдено")
-        thumbnail_url = document.selectFirst("div.zfx__img img")?.absUrl("src")
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
+        return SAnime.create().apply {
+            title = document.selectFirst("h1")?.text()
+                ?: throw Exception("Название не найдено")
+            thumbnail_url = document.selectFirst("div.zfx__img img")?.absUrl("src")
 
-        // The synopsis lives in the "Описание аниме …" block; everything else on the
-        // page (menus, SEO text in --main) must not leak into the description.
-        description = document
-            .selectFirst("div.jutsutv-zfx__text--top div.full-text, div.jutsutv-zfx__text--top p")
-            ?.text()
+            // The synopsis lives in the "Описание аниме …" block; everything else on the
+            // page (menus, SEO text in --main) must not leak into the description.
+            description = document
+                .selectFirst("div.jutsutv-zfx__text--top div.full-text, div.jutsutv-zfx__text--top p")
+                ?.text()
 
-        genre = document.select("ul.jutsutv-zfx__list li:has(span:contains(Жанр)) a")
-            .joinToString { it.text() }
-        // Студия; если её нет на странице — имя режиссёра.
-        // ("Режисс" покрывает оба написания: «Режиссер» и «Режиссёр».)
-        author = document.selectFirst("ul.jutsutv-zfx__list li:has(span:contains(Студия))")
-            ?.text()?.substringAfter(":")?.trim()?.takeIf { it.isNotBlank() }
-            ?: document.selectFirst("ul.jutsutv-zfx__list li:has(span:contains(Режисс))")
-                ?.text()?.substringAfter(":")?.trim()
+            genre = document.select("ul.jutsutv-zfx__list li:has(span:contains(Жанр)) a")
+                .joinToString { it.text() }
+            // Студия; если её нет на странице — имя режиссёра.
+            // ("Режисс" покрывает оба написания: «Режиссер» и «Режиссёр».)
+            author = document.selectFirst("ul.jutsutv-zfx__list li:has(span:contains(Студия))")
+                ?.text()?.substringAfter(":")?.trim()?.takeIf { it.isNotBlank() }
+                ?: document.selectFirst("ul.jutsutv-zfx__list li:has(span:contains(Режисс))")
+                    ?.text()?.substringAfter(":")?.trim()
 
-        // The status <li> carries a malformed attribute (=""), which some parsers choke
-        // on — fall back from the label span to the li text to a whole-page regex.
-        val statusText = document.selectFirst("span.jutsutv-jutsu-page__info-label")?.text()
-            ?: document.select("li").firstOrNull { it.text().contains("Статус:") }?.text()
-            ?: STATUS_REGEX.find(document.text())?.groupValues?.get(1)
-            ?: ""
-        status = when {
-            statusText.contains("Онгоинг", ignoreCase = true) -> SAnime.ONGOING
-            // Aniyomi has no dedicated "announced" status — the closest one is ONGOING.
-            statusText.contains("Анонс", ignoreCase = true) -> SAnime.ONGOING
-            statusText.contains("Вышел", ignoreCase = true) -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
+            // The status <li> carries a malformed attribute (=""), which some parsers choke
+            // on — fall back from the label span to the li text to a whole-page regex.
+            val statusText = document.selectFirst("span.jutsutv-jutsu-page__info-label")?.text()
+                ?: document.select("li").firstOrNull { it.text().contains("Статус:") }?.text()
+                ?: STATUS_REGEX.find(document.text())?.groupValues?.get(1)
+                ?: ""
+            status = when {
+                statusText.contains("Онгоинг", ignoreCase = true) -> SAnime.ONGOING
+                // Aniyomi has no dedicated "announced" status — the closest one is ONGOING.
+                statusText.contains("Анонс", ignoreCase = true) -> SAnime.ONGOING
+                statusText.contains("Вышел", ignoreCase = true) -> SAnime.COMPLETED
+                else -> SAnime.UNKNOWN
+            }
         }
     }
 
     // ============================== Episodes ==============================
+    // Fetched via getEpisodeList below (suspend network calls can't live in episodeListParse).
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val document = client.get(baseUrl + anime.url, headers).use { it.asJsoup() }
 
         // The Kodik player is loaded through the DLE ajax controller; the request
         // parameters are stored on the placeholder element.
@@ -247,13 +267,14 @@ class JutsuTv :
             ?: throw Exception("Плеер Kodik не найден на странице")
 
         val ajaxHeaders = headers.newBuilder()
-            .set("Referer", response.request.url.toString())
+            .set("Referer", "$baseUrl${anime.url}")
             .set("X-Requested-With", "XMLHttpRequest")
             .build()
 
-        val playerResponse = client.newCall(
-            GET("$baseUrl/engine/ajax/controller.php?$dataParams", ajaxHeaders),
-        ).execute().parseAs<PlayerResponse>()
+        val playerResponse = client.get(
+            "$baseUrl/engine/ajax/controller.php?$dataParams",
+            ajaxHeaders,
+        ).parseAs<PlayerResponse>()
 
         if (!playerResponse.success || playerResponse.data.isBlank()) {
             throw Exception("Kodik плеер недоступен для этого тайтла")
@@ -297,13 +318,12 @@ class JutsuTv :
         }
     }
 
-    override fun episodeListSelector(): String = throw UnsupportedOperationException()
-
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
-
     // =============================== Videos ===============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    // One Hoster per translation/dubbing so that switching the audio track in the player
+    // actually switches the stream: the app switches hosters, while the videos inside a
+    // hoster are just the qualities of that one dubbing.
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val requestUrl = episode.url.toHttpUrl()
         val episodeNum = requestUrl.queryParameter("episode")?.toIntOrNull()
         val isSerial = requestUrl.encodedPath.startsWith("/serial/")
@@ -314,42 +334,58 @@ class JutsuTv :
             "div.serial-translations-box option, div.movie-translations-box option",
         )
 
-        val videos = if (translations.isEmpty()) {
-            // Single translation — the fetched page itself is the player page.
-            kodikVideoLinks(requestUrl.toString(), "Kodik")
-        } else {
-            translations.parallelCatchingFlatMap { option ->
-                val mediaId = option.attr("data-media-id")
-                val mediaHash = option.attr("data-media-hash")
-                if (mediaId.isBlank() || mediaHash.isBlank()) return@parallelCatchingFlatMap emptyList()
-
-                // Skip translations that do not have the requested episode yet.
-                val epCount = EP_COUNT_REGEX.find(option.text())?.groupValues?.get(1)?.toIntOrNull()
-                if (episodeNum != null && epCount != null && epCount < episodeNum) {
-                    return@parallelCatchingFlatMap emptyList()
-                }
-
-                val dubbing = option.text().substringBefore(" (").trim().ifBlank { "Kodik" }
-                val label = if (option.attr("data-translation-type") == "subtitles") {
-                    "$dubbing (Субтитры)"
-                } else {
-                    dubbing
-                }
-
-                val mediaType = if (isSerial) "serial" else "video"
-                val episodeQuery = if (isSerial && episodeNum != null) "?episode=$episodeNum" else ""
-                val url = "https://$playerHost/$mediaType/$mediaId/$mediaHash/720p$episodeQuery"
-
-                kodikVideoLinks(url, label)
-            }
+        // Single translation — the episode URL itself is the player page.
+        if (translations.isEmpty()) {
+            return listOf(Hoster(hosterName = "Kodik", internalData = episode.url))
         }
 
-        return applyQualityPreference(videos).sortVideos()
+        // Carry the signed urlParams over so Kodik actually serves the requested dubbing:
+        // without them the media id/hash in the path are ignored and the first dubbing wins.
+        val pageHtml = document.html()
+        val rawParams = Regex("""urlParams\s*=\s*'([^']+)'""").find(pageHtml)?.groupValues?.get(1)
+            ?: Regex("""urlParams\s*=\s*"([^"]+)"""").find(pageHtml)?.groupValues?.get(1)
+        val signQuery = rawParams?.let(::urlParamsToQuery).orEmpty()
+
+        return translations.mapNotNull { option ->
+            val mediaId = option.attr("data-media-id")
+            val mediaHash = option.attr("data-media-hash")
+            if (mediaId.isBlank() || mediaHash.isBlank()) return@mapNotNull null
+
+            // Skip translations that do not have the requested episode yet.
+            val epCount = EP_COUNT_REGEX.find(option.text())?.groupValues?.get(1)?.toIntOrNull()
+            if (episodeNum != null && epCount != null && epCount < episodeNum) return@mapNotNull null
+
+            val dubbing = option.text().substringBefore(" (").trim().ifBlank { "Kodik" }
+            val label = if (option.attr("data-translation-type") == "subtitles") {
+                "$dubbing (Субтитры)"
+            } else {
+                dubbing
+            }
+
+            val mediaType = if (isSerial) "serial" else "video"
+            val params = listOfNotNull(
+                signQuery.takeIf { it.isNotEmpty() },
+                if (isSerial && episodeNum != null) "episode=$episodeNum" else null,
+            ).joinToString("&")
+            val url = buildString {
+                append("https://$playerHost/$mediaType/$mediaId/$mediaHash/720p")
+                if (params.isNotEmpty()) append("?$params")
+            }
+
+            Hoster(hosterName = label, internalData = url)
+        }
     }
 
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
+    private fun urlParamsToQuery(raw: String): String = runCatching {
+        raw.parseAs<JsonObject>().entries.joinToString("&") { (key, value) ->
+            "$key=${value.jsonPrimitive.content}"
+        }
+    }.getOrDefault("")
 
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = applyQualityPreference(kodikVideoLinks(hoster.internalData, hoster.hosterName))
+
+    // Voice-overs before subtitles now applies to the hoster (audio track) list.
+    override fun List<Hoster>.sortHosters(): List<Hoster> = sortedBy { it.hosterName.contains("Субтитры", ignoreCase = true) }
 
     // Keep only the quality selected in the extension settings; if it is not available,
     // fall back to the closest one (ties prefer the higher quality). Videos whose quality

@@ -1,6 +1,7 @@
 ext {
     extName = 'Jutsu TV'
     extClass = '.JutsuTv'
+    libVersion = 16
     extVersionCode = 1
     isNsfw = false
 }
