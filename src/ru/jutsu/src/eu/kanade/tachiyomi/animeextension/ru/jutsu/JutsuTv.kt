@@ -432,7 +432,7 @@ class JutsuTv :
         client.newCall(GET(url, headers)).execute().use { it.isSuccessful }
     }.getOrDefault(false)
 
-    private fun kodikVideoLinks(playerPageUrl: String, dubbing: String): List<Video> {
+    private suspend fun kodikVideoLinks(playerPageUrl: String, dubbing: String): List<Video> {
         val page = runCatching {
             fetchKodikDocument(playerPageUrl)
         }.getOrNull() ?: return emptyList()
@@ -516,7 +516,7 @@ class JutsuTv :
 
         val jsScript = decodeScriptCache.getOrPut(scriptUrl) {
             runCatching {
-                client.newCall(GET(scriptUrl, kodikHeaders)).execute().use { it.body.string() }
+                client.get(scriptUrl, kodikHeaders).body.string()
             }.getOrNull() ?: return emptyList()
         }
 
