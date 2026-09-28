@@ -2,7 +2,7 @@ ext {
     extName = 'AniPM'
     extClass = '.AniPM'
     libVersion = 16
-    extVersionCode = 2
+    extVersionCode = 3
     isNsfw = true
 }
 

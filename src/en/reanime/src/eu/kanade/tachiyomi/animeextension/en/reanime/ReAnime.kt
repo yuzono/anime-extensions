@@ -31,6 +31,8 @@ import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.tryParse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
@@ -89,9 +91,6 @@ class ReAnime :
     private val excludedAudioTypes: Set<String>
         get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, PREF_AUDIO_EXCLUDE_DEFAULT)
             ?: PREF_AUDIO_EXCLUDE_DEFAULT
-
-    private val hideFiller: Boolean
-        get() = preferences.getBoolean(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     private val includeDirectDownloads: Boolean
         get() = preferences.getBoolean(PREF_DOWNLOAD_KEY, PREF_DOWNLOAD_DEFAULT)
@@ -536,8 +535,16 @@ class ReAnime :
             throw Exception("Could not find any episodes. Check if there are any in WebView.")
         }
 
-        val visibleEpisodes = dto.data.filterNot { it.isFiller && hideFiller }
+        val visibleEpisodes = dto.data
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
+
+        val thumbnails = coroutineScope {
+            meta?.anilistId?.takeIf { it > 0 }?.let { anilistId ->
+                async {
+                    fetchThumbnails(anilistId.toString(), "$baseUrl/watch/${anime.url}")
+                }
+            }?.await()
+        }
 
         val maxSub = meta?.subbed ?: 0
         val maxDub = meta?.dubbed ?: 0
@@ -563,7 +570,6 @@ class ReAnime :
                 name = buildString {
                     append(baseName)
                     if (ep.isRecap) append(" [Recap]")
-                    if (ep.isFiller && !hideFiller) append(" [Filler]")
                 }
 
                 val hasSub = epNum <= maxSub
@@ -576,9 +582,21 @@ class ReAnime :
                     else -> null
                 }
 
+                fillermark = ep.isFiller
+
                 date_upload = dateFormat.tryParse(ep.aired)
+
+                preview_url = thumbnails?.get(epNumStr)
             }
         }.reversed()
+    }
+
+    private suspend fun fetchThumbnails(animeId: String, episodeUrl: String): Map<String, String>? = try {
+        client.get("$baseUrl/api/thumbnails/$animeId", apiHeaders(episodeUrl)).use { res ->
+            res.parseAs<ThumbnailsResponseDto>().thumbnails
+        }
+    } catch (_: Exception) {
+        null
     }
 
     override fun getEpisodeUrl(episode: SEpisode): String {
@@ -1111,15 +1129,6 @@ class ReAnime :
 
         screen.addPreference(
             SwitchPreferenceCompat(screen.context).apply {
-                key = PREF_HIDE_FILLER_KEY
-                title = "Hide Filler Episodes"
-                summary = "Hides episodes marked as filler from the episode list."
-                setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
-            },
-        )
-
-        screen.addPreference(
-            SwitchPreferenceCompat(screen.context).apply {
                 key = PREF_DOWNLOAD_KEY
                 title = "Include Direct Downloads"
                 summary = "Adds the original MKV file of each server as an extra video entry."
@@ -1158,9 +1167,6 @@ class ReAnime :
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
         private val PREF_TITLE_LANG_ENTRIES = listOf("Romaji", "English", "Japanese (Native)")
         private val PREF_TITLE_LANG_VALUES = listOf("romaji", "english", "native")
-
-        private const val PREF_HIDE_FILLER_KEY = "hide_filler"
-        private const val PREF_HIDE_FILLER_DEFAULT = false
 
         private const val PREF_DOWNLOAD_KEY = "include_direct_downloads"
         private const val PREF_DOWNLOAD_DEFAULT = true
