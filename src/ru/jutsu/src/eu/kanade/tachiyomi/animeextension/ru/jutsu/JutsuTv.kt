@@ -423,8 +423,8 @@ class JutsuTv :
     // parse it as an empty element (SVG foreign-content rules), but Jsoup treats it as an
     // opening <script> tag and swallows the rest of the page — including the translations
     // panel — as raw script text. Balance such tags before parsing.
-    private fun fetchKodikDocument(url: String): Document {
-        val body = client.newCall(GET(url, kodikHeaders)).execute().use { it.body.string() }
+    private suspend fun fetchKodikDocument(url: String): Document {
+        val body = client.get(url, kodikHeaders).body.string()
         return Jsoup.parse(body.replace(SELF_CLOSING_SCRIPT_REGEX, "<script$1></script>"), url)
     }
 
