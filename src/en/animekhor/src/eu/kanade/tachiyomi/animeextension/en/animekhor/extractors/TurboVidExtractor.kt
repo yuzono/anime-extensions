@@ -49,7 +49,15 @@ class TurboVidExtractor(private val client: OkHttpClient, private val headers: H
                 referer = url,
                 subtitleList = subtitles,
                 videoNameGen = { "$prefix$it" },
-            )
+            ).map { video ->
+                // Segments are MPEG-TS served without an extension, so the container must be forced.
+                video.copy(
+                    mpvArgs = video.mpvArgs.filterNot { it.first == "demuxer-lavf-o" } +
+                        ("demuxer-lavf-o" to "force_mpegts=1"),
+                    ffmpegStreamArgs = video.ffmpegStreamArgs.filterNot { it.first == "force_mpegts" } +
+                        ("force_mpegts" to "1"),
+                )
+            }
         } else {
             val videoHeaders = headers.newBuilder()
                 .set("Referer", url)
