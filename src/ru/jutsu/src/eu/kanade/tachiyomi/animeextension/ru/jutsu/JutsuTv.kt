@@ -201,7 +201,8 @@ class JutsuTv :
     // =========================== Anime Details ============================
 
     override fun animeDetailsParse(document: Document): SAnime = SAnime.create().apply {
-        title = document.selectFirst("h1")?.text() ?: ""
+        title = document.selectFirst("h1")?.text()
+            ?: throw Exception("Название не найдено")
         thumbnail_url = document.selectFirst("div.zfx__img img")?.absUrl("src")
 
         // The synopsis lives in the "Описание аниме …" block; everything else on the
