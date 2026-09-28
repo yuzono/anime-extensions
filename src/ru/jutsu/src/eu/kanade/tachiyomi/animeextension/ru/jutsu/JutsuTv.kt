@@ -19,7 +19,6 @@ import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -28,7 +27,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class JutsuTv :
     ParsedAnimeHttpLegacySource(),
@@ -39,7 +37,6 @@ class JutsuTv :
     override val lang = "ru"
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
     private val preferences by getPreferencesLazy()
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
@@ -411,7 +408,7 @@ class JutsuTv :
             ?: return emptyList()
 
         val formData = runCatching {
-            json.decodeFromString(KodikFormData.serializer(), rawParams)
+            rawParams.parseAs<KodikFormData>()
         }.getOrNull() ?: return emptyList()
 
         if (formData.dSign.isEmpty()) return emptyList()
