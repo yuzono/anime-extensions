@@ -1,0 +1,13 @@
+ext {
+    extName = 'AniKuro'
+    extClass = '.AniKuro'
+    libVersion = 16
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+}

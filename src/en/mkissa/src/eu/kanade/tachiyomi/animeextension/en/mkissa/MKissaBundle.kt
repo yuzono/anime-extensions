@@ -94,11 +94,19 @@ object MKissaBundle {
             ALIAS_DECODER_REGEX.findAll(js).forEach { m ->
                 val (name, firstParam, _, callee, arg, delta) = m.destructured
                 if (callee !in bases) return@forEach
-                put(name, Alias(callee, if (arg == firstParam) 0 else 1, if (delta.isEmpty()) 0 else fold(delta)))
+                put(name, Alias(callee, if (arg == firstParam) 0 else 1, if (delta.isEmpty()) 0 else foldDelta(delta)))
             }
         }
         return Triple(tables, bases, aliases)
     }
+
+    // Alias deltas are usually plain arithmetic (`- -819`), but the obfuscator
+    // sometimes emits a member access on an object literal evaluating to a
+    // number (`e-{_0x1f353a:662}._0x1f353a`, i.e. `e-662`). Normalize those to
+    // the literal before folding.
+    private fun foldDelta(expression: String): Int = fold(MEMBER_ACCESS_REGEX.replace(expression, "$1"))
+
+    private val MEMBER_ACCESS_REGEX = Regex("""\{[^{}]*:(-?\d+)\}[._][A-Za-z0-9_${'$'}]+""")
 
     private fun extractSeedsWithTables(
         js: String,
@@ -108,21 +116,26 @@ object MKissaBundle {
         forcedRotation: Int? = null,
     ): List<String>? {
         for (match in SEED_ARRAY_REGEX.findAll(js)) {
-            val calls = CALL_REGEX.findAll(match.groupValues[1]).map(MatchResult::value).toList()
-            if (calls.size != MKissaCrypto.SEED_COUNT * 2) continue
+            // Each of the four elements is one or more decoder calls joined by
+            // `+` (the site changed from 2 fragments per seed to 4). Split the
+            // top-level commas first since calls themselves contain commas.
+            val groups = splitTopLevel(match.groupValues[1], ',')
+                .map { element -> element.split('+').map { it.trim() } }
+            if (groups.size != MKissaCrypto.SEED_COUNT) continue
+            if (groups.any { calls -> calls.isEmpty() || calls.any { CALL_REGEX.matchEntire(it) == null } }) continue
 
-            val table = CALL_REGEX.find(calls.first())
+            val table = CALL_REGEX.find(groups.first().first())
                 ?.let { aliases[it.groupValues[1]] }
                 ?.let { tables[bases[it.base]?.table] }
                 ?: continue
 
             if (forcedRotation != null) {
-                seedsAt(calls, forcedRotation, tables, bases, aliases)?.let { return it }
+                seedsAt(groups, forcedRotation, tables, bases, aliases)?.let { return it }
                 continue
             }
 
             val matches = table.indices.mapNotNull { rotation ->
-                seedsAt(calls, rotation, tables, bases, aliases)
+                seedsAt(groups, rotation, tables, bases, aliases)
             }
             matches.singleOrNull()?.let { return it }
         }
@@ -130,18 +143,38 @@ object MKissaBundle {
     }
 
     private fun seedsAt(
-        calls: List<String>,
+        calls: List<List<String>>,
         rotation: Int,
         tables: Map<String, List<String>>,
         bases: Map<String, Base>,
         aliases: Map<String, Alias>,
     ): List<String>? {
-        val seeds = calls.chunked(2).mapNotNull { (first, second) ->
-            val a = resolve(first, rotation, tables, bases, aliases) ?: return@mapNotNull null
-            val b = resolve(second, rotation, tables, bases, aliases) ?: return@mapNotNull null
-            (a + b).takeIf(SEED_REGEX::matches)
+        val seeds = calls.map { group ->
+            group.map { resolve(it, rotation, tables, bases, aliases) ?: return null }
+                .joinToString("")
+                .takeIf(SEED_REGEX::matches) ?: return null
         }
         return seeds.takeIf { it.size == MKissaCrypto.SEED_COUNT }
+    }
+
+    private fun splitTopLevel(value: String, delimiter: Char): List<String> {
+        val parts = mutableListOf<String>()
+        var depth = 0
+        val current = StringBuilder()
+        for (char in value) {
+            when (char) {
+                '(' -> depth++
+                ')' -> depth--
+            }
+            if (char == delimiter && depth == 0) {
+                parts.add(current.toString())
+                current.clear()
+            } else {
+                current.append(char)
+            }
+        }
+        parts.add(current.toString())
+        return parts
     }
 
     private fun resolve(
@@ -166,6 +199,9 @@ object MKissaBundle {
 
     private fun readTables(js: String): Map<String, List<String>> = buildMap {
         for (match in TABLE_HEAD_REGEX.findAll(js)) {
+            // NB: the pattern ends `...\[\"""`, which Kotlin lexes as a closing
+            // delimiter right after `[` (the `"` is consumed), so range.last is
+            // the `[` itself and readStringArray starts just after the bracket.
             readStringArray(js, match.range.last)?.let { put(match.groupValues[1], it) }
         }
     }
@@ -238,12 +274,12 @@ object MKissaBundle {
 
     private val BASE_DECODER_REGEX = Regex("""function ($IDENT)\(($IDENT)(?:,$IDENT)*\)\{return \2=\2-\(?([-\d+*\s]+?)\)?,($IDENT)\(\)\[\2\]\}""")
 
-    private val ALIAS_DECODER_REGEX = Regex("""function ($IDENT)\(($IDENT),($IDENT)\)\{return ($IDENT)\(($IDENT)((?:[-+][\d+*\s-]+)?)\)\}""")
+    private val ALIAS_DECODER_REGEX = Regex("""function ($IDENT)\(($IDENT),($IDENT)\)\{return ($IDENT)\(($IDENT)((?:[-+](?:[\d+*\s-]+|\{[^{}]*\}[._][A-Za-z0-9_${'$'}]+))?)\)\}""")
 
     private val CALL_PATTERN = """($IDENT)\(\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\)"""
     private val CALL_REGEX = Regex(CALL_PATTERN)
 
-    private val SEED_ARRAY_REGEX = Regex("""=\[((?:$CALL_PATTERN\+$CALL_PATTERN,){3}$CALL_PATTERN\+$CALL_PATTERN)]""")
+    private val SEED_ARRAY_REGEX = Regex("""=\[((?:$CALL_PATTERN(?:\+$CALL_PATTERN)*,){3}$CALL_PATTERN(?:\+$CALL_PATTERN)*)]""")
 
     private val SEED_REGEX = Regex("""[A-Za-z0-9+/]{11}=""")
 
