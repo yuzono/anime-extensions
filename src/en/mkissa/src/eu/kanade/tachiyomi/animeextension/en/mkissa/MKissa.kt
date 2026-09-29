@@ -79,8 +79,10 @@ class MKissa :
             .build()
     }
 
-    private suspend inline fun <reified V : Any> graphQL(query: String, variables: V): Response =
-        client.post("$apiUrl/api", postHeaders, graphQLBody(query = query, variables = variables))
+    private suspend inline fun <reified V : Any> graphQL(query: String, variables: V): Response {
+        val body = graphQLBody(query = query, variables = variables)
+        return client.post("$apiUrl/api", postHeaders, body)
+    }
 
     // ============================== Popular ===============================
 
