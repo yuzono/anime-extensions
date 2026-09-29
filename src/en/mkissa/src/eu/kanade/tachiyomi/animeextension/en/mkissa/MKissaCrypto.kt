@@ -29,11 +29,11 @@ object MKissaCrypto {
     private const val EPOCH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L
     private const val EPOCH_GRACE_MS = 24 * 60 * 60 * 1000L
 
-    private const val SALT_MUL = 34
-    private const val SALT_ADD = 47
-    private const val FRAG_MUL = 93
-    private const val FRAG_ADD = 29
-    private const val BOOT_PREFIX = "X8S061oCq:"
+    private const val SALT_MUL = 20
+    private const val SALT_ADD = 73
+    private const val FRAG_MUL = 10
+    private const val FRAG_ADD = 195
+    private const val BOOT_PREFIX = "I5AgJjIcVH:"
 
     fun sha256Hex(value: String): String = MessageDigest.getInstance(HASH_ALGO)
         .digest(value.toByteArray(Charsets.UTF_8))
@@ -66,6 +66,8 @@ object MKissaCrypto {
             }
         }
         if (mask.all { it == 0.toByte() }) return null
+        // The site's config also carries an `envXor` byte, but it is only applied when its
+        // environment check flags a non-browser runtime; the server rejects tokens built from it.
         return mask
     }
 
@@ -85,9 +87,9 @@ object MKissaCrypto {
         lane: String,
     ): String {
         val inner = hmac(mask, "$BOOT_PREFIX$buildId")
-        // Field order and delimiter mirror the site's `lT` message builder
-        // (parts ["buildId", "group", "host", "epoch", "lane"], join "|").
-        val message = listOf(buildId, keyGroup, refererHost, epoch.toString(), lane).joinToString("|")
+        // Field order and delimiter mirror the site's boot message builder
+        // (parts ["group", "lane", "host", "buildId", "epoch"], join "/").
+        val message = listOf(keyGroup, lane, refererHost, buildId, epoch.toString()).joinToString("/")
         return hmac(inner, message).toHex()
     }
 
