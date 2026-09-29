@@ -2,15 +2,14 @@ package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import android.content.SharedPreferences
 import android.util.Base64
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.network.get
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -147,7 +146,9 @@ class MKissaKeyManager(
                 .set("Referer", "$siteUrl/")
                 .build()
 
-            val response = runCatching { client.newCall(GET(url, requestHeaders)).await() }.getOrNull()
+            val response = runCatching {
+                client.get(url, requestHeaders, CacheControl.FORCE_NETWORK, ensureSuccess = false)
+            }.getOrNull()
                 ?: return BootstrapResult(null, stale = false)
 
             if (!response.isSuccessful) {
@@ -177,7 +178,7 @@ class MKissaKeyManager(
         val appUrl = entryUrlFromSite()?.toHttpUrl() ?: return null
 
         val appJs = runCatching {
-            client.newCall(GET(appUrl, headers)).awaitSuccess().bodyString()
+            client.get(appUrl, headers).bodyString()
         }.getOrNull() ?: return null
 
         val chunkRefs = CHUNK_REF_REGEX.findAll(appJs)
@@ -190,7 +191,7 @@ class MKissaKeyManager(
         for (batch in chunkRefs.chunked(BUILD_CHUNK_BATCH)) {
             val found = batch.parallelCatchingMapNotNull { ref ->
                 val chunkUrl = appUrl.resolve(ref) ?: return@parallelCatchingMapNotNull null
-                val body = client.newCall(GET(chunkUrl, headers)).awaitSuccess().bodyString()
+                val body = client.get(chunkUrl, headers).bodyString()
                 if (!body.contains(CRYPTO_CHUNK_MARKER)) return@parallelCatchingMapNotNull null
                 MKissaBundle.parse(body)
             }
@@ -201,7 +202,7 @@ class MKissaKeyManager(
 
     private suspend fun entryUrlFromSite(): String? {
         val html = runCatching {
-            client.newCall(GET("$siteUrl/", headers)).awaitSuccess().bodyString()
+            client.get("$siteUrl/", headers).bodyString()
         }.getOrNull() ?: return null
 
         return APP_ENTRY_REGEX.find(html)?.groupValues?.get(1)

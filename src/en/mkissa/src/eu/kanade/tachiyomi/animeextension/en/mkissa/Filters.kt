@@ -2,9 +2,10 @@ package eu.kanade.tachiyomi.animeextension.en.mkissa
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
 import java.util.Calendar
 
-object MKissaFilters {
+object Filters {
 
     open class QueryPartFilter(
         displayName: String,
@@ -20,34 +21,30 @@ object MKissaFilters {
 
     private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart()
+    private inline fun <reified R : QueryPartFilter> AnimeFilterList.asQueryPart(): String = firstInstance<R>().toQueryPart()
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
-
-    private inline fun <reified R> AnimeFilterList.parseCheckbox(
+    private inline fun <reified R : CheckBoxFilterList> AnimeFilterList.parseCheckbox(
         options: Array<Pair<String, String>>,
-    ): String = (this.getFirst<R>() as CheckBoxFilterList).state
+    ): List<String>? = firstInstance<R>().state
         .filter { it.state }
         .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString("\",\"", "[\"", "\"]")
-        ?: "all"
+        .ifEmpty { null }
 
-    class OriginFilter : QueryPartFilter("Origin", MKissaFiltersData.ORIGIN)
-    class SeasonFilter : QueryPartFilter("Season", MKissaFiltersData.SEASONS)
-    class ReleaseYearFilter : QueryPartFilter("Released at", MKissaFiltersData.YEARS)
-    class SortByFilter : QueryPartFilter("Sort By", MKissaFiltersData.SORT_BY)
+    class OriginFilter : QueryPartFilter("Origin", FiltersData.ORIGIN)
+    class SeasonFilter : QueryPartFilter("Season", FiltersData.SEASONS)
+    class ReleaseYearFilter : QueryPartFilter("Released at", FiltersData.YEARS)
+    class SortByFilter : QueryPartFilter("Sort By", FiltersData.SORT_BY)
 
     class TypesFilter :
         CheckBoxFilterList(
             "Types",
-            MKissaFiltersData.TYPES.map { CheckBoxVal(it.first, false) },
+            FiltersData.TYPES.map { CheckBoxVal(it.first, false) },
         )
 
     class GenresFilter :
         CheckBoxFilterList(
             "Genres",
-            MKissaFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+            FiltersData.GENRES.map { CheckBoxVal(it.first, false) },
         )
 
     val FILTER_LIST get() = AnimeFilterList(
@@ -60,13 +57,13 @@ object MKissaFilters {
         GenresFilter(),
     )
 
-    data class FilterSearchParams(
-        val origin: String = "",
+    class FilterSearchParams(
+        val origin: String = "ALL",
         val season: String = "",
         val releaseYear: String = "",
         val sortBy: String = "",
-        val types: String = "",
-        val genres: String = "",
+        val types: List<String>? = null,
+        val genres: List<String>? = null,
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
@@ -77,12 +74,12 @@ object MKissaFilters {
             filters.asQueryPart<SeasonFilter>(),
             filters.asQueryPart<ReleaseYearFilter>(),
             filters.asQueryPart<SortByFilter>(),
-            filters.parseCheckbox<TypesFilter>(MKissaFiltersData.TYPES),
-            filters.parseCheckbox<GenresFilter>(MKissaFiltersData.GENRES),
+            filters.parseCheckbox<TypesFilter>(FiltersData.TYPES),
+            filters.parseCheckbox<GenresFilter>(FiltersData.GENRES),
         )
     }
 
-    private object MKissaFiltersData {
+    private object FiltersData {
         val ALL = Pair("All", "all")
 
         val ORIGIN = arrayOf(

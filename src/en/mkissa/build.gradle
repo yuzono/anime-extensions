@@ -1,6 +1,7 @@
 ext {
     extName = 'MKissa'
     extClass = '.MKissa'
+    libVersion = 16
     extVersionCode = 70
 }
 

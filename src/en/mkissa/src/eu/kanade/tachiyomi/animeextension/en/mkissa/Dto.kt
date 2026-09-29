@@ -4,73 +4,60 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class PopularResult(
+class PopularResult(
     val data: PopularResultData,
 ) {
     @Serializable
-    data class PopularResultData(
+    class PopularResultData(
         val queryPopular: QueryPopularData,
     ) {
         @Serializable
-        data class QueryPopularData(
+        class QueryPopularData(
             val recommendations: List<Recommendation>,
         ) {
             @Serializable
-            data class Recommendation(
-                val anyCard: Card? = null,
-            ) {
-                @Serializable
-                data class Card(
-                    @SerialName("_id")
-                    val id: String,
-                    val name: String,
-                    val thumbnail: String? = null,
-                    val englishName: String? = null,
-                    val nativeName: String? = null,
-                    val slugTime: String? = null,
-                )
-            }
-        }
-    }
-}
-
-@Serializable
-data class SearchResult(
-    val data: SearchResultData,
-) {
-    @Serializable
-    data class SearchResultData(
-        val shows: SearchResultShows,
-    ) {
-        @Serializable
-        data class SearchResultShows(
-            val edges: List<SearchResultEdge>,
-        ) {
-            @Serializable
-            data class SearchResultEdge(
-                @SerialName("_id")
-                val id: String,
-                val name: String,
-                val thumbnail: String? = null,
-                val englishName: String? = null,
-                val nativeName: String? = null,
-                val slugTime: String? = null,
+            class Recommendation(
+                val anyCard: ShowCard? = null,
             )
         }
     }
 }
 
 @Serializable
-data class DetailsResult(
+class SearchResult(
+    val data: SearchResultData,
+) {
+    @Serializable
+    class SearchResultData(
+        val shows: SearchResultShows,
+    ) {
+        @Serializable
+        class SearchResultShows(
+            val edges: List<ShowCard>,
+        )
+    }
+}
+
+@Serializable
+class ShowCard(
+    @SerialName("_id") val id: String,
+    val name: String,
+    val thumbnail: String? = null,
+    val englishName: String? = null,
+    val nativeName: String? = null,
+    val slugTime: String? = null,
+)
+
+@Serializable
+class DetailsResult(
     val data: DataShow,
 ) {
     @Serializable
-    data class DataShow(
+    class DataShow(
         val show: SeriesShows,
     ) {
         @Serializable
-        data class SeriesShows(
-            val thumbnail: String? = null,
+        class SeriesShows(
             val genres: List<String>? = null,
             val studios: List<String>? = null,
             val season: AirSeason? = null,
@@ -80,7 +67,7 @@ data class DetailsResult(
             val description: String? = null,
         ) {
             @Serializable
-            data class AirSeason(
+            class AirSeason(
                 val quarter: String,
                 val year: Int,
             )
@@ -89,21 +76,20 @@ data class DetailsResult(
 }
 
 @Serializable
-data class SeriesResult(
+class SeriesResult(
     val data: DataShow,
 ) {
     @Serializable
-    data class DataShow(
+    class DataShow(
         val show: SeriesShows,
     ) {
         @Serializable
-        data class SeriesShows(
-            @SerialName("_id")
-            val id: String,
+        class SeriesShows(
+            @SerialName("_id") val id: String,
             val availableEpisodesDetail: AvailableEps,
         ) {
             @Serializable
-            data class AvailableEps(
+            class AvailableEps(
                 val sub: List<String>? = null,
                 val dub: List<String>? = null,
             )
@@ -112,41 +98,41 @@ data class SeriesResult(
 }
 
 @Serializable
-data class EpisodeResult(
+class EpisodeResult(
     val data: DataEpisode,
 ) {
     @Serializable
-    data class DataEpisode(
+    class DataEpisode(
         val episode: Episode? = null,
-    ) {
-        @Serializable
-        data class Episode(
-            val sourceUrls: List<SourceUrl>,
-        ) {
-            @Serializable
-            data class SourceUrl(
-                val sourceUrl: String,
-                val type: String,
-                val sourceName: String,
-                val priority: Float = 0F,
-            )
-        }
-    }
+    )
 }
 
 @Serializable
-data class EncryptedEpisodeResult(
+class Episode(
+    val sourceUrls: List<SourceUrl>,
+) {
+    @Serializable
+    class SourceUrl(
+        val sourceUrl: String,
+        val type: String,
+        val sourceName: String,
+        val priority: Float = 0F,
+    )
+}
+
+@Serializable
+class EncryptedEpisodeResult(
     val data: EncryptedData,
 ) {
     @Serializable
-    data class EncryptedData(
+    class EncryptedData(
         val tobeparsed: String? = null,
     )
 }
 
 @Serializable
-data class DecryptedEpisodeResult(
-    val episode: EpisodeResult.DataEpisode.Episode? = null,
+class DecryptedEpisodeResult(
+    val episode: Episode? = null,
 )
 
 // GraphQL error envelope. The streams API returns `AA_CRYPTO_*` codes (e.g.
@@ -188,6 +174,7 @@ class AaReqPayload(
     private val k: String,
 )
 
+// Stored as `SEpisode.url`, so the shape must stay stable for existing library entries.
 @Serializable
 class EpisodeVariables(
     val variables: Variables,
@@ -199,3 +186,63 @@ class EpisodeVariables(
         val episodeString: String,
     )
 }
+
+// ============================== Requests ==============================
+
+@Serializable
+class PopularVariables(
+    private val type: String,
+    private val size: Int,
+    private val dateRange: Int,
+    private val page: Int,
+)
+
+@Serializable
+class SearchVariables(
+    private val search: SearchInput,
+    private val limit: Int,
+    private val page: Int,
+    private val translationType: String,
+    private val countryOrigin: String? = null,
+)
+
+@Serializable
+class SearchInput(
+    private val allowAdult: Boolean,
+    private val allowUnknown: Boolean,
+    private val query: String? = null,
+    private val sortBy: String? = null,
+    private val season: String? = null,
+    private val year: Int? = null,
+    private val genres: List<String>? = null,
+    private val excludeGenres: List<String>? = null,
+    private val types: List<String>? = null,
+)
+
+@Serializable
+class ShowIdVariables(
+    @SerialName("_id") private val id: String,
+)
+
+@Serializable
+class StreamExtensions(
+    private val persistedQuery: PersistedQuery,
+    private val k: String,
+    private val aaReq: String,
+) {
+    @Serializable
+    class PersistedQuery(
+        private val version: Int,
+        private val sha256Hash: String,
+    )
+}
+
+// ============================== Hosters ===============================
+
+@Serializable
+class HosterData(
+    val url: String,
+    val extractor: String,
+    val serverKey: String,
+    val priority: Float,
+)
