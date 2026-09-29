@@ -391,7 +391,17 @@ class AniPM :
                 referer = embedApi,
                 masterHeaders = headers,
                 videoHeaders = headers,
-            )
+            ).map { video ->
+                if (video.subtitleTracks.isNotEmpty()) {
+                    video.copy(
+                        subtitleTracks = video.subtitleTracks.map { track ->
+                            track.copy(url = proxy.subtitleUrl(track.url))
+                        },
+                    )
+                } else {
+                    video
+                }
+            }
 
             val qualityRank = PREF_QUALITY_VALUES.reversed()
             val sorted = vids.sortedWith(

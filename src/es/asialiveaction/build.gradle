@@ -1,7 +1,7 @@
 ext {
     extName = 'AsiaLiveAction'
     extClass = '.AsiaLiveAction'
-    extVersionCode = 51
+    extVersionCode = 52
 }
 
 apply plugin: "kei.plugins.extension.legacy"

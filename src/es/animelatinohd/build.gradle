@@ -1,7 +1,7 @@
 ext {
     extName = 'AnimeLatinoHD'
     extClass = '.AnimeLatinoHD'
-    extVersionCode = 54
+    extVersionCode = 55
 }
 
 apply plugin: "kei.plugins.extension.legacy"

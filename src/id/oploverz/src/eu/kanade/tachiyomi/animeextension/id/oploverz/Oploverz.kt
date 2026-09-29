@@ -1,7 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.id.oploverz
 
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.dailymotionextractor.DailymotionExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
+import aniyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,50 +12,67 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONObject
-import org.jsoup.nodes.Element
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 class Oploverz :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val name: String = "Oploverz"
-    override val baseUrl: String = "https://oploverz.media"
+    override val baseUrl: String = "https://oploverz.site"
     override val lang: String = "id"
     override val supportsLatest: Boolean = true
+
+    private val apiUrl: String = "https://backapi.oploverz.ac"
 
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/anime-list/page/$page/?order=popular")
+    override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/api/series?page=$page&pageSize=$ANIME_PAGE_SIZE", headers)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val (animes, hasNextPage) = response.parseAs<SeriesListResponseDto>().toAnimesPage()
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/anime-list/page/$page/?order=latest")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$apiUrl/api/episodes?page=$page&pageSize=$ANIME_PAGE_SIZE&sort=latest", headers)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val (animes, hasNextPage) = response.parseAs<LatestEpisodesResponseDto>().toAnimesPage()
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // =============================== Search ===============================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val params = OploverzFilters.getSearchParameters(filters)
-        return GET("$baseUrl/anime-list/page/$page/?title=$query${params.filter}", headers)
+        val url = "$apiUrl/api/series".toHttpUrl().newBuilder()
+            .addQueryParameter("page", page.toString())
+            .addQueryParameter("pageSize", ANIME_PAGE_SIZE.toString())
+            .apply {
+                if (query.isNotEmpty()) addQueryParameter("q", query)
+                OploverzFilters.getGenreParam(filters).takeIf { it.isNotEmpty() }
+                    ?.let { addQueryParameter("genres", it) }
+            }
+            .build()
+        return GET(url, headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = getAnimeParse(response, "div.relat > article")
+    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // ============================== Filters ===============================
 
@@ -60,159 +80,125 @@ class Oploverz :
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        val doc = response.asJsoup()
-        val detail = doc.selectFirst("div.infox > div.spe")!!
-        return SAnime.create().apply {
-            author = detail.getInfo("Studio")
-            status = parseStatus(doc.selectFirst("div.alternati > span:nth-child(2)")!!.text())
-            title = doc.selectFirst("div.title > h1.entry-title")!!.text()
-            thumbnail_url =
-                doc.selectFirst("div.infoanime.widget_senction > div.thumb > img")!!
-                    .attr("src")
-            description =
-                doc.select("div.entry-content.entry-content-single > p")
-                    .joinToString("\n\n") { it.text() }
-        }
-    }
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$apiUrl/api/series/${anime.slug()}", headers)
+
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<SeriesResponseDto>().toSAnime()
+
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
     // ============================== Episodes ==============================
 
+    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/api/series/${anime.slug()}/episodes?pageSize=$EPISODE_PAGE_SIZE", headers)
+
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
-        return doc.select("div.lstepsiode.listeps > ul.scrolling > li").map {
-            val episode = it.selectFirst("span.eps > a")!!
-            SEpisode.create().apply {
-                setUrlWithoutDomain(episode.attr("href"))
-                episode_number = episode.text().trim().toFloatOrNull() ?: 1F
-                name = it.selectFirst("span.lchx > a")!!.text()
-                date_upload = it.selectFirst("span.date")!!.text().toDate()
-            }
-        }
+        val slug = response.request.url.pathSegments[2]
+        return response.parseAs<EpisodeListResponseDto>().toSEpisodeList(slug)
     }
+
+    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
 
     // ============================ Video Links =============================
 
-    override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
-        val parseUrl = response.request.url.toUrl()
-        val url = "${parseUrl.protocol}://${parseUrl.host}"
-        return doc.select("#server > ul > li > div.east_player_option")
-            .parallelMapNotNullBlocking {
-                runCatching { getEmbedLinks(url, it) }.getOrNull()
-            }
-            .parallelCatchingFlatMapBlocking {
-                getVideosFromEmbed(it.first)
-            }
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
+    private val dailymotionExtractor by lazy { DailymotionExtractor(client, headers) }
+    private val universalExtractor by lazy { UniversalExtractor(client) }
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
+    private val videoHeaders by lazy { headersBuilder().set("Referer", "$baseUrl/").build() }
+
+    override fun videoListRequest(episode: SEpisode): Request {
+        val (slug, number) = episode.slugAndNumber()
+        return GET("$apiUrl/api/series/$slug/episodes/$number", headers)
     }
 
-    // ============================= Utilities ==============================
+    override fun videoListParse(response: Response): List<Video> = response.parseAs<EpisodeDetailResponseDto>().streams
+        .parallelCatchingFlatMapBlocking { getVideosFromStream(it) }
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return sortedWith(compareByDescending { it.videoTitle.contains(quality) })
     }
 
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(this?.trim() ?: "")?.time }
-        .getOrNull() ?: 0L
-
-    private fun Element.getInfo(info: String, cut: Boolean = true): String = selectFirst("span:has(b:contains($info))")!!.text()
-        .let {
-            when {
-                cut -> it.substringAfter(" ")
-                else -> it
-            }.trim()
-        }
-
-    private fun getAnimeParse(response: Response, query: String): AnimesPage {
-        val doc = response.asJsoup()
-        val animes = doc.select(query).map {
-            SAnime.create().apply {
-                setUrlWithoutDomain(it.selectFirst("div.animposx > a")!!.attr("href"))
-                title = it.selectFirst("div.title > h2")!!.text()
-                thumbnail_url = it.selectFirst("div.content-thumb > img")!!.attr("src")
+    private suspend fun getVideosFromStream(stream: StreamDto): List<Video> {
+        val url = stream.url
+        val prefix = stream.source
+        return when {
+            "blogger.com" in url || "video.g?token=" in url -> bloggerExtractor.videosFromUrl(url, videoHeaders, prefix)
+            "dailymotion" in url -> dailymotionExtractor.videosFromUrl(url, "$prefix Dailymotion - ")
+            "filedon.co" in url -> getFiledonVideo(url, prefix)
+            else -> getXFileSharingVideos(url, prefix).ifEmpty {
+                universalExtractor.videosFromUrl(url, videoHeaders, prefix = prefix)
             }
         }
-        val hasNextPage = try {
-            val pagination = doc.selectFirst("div.pagination")!!
-            val totalPage = pagination.selectFirst("span:nth-child(1)")!!.text().split(" ").last()
-            val currentPage = pagination.selectFirst("span.page-numbers.current")!!.text()
-            currentPage.toInt() < totalPage.toInt()
-        } catch (_: Exception) {
-            false
+    }
+
+    private suspend fun getFiledonVideo(url: String, quality: String): List<Video> {
+        val doc = client.get(url, videoHeaders).useAsJsoup()
+        val dataPage = doc.selectFirst("div#app")?.attr("data-page") ?: return emptyList()
+        val videoUrl = dataPage.parseAs<FiledonPageDto>().videoUrl
+        return listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = videoHeaders))
+    }
+
+    // Handles XFileSharing-style hosts (e.g. upbolt.to): the embed page auto-submits
+    // a form to /dl, whose response contains a (usually packed) player script with the source.
+    private suspend fun getXFileSharingVideos(url: String, quality: String): List<Video> = runCatching {
+        val embedUrl = url.toHttpUrl()
+        val code = embedUrl.pathSegments.last()
+        val origin = "${embedUrl.scheme}://${embedUrl.host}"
+        val form = FormBody.Builder()
+            .add("op", "embed")
+            .add("file_code", code)
+            .add("auto", "1")
+            .add("referer", "")
+            .build()
+        val dlHeaders = videoHeaders.newBuilder().set("Referer", url).build()
+        val body = client.post("$origin/dl", dlHeaders, form).bodyString()
+        val unpacked = autoUnpacker(body) ?: body
+        val videoUrl = XFS_SOURCE_REGEX.find(unpacked)?.groupValues?.get(1) ?: return@runCatching emptyList()
+        if ("m3u8" in videoUrl) {
+            playlistUtils.extractFromHls(
+                playlistUrl = videoUrl,
+                referer = url,
+                masterHeaders = dlHeaders,
+                videoHeaders = dlHeaders,
+                videoNameGen = { "$quality - $it" },
+            )
+        } else {
+            listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = dlHeaders))
         }
-        return AnimesPage(animes, hasNextPage)
-    }
+    }.getOrDefault(emptyList())
 
-    private fun parseStatus(status: String?): Int = when (status?.trim()?.lowercase()) {
-        "completed" -> SAnime.COMPLETED
-        "ongoing" -> SAnime.ONGOING
-        else -> SAnime.UNKNOWN
-    }
+    // ============================= Utilities ==============================
 
-    private fun getEmbedLinks(url: String, element: Element): Pair<String, String> {
-        val form = FormBody.Builder().apply {
-            add("action", "player_ajax")
-            add("post", element.attr("data-post"))
-            add("nume", element.attr("data-nume"))
-            add("type", element.attr("data-type"))
-        }.build()
-        return client.newCall(POST("$url/wp-admin/admin-ajax.php", body = form))
-            .execute()
-            .let { Pair(it.asJsoup().selectFirst(".playeriframe")!!.attr("src"), "") }
-    }
+    private fun SAnime.slug(): String = url.substringAfter("/series/").substringBefore("/")
 
-    private fun getVideosFromEmbed(link: String): List<Video> = when {
-        "blogger" in link -> {
-            client.newCall(GET(link)).execute().body.string().let {
-                val json = JSONObject(it.substringAfter("= ").substringBefore("<"))
-                val streams = json.getJSONArray("streams")
-                val videoList = mutableListOf<Video>()
-                for (i in 0 until streams.length()) {
-                    val stream = streams.getJSONObject(i)
-                    val url = stream.getString("play_url")
-                    val quality = when (stream.getString("format_id")) {
-                        "18" -> "Google - 360p"
-                        "22" -> "Google - 720p"
-                        else -> "Unknown Resolution"
-                    }
-                    videoList.add(Video(url, quality, url))
-                }
-                videoList
-            }
-        }
-
-        else -> emptyList()
+    private fun SEpisode.slugAndNumber(): Pair<String, String> {
+        val segments = url.trim('/').split("/")
+        return segments[1] to segments[3]
     }
 
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            summary = "%s"
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_ENTRIES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            default = PREF_QUALITY_DEFAULT,
+            title = PREF_QUALITY_TITLE,
+            summary = "%s",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+        )
     }
 
     companion object {
-        private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("dd/MM/yyyy", Locale("id", "ID"))
-        }
+        private const val ANIME_PAGE_SIZE = 20
+        private const val EPISODE_PAGE_SIZE = 2000
+
+        private val XFS_SOURCE_REGEX = Regex("""file\s*:\s*["']([^"']+)["']""")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("720p", "360p")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
     }
 }
