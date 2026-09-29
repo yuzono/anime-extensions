@@ -435,7 +435,7 @@ class JutsuTv :
     }
 
     private suspend fun isUrlAvailable(url: String, headers: Headers): Boolean = runCatching {
-        client.get(url, headers).isSuccessful
+        client.get(url, headers).use { it.isSuccessful }
     }.getOrDefault(false)
 
     private suspend fun kodikVideoLinks(playerPageUrl: String, dubbing: String): List<Video> {
