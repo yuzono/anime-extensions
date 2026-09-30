@@ -85,10 +85,11 @@ class KodikExtractor(
         }
         if (decodeScript.isEmpty()) return emptyList()
 
-        val encodeScript = extractEncodeFunction(decodeScript) ?: return emptyList()
         val streamHeaders = streamHeaders(playerHost)
 
         return QuickJs.create().use { qjs ->
+            val encodeScript = resolveDecodeFunction(decodeScript, response, qjs) ?: return emptyList()
+
             qualities.flatMap { quality ->
                 val token = response.tokenFor(quality) ?: return@flatMap emptyList()
                 val streamUrl = runCatching {
@@ -102,16 +103,38 @@ class KodikExtractor(
                 val plainTitle = "$label($quality" + "p Kodik)"
 
                 if (streamUrl.endsWith(".mpd")) {
-                    playlistUtils.extractFromDash(streamUrl, { dashTitle.replace("%s", it) }, streamHeaders, streamHeaders)
+                    playlistUtils.extractFromDash(
+                        streamUrl,
+                        { dashTitle.replace("%s", it) },
+                        streamHeaders,
+                        streamHeaders,
+                        subtitleList = subtitleList,
+                    )
                 } else {
                     buildList {
                         if (probeHigherQuality && quality == "720" && response.full.isEmpty()) {
                             val higher = streamUrl.replace("/720.mp4", "/1080.mp4")
                             if (higher != streamUrl && isAvailable(higher, streamHeaders)) {
-                                add(Video(higher, "$label(1080p Kodik)", higher, headers = streamHeaders))
+                                add(
+                                    Video(
+                                        higher,
+                                        "$label(1080p Kodik)",
+                                        higher,
+                                        headers = streamHeaders,
+                                        subtitleTracks = subtitleList,
+                                    ),
+                                )
                             }
                         }
-                        add(Video(streamUrl, plainTitle, streamUrl, headers = streamHeaders))
+                        add(
+                            Video(
+                                streamUrl,
+                                plainTitle,
+                                streamUrl,
+                                headers = streamHeaders,
+                                subtitleTracks = subtitleList,
+                            ),
+                        )
                     }
                 }
             }
@@ -226,11 +249,36 @@ class KodikExtractor(
         )?.attr("abs:src")
 
     /**
-     * Cuts the self-contained decode function out of the player's script: everything from
-     * the last `atob(` up to the point where the bracket opened there is balanced again.
+     * Picks the decode function out of the player's script.
+     *
+     * A player script can contain more than one `atob(` call, and only one of them
+     * introduces the self-contained decoder. Rather than guessing which one it is — first,
+     * last, whichever held until now — every candidate is tried against a real token and
+     * kept only if it decodes to something that looks like a stream URL.
      */
-    private fun extractEncodeFunction(jsScript: String): String? {
-        val start = ATOB_REGEX.find(jsScript)?.range?.last ?: return null
+    private fun resolveDecodeFunction(jsScript: String, quality: KodikVideoQuality, qjs: QuickJs): String? {
+        val probe = quality.good.firstOrNull()?.src
+            ?: quality.bad.firstOrNull()?.src
+            ?: quality.ugly.firstOrNull()?.src
+            ?: quality.full.firstOrNull()?.src
+            ?: return null
+
+        for (match in ATOB_REGEX.findAll(jsScript)) {
+            val candidate = extractEncodeFunction(jsScript, match.range.last) ?: continue
+            val decoded = runCatching { qjs.evaluate("t='$probe'; $candidate").toString() }.getOrNull() ?: continue
+            val decodedUrl = runCatching {
+                Base64.decode(decoded, Base64.DEFAULT).toString(Charsets.UTF_8)
+            }.getOrNull()
+            if (decodedUrl != null && decodedUrl.fixProtocol() != null) return candidate
+        }
+        return null
+    }
+
+    /**
+     * Cuts a self-contained expression out of the player's script: everything from [start]
+     * up to the point where the bracket opened there is balanced again.
+     */
+    private fun extractEncodeFunction(jsScript: String, start: Int): String? {
         val function = StringBuilder("(")
         val opened = ArrayDeque<Char>()
         opened.addFirst('(')
