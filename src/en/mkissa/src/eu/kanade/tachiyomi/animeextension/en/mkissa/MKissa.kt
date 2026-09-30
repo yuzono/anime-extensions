@@ -31,12 +31,15 @@ import keiyoushi.utils.graphQLBody
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonString
+import kotlinx.coroutines.delay
 import okhttp3.CacheControl
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
+import kotlin.time.Duration.Companion.seconds
 
 class MKissa :
     AnimeHttpSource(),
@@ -81,16 +84,37 @@ class MKissa :
             .build()
     }
 
-    private suspend inline fun <reified V : Any> graphQL(query: String, variables: V): Response {
+    private suspend inline fun <reified V : Any> graphQL(query: String, variables: V): String {
         val body = graphQLBody(query = query, variables = variables)
-        return client.post("$apiUrl/api", postHeaders, body)
+        return postGraphQL(body)
+    }
+
+    // Opening an entry fires details, episodes and related at once, which trips the API's per-IP
+    // throttle. It answers with "try again in N seconds", so wait that long instead of failing.
+    private suspend fun postGraphQL(body: RequestBody): String {
+        repeat(MAX_RATE_LIMIT_RETRIES) {
+            val response = client.post("$apiUrl/api", postHeaders, body).bodyString()
+            val waitSeconds = RATE_LIMIT_REGEX.find(response)?.groupValues?.get(1)?.toLongOrNull()
+                ?: return response
+            delay((waitSeconds + 1).coerceAtMost(MAX_RATE_LIMIT_WAIT_SECONDS).seconds)
+        }
+        return client.post("$apiUrl/api", postHeaders, body).bodyString()
+    }
+
+    // A throttled or failed query comes back as `{"errors": [...], "data": {"show": null}}`; surface
+    // the server's message instead of the resulting JSON decoding error.
+    private inline fun <reified T> String.parseResult(): T {
+        val body = this
+        return runCatching { body.parseAs<T>() }.getOrElse { error ->
+            throw Exception(keyManager.apiErrorMessage(body) ?: throw error)
+        }
     }
 
     // ============================== Popular ===============================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val variables = PopularVariables(type = "anime", size = PAGE_SIZE, dateRange = 7, page = page)
-        val recommendations = graphQL(POPULAR_QUERY, variables).parseAs<PopularResult>()
+        val recommendations = graphQL(POPULAR_QUERY, variables).parseResult<PopularResult>()
             .data.queryPopular.recommendations
 
         val animes = recommendations.mapNotNull { it.anyCard?.toSAnime() }
@@ -140,7 +164,7 @@ class MKissa :
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     private suspend fun searchShows(variables: SearchVariables): AnimesPage {
-        val animes = graphQL(SEARCH_QUERY, variables).parseAs<SearchResult>()
+        val animes = graphQL(SEARCH_QUERY, variables).parseResult<SearchResult>()
             .data.shows.edges.map { it.toSAnime() }
         return AnimesPage(animes, animes.size == PAGE_SIZE)
     }
@@ -168,7 +192,7 @@ class MKissa :
     override fun getAnimeUrl(anime: SAnime): String = "${preferences.siteUrl}/anime/${anime.showId}"
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val show = graphQL(DETAILS_QUERY, ShowIdVariables(anime.showId)).parseAs<DetailsResult>().data.show
+        val show = graphQL(DETAILS_QUERY, ShowIdVariables(anime.showId)).parseResult<DetailsResult>().data.show
 
         return SAnime.create().apply {
             genre = show.genres?.joinToString()
@@ -192,7 +216,7 @@ class MKissa :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val subPref = preferences.subPref
-        val show = graphQL(EPISODES_QUERY, ShowIdVariables(anime.showId)).parseAs<SeriesResult>().data.show
+        val show = graphQL(EPISODES_QUERY, ShowIdVariables(anime.showId)).parseResult<SeriesResult>().data.show
 
         val episodes = if (subPref == "sub") {
             show.availableEpisodesDetail.sub
@@ -565,6 +589,10 @@ class MKissa :
         private const val PREF_SUB_DEFAULT = "sub"
 
         private const val MAX_KEY_ATTEMPTS = 3
+
+        private const val MAX_RATE_LIMIT_RETRIES = 3
+        private const val MAX_RATE_LIMIT_WAIT_SECONDS = 10L
+        private val RATE_LIMIT_REGEX = Regex("""Too many requests, please try again in (\d+) seconds""")
 
         private val RESOLUTION_REGEX = Regex("""\d{3,4}""")
         private val LEADING_SLASHES_REGEX = Regex("^//")
