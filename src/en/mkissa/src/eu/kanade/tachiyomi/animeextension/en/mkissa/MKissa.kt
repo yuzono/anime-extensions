@@ -12,6 +12,8 @@ import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.MKissaExtractor
+import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.UniExtractor
+import eu.kanade.tachiyomi.animeextension.en.mkissa.extractors.VidnestExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -356,6 +358,8 @@ class MKissa :
     private val streamlareExtractor by lazy { StreamlareExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val streamwishExtractor by lazy { StreamWishExtractor(client, headers) }
+    private val uniExtractor by lazy { UniExtractor(client, headers) }
+    private val vidnestExtractor by lazy { VidnestExtractor(client, headers) }
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val data = hoster.internalData.parseAs<HosterData>()
@@ -371,6 +375,8 @@ class MKissa :
             "streamlare" -> streamlareExtractor.videosFromUrl(url)
             "Fm-Hls" -> filemoonExtractor.videosFromUrl(url, prefix = "Fm-Hls:")
             "streamwish" -> streamwishExtractor.videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+            "uni" -> uniExtractor.videosFromUrl(url, preferences.siteUrl.toHttpUrl().host)
+            "vidnest" -> vidnestExtractor.videosFromUrl(url, "${preferences.siteUrl}/")
             else -> emptyList()
         }
 
@@ -485,6 +491,8 @@ class MKissa :
             "streamlare" to listOf("streamlare.com"),
             "Fm-Hls" to listOf("bysekoze.com", "fastmoon", "filemoon", "moonplayer"),
             "streamwish" to listOf("wish"),
+            "uni" to listOf("uns.bio"),
+            "vidnest" to listOf("vidnest"),
         )
 
         private val ALT_HOSTER_NAMES = arrayOf(
@@ -495,6 +503,8 @@ class MKissa :
             "streamlare",
             "doodstream",
             "streamwish",
+            "uni",
+            "vidnest",
         )
 
         private const val THUMBNAIL_PROXY = "https://wp.youtube-anime.com/%s?w=250"
