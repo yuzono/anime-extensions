@@ -111,12 +111,10 @@ class MKissa :
     }
 
     // A throttled or failed query comes back as `{"errors": [...], "data": {"show": null}}`; surface
-    // the server's message instead of the resulting JSON decoding error.
+    // the server's message instead of a JSON decoding error or silently missing fields.
     private inline fun <reified T> String.parseResult(): T {
-        val body = this
-        return runCatching { body.parseAs<T>() }.getOrElse { error ->
-            throw Exception(keyManager.apiErrorMessage(body) ?: throw error)
-        }
+        keyManager.apiErrorMessage(this)?.let { throw Exception(it) }
+        return parseAs<T>()
     }
 
     // ============================== Popular ===============================
