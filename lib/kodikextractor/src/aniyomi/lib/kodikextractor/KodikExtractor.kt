@@ -51,7 +51,9 @@ class KodikExtractor(
 
     /**
      * @param playerUrl the Kodik player page, e.g. `https://kodikplayer.com/seria/1407443/abc/720p`.
-     * @param prefix label prefixed to every video title, usually the dubbing name.
+     * @param prefix label prefixed to every video title, usually the dubbing name. It ends up
+     *   in the title the user sees, so callers pass it in their source's own language
+     *   (the library itself is language-agnostic).
      * @param qualities qualities to expand, as in `listOf("360", "480", "720", "1080")`.
      *   Anything the player has no rendition for is skipped.
      * @param probeHigherQuality Kodik's API reports at most 720p, but the CDN usually keeps a
