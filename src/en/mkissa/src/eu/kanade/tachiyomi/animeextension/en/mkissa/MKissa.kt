@@ -64,6 +64,15 @@ class MKissa :
         if (getString(PREF_DOMAIN_KEY, null) == LEGACY_API_DOMAIN) {
             edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
         }
+        // The settings screen persists the alt-hoster default on first open, so hosters added
+        // later stay disabled for anyone who has opened it. Enable them once.
+        if (!getBoolean(PREF_ALT_HOSTER_MIGRATED_KEY, false)) {
+            val editor = edit().putBoolean(PREF_ALT_HOSTER_MIGRATED_KEY, true)
+            getStringSet(PREF_ALT_HOSTER_KEY, null)?.let {
+                editor.putStringSet(PREF_ALT_HOSTER_KEY, it + ADDED_ALT_HOSTERS)
+            }
+            editor.apply()
+        }
     }
 
     override fun headersBuilder() = super.headersBuilder()
@@ -565,6 +574,8 @@ class MKissa :
         private val PREF_HOSTER_DEFAULT = setOf("default", "ac", "ak", "kir", "si-hls", "s-mp4", "ac-hls", "fm-hls")
 
         private const val PREF_ALT_HOSTER_KEY = "alt_hoster_selection"
+        private const val PREF_ALT_HOSTER_MIGRATED_KEY = "alt_hoster_selection_uni_vidnest"
+        private val ADDED_ALT_HOSTERS = setOf("uni", "vidnest")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private val PREF_QUALITY_ENTRIES = arrayOf(
