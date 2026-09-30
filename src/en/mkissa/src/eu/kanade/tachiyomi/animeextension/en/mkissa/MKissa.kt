@@ -257,7 +257,7 @@ class MKissa :
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
 
-        return fetchSourceUrls(episode).mapNotNull { source ->
+        val servers = fetchSourceUrls(episode).mapNotNull { source ->
             val videoUrl = source.sourceUrl.decryptSource()
             val sourceName = source.sourceName.lowercase()
 
@@ -285,7 +285,15 @@ class MKissa :
                 }
             }
 
-            Hoster(hosterName = source.sourceName, internalData = data.toJsonString())
+            source.sourceName to data
+        }
+
+        // Some episodes list the same server more than once. Drop exact repeats, and number the
+        // remaining ones (separate uploads) so they can be told apart.
+        val seen = mutableMapOf<String, Int>()
+        return servers.distinctBy { (_, data) -> data.url }.map { (name, data) ->
+            val count = seen.merge(name, 1, Int::plus)!!
+            Hoster(hosterName = if (count > 1) "$name ($count)" else name, internalData = data.toJsonString())
         }
     }
 
