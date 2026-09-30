@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.network.get
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.decodeHex
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
@@ -44,8 +45,9 @@ class UniExtractor(private val client: OkHttpClient, private val headers: Header
             "Google" to streams.hlsVideoGoogle,
             "Cloudflare" to (streams.cf ?: streams.cfNative),
             "In-House" to streams.source,
-        ).flatMap { (network, path) ->
-            val playlistUrl = path?.takeIf(String::isNotBlank)?.let { resolve(origin, it) } ?: return@flatMap emptyList()
+        ).parallelCatchingFlatMap { (network, path) ->
+            val playlistUrl = path?.takeIf(String::isNotBlank)?.let { resolve(origin, it) }
+                ?: return@parallelCatchingFlatMap emptyList()
             playlistUtils.extractFromHls(
                 playlistUrl,
                 referer = "$origin/",
