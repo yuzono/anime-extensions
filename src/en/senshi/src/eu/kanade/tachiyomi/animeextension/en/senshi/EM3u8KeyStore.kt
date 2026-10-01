@@ -76,7 +76,7 @@ class EM3u8KeyStore(
     fun resolve(videoId: Long): List<VidcloudEntryDto> = synchronized(lock) {
         resolveCache[videoId]?.takeIf { nowSec() < it.second }?.first ?: run {
             val entries = open(videoId)
-            resolveCache[videoId] = entries to (nowSec() + CACHE_TTL_SEC)
+            if (entries.isNotEmpty()) resolveCache[videoId] = entries to (nowSec() + CACHE_TTL_SEC)
             entries
         }
     }
