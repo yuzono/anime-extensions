@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.senshi
 
 import android.content.SharedPreferences
-import android.util.Log
 import android.util.LruCache
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -406,7 +405,8 @@ class Senshi :
                         fmt(resolve(epSkip?.introStart, embed.introStartMs)) + "|||" +
                         fmt(resolve(epSkip?.introEnd, embed.introEndMs)) + "|||" +
                         fmt(resolve(epSkip?.outroStart, embed.outroStartMs)) + "|||" +
-                        fmt(resolve(epSkip?.outroEnd, embed.outroEndMs)),
+                        fmt(resolve(epSkip?.outroEnd, embed.outroEndMs)) +
+                        "|||$meta.malId|||$epNum",
                 )
             }
     }
@@ -427,8 +427,7 @@ class Senshi :
             keyStore.resolve(videoId)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            Log.w("Senshi", "Octopus resolve failed for videoId=$videoId", e)
+        } catch (_: Exception) {
             return emptyList()
         }
         val audioTag = parts.getOrNull(1).orEmpty()
@@ -467,7 +466,7 @@ class Senshi :
                 .ifEmpty {
                     entry.tracks.filter { !it.url.isNullOrBlank() && !it.label.equals("chapter", ignoreCase = true) }
                 }
-                .map { Track(proxy.proxyUrl(it.url!!), it.label ?: "Unknown") }
+                .map { Track((it.url!!), it.label ?: "Unknown") }
 
             playlistUtils.extractFromHls(
                 playlistUrl = proxy.proxyUrl(src) + "&audio=$audioRendition",
