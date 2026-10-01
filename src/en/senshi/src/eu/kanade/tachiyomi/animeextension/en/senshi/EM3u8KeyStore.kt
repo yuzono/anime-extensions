@@ -114,10 +114,14 @@ class EM3u8KeyStore(
     private fun bootstrap(): Bootstrap {
         val png = http(Request.Builder().url(BOOTSTRAP_URL).headers(headers).get().build())
         val rec = pngChunk(png, "pUAK")
-        check(rec.size >= 4 && String(rec, 0, 4, Charsets.US_ASCII) == "BTGG" && rec[4].toInt() == 1) {
-            "unsupported bootstrap record (${rec.size}B)"
+        check(rec.size >= 23) { "truncated bootstrap record (${rec.size}B)" }
+        check(String(rec, 0, 4, Charsets.US_ASCII) == "BTGG" && rec[4].toInt() == 1) {
+            "unsupported bootstrap record"
         }
         val keyLen = rdU16(rec, 21)
+        check(keyLen == 65 && rec.size >= 23 + keyLen + 16 && rec[23].toInt() == 4) {
+            "unexpected bootstrap point (keyLen=$keyLen, rec=${rec.size}B)"
+        }
         check(rec.size >= 23 + keyLen + 16 && keyLen == 65 && rec[23].toInt() == 4) { "unexpected bootstrap point" }
         val epoch = rdU64(rec, 5)
         val expires = rdU64(rec, 13)
@@ -183,7 +187,7 @@ class EM3u8KeyStore(
                 .build(),
         )
         val rec = pngChunk(png, "pUAK")
-        check(rec.size > 17 && String(rec, 0, 4, Charsets.US_ASCII) == "SFRZ" && rec[4].toInt() == 1) {
+        check(rec.size >= 33 && String(rec, 0, 4, Charsets.US_ASCII) == "SFRZ" && rec[4].toInt() == 1) {
             "unsupported response record (${rec.size}B)"
         }
         val plain = Cipher.getInstance("AES/GCM/NoPadding").run {

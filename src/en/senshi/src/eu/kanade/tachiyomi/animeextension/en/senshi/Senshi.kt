@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.senshi
 
 import android.content.SharedPreferences
+import android.util.Log
 import android.util.LruCache
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
@@ -40,6 +41,7 @@ import org.nanohttpd.protocols.http.NanoHTTPD
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 
 class Senshi :
@@ -421,8 +423,14 @@ class Senshi :
         val videoId = parts.getOrNull(0)?.takeIf(String::isNotBlank)?.toLongOrNull()
             ?: return emptyList()
 
-        val entries = keyStore.resolve(videoId)
-
+        val entries = try {
+            keyStore.resolve(videoId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Senshi", "Octopus resolve failed for videoId=$videoId", e)
+            return emptyList()
+        }
         val audioTag = parts.getOrNull(1).orEmpty()
         // Rendition patterns as observed in masters: audio/0_ja, audio/1_en
         val audioRendition = if (audioTag == "Dub") "1_en" else "0_ja"

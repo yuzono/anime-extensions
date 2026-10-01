@@ -115,9 +115,11 @@ class EM3u8Proxy(
 
     /**
      * Keeps only the TYPE=AUDIO #EXT-X-MEDIA rendition whose URI matches [pattern]
-     * ("0_ja"/"1_en"), forcing it DEFAULT=YES — turns a shared both-audio stream
-     * into a single-language hoster. Falls back to the untouched manifest when the
-     * layout is unknown (no renditions / nothing matches) so audio is never lost.
+     * ("0_ja"/"1_en"), forcing DEFAULT=YES (explicit DEFAULT=NO is flipped;
+     * a rendition without a DEFAULT attribute is left as-is) — turns a shared
+     * both-audio stream into a single-language hoster. Falls back to the
+     * untouched manifest when the layout is unknown (no renditions / nothing
+     * matches) so audio is never lost.
      */
     private fun filterAudioRenditions(manifest: String, pattern: String): String {
         val lines = manifest.split("\n")
