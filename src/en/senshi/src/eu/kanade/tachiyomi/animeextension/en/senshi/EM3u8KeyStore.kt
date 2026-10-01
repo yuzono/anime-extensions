@@ -28,29 +28,28 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/* vidcloud "Octopus" resolve protocol — reimplements window.__oct (vendor.js)
- * + subtitle-octopuss.wasm. All constants (gateway, paths, HKDF info string)
- * are baked into the current site build; if the handshake starts failing,
- * re-derive with `npx webcrack vendor.js`.
+/* vidcloud "Octopus" resolve protocol — reimplements window.__oct (vendor.js).
+ * All magic labels ROTATE PER VENDOR BUILD (2026-09 rotation: chunk tag
+ * pUAK→pHBT, magics BTGG→BVGG / RKAJ→RLJI / SFRZ→SIFK, HKDF info …6fc0a1073b
+ * →…84e8b01eb1; endpoints and all layouts unchanged). The new build embeds no
+ * plaintext constants — on "no 'X' record" or a 403 on the authorize POST,
+ * recapture with WebCrypto+XHR console hooks on a fresh watch tab and update
+ * the 4 companion constants. Chunk tags are never referenced: records match
+ * on payload magic.
  *
- *   1. GET  {gw}/i/73918463   PNG, chunk "pUAK" = BTGG record:
- *      ver | epoch u64 | expires u64 | server P-256 point | challenge[16]
- *   2. ECDH(P-256) → HKDF-SHA256(salt = challenge, info = "vhost/runtime/…")
- *      → AES-256-GCM key. The salt is server-issued and rotates per bootstrap
- *      — it is echoed in the payload, never generated client-side.
- *   3. POST {gw}/q7m4x9  (Content-Type: image/png)
- *      body = "RKAJ" header ‖ iv12 ‖ GCM(payload), aad = header
- *      fresh:  pub = client point, epoch, cap empty, challenge echoed
- *      resume: epoch 0, no pub, cap = prev ticket `c` (b64url), key reused
- *      payload = 1 | videoId u64 | now u64 | nonce16 | origin | challenge16
- *   4. pUAK = "SFRZ" | 1 | iv12 | GCM ct (aad = 5-byte magic)
- *      plain = u32be seed ‖ xorshift32-obfuscated JSON {p, c, x}
- *      p = sources (old /_v1/sources shape), c = capability, x = expiry
+ *   1. GET  {gw}/i/73918463  PNG envelope, record: magic | ver=1 | epoch u64
+ *      | expires u64 | server P-256 point | challenge[16]  (= the HKDF salt,
+ *      server-issued, echoed in the payload)
+ *   2. ECDH(P-256) → HKDF-SHA256(salt=challenge, info) → AES-256-GCM key
+ *   3. POST {gw}/q7m4x9 (image/png): header ‖ iv12 ‖ GCM(payload), aad=header
+ *      fresh: pub=client point, epoch, cap empty · resume: epoch 0, no pub,
+ *      cap=prev ticket (b64url) · payload: 1|videoId u64|now u64|nonce16|
+ *      originLen u16|origin|challenge16
+ *   4. response: magic | 1 | iv12 | GCM ct (aad=5-byte head); plain =
+ *      u32be seed ‖ xorshift32-obfuscated JSON {p, c, x}
  *
- * videoId = embeds' remote_source_id. CDN (bcdn*.se) serves plain HLS
- * (.txt playlists, .jpg-named MPEG-TS segments); tokens are bound to the
- * handshaking client, so CDN fetches must use the same OkHttpClient.
- * The wasm's FNV origin allowlist + policy check are client-side only.
+ * videoId = embeds' remote_source_id. CDN (bcdn*.se) serves plain HLS; tokens
+ * are bound to the handshaking client — CDN fetches use the same OkHttpClient.
  */
 private class OctopusTicket(
     val entries: List<VidcloudEntryDto>,
@@ -113,16 +112,13 @@ class EM3u8KeyStore(
 
     private fun bootstrap(): Bootstrap {
         val png = http(Request.Builder().url(BOOTSTRAP_URL).headers(headers).get().build())
-        val rec = pngChunk(png, "pUAK")
+        val rec = pngRecord(png, BOOT_MAGIC)
         check(rec.size >= 23) { "truncated bootstrap record (${rec.size}B)" }
-        check(String(rec, 0, 4, Charsets.US_ASCII) == "BTGG" && rec[4].toInt() == 1) {
-            "unsupported bootstrap record"
-        }
+        check(rec[4].toInt() == 1) { "unsupported bootstrap version ${rec[4]}" }
         val keyLen = rdU16(rec, 21)
         check(keyLen == 65 && rec.size >= 23 + keyLen + 16 && rec[23].toInt() == 4) {
             "unexpected bootstrap point (keyLen=$keyLen, rec=${rec.size}B)"
         }
-        check(rec.size >= 23 + keyLen + 16 && keyLen == 65 && rec[23].toInt() == 4) { "unexpected bootstrap point" }
         val epoch = rdU64(rec, 5)
         val expires = rdU64(rec, 13)
         check(expires > nowSec()) { "bootstrap expired (expires=$expires now=${nowSec()})" }
@@ -146,7 +142,7 @@ class EM3u8KeyStore(
     ): OctopusTicket {
         // header / GCM AAD
         val header = ByteArray(18 + pub.size + 2 + cap.size)
-        "RKAJ".toByteArray(Charsets.US_ASCII).copyInto(header, 0)
+        HEADER_MAGIC.toByteArray(Charsets.US_ASCII).copyInto(header, 0)
         header[4] = 1 // version
         header[5] = if (resume) 1 else 0 // resume
         // header[6..7] = 0
@@ -186,10 +182,8 @@ class EM3u8KeyStore(
                 .post(body.toRequestBody("image/png".toMediaType()))
                 .build(),
         )
-        val rec = pngChunk(png, "pUAK")
-        check(rec.size >= 33 && String(rec, 0, 4, Charsets.US_ASCII) == "SFRZ" && rec[4].toInt() == 1) {
-            "unsupported response record (${rec.size}B)"
-        }
+        val rec = pngRecord(png, RESPONSE_MAGIC)
+        check(rec.size >= 33 && rec[4].toInt() == 1) { "unsupported response record (${rec.size}B)" }
         val plain = Cipher.getInstance("AES/GCM/NoPadding").run {
             init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, rec, 5, 12))
             updateAAD(rec, 0, 5)
@@ -288,18 +282,26 @@ class EM3u8KeyStore(
         res.body.bytes()
     }
 
-    private fun pngChunk(png: ByteArray, type: String): ByteArray {
+    /** Chunk types are camouflage and rotate per vendor build (pUAK → pHBT
+     *  observed); records are identified by their payload magic instead. */
+    private fun pngRecord(png: ByteArray, magic: String): ByteArray {
         check(png.size > 16 && png[0] == 0x89.toByte() && png[1] == 0x50.toByte()) { "not a PNG envelope" }
+        val seen = mutableListOf<String>()
         var i = 8
         while (i + 8 <= png.size) {
             val len = rdU32(png, i)
             if (len < 0 || i + 12 + len > png.size) throw OctopusException("corrupt PNG chunk table")
-            val t = String(png, i + 4, 4, Charsets.US_ASCII)
-            if (t == type) return png.copyOfRange(i + 8, i + 8 + len)
+            val tag = String(png, i + 4, 4, Charsets.US_ASCII)
+            val data = png.copyOfRange(i + 8, i + 8 + len)
+            if (data.size >= magic.length && String(data, 0, magic.length, Charsets.US_ASCII) == magic) return data
+            seen += tag
             i += 12 + len
-            if (t == "IEND") break
+            if (tag == "IEND") break
         }
-        throw OctopusException("no '$type' chunk in PNG envelope")
+        throw OctopusException(
+            "no '$magic' record in PNG envelope (${png.size}B, chunks=${seen.joinToString(",")}, " +
+                "head=${png.copyOfRange(0, minOf(24, png.size)).toHexString()})",
+        )
     }
 
     private fun b64urlDecode(s: String): ByteArray = if (s.isEmpty()) {
@@ -327,7 +329,10 @@ class EM3u8KeyStore(
         private const val BOOTSTRAP_URL = "https://s.vidcloud.se/i/73918463"
         private const val AUTHORIZE_URL = "https://s.vidcloud.se/q7m4x9"
         private const val ORIGIN = "https://senshi.to"
-        private val INFO_BYTES = "vhost/runtime/6fc0a1073b".toByteArray(Charsets.US_ASCII)
+        private const val BOOT_MAGIC = "BVGG"
+        private const val RESPONSE_MAGIC = "SIFK"
+        private const val HEADER_MAGIC = "RLJI"
+        private val INFO_BYTES = "vhost/runtime/84e8b01eb1".toByteArray(Charsets.US_ASCII)
         private val EMPTY = ByteArray(0)
         private val Z16 = ByteArray(16)
         private const val EXPIRY_MARGIN_SEC = 10L
