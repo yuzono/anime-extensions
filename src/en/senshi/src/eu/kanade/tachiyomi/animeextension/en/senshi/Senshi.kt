@@ -418,17 +418,13 @@ class Senshi :
         if (!hoster.internalData.startsWith("vidcloud::")) return emptyList()
 
         val parts = hoster.internalData.removePrefix("vidcloud::").split("|||")
-        val sourceId = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return emptyList()
+        val videoId = parts.getOrNull(0)?.takeIf(String::isNotBlank)?.toLongOrNull()
+            ?: return emptyList()
 
-        val entries = try {
-            client.get("https://s.vidcloud.se/_v1/sources?id=$sourceId", videoHeaders)
-                .use { it.parseAs<List<VidcloudEntryDto>>() }
-        } catch (_: Exception) {
-            return emptyList()
-        }
+        val entries = keyStore.resolve(videoId)
 
         val audioTag = parts.getOrNull(1).orEmpty()
-        // Rendition patterns as observed in decrypted masters: audio/0_ja, audio/1_en
+        // Rendition patterns as observed in masters: audio/0_ja, audio/1_en
         val audioRendition = if (audioTag == "Dub") "1_en" else "0_ja"
 
         val proxy = getProxyServer()
@@ -486,18 +482,16 @@ class Senshi :
     }
 
     // ========================= Proxy / Key Wiring =========================
-    private val keyStore by lazy {
-        Em3u8KeyStore(preferences, network.client, headers) { baseUrl }
-    }
+    private val keyStore by lazy { EM3u8KeyStore(network.client, videoHeaders) }
 
     @Volatile
-    private var proxyServer: Em3u8Proxy? = null
+    private var proxyServer: EM3u8Proxy? = null
 
     @Synchronized
-    private fun getProxyServer(): Em3u8Proxy {
+    private fun getProxyServer(): EM3u8Proxy {
         if (proxyServer == null || !proxyServer!!.isAlive) {
             proxyServer?.stop()
-            proxyServer = Em3u8Proxy(videoHeaders, network.client, keyStore)
+            proxyServer = EM3u8Proxy(videoHeaders, network.client)
                 .also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
         }
         return proxyServer!!
