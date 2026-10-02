@@ -110,7 +110,7 @@ class ANIMEWORLD :
         val url = client.get(hoster.hosterUrl, apiHeaders).parseAs<ServerResponse>().grabber
 
         return when {
-            hoster.hosterName.contains("AnimeWorld Server") -> {
+            hoster.hosterName.contains("AnimeWorld Server", ignoreCase = true) -> {
                 listOf(Video(videoUrl = url, videoTitle = "AnimeWorld Server"))
             }
             url.contains("https://doo") -> {

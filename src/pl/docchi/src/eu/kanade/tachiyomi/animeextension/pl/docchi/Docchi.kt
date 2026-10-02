@@ -243,7 +243,7 @@ class Docchi :
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString("preferred_server", "cda.pl")!!
         return sortedWith(
-            compareBy<Hoster> { it.hosterName.contains("AI", ignoreCase = true) }
+            compareBy<Hoster> { AI_LABEL_REGEX.containsMatchIn(it.hosterName) }
                 .thenByDescending {
                     it.hosterName.contains(server, ignoreCase = true) ||
                         it.hosterUrl.contains(server, ignoreCase = true)
@@ -263,7 +263,7 @@ class Docchi :
         val server = preferences.getString("preferred_server", "cda.pl")!!
 
         return this.sortedWith(
-            compareBy<Video> { it.videoTitle.contains("AI", true) }
+            compareBy<Video> { AI_LABEL_REGEX.containsMatchIn(it.videoTitle) }
                 .thenByDescending { it.videoTitle.contains(quality) }
                 .thenByDescending { it.videoTitle.contains(server, true) },
         )
@@ -402,4 +402,8 @@ class Docchi :
         val isInverted: Boolean,
         val bg: String?,
     )
+
+    companion object {
+        private val AI_LABEL_REGEX = Regex("""\bAI\b""", RegexOption.IGNORE_CASE)
+    }
 }
