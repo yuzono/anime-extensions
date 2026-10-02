@@ -265,27 +265,7 @@ class JutsuTv :
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val document = client.get(baseUrl + anime.url, headers).use { it.asJsoup() }
 
-        // The Kodik player is loaded through the DLE ajax controller; the request
-        // parameters are stored on the placeholder element.
-        val dataParams = document.selectFirst("div.xfplayer[data-params*=kodik]")
-            ?.attr("data-params")
-            ?: throw Exception("Плеер Kodik не найден на странице")
-
-        val ajaxHeaders = headers.newBuilder()
-            .set("Referer", "$baseUrl${anime.url}")
-            .set("X-Requested-With", "XMLHttpRequest")
-            .build()
-
-        val playerResponse = client.get(
-            "$baseUrl/engine/ajax/controller.php?$dataParams",
-            ajaxHeaders,
-        ).parseAs<PlayerResponse>()
-
-        if (!playerResponse.success || playerResponse.data.isBlank()) {
-            throw Exception("Kodik плеер недоступен для этого тайтла")
-        }
-
-        val playerUrl = playerResponse.data.fixProtocol()
+        val playerUrl = fetchKodikPlayerUrl(document, anime.url)
 
         // Movies and single videos: anything that is not a serial.
         if (!playerUrl.contains("/serial/")) {
@@ -321,6 +301,39 @@ class JutsuTv :
                 url = "$playerUrl${separator}episode=$ep"
             }
         }
+    }
+
+    // The player is no longer embedded in the page markup: the placeholder only carries
+    // the anime id and one slot per player ("Плеер Alloha", "Плеер Kodik"). The actual
+    // embed URL is returned by the DLE ajax controller (see theme/js/player-relay.js):
+    //     /engine/ajax/controller.php?mod=player&id=<animeId>&slot=<slot>
+    //     -> {"status":true,"data":{"name":"Kodik","kind":"iframe","src":"...","label":"..."}}
+    private suspend fun fetchKodikPlayerUrl(document: Document, animeUrl: String): String {
+        val player = document.selectFirst(".tabs-block[data-player-anime-id]")
+            ?: throw Exception("Плеер Kodik не найден на странице")
+
+        val animeId = player.attr("data-player-anime-id")
+        val slot = player.select("[data-player-slot]")
+            .firstOrNull { it.attr("data-player-title").contains("Kodik", ignoreCase = true) }
+            ?.attr("data-player-slot")
+            ?: throw Exception("Плеер Kodik не найден на странице")
+
+        val ajaxHeaders = headers.newBuilder()
+            .set("Referer", "$baseUrl$animeUrl")
+            .set("X-Requested-With", "XMLHttpRequest")
+            .build()
+
+        val playerResponse = client.get(
+            "$baseUrl/engine/ajax/controller.php?mod=player&id=$animeId&slot=$slot",
+            ajaxHeaders,
+        ).parseAs<PlayerResponse>()
+
+        val playerUrl = playerResponse.data?.src
+        if (!playerResponse.status || playerUrl.isNullOrBlank()) {
+            throw Exception("Kodik плеер недоступен для этого тайтла")
+        }
+
+        return playerUrl.fixProtocol()
     }
 
     // =============================== Videos ===============================

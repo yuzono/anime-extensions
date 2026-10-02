@@ -5,8 +5,16 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 class PlayerResponse(
-    val success: Boolean = false,
-    val data: String = "",
+    val status: Boolean = false,
+    val data: PlayerData? = null,
+)
+
+@Serializable
+class PlayerData(
+    val name: String = "",
+    val kind: String = "",
+    val src: String = "",
+    val label: String = "",
 )
 
 @Serializable
