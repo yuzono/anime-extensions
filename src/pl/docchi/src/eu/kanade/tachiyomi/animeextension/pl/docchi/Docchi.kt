@@ -22,14 +22,17 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.network.get
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import keiyoushi.utils.tryParse
-import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -46,6 +49,12 @@ class Docchi :
     override val lang = "pl"
 
     override val supportsLatest = true
+
+    override val client by lazy {
+        network.client.newBuilder()
+            .rateLimit(3) { it.host == "api.jikan.moe" }
+            .build()
+    }
 
     private val preferences by getPreferencesLazy()
 
@@ -106,25 +115,23 @@ class Docchi :
 
     // =========================== Anime Details ============================
 
-    // animeDetailsRequest not recomended because i want WebView from site not from api.
-    // override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
-
-    override fun animeDetailsParse(response: Response): SAnime {
-        val location = response.useAsJsoup().location().substringAfterLast("/")
-        val animeDetail = client.newCall(
-            GET("$baseApiUrl/v1/series/find/$location"),
-        ).execute()
-            .parseAs<ApiDetail>()
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val slug = anime.url.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        val animeDetail = client.get("$baseApiUrl/v1/series/find/$slug").parseAs<ApiDetail>()
         val myanimeListDetail = myanimelistApi(animeDetail.mal_id)
 
         return SAnime.create().apply {
+            url = anime.url
             title = animeDetail.title
             description = animeDetail.description
-            author = myanimeListDetail.data.studios.first().name
-            status = parseStatus(myanimeListDetail.data.status)
+            thumbnail_url = animeDetail.cover
+            author = myanimeListDetail?.studios?.joinToString(", ") { it.name }?.takeIf(String::isNotBlank)
+            status = parseStatus(myanimeListDetail?.status.orEmpty())
             genre = animeDetail.genres.joinToString(", ")
         }
     }
+
+    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
 
@@ -269,11 +276,15 @@ class Docchi :
         )
     }
 
-    private fun myanimelistApi(id: Int): MyAnimeListResponse {
-        val response = client.newCall(
-            GET("https://api.jikan.moe/v4/anime/$id"),
-        ).execute()
-        return response.parseAs<MyAnimeListResponse>()
+    private suspend fun myanimelistApi(id: Int): MyAnimeListApi? {
+        if (id <= 0) return null
+        return try {
+            client.get("https://api.jikan.moe/v4/anime/$id").parseAs<MyAnimeListResponse>().data
+        } catch (_: IOException) {
+            null
+        } catch (_: SerializationException) {
+            null
+        }
     }
 
     private val dateFormat by lazy { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()) }
@@ -307,19 +318,18 @@ class Docchi :
     }
 
     @Serializable
-    data class MyAnimeListResponse(
-        val data: MyAnimeListApi,
+    class MyAnimeListResponse(
+        val data: MyAnimeListApi? = null,
     )
 
     @Serializable
-    data class MyAnimeListApi(
-        val mal_id: Int,
-        val status: String,
-        val studios: List<StudiosMAL>,
+    class MyAnimeListApi(
+        val status: String? = null,
+        val studios: List<StudiosMAL> = emptyList(),
     )
 
     @Serializable
-    data class StudiosMAL(
+    class StudiosMAL(
         val name: String,
     )
 
@@ -364,7 +374,6 @@ class Docchi :
         val title: String,
         val title_en: String,
         val slug: String,
-        val slug_oa: String?,
         val description: String,
         val cover: String,
         val bg: String?,
