@@ -420,11 +420,11 @@ class AniPM :
                 masterHeaders = headers,
                 videoHeaders = headers,
             ).map { video ->
-                val hlsSubs = video.subtitleTracks.map { track ->
+                val subtitles = video.subtitleTracks.map { track ->
                     track.copy(url = proxy.subtitleUrl(track.url))
                 }
-                if (hlsSubs.isNotEmpty()) {
-                    video.copy(subtitleTracks = hlsSubs)
+                if (subtitles.isNotEmpty()) {
+                    video.copy(subtitleTracks = subtitles)
                 } else {
                     video
                 }
