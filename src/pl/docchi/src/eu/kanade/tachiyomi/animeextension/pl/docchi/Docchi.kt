@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HttpException
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.getPreferencesLazy
@@ -280,6 +281,8 @@ class Docchi :
         if (id <= 0) return null
         return try {
             client.get("https://api.jikan.moe/v4/anime/$id").parseAs<MyAnimeListResponse>().data
+        } catch (_: HttpException) {
+            null
         } catch (_: IOException) {
             null
         } catch (_: SerializationException) {
