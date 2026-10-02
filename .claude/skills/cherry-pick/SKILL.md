@@ -242,8 +242,9 @@ Keep Gradle scoped (AGENTS.md: never run an unscoped task).
   - Lay each module out as `actions/download-artifact` does, under
     `<home>/apk-artifacts/<chunk>/src/<lang>/<name>/build/` (`keiyoushi-source-info.json` plus
     `outputs/apk/release/*.apk`). From a copy of the live repo, run
-    `HOME=<home> ANDROID_HOME=<sdk> python publish-repo.py '<delete json>'`, without `-I`, so the script's directory,
-    which holds `index_pb2`, stays on the path.
+    `HOME=<home> ANDROID_HOME=<sdk> python publish-repo.py '<delete json>' ''`, without `-I`, so the script's
+    directory, which holds `index_pb2`, stays on the path. The second argument is `true` for a full rebuild, which
+    replaces the index with the build output; CI passes it, and it is required.
   - Diff `index.json`, `index.min.json` and the decoded `index.pb` against the live files and against what the parent
     commit's scripts write for the same artifacts. The live `index.json` stores `versionCode` as a string and
     `contentWarning` as an enum name.

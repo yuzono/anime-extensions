@@ -196,7 +196,7 @@ jobs:
         run: |
           cd repo
           pip install "protobuf>=7.35.1,<8"
-          python ../PR/.github/scripts/publish-repo.py '${{ needs.prepare.outputs.delete }}'
+          python ../PR/.github/scripts/publish-repo.py '${{ needs.prepare.outputs.delete }}' false
 
       # Showing which extensions are to be updated with this PR
       - name: Check Deploy repo
