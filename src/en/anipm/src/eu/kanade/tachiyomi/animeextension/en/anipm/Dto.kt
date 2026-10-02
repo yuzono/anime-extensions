@@ -9,9 +9,12 @@ import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,24 +52,31 @@ class TitleItemDto(
     val anilistId: String? = null,
     val status: String? = null,
     val type: String? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val genres: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringListSerializer::class)
     val studios: List<String> = emptyList(),
     val episodeCount: Int? = null,
     val subCount: Int? = null,
     val dubCount: Int? = null,
     val synopsis: String? = null,
     val season: String? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val tags: List<String>? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val providerTitles: List<String>? = null,
 ) {
-    /** Stable handle: settlar numeric id (catalog always provides it). */
-    fun toHandle(): String? = id?.takeIf { it > 0 }?.let { "set-$it" }
+    /** Stable handle: settlar numeric id or ani id (catalog always provides it). */
+    fun toHandle(): String? = when {
+        source == "anilist" -> routeId?.let { "ani-$it" } ?: id?.let { "ani-$it" }
+        else -> routeId ?: id?.let { "set-$it" }
+    }
 
     fun toSAnime(baseUrl: String): SAnime? {
         val t = title?.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
-            url = routeId ?: handle
+            url = handle
             title = t
             thumbnail_url = absoluteCover(baseUrl, poster)
             status = parseStatus(this@TitleItemDto.status)
@@ -86,7 +96,7 @@ class TitleItemDto(
 class SeriesResponseDto(
     val id: Long,
     val source: String? = null,
-    val title: String = "",
+    val title: String? = null,
     val native: String? = null,
     val poster: String? = null,
     val banner: String? = null,
@@ -96,7 +106,9 @@ class SeriesResponseDto(
     @Serializable(with = FlexibleStringSerializer::class)
     val duration: String? = null,
     val type: String? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val genres: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringListSerializer::class)
     val studios: List<String> = emptyList(),
     val episodeCount: Int? = null,
     val subCount: Int? = null,
@@ -108,7 +120,9 @@ class SeriesResponseDto(
     val anilistId: String? = null,
     val status: String? = null,
     val season: String? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val tags: List<String>? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val providerTitles: List<String>? = null,
     val episodes: List<SeriesEpisodeDto> = emptyList(),
     val relations: List<RelationDto> = emptyList(),
@@ -125,8 +139,11 @@ class SeriesResponseDto(
     }
 
     fun toSAnime(baseUrl: String): SAnime = SAnime.create().apply {
-        url = routeId ?: "set-$id"
-        title = this@SeriesResponseDto.title
+        url = when (source) {
+            "anilist" -> routeId?.let { "ani-$it" } ?: "ani-$id"
+            else -> routeId ?: "set-$id"
+        }
+        title = this@SeriesResponseDto.title ?: ""
         thumbnail_url = absoluteCover(baseUrl, poster)
         status = parseStatus(this@SeriesResponseDto.status)
         genre = buildList {
@@ -210,13 +227,17 @@ class RecommendItemDto(
     val year: Int? = null,
     val score: Double? = null,
     val status: String? = null,
+    @Serializable(with = FlexibleStringListSerializer::class)
     val genres: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringListSerializer::class)
     val studios: List<String> = emptyList(),
+    @Serializable(with = FlexibleStringListSerializer::class)
+    val tags: List<String>? = null,
     val synopsis: String? = null,
     val routeId: String? = null,
 ) {
-    /** anime:6275 → set-6275 · ani:151384 → ani-151384 */
     fun toHandle(): String? = when {
+        routeId != null -> if (source == "anilist" || titleId?.startsWith("ani:") == true) "ani-$routeId" else routeId
         titleId?.startsWith("anime:") == true -> "set-" + titleId.removePrefix("anime:")
         titleId?.startsWith("ani:") == true -> "ani-" + titleId.removePrefix("ani:")
         else -> null
@@ -226,7 +247,7 @@ class RecommendItemDto(
         val t = title?.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
-            url = routeId ?: handle
+            url = handle
             title = t
             thumbnail_url = absoluteCover(baseUrl, poster)
         }
@@ -276,8 +297,14 @@ class RelationDto(
     val type: String? = null,
     val year: Int? = null,
     val poster: String? = null,
+    val routeId: String? = null,
 ) {
-    fun toHandle(): String? = id.takeIf { it > 0 }?.let { "set-$it" }
+    fun toHandle(): String? = when {
+        routeId != null -> routeId
+        source == "anilist" || anilistId != null -> "ani-$id"
+        id > 0 -> "set-$id"
+        else -> null
+    }
 }
 
 @Serializable
@@ -367,23 +394,6 @@ private val airDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US).apply {
     timeZone = TimeZone.getTimeZone("UTC")
 }
 
-@Serializable
-class MetaResponseDto(val meta: Map<String, MetaEntryDto> = emptyMap())
-
-@Serializable
-class MetaEntryDto(val routeId: String? = null)
-
-@Serializable
-class FacetsDto(
-    val genres: List<FacetDto> = emptyList(),
-    val tags: List<FacetDto> = emptyList(),
-    val studios: List<FacetDto> = emptyList(),
-    val updatedAt: Long = 0L,
-)
-
-@Serializable
-class FacetDto(val name: String, val count: Int = 0)
-
 private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 private val INLINE_TAG_REGEX = Regex("</?(?:i|b|em|strong)>", RegexOption.IGNORE_CASE)
 
@@ -423,6 +433,33 @@ object FlexibleStringSerializer : KSerializer<String?> {
     }
 }
 
+/** Accepts List of Strings OR List of Objects with name/tag/title/label/genre/studio; anything else → emptyList(). */
+object FlexibleStringListSerializer : KSerializer<List<String>> {
+    override val descriptor = PrimitiveSerialDescriptor("FlexibleStringList", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): List<String> {
+        val jsonDecoder = decoder as? JsonDecoder ?: return emptyList()
+        val element = runCatching { jsonDecoder.decodeJsonElement() }.getOrNull()
+        if (element !is JsonArray) return emptyList()
+
+        return element.mapNotNull { item ->
+            when (item) {
+                is JsonPrimitive -> item.contentOrNull?.takeIf(String::isNotBlank)
+                is JsonObject -> {
+                    (item["name"] ?: item["tag"] ?: item["title"] ?: item["label"] ?: item["genre"] ?: item["studio"])
+                        ?.let { if (it is JsonPrimitive) it.contentOrNull else null }
+                        ?.takeIf(String::isNotBlank)
+                }
+                else -> null
+            }
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: List<String>) {
+        encoder.encodeString(value.joinToString(","))
+    }
+}
+
 /** Accepts number or numeric string (12815 or "12815"); anything else → null. */
 object FlexibleLongSerializer : KSerializer<Long?> {
     override val descriptor = PrimitiveSerialDescriptor("FlexibleLong?", PrimitiveKind.LONG)
@@ -437,3 +474,14 @@ object FlexibleLongSerializer : KSerializer<Long?> {
         if (value == null) encoder.encodeNull() else encoder.encodeLong(value)
     }
 }
+
+@Serializable
+class FacetsDto(
+    val genres: List<FacetDto> = emptyList(),
+    val tags: List<FacetDto> = emptyList(),
+    val studios: List<FacetDto> = emptyList(),
+    val updatedAt: Long = 0L,
+)
+
+@Serializable
+class FacetDto(val name: String, val count: Int = 0)
