@@ -9,6 +9,7 @@ import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
 import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.lycorisextractor.LycorisExtractor
+import aniyomi.lib.megaextractor.MegaExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
 import aniyomi.lib.streamupextractor.StreamupExtractor
@@ -153,6 +154,7 @@ class Docchi :
     private val googledriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
     private val streamupExtractor by lazy { StreamupExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val megaExtractor by lazy { MegaExtractor(client) }
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val videolist = response.parseAs<List<VideoList>>()
@@ -180,6 +182,7 @@ class Docchi :
                     "google drive",
                     "streamup",
                     "filemoon",
+                    "mega",
                 )
             ) {
                 return@mapNotNull null
@@ -198,6 +201,10 @@ class Docchi :
         val data = hoster.internalData.parseAs<HosterData>()
         val prefix = data.prefix
         return when {
+            data.playerName == "mega" -> {
+                megaExtractor.videosFromUrl(serverUrl, prefix)
+            }
+
             data.playerName.contains("filemoon") -> {
                 filemoonExtractor.videosFromUrl(serverUrl, "${prefix}Filemoon - ", headers)
             }
@@ -310,8 +317,8 @@ class Docchi :
         val videoServerPref = ListPreference(screen.context).apply {
             key = "preferred_server"
             title = "Preferowany serwer"
-            entries = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com")
-            entryValues = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com")
+            entries = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com", "Mega")
+            entryValues = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com", "mega")
             setDefaultValue("cda.pl")
             summary = "%s"
         }
