@@ -1,6 +1,6 @@
 # MEGA extractor
 
-`MegaExtractor(client).videosFromUrl(url, prefix)` supports public MEGA file and embed links,
+`MegaExtractor(client, headers).videosFromUrl(url, prefix)` supports public MEGA file and embed links,
 including legacy `#!id!key` links. It resolves file metadata when the hoster is selected,
 then streams media through a loopback-only HTTP adapter. The adapter decrypts AES-CTR
 ranges on demand, supports seeking and HEAD requests, and closes upstream responses

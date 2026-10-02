@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.network.post
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import okhttp3.Headers
@@ -13,7 +14,14 @@ import okio.ByteString.Companion.decodeBase64
 import java.io.IOException
 
 /** Resolves public MEGA file/embed links to a decrypted, seekable local stream. */
-class MegaExtractor(private val client: OkHttpClient) {
+class MegaExtractor(private val client: OkHttpClient, headers: Headers) {
+
+    private val headers = headers.newBuilder()
+        .removeAll("Cookie")
+        .removeAll("Authorization")
+        .removeAll("Host")
+        .removeAll("Range")
+        .build()
 
     /** Fetches only file metadata; media is fetched and decrypted as the player reads it. */
     suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
@@ -33,25 +41,32 @@ class MegaExtractor(private val client: OkHttpClient) {
         val file = try {
             client.post(
                 "https://g.api.mega.co.nz/cs",
-                Headers.Builder().build(),
+                headers,
                 listOf(FileRequest("g", 1, parts[0])).toJsonRequestBody(),
             ).parseAs<List<FileResponse>>().singleOrNull()
         } catch (e: SerializationException) {
             throw IOException("MEGA file is unavailable", e)
         } ?: throw IOException("MEGA file is unavailable")
-        if (file.s <= 0) throw IOException("MEGA file is empty")
+        if (file.size <= 0) throw IOException("MEGA file is empty")
 
-        val downloadUrl = file.g.toHttpUrl().newBuilder().scheme("https").build()
+        val downloadUrl = file.downloadUrl.toHttpUrl().newBuilder().scheme("https").build()
         require(downloadUrl.host.endsWith(".mega.co.nz")) { "Invalid MEGA download host" }
-        val localUrl = MegaStreamServer.register(client, downloadUrl, file.s, key)
+        val localUrl = MegaStreamServer.register(client, downloadUrl, file.size, key, headers)
         return listOf(Video(videoUrl = localUrl, videoTitle = "${prefix}Mega"))
     }
 
     @Serializable
-    private class FileRequest(val a: String, val g: Int, val p: String)
+    private class FileRequest(
+        @SerialName("a") val action: String,
+        @SerialName("g") val requestDownloadUrl: Int,
+        @SerialName("p") val fileId: String,
+    )
 
     @Serializable
-    private class FileResponse(val g: String, val s: Long)
+    private class FileResponse(
+        @SerialName("g") val downloadUrl: String,
+        @SerialName("s") val size: Long,
+    )
 
     private companion object {
         val FILE_ID = Regex("[A-Za-z0-9_-]{8}")

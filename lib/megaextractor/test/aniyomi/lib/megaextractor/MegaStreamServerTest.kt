@@ -1,5 +1,6 @@
 package aniyomi.lib.megaextractor
 
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
@@ -54,6 +55,7 @@ class MegaStreamServerTest {
     @Before
     fun setUp() {
         val upstream = OkHttpClient.Builder().addInterceptor { chain ->
+            assertEquals("retained", chain.request().header("X-Source-Test"))
             calls.incrementAndGet()
             if (failTransport) throw IOException("Offline")
             val bounds = chain.request().url.pathSegments.last().split('-').map(String::toInt)
@@ -79,7 +81,7 @@ class MegaStreamServerTest {
                 .body(body)
                 .build()
         }.build()
-        localUrl = MegaStreamServer.register(upstream, "https://fixture.userstorage.mega.co.nz/dl/file".toHttpUrl(), plaintext.size.toLong(), key)
+        localUrl = MegaStreamServer.register(upstream, "https://fixture.userstorage.mega.co.nz/dl/file".toHttpUrl(), plaintext.size.toLong(), key, Headers.headersOf("X-Source-Test", "retained"))
     }
 
     @After

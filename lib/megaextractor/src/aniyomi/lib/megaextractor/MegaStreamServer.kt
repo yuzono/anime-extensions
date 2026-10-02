@@ -1,8 +1,11 @@
 package aniyomi.lib.megaextractor
 
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.buffer
+import okio.cipherSource
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.request.Method
@@ -10,37 +13,38 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
+import java.io.FilterInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.GeneralSecurityException
 import java.util.Collections
 import java.util.UUID
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /** MEGA serves encrypted bytes, so the player needs an HTTP adapter that decrypts each range. */
 internal object MegaStreamServer : NanoHTTPD("127.0.0.1", 0) {
 
-    private class File(
+    private class RegisteredStream(
         val client: OkHttpClient,
         val url: HttpUrl,
         val size: Long,
         val key: ByteArray,
+        val headers: Headers,
     )
 
     private val files = Collections.synchronizedMap(
-        object : LinkedHashMap<String, File>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, File>): Boolean = size > 64
+        object : LinkedHashMap<String, RegisteredStream>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RegisteredStream>): Boolean = size > 64
         },
     )
 
     @Synchronized
-    fun register(client: OkHttpClient, url: HttpUrl, size: Long, key: ByteArray): String {
+    fun register(client: OkHttpClient, url: HttpUrl, size: Long, key: ByteArray, headers: Headers): String {
         if (!isAlive) start()
         val token = UUID.randomUUID().toString()
-        files[token] = File(client, url, size, key)
+        files[token] = RegisteredStream(client, url, size, key, headers)
         return "http://127.0.0.1:$listeningPort/$token.mp4"
     }
 
@@ -81,10 +85,10 @@ internal object MegaStreamServer : NanoHTTPD("127.0.0.1", 0) {
         }
     }
 
-    private fun stream(file: File, range: LongRange, status: Status, length: Long): Response {
+    private fun stream(file: RegisteredStream, range: LongRange, status: Status, length: Long): Response {
         val alignedStart = range.first / 16 * 16
         val url = file.url.newBuilder().addPathSegment("$alignedStart-${range.last}").build()
-        val upstream = file.client.newCall(Request.Builder().url(url).build()).execute()
+        val upstream = file.client.newCall(Request.Builder().url(url).headers(file.headers).build()).execute()
         if (!upstream.isSuccessful) {
             upstream.close()
             return newFixedLengthResponse(Status.lookup(upstream.code) ?: Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "MEGA stream unavailable")
@@ -101,7 +105,8 @@ internal object MegaStreamServer : NanoHTTPD("127.0.0.1", 0) {
             val cipher = Cipher.getInstance("AES/CTR/NoPadding").apply {
                 init(Cipher.DECRYPT_MODE, SecretKeySpec(aesKey, "AES"), IvParameterSpec(iv))
             }
-            val stream = object : CipherInputStream(upstream.body.byteStream(), cipher) {
+            val decrypted = upstream.body.source().cipherSource(cipher).buffer().inputStream()
+            val stream = object : FilterInputStream(decrypted) {
                 override fun close() {
                     try {
                         super.close()

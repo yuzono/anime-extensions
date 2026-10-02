@@ -154,7 +154,7 @@ class Docchi :
     private val googledriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
     private val streamupExtractor by lazy { StreamupExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
-    private val megaExtractor by lazy { MegaExtractor(client) }
+    private val megaExtractor by lazy { MegaExtractor(client, headers) }
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val videolist = response.parseAs<List<VideoList>>()
