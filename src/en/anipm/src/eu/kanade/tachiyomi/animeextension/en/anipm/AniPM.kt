@@ -423,12 +423,8 @@ class AniPM :
                 val hlsSubs = video.subtitleTracks.map { track ->
                     track.copy(url = proxy.subtitleUrl(track.url))
                 }
-                val proxiedEmbedSubs = embedSubs.map { track ->
-                    track.copy(url = proxy.subtitleUrl(track.url))
-                }
-                val combinedSubs = (proxiedEmbedSubs + hlsSubs).distinctBy { it.url }
-                if (combinedSubs.isNotEmpty()) {
-                    video.copy(subtitleTracks = combinedSubs)
+                if (hlsSubs.isNotEmpty()) {
+                    video.copy(subtitleTracks = hlsSubs)
                 } else {
                     video
                 }
