@@ -223,7 +223,7 @@ class AniPM :
         }
 
         val related = sortedRelations.mapNotNull { rel ->
-            val handle = rel.routeId ?: rel.toHandle() ?: return@mapNotNull null
+            val handle = rel.toHandle() ?: return@mapNotNull null
             val title = rel.title?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             SAnime.create().apply {
                 url = handle

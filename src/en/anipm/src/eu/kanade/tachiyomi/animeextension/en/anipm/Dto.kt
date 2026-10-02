@@ -300,8 +300,11 @@ class RelationDto(
     val routeId: String? = null,
 ) {
     fun toHandle(): String? = when {
+        source == "anilist" || anilistId != null -> {
+            val cleanRoute = routeId?.removePrefix("ani-")?.removePrefix("ani/")?.removePrefix("anime/")?.removePrefix("set/")
+            cleanRoute?.let { "ani-$it" } ?: "ani-$id"
+        }
         routeId != null -> routeId
-        source == "anilist" || anilistId != null -> "ani-$id"
         id > 0 -> "set-$id"
         else -> null
     }
