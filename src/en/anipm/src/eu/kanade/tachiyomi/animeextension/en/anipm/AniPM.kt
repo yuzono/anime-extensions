@@ -369,10 +369,11 @@ class AniPM :
         val id = parts[1]
         val epNum = parts[2]
         val lang = parts[3]
+        val epParam = parts.getOrNull(4) ?: epNum
 
         return try {
             // 1) Bootstrap
-            val boot = fetchBootstrap(provider, id, epNum, lang)
+            val boot = fetchBootstrap(provider, id, epParam, lang)
             val selection = boot.settlarSelection?.takeIf(String::isNotBlank)
                 ?: return emptyList()
 
