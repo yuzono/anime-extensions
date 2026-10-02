@@ -15,7 +15,7 @@ extensions.configure<com.android.build.api.dsl.LibraryExtension> {
 }
 
 dependencies {
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:4ccb73a3c3334fbbca8a5ffac557aec609f87387")
     testImplementation(libs.bundles.common)
     testImplementation(libs.junit)
 }
