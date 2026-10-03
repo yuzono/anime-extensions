@@ -450,11 +450,50 @@ class AV1Encodes :
         val episodeUrl = episode.url
         Log.d(TAG, "getVideoList: episode.url=$episodeUrl")
 
-        val encodedFilename = episodeUrl.substringBefore("?").substringAfterLast("/")
+        // Strip any stored (potentially stale) token from the episode URL.
+        // The episodes listing page server-renders ?token= into every download href,
+        // but those tokens are short-lived Itsdangerous/Flask signed values. By the
+        // time the user taps Play the stored token is expired. The server rejects it
+        // with 503, awaitSuccess() throws, and the catch-block returns a raw HTML
+        // download-page URL as the video URL → ExoPlayer buffers forever on HTML.
+        val episodeUrlBase = episodeUrl.substringBefore("?")
+        val encodedFilename = episodeUrlBase.substringAfterLast("/")
         val filename = Uri.decode(encodedFilename)
         Log.d(TAG, "getVideoList: filename=$filename")
 
-        val downloadPageUrl = baseUrl + episodeUrl
+        // Fetch a fresh page-access token from /get_token before touching the
+        // download page. This endpoint is the same one the site JS calls on page load.
+        val freshToken: String? = try {
+            val tokenJson = client.newCall(
+                GET(
+                    "$baseUrl/get_token",
+                    headers.newBuilder()
+                        .set("Accept", "application/json, */*;q=0.8")
+                        .set("Referer", "$baseUrl/")
+                        .set("Sec-Fetch-Dest", "empty")
+                        .set("Sec-Fetch-Mode", "cors")
+                        .set("Sec-Fetch-Site", "same-origin")
+                        .build(),
+                ),
+            ).awaitSuccess().bodyString()
+            Regex(""""token"\s*:\s*"([^"]+)"""").find(tokenJson)?.groupValues?.get(1)
+                ?: run {
+                    Log.w(TAG, "getVideoList: /get_token parse miss — raw=$tokenJson")
+                    null
+                }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "getVideoList: /get_token failed — ${e.message}")
+            null
+        }
+        Log.d(TAG, "getVideoList: freshToken=${freshToken?.take(20)}…")
+
+        // Build the download page URL with the fresh token appended.
+        val downloadPageUrl = buildString {
+            append(baseUrl)
+            append(episodeUrlBase)
+            if (!freshToken.isNullOrBlank()) append("?token=").append(freshToken)
+        }
 
         Log.d(TAG, "getVideoList: fetching download page → $downloadPageUrl")
         val pageHtml = try {
@@ -464,14 +503,14 @@ class AV1Encodes :
                 .bodyString()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: download page failed — ${e.message}")
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrlBase, filename)
         }
 
         val ddlToken = Regex("""['"](A{4,}[A-Za-z0-9_\-]{10,})['"]""").find(pageHtml)
             ?.groupValues?.get(1)
             ?: run {
                 Log.w(TAG, "getVideoList: no ddl-token found in page, falling back")
-                return fallbackDirectUrl(episodeUrl, filename)
+                return fallbackDirectUrl(episodeUrlBase, filename)
             }
         Log.d(TAG, "getVideoList: ddlToken=$ddlToken")
 
@@ -491,7 +530,7 @@ class AV1Encodes :
                 .bodyString()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: get_ddl failed — ${e.message}")
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrlBase, filename)
         }
         Log.d(TAG, "getVideoList: get_ddl response=$ddlRaw")
 
@@ -499,11 +538,11 @@ class AV1Encodes :
             ddlRaw.parseAs<DdlResponse>()
         } catch (e: Exception) {
             Log.e(TAG, "getVideoList: get_ddl parse failed — ${e.message}")
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrlBase, filename)
         }
         if (!ddl.success) {
             Log.w(TAG, "getVideoList: get_ddl success=false")
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrlBase, filename)
         }
 
         val videos = mutableListOf<Video>()
@@ -553,7 +592,7 @@ class AV1Encodes :
 
         if (videos.isEmpty()) {
             Log.w(TAG, "getVideoList: no videos from get_ddl, falling back")
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrlBase, filename)
         }
 
         Log.d(TAG, "getVideoList: returning ${videos.size} videos")
