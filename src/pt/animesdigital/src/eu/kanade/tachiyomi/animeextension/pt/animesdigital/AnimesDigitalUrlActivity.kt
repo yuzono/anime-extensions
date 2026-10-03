@@ -1,14 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesdigital
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import kotlin.system.exitProcess
 
 /**
- * Springboard that accepts https://animesdigital.org//anime/<item> intents
+ * Springboard that accepts https://animesdigital.org/anime/a/<item> intents
  * and redirects them to the main Aniyomi process.
  */
 class AnimesDigitalUrlActivity : Activity() {
@@ -26,7 +25,7 @@ class AnimesDigitalUrlActivity : Activity() {
 
         try {
             startActivity(mainIntent)
-        } catch (e: ActivityNotFoundException) {
+        } catch (e: Throwable) {
             Log.e(tag, "Unable to launch activity", e)
         }
 
