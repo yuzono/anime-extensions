@@ -7,12 +7,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import uy.kohesive.injekt.injectLazy
 
 class DailymotionExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
@@ -27,8 +25,6 @@ class DailymotionExtractor(private val client: OkHttpClient, private val headers
         .set("Origin", DAILYMOTION_URL)
         .apply { block() }
         .build()
-
-    private val json: Json by injectLazy()
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -85,7 +81,7 @@ class DailymotionExtractor(private val client: OkHttpClient, private val headers
         val idUrl = "$GRAPHQL_URL/"
         val idHeaders = headersBuilder {
             set("Accept", "application/json, text/plain, */*")
-            add("Authorization", "${tokenParsed.token_type} ${tokenParsed.access_token}")
+            add("Authorization", "${tokenParsed.tokenType} ${tokenParsed.accessToken}")
         }
 
         val idData = """
@@ -104,7 +100,7 @@ class DailymotionExtractor(private val client: OkHttpClient, private val headers
         val dmvk = htmlString.substringAfter("\"dmvk\":\"").substringBefore('"')
         val getVideoIdUrl = "$DAILYMOTION_URL/player/metadata/video/${idParsed.xid}?embedder=${"$baseUrl/"}&locale=en-US&dmV1st=$v1st&dmTs=$ts&is_native_app=0"
         val getVideoIdHeaders = headersBuilder {
-            add("Cookie", "dmvk=$dmvk; ts=$ts; v1st=$v1st; usprivacy=1---; client_token=${tokenParsed.access_token}")
+            add("Cookie", "dmvk=$dmvk; ts=$ts; v1st=$v1st; usprivacy=1---; client_token=${tokenParsed.accessToken}")
             set("Referer", url)
         }
 
@@ -116,19 +112,35 @@ class DailymotionExtractor(private val client: OkHttpClient, private val headers
 
     private fun videosFromDailyResponse(parsed: DailyQuality, prefix: String, playlistHeaders: Headers? = null): List<Video> {
         val masterUrl = parsed.qualities?.auto?.firstOrNull()?.url
-            ?: return emptyList<Video>()
+            ?: return emptyList()
 
         val subtitleList = parsed.subtitles?.data?.map {
             Track(it.urls.first(), it.label)
-        } ?: emptyList<Track>()
+        } ?: emptyList()
 
         val masterHeaders = playlistHeaders ?: headersBuilder()
 
-        return playlistUtils.extractFromHls(
+        val videos = playlistUtils.extractFromHls(
             masterUrl,
             masterHeadersGen = { _, _ -> masterHeaders },
+            videoHeadersGen = { _, _, _ -> masterHeaders },
             subtitleList = subtitleList,
             videoNameGen = { "$prefix$it" },
         )
+
+        // Newer (fMP4) streams keep audio in separate `#EXT-X-MEDIA:TYPE=AUDIO` renditions, so the
+        // variant playlists are video-only. Offer the master playlist first so the player resolves
+        // the audio group itself instead of relying on external audio tracks.
+        val firstVideo = videos.firstOrNull() ?: return videos
+        if (firstVideo.audioTracks.isEmpty()) return videos
+
+        val autoVideo = Video(
+            url = masterUrl,
+            quality = "${prefix}Auto",
+            videoUrl = masterUrl,
+            headers = masterHeaders,
+            subtitleTracks = firstVideo.subtitleTracks,
+        )
+        return listOf(autoVideo) + videos
     }
 }
