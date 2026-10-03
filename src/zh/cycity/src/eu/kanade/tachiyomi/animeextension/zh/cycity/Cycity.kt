@@ -10,11 +10,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -25,7 +25,7 @@ import java.security.MessageDigest
 import java.util.Calendar
 
 class Cycity :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val baseUrl = "https://www.cycani.org"
     override val name = "次元城动漫"
@@ -242,10 +242,10 @@ class Cycity :
     override fun videoListParse(response: Response) = response.asJsoup().let {
         val origin = VIDEO_URL_REGEX.find(it.select(".player-left").html())!!.groups[1]!!.value
         val base64 = Base64.decode(origin, Base64.DEFAULT).toString(Charsets.UTF_8)
-        listOf(Video(URLDecoder.decode(base64, "UTF-8"), "默认", null))
+        listOf(Video(url = URLDecoder.decode(base64, "UTF-8"), quality = "默认", videoUrl = null))
     }
 
-    override fun videoUrlRequest(video: Video) = GET(PARSE_URL + video.url)
+    override fun videoUrlRequest(video: Video) = GET(PARSE_URL + video.videoUrl)
 
     override fun videoUrlParse(response: Response): String {
         val body = response.body.string()

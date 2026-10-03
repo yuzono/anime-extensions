@@ -1,6 +1,7 @@
 package aniyomi.lib.playlistutils
 
 import android.net.Uri
+import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -8,6 +9,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.commonEmptyHeaders
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.parallelMapNotNullBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
@@ -180,7 +182,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 ?.groupValues?.get(1)
                 ?.toLongOrNull()
             val bandwidthFormatted = bandwidth
-                ?.let(::formatBytes)
+                ?.formatBytes()
             val streamName = listOfNotNull(resolution, bandwidthFormatted).joinToString(" - ")
                 .takeIf { it.isNotBlank() }
                 ?: "Video"
@@ -243,7 +245,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> = extractFromDash(
         mpdUrl,
         { videoRes, bandwidth ->
-            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+            videoNameGen(videoRes) + " - ${bandwidth.toLongOrNull()?.formatBytes() ?: ""}"
         },
         referer,
         { _, _ -> mpdHeaders },
@@ -290,7 +292,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
     ): List<Video> = extractFromDash(
         mpdUrl,
         { videoRes, bandwidth ->
-            videoNameGen(videoRes) + " - ${formatBytes(bandwidth.toLongOrNull())}"
+            videoNameGen(videoRes) + " - ${bandwidth.toLongOrNull()?.formatBytes() ?: ""}"
         },
         referer,
         mpdHeadersGen,
@@ -344,8 +346,8 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
 
         // Get audio tracks
         val audioTracks = audioList + doc.select("Representation[mimetype~=audio]").map { audioSrc ->
-            val bandwidth = audioSrc.attr("bandwidth").toLongOrNull()
-            Track(audioSrc.text(), formatBytes(bandwidth))
+            val bandwidth = audioSrc.attr("bandwidth").toLongOrNull()?.formatBytes() ?: ""
+            Track(audioSrc.text(), bandwidth)
         }
 
         return doc.select("Representation[mimetype~=video]").map { videoSrc ->
@@ -364,16 +366,6 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 headers = videoHeadersGen(headers, referer, videoUrl),
             )
         }
-    }
-
-    private fun formatBytes(bytes: Long?): String = when {
-        bytes == null -> ""
-        bytes >= 1_000_000_000 -> "%.2f GB/s".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB/s".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB/s".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes/s"
-        bytes == 1L -> "$bytes byte/s"
-        else -> ""
     }
 
     // ============================= Utilities ==============================
@@ -405,19 +397,55 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
      * Fix a common issue in VTT (WebVTT) subtitle files where extra or unexpected newline characters break the subtitle format,
      * potentially causing players to fail to render them correctly.
      */
-    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.parallelMapNotNullBlocking {
+    fun fixSubtitles(subtitleList: List<Track>): List<Track> = subtitleList.parallelMapNotNullBlocking { track ->
         runCatching {
-            val subData = client.newCall(GET(it.url))
+            val subData = client.newCall(GET(track.url))
                 .awaitSuccess().bodyString()
 
-            val file = File.createTempFile("subs", "vtt")
+            val file = File.createTempFile("subs", ".vtt")
                 .also(File::deleteOnExit)
 
-            file.writeText(FIX_SUBTITLE_REGEX.replace(subData, ::cleanSubtitleData))
+            val vttData = toWebVtt(subData)
+            // Only WebVTT (or data converted to it) gets the gap cleanup; formats like ASS/SSA
+            // legitimately use blank lines between sections and must not be touched by it.
+            val cleanedData = if (vttData.startsWith("WEBVTT")) {
+                FIX_SUBTITLE_REGEX.replace(vttData, ::cleanSubtitleData)
+            } else {
+                vttData
+            }
+            file.writeText(cleanedData)
             val uri = Uri.fromFile(file)
 
-            Track(uri.toString(), it.lang)
+            Track(uri.toString(), track.lang)
+        }.onFailure { e ->
+            Log.w("PlaylistUtils", "Failed to process subtitle track (${track.lang}): ${e.javaClass.simpleName}: ${e.message}")
         }.getOrNull()
+    }
+
+    /**
+     * Converts SubRip subtitle data to WebVTT, leaving anything else unchanged.
+     *
+     * Some hosters serve SubRip content from a `.vtt` URL or behind a `text/vtt` content type.
+     * Players that sniff the format from the content cope with that, but ones that trust the
+     * declared type do not, so the data is normalized to match what it claims to be: WebVTT
+     * requires the `WEBVTT` header, and its cue timings use a dot as the decimal separator
+     * instead of SubRip's comma.
+     *
+     * SubRip's numeric cue indexes are dropped, because a WebVTT cue identifier is optional and
+     * keeping them breaks [FIX_SUBTITLE_REGEX], which runs next: its lookahead only accepts a cue
+     * timing directly after a blank line, so an index line in between makes it treat every single
+     * cue boundary as an illegal gap and replace it with a `&nbsp;` line. That collapses the blank
+     * lines WebVTT needs to separate cues and leaves a file a player loads but cannot render.
+     *
+     * Data that already is WebVTT, and data in a format that carries no SubRip cue timing at all
+     * (SubStation Alpha, for instance), is returned as-is rather than being given a header it
+     * cannot back up.
+     */
+    private fun toWebVtt(subData: String): String {
+        val data = subData.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').trimStart()
+        if (data.startsWith("WEBVTT") || !SRT_TIMECODE_REGEX.containsMatchIn(data)) return data
+        val cues = SRT_TIMECODE_REGEX.replace(data, "$1.$2 --> $3.$4")
+        return "WEBVTT\n\n" + SRT_CUE_INDEX_REGEX.replace(cues, "")
     }
 
     companion object {
@@ -426,11 +454,36 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
          *
          * * `$`: Matches the end of a line.
          * * `(\n{2,})`: Captures a group of two or more consecutive newline characters. In VTT files, a double newline usually indicates the end of one "cue" (subtitle block) and the start of another.
-         * * `(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)`: This is a negative lookahead. It checks that what follows the newlines is NOT a VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000)`.
+         * * The negative lookahead checks that what follows the newlines is NOT the start of legitimate WebVTT content. It accepts:
+         *     - A VTT timestamp (e.g., `00:00:10.000 --> 00:00:12.000`).
+         *     - A `NOTE` block start (`NOTE` followed by whitespace, newline, or end of line).
+         *     - A `STYLE` or `REGION` block start (followed by whitespace, newline, or end of line).
+         *     - Any single non-blank cue identifier line immediately followed by a cue timing line on the next line (a valid WebVTT cue with an identifier).
          *
-         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
+         * **Logic**: If the code finds multiple empty lines, but the next thing it sees isn't a new timestamp, `NOTE`/`STYLE`/`REGION` block, or an identifier line leading into a timing line, it assumes those empty lines are garbage or mid-text breaks that will break the parser.
          */
-        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?)""", RegexOption.MULTILINE)
+        private val FIX_SUBTITLE_REGEX = Regex("""$(\n{2,})(?!(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s(?:\d+:)*\d+(?:\.\d+)?|(?:NOTE|STYLE|REGION)(?:[ \t\n]|$)|[^\n]+\n(?:(?:\d+:)*\d+(?:\.\d+)?\s-+>\s)))""", RegexOption.MULTILINE)
+
+        /**
+         * Matches a SubRip cue timing line, e.g. `00:00:03,520 --> 00:00:05,240`.
+         *
+         * The hour part is optional, and either a comma or a dot is accepted as the decimal
+         * separator so that partly converted data is matched too. Commas inside dialogue are never
+         * touched, because a match has to contain the `-->` arrow, and anything trailing the end
+         * timestamp (WebVTT cue settings) is left in place.
+         */
+        private val SRT_TIMECODE_REGEX by lazy {
+            Regex("""((?:\d{1,3}:)?\d{1,3}:\d{2})[,.](\d{1,3})[ \t]*-->[ \t]*((?:\d{1,3}:)?\d{1,3}:\d{2})[,.](\d{1,3})""")
+        }
+
+        /**
+         * Matches a SubRip numeric cue index on its own line, immediately followed by the cue
+         * timing line. Applied after [SRT_TIMECODE_REGEX] has already converted the timings, so
+         * only the dot form needs matching here.
+         */
+        private val SRT_CUE_INDEX_REGEX by lazy {
+            Regex("""^\d+[ \t]*\n(?=(?:\d{1,3}:)?\d{1,3}:\d{2}\.\d{1,3}[ \t]*-->)""", RegexOption.MULTILINE)
+        }
 
         private const val PLAYLIST_SEPARATOR = "#EXT-X-STREAM-INF:"
 

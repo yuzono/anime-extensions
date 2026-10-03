@@ -6,9 +6,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -17,7 +17,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
 
-class Azanimex : ParsedAnimeHttpSource() {
+class Azanimex : ParsedAnimeHttpLegacySource() {
 
     override val name = "az-animex"
 
@@ -219,7 +219,6 @@ class Azanimex : ParsedAnimeHttpSource() {
     override fun videoListSelector() = throw Exception("Not used")
 
     override fun videoFromElement(element: Element) = throw Exception("Not used")
-    override fun videoUrlParse(document: Document): String = throw Exception("Not used")
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val videoUrl = episode.url

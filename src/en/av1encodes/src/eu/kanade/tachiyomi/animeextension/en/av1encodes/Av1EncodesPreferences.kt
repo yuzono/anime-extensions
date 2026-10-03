@@ -71,8 +71,8 @@ internal fun List<Video>.sortByPreferredQuality(preferences: SharedPreferences):
     val preferredResolution = qualityRegex.find(preferredQuality)?.groupValues?.getOrNull(1) ?: preferredQuality
     val linkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
     return sortedWith(
-        compareByDescending<Video> { it.quality.contains(linkType, ignoreCase = true) }
-            .thenByDescending { it.quality.contains(preferredResolution, ignoreCase = true) }
-            .thenByDescending { resolutionRegex.find(it.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0 },
+        compareByDescending<Video> { it.videoTitle.contains(linkType, ignoreCase = true) }
+            .thenByDescending { it.videoTitle.contains(preferredResolution, ignoreCase = true) }
+            .thenByDescending { resolutionRegex.find(it.videoTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0 },
     )
 }

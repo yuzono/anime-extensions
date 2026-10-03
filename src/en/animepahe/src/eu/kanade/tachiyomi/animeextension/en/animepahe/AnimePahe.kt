@@ -11,21 +11,25 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -33,9 +37,9 @@ import org.jsoup.nodes.Element
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.time.Duration.Companion.milliseconds
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
 class AnimePahe :
@@ -44,24 +48,20 @@ class AnimePahe :
 
     private val preferences by getPreferencesLazy()
 
+    private val fetchMutex = Mutex()
+
     override fun headersBuilder() = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
-    private val interceptor = DdosGuardInterceptor(network.client) { cfBypassUserAgent }
+    private val interceptor = CloudflareInterceptor(network.client) { cfBypassUserAgent }
     override val client = network.client.newBuilder()
         .addInterceptor(interceptor)
         .build()
 
     private val extractorClient by lazy {
         client.newBuilder().apply {
-            interceptors().removeAll { it is DdosGuardInterceptor }
+            interceptors().removeAll { it is CloudflareInterceptor }
         }.build()
-    }
-
-    private val searchClient by lazy {
-        client.newBuilder()
-            .rateLimit(2, 1, TimeUnit.SECONDS)
-            .build()
     }
 
     override val name = "AnimePahe"
@@ -124,9 +124,9 @@ class AnimePahe :
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET(getAnimeUrl(anime), headers)
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = fetchMutex.withLock {
         val request = animeDetailsRequest(anime)
-        val response = client.newCall(request).await()
+        val response = safeApiCall(request)
 
         if (response.isSuccessful) {
             return response.use { animeDetailsParse(it) }
@@ -134,20 +134,19 @@ class AnimePahe :
         response.close()
 
         val animeId = anime.getId()
+        delay(1000.milliseconds)
         val result = fetchSessionAndId(animeId, anime.title)
+            ?: throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+        val (newId, newSession) = result
+        saveSessionToCache(newId, newSession)
 
-        if (result != null) {
-            val (newId, newSession) = result
-            saveSessionToCache(newId, newSession)
-            val newRequest = GET("$baseUrl/anime/$newSession", headers)
-            val newResponse = client.newCall(newRequest).await()
-            if (newResponse.isSuccessful) {
-                return newResponse.use { animeDetailsParse(it) }
-            }
-            newResponse.close()
-            throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $newId) at ${newRequest.url}")
+        val newRequest = GET("$baseUrl/anime/$newSession", headers)
+        val newResponse = safeApiCall(newRequest)
+        if (newResponse.isSuccessful) {
+            return newResponse.use { animeDetailsParse(it) }
         }
-        throw IOException("HTTP error fetching details for '${anime.title}' (ID: ${animeId ?: "N/A"}) at ${request.url}")
+        newResponse.close()
+        throw IOException("HTTP ${newResponse.code} fetching details for '${anime.title}' (ID: $newId) at ${newRequest.url}")
     }
 
     override fun animeDetailsParse(response: Response): SAnime {
@@ -197,6 +196,27 @@ class AnimePahe :
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api?m=airing&page=$page")
 
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        if (page > 1) {
+            delay(3000.milliseconds)
+        }
+        val request = popularAnimeRequest(page)
+        var response = client.newCall(request).await()
+
+        if (response.code == 429) {
+            response.close()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
+        }
+
+        if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
+            response.close()
+            throw IOException("You have been rate limited. Wait a few seconds and refresh")
+        }
+
+        return popularAnimeParse(response)
+    }
+
     override fun popularAnimeParse(response: Response): AnimesPage {
         val latestData = response.parseAs<ResponseDto<LatestAnimeDto>>()
         val hasNextPage = latestData.currentPage < latestData.lastPage
@@ -222,11 +242,15 @@ class AnimePahe :
         val seasonFilter = filters.filterIsInstance<Filters.SeasonFilter>().firstOrNull()
 
         return if (query.isNotBlank()) {
+            // Appends a unique epoch timestamp to bypass Cloudflare's API cache
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
             val urlBuilder = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("api")
                 addQueryParameter("m", "search")
-                // addQueryParameter("l", "8")
-                addQueryParameter("q", query)
+                // AnimePahe search is smart enough to ignore the timeSuffix value when searching
+                // (which lets us paginate the same results without worrying about cached pages)
+                addQueryParameter("q", "$query $timeSuffix")
+                addQueryParameter("page", page.toString())
             }
             GET(urlBuilder.build())
         } else {
@@ -272,10 +296,35 @@ class AnimePahe :
         }
     }
 
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val isApiCall = query.isNotBlank() || filters.isEmpty()
+        if (page > 1 && isApiCall) {
+            delay(3000.milliseconds)
+        }
+
+        val request = searchAnimeRequest(page, query, filters)
+
+        var response = client.newCall(request).await()
+
+        if (response.code == 429) {
+            response.close()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
+        }
+
+        if (response.code == 429 || response.headers["Content-Type"]?.contains("text/html") == true) {
+            response.close()
+            throw IOException("You are being rate limited. Wait a few seconds and try again.")
+        }
+
+        return searchAnimeParse(response)
+    }
+
     override fun searchAnimeParse(response: Response): AnimesPage {
         val url = response.request.url
         if (url.pathSegments.contains("api") && url.queryParameter("m") == "search") {
             val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+            val hasNextPage = searchData.currentPage < searchData.lastPage
             val animeList = searchData.items.map { anime ->
                 saveSessionToCache(anime.id.toString(), anime.session)
 
@@ -285,7 +334,7 @@ class AnimePahe :
                     setUrlWithoutDomain("/a/${anime.id}")
                 }
             }
-            return AnimesPage(animeList, false)
+            return AnimesPage(animeList, hasNextPage)
         } else if (url.pathSegments.contains("anime")) {
             val document = response.useAsJsoup()
             val entries = document.select("div.index div > a").mapNotNull { a ->
@@ -302,14 +351,16 @@ class AnimePahe :
         return AnimesPage(emptyList(), false)
     }
 
-    // ============================== Latest ===============================
+    // ============================= Latest =================================
     // This source doesn't have a popular animes page,
     // so we use latest animes page instead.
     override suspend fun getLatestUpdates(page: Int) = throw UnsupportedOperationException()
     override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
     override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
 
-    // =============================== Relation/Suggestions ===============================
+    // ======================== Relation/Suggestions ========================
+    override val disableRelatedAnimesBySearch = true
+
     override fun relatedAnimeListRequest(anime: SAnime) = animeDetailsRequest(anime)
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
@@ -333,6 +384,9 @@ class AnimePahe :
     }
 
     // ============================== Episodes ==============================
+
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+
     private val sessionIdRegex by lazy { Regex("""/anime/([\w-]+)""") }
     private val newAnimeIdRegex by lazy { Regex("""/a/(\d+)""") }
     private val oldQueryIdRegex by lazy { Regex("""\?anime_id=(\d+)""") }
@@ -344,12 +398,11 @@ class AnimePahe :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeId = anime.getId()
-        var session = animeId?.let { getSessionFromCache(it) }
+        var session = animeId?.let { getSessionFromCache(it) } ?: anime.getSession()
 
         if (session == null) {
-            val result = fetchSessionAndId(animeId, anime.title)
-            if (result != null) {
-                val (newId, newSession) = result
+            delay(3000.milliseconds)
+            fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                 saveSessionToCache(newId, newSession)
                 session = newSession
             }
@@ -367,22 +420,31 @@ class AnimePahe :
             addQueryParameter("page", "1")
         }.build()
 
-        val response = client.newCall(GET(url)).await()
+        val response = safeApiCall(GET(url))
+
         if (!response.isSuccessful) {
             response.close()
-            val result = fetchSessionAndId(animeId, anime.title)
-            if (result != null) {
-                val (newId, newSession) = result
-                if (newSession != session) {
+
+            val latestSession = animeId?.let { getSessionFromCache(it) }
+            val newSession = if (latestSession != null && latestSession != session) {
+                latestSession
+            } else {
+                delay(3000.milliseconds)
+                fetchSessionAndId(animeId, anime.title)?.let { (newId, newSession) ->
                     saveSessionToCache(newId, newSession)
-                    val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
-                    val newResponse = client.newCall(GET(newUrl)).await()
-                    if (newResponse.isSuccessful) {
-                        return newResponse.use { fetchEpisodes(it, newSession) }
-                    }
-                    newResponse.close()
-                    throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' (ID: $newId) at $newUrl")
+                    newSession
                 }
+            }
+
+            if (newSession != null && newSession != session) {
+                delay(3000.milliseconds)
+                val newUrl = url.newBuilder().setQueryParameter("id", newSession).build()
+                val newResponse = safeApiCall(GET(newUrl))
+                if (newResponse.isSuccessful) {
+                    return newResponse.use { fetchEpisodes(it, newSession) }
+                }
+                newResponse.close()
+                throw IOException("HTTP ${newResponse.code} fetching episodes for '${anime.title}' at $newUrl")
             }
             throw IOException("HTTP ${response.code} fetching episodes for '${anime.title}' (ID: ${animeId ?: "N/A"}) at $url")
         }
@@ -409,7 +471,10 @@ class AnimePahe :
 
     override fun episodeListParse(response: Response): List<SEpisode> = emptyList()
 
-    private suspend fun fetchEpisodes(response: Response, session: String): List<SEpisode> {
+    private suspend fun fetchEpisodes(
+        response: Response,
+        session: String,
+    ): List<SEpisode> {
         val episodeList = mutableListOf<SEpisode>()
         val requestUrl = response.request.url
         var currentData = response.parseAs<ResponseDto<EpisodeDto>>()
@@ -427,7 +492,14 @@ class AnimePahe :
                 .setQueryParameter("page", (currentData.currentPage + 1).toString())
                 .build()
 
-            currentData = client.newCall(GET(nextUrl)).await().use { it.parseAs() }
+            delay(3000.milliseconds)
+            val nextResponse = safeApiCall(GET(nextUrl))
+            if (!nextResponse.isSuccessful) {
+                val status = nextResponse.code
+                nextResponse.close()
+                throw IOException("HTTP $status fetching episodes at $nextUrl")
+            }
+            currentData = nextResponse.use { it.parseAs() }
         }
 
         val showSiteEpisodeNumber = preferences.getBoolean(PREF_SHOW_SITE_NUMBER_KEY, PREF_SHOW_SITE_NUMBER_DEFAULT)
@@ -462,66 +534,187 @@ class AnimePahe :
     }.toMutableList()
 
     // ============================ Video Links =============================
-    override fun videoListRequest(episode: SEpisode): Request {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         // Strip the `?anime_id=...` query parameter.
         // This parameter is strictly for database mapping and orphaning prevention.
         val urlPath = episode.url.substringBefore("?")
-        return GET("$baseUrl$urlPath", headers)
-    }
+        val request = GET("$baseUrl$urlPath", headers)
 
-    override fun videoListParse(response: Response): List<Video> {
+        val response = client.newCall(request).awaitSuccess()
+
         val document = response.useAsJsoup()
         val downloadLinks = document.select("div#pickDownload > a")
-        val links = document.select("div#resolutionMenu > button").withIndex().map { (index, btn) ->
-            val kwikLink = btn.attr("data-src")
-            val quality = btn.text()
-            val paheWinLink = downloadLinks.getOrNull(index)?.attr("href")
-            Triple(kwikLink, paheWinLink, quality)
+        val buttons = document.select("div#resolutionMenu > button").withIndex().toList()
+
+        val grouped = buttons.groupBy { (_, btn) ->
+            val text = btn.text()
+            val providerName = if (text.contains(" · ")) {
+                text.substringBefore(" · ")
+            } else {
+                text
+            }
+
+            val qualityText = if (text.contains(" · ")) {
+                text.substringAfter(" · ")
+            } else {
+                text
+            }
+
+            val lang = when {
+                qualityText.contains("eng", ignoreCase = true) -> "English"
+                qualityText.contains("kor", ignoreCase = true) -> "Korean"
+                qualityText.contains("chi", ignoreCase = true) -> "Chinese"
+                else -> "Sub"
+            }
+
+            "$providerName ($lang)"
         }
 
-        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
-        val cfUA = cfBypassUserAgent // Get the custom UA once
+        return grouped.map { (hosterName, entries) ->
+            val combinedData = entries.joinToString("|||") { (index, btn) ->
+                val kwikLink = btn.attr("data-src")
+                val fullText = btn.text()
 
-        val videos = if (!useHLS) {
-            val mp4Videos = links.parallelCatchingFlatMapBlocking { (_, paheWinLink, quality) ->
-                if (paheWinLink.isNullOrBlank()) return@parallelCatchingFlatMapBlocking emptyList()
-                KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, quality).let(::listOf)
-            }
-            AnimePaheHlsServer.processMp4VideoList(client, mp4Videos)
-        } else {
-            emptyList()
-        }
+                var qualityText = if (fullText.contains(" · ")) {
+                    fullText.substringAfter(" · ")
+                } else {
+                    fullText
+                }
 
-        return videos.ifEmpty {
-            val hlsVideos = links.parallelCatchingFlatMapBlocking { (kwikLink, _, quality) ->
-                KwikExtractor(extractorClient, headers, cfUA).getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
-                    .let(::listOf)
+                qualityText = qualityText
+                    .replace("eng", "", ignoreCase = true)
+                    .replace("kor", "", ignoreCase = true)
+                    .replace("chi", "", ignoreCase = true)
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+
+                val paheWinLink = downloadLinks.getOrNull(index)?.attr("href") ?: ""
+                "$kwikLink###$qualityText###$paheWinLink"
             }
-            AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
+
+            Hoster(
+                hosterName = hosterName,
+                internalData = combinedData,
+            )
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
-        val subPreference = preferences.getString(PREF_SUB_KEY, PREF_SUB_DEFAULT)!!
-        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
-        val shouldEndWithEng = subPreference == "eng"
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    // ========================== Hoster Sorting ============================
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val preferredLang = getPreferredLang()
+        val preferredLangDisplay = when (preferredLang) {
+            "sub" -> "Sub"
+            "eng" -> "English"
+            "kor" -> "Korean"
+            "chi" -> "Chinese"
+            else -> "Sub"
+        }
 
         return this.sortedWith(
-            compareByDescending<Video> { it.quality.contains(preferredQuality) }
-                .thenByDescending {
-                    val quality = it.quality
-                    QUALITY_REGEX_P.find(quality)?.groupValues?.get(1)?.toIntOrNull()
-                        ?: QUALITY_REGEX.find(quality)?.groupValues?.get(1)?.toIntOrNull()
-                        ?: 0
-                }
-                .thenByDescending {
-                    val quality = it.quality.lowercase()
-                    val isDub = quality.contains("eng")
-                    if (shouldEndWithEng) isDub else !isDub
-                }
-                .thenByDescending { it.quality.lowercase().contains("av1") == shouldBeAv1 },
+            compareByDescending { hoster ->
+                hoster.hosterName.contains("($preferredLangDisplay)", ignoreCase = true)
+            },
         )
+    }
+
+    // ==================== Video Extraction & Sorting ======================
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        if (hoster.internalData.isBlank()) return emptyList()
+
+        val useHLS = preferences.getBoolean(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)
+        val cfUA = cfBypassUserAgent
+        val videoList = mutableListOf<Video>()
+
+        hoster.internalData.split("|||").forEach { dataStr ->
+            val parts = dataStr.split("###")
+            if (parts.size != 3) return@forEach
+
+            val kwikLink = parts[0]
+            val quality = parts[1]
+            val paheWinLink = parts[2]
+
+            if (!useHLS && paheWinLink.isNotBlank()) {
+                videoList.add(
+                    Video(
+                        videoUrl = "",
+                        videoTitle = quality,
+                        internalData = "mp4_pahe::$paheWinLink",
+                        initialized = false,
+                    ),
+                )
+            } else {
+                val hlsVideos = try {
+                    KwikExtractor(extractorClient, headers, cfUA)
+                        .getHlsVideo(kwikLink, referer = "$baseUrl/", quality = "$quality (HLS)")
+                        .let(::listOf)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
+
+                val proxiedHlsVideos = AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
+                videoList.addAll(proxiedHlsVideos)
+            }
+        }
+
+        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.lowercase()
+        val shouldBeAv1 = preferences.getBoolean(PREF_AV1_KEY, PREF_AV1_DEFAULT)
+
+        val sortedVideos = videoList.sortedWith(
+            compareByDescending<Video> { video ->
+                video.videoTitle.lowercase().contains(preferredQuality)
+            }.thenByDescending { video ->
+                val title = video.videoTitle.lowercase()
+                title.contains("av1") == shouldBeAv1
+            }.thenByDescending { video ->
+                val title = video.videoTitle.lowercase()
+                QUALITY_REGEX_P.find(title)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: QUALITY_REGEX.find(title)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: 0
+            },
+        )
+
+        val preferredLang = getPreferredLang()
+        val preferredLangDisplay = when (preferredLang) {
+            "sub" -> "Sub"
+            "eng" -> "English"
+            "kor" -> "Korean"
+            "chi" -> "Chinese"
+            else -> "Sub"
+        }
+        val isPreferredLangHoster = hoster.hosterName.contains("($preferredLangDisplay)", ignoreCase = true)
+
+        return sortedVideos.mapIndexed { index, video ->
+            if (index == 0 && isPreferredLangHoster) {
+                video.copy(preferred = true)
+            } else {
+                video.copy(preferred = false)
+            }
+        }
+    }
+
+    // ======================== Video Resolution ============================
+    override suspend fun resolveVideo(video: Video): Video? {
+        if (video.internalData.startsWith("mp4_pahe::")) {
+            val paheWinLink = video.internalData.removePrefix("mp4_pahe::")
+            val cfUA = cfBypassUserAgent
+
+            return try {
+                val resolvedVideo = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, video.videoTitle)
+
+                val proxiedVideo = AnimePaheHlsServer.processMp4VideoList(client, listOf(resolvedVideo)).firstOrNull()
+
+                proxiedVideo?.copy(preferred = video.preferred)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+        return video
     }
 
     // ============================== Filters ===============================
@@ -556,11 +749,11 @@ class AnimePahe :
             summary = "%s",
         )
         screen.addListPreference(
-            key = PREF_SUB_KEY,
-            title = PREF_SUB_TITLE,
-            entries = PREF_SUB_ENTRIES,
-            entryValues = PREF_SUB_VALUES,
-            default = PREF_SUB_DEFAULT,
+            key = PREF_LANG_KEY,
+            title = PREF_LANG_TITLE,
+            entries = PREF_LANG_ENTRIES,
+            entryValues = PREF_LANG_VALUES,
+            default = PREF_LANG_DEFAULT,
             summary = "%s",
         )
         screen.addSwitchPreference(
@@ -598,6 +791,21 @@ class AnimePahe :
     }
 
     // ============================= Utilities ==============================
+
+    /**
+     * Helper function to execute API requests and automatically handle 429 rate limits.
+     * Waits 12 seconds and retries once if a 429 occurs.
+     */
+    private suspend fun safeApiCall(request: Request): Response {
+        var response = client.newCall(request).await()
+        if (response.code == 429) {
+            response.close()
+            delay(12000.milliseconds)
+            response = client.newCall(request).await()
+        }
+        return response
+    }
+
     private fun saveSessionToCache(animeId: String, session: String) {
         val idKey = "session_cache_$animeId"
         val sessionKey = "id_cache_$session"
@@ -622,14 +830,12 @@ class AnimePahe :
 
         val normalizedTitle = normalizeTitle(title)
 
-        // Define the trailing lengths we want to try
-        // e.g. 4 words ("Dungeon IV Part 2"), 3 words ("IV Part 2")
-        val trailingLengths = listOf(4, 3)
-
         // Try searching with the full normalized title first
         var result = searchApiForId(animeId, normalizedTitle, searchQuery)
         if (result != null) return result
 
+        // Try searching with the trailing words (e.g. for sequels "IV Part 2")
+        val trailingLengths = listOf(4, 3)
         for (len in trailingLengths) {
             if (words.size > len) {
                 val shortQuery = words.takeLast(len).joinToString(" ")
@@ -641,31 +847,58 @@ class AnimePahe :
         return null
     }
 
-    private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, query: String): Pair<String, String>? {
-        val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("api")
-            addQueryParameter("m", "search")
-            addQueryParameter("q", query)
-        }.build()
+    private suspend fun searchApiForId(animeId: String?, normalizedTitle: String?, originalQuery: String): Pair<String, String>? {
+        var page = 1
+        var hasNextPage = true
 
-        return try {
-            searchClient.newCall(GET(searchUrl)).await().use { response ->
-                if (!response.isSuccessful) return null
-                val searchData = response.parseAs<ResponseDto<SearchResultDto>>()
+        while (hasNextPage && page <= 10) {
+            // Appends a unique epoch timestamp to bypass Cloudflare's API cache
+            // AnimePahe search is smart enough to ignore the timeSuffix value
+            val timeSuffix = (System.currentTimeMillis() / 1000) + (page * 3)
+            val fullQuery = "$originalQuery $timeSuffix"
 
-                val matchedAnime = if (animeId != null) {
-                    searchData.items.firstOrNull { it.id.toString() == animeId }
-                } else if (normalizedTitle != null) {
-                    searchData.items.firstOrNull { normalizeTitle(it.title) == normalizedTitle }
-                } else {
-                    null
+            val searchUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                addPathSegment("api")
+                addQueryParameter("m", "search")
+                addQueryParameter("q", fullQuery)
+                addQueryParameter("page", page.toString())
+            }.build()
+
+            val result = try {
+                val response = safeApiCall(GET(searchUrl))
+                response.use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val searchData = resp.parseAs<ResponseDto<SearchResultDto>>()
+
+                    hasNextPage = searchData.currentPage < searchData.lastPage
+
+                    val matchedAnime = if (animeId != null) {
+                        searchData.items.firstOrNull { it.id.toString() == animeId }
+                    } else if (normalizedTitle != null) {
+                        // Match entry titles using the substring before timeSuffix (which is normalizedTitle)
+                        // Using contains() so minor local title differences (like "TV" or "Part 2") still match correctly
+                        searchData.items.firstOrNull {
+                            val apiTitle = normalizeTitle(it.title)
+                            apiTitle.contains(normalizedTitle) || normalizedTitle.contains(apiTitle)
+                        }
+                    } else {
+                        null
+                    }
+
+                    matchedAnime?.let { it.id.toString() to it.session }
                 }
-
-                matchedAnime?.let { it.id.toString() to it.session }
+            } catch (_: Exception) {
+                null
             }
-        } catch (_: Exception) {
-            null
+
+            if (result != null) return result
+
+            if (hasNextPage && page < 10) {
+                delay(3000.milliseconds)
+            }
+            page++
         }
+        return null
     }
 
     private fun normalizeSearchQuery(raw: String): String = raw
@@ -677,6 +910,19 @@ class AnimePahe :
         .lowercase()
         .replace(NORMALIZE_REGEX, "")
         .trim()
+
+    private fun getPreferredLang(): String {
+        var lang = preferences.getString(PREF_LANG_KEY, null)
+        if (lang == null) {
+            val oldSub = preferences.getString("preferred_sub", "jpn")
+            lang = if (oldSub == "eng") "eng" else "sub"
+            preferences.edit()
+                .putString(PREF_LANG_KEY, lang)
+                .remove("preferred_sub")
+                .apply()
+        }
+        return lang
+    }
 
     private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Currently Airing" -> SAnime.ONGOING
@@ -720,11 +966,11 @@ class AnimePahe :
         private val PREF_DOMAIN_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }
         private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
-        private const val PREF_SUB_KEY = "preferred_sub"
-        private const val PREF_SUB_TITLE = "Preferred Type"
-        private const val PREF_SUB_DEFAULT = "jpn"
-        private val PREF_SUB_ENTRIES = listOf("Sub", "Dub")
-        private val PREF_SUB_VALUES = listOf("jpn", "eng")
+        private const val PREF_LANG_KEY = "preferred_lang"
+        private const val PREF_LANG_TITLE = "Preferred Language"
+        private const val PREF_LANG_DEFAULT = "sub"
+        private val PREF_LANG_ENTRIES = listOf("Sub", "English", "Chinese", "Korean")
+        private val PREF_LANG_VALUES = listOf("sub", "eng", "chi", "kor")
 
         private const val PREF_LINK_TYPE_KEY = "preferred_link_type"
         private const val PREF_LINK_TYPE_TITLE = "Use HLS Links"

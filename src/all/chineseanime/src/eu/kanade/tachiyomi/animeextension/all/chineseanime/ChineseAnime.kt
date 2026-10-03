@@ -15,11 +15,11 @@ class ChineseAnime :
     AnimeStream(
         "all",
         "ChineseAnime",
-        "https://www.chineseanime.vip",
+        "https://www.chineseanime.in",
     ) {
 
     // =============================== Search ===============================
-    override fun searchAnimeNextPageSelector() = "div.mrgn > a.r"
+    override fun searchAnimeNextPageSelector() = "div.hpage > a.r"
 
     // =========================== Anime Details ============================
     override val animeDescriptionSelector = ".entry-content"
@@ -61,14 +61,14 @@ class ChineseAnime :
     private val SharedPreferences.langPref by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
 
     // ============================= Utilities ==============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.videoSortPref
         val language = preferences.langPref
 
         return sortedWith(
             compareBy(
-                { it.quality.contains(quality) },
-                { it.quality.contains(language, true) },
+                { it.videoTitle.contains(quality) },
+                { it.videoTitle.contains(language, true) },
             ),
         ).reversed()
     }

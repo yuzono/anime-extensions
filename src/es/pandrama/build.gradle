@@ -1,7 +1,7 @@
 ext {
     extName = 'Pandrama'
     extClass = '.Pandrama'
-    extVersionCode = 9
+    extVersionCode = 11
 }
 
 apply plugin: "kei.plugins.extension.legacy"

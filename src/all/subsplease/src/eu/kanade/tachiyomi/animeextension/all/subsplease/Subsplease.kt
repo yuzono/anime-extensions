@@ -8,9 +8,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
@@ -27,7 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class Subsplease :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Subsplease"
@@ -221,9 +221,9 @@ class Subsplease :
         }?.flatten() ?: emptyList()
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.quality
-        return this.sortedByDescending { it.quality.contains(quality) }
+        return this.sortedByDescending { it.videoTitle.contains(quality) }
     }
 
     // Search

@@ -199,12 +199,12 @@ class Q1N :
     private fun Element.tryGetAttr(vararg attributeKeys: String): String? = attributeKeys.firstOrNull { hasAttr(it) }
         ?.let { attr(it) }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
         return sortedWith(
             compareBy(
-                { it.quality.contains(quality) },
-                { REGEX_QUALITY.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { it.videoTitle.contains(quality) },
+                { REGEX_QUALITY.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }

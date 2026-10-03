@@ -9,11 +9,11 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
@@ -28,7 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class Hstream :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Hstream"
@@ -51,10 +51,33 @@ class Hstream :
     override fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("img")!!.attr("alt")
-        val episode = url.substringAfterLast("-").substringBefore("/")
-        thumbnail_url = "$baseUrl/images${url.substringBeforeLast("-")}/cover-ep-$episode.webp"
+        val href = element.attr("href")
+        val showUrl = href.trimEnd('/').substringBeforeLast("-") + "/"
+        val epNum = href.trimEnd('/').substringAfterLast("-")
+
+        setUrlWithoutDomain(showUrl)
+
+        val imgElement = element.selectFirst("img")!!
+        val rawTitle = imgElement.attr("alt")
+        title = EPISODE_PARSER.replace(rawTitle, "").trim()
+
+        val imageBasePath = imgElement.absUrl("src").substringBeforeLast("/")
+        thumbnail_url = "$imageBasePath/cover-ep-$epNum.webp"
+    }
+
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val page = super.popularAnimeParse(response)
+        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
+    }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val page = super.latestUpdatesParse(response)
+        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
+    }
+
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val page = super.searchAnimeParse(response)
+        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
     }
 
     override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
@@ -125,28 +148,45 @@ class Hstream :
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         status = SAnime.COMPLETED
 
-        val floatleft = document.selectFirst("div.relative > div.justify-between > div")!!
-        title = floatleft.selectFirst("div > h1")!!.text()
-        artist = floatleft.select("div > a:nth-of-type(3)").text()
+        val mainContent = document.selectFirst("div.flex-1")!!
+        title = mainContent.selectFirst("h1 span")?.text() ?: mainContent.selectFirst("h1")!!.text()
+        author = mainContent.selectFirst("div.mt-4.flex.flex-wrap a")?.text()
 
-        thumbnail_url = document.selectFirst("div.float-left > img.object-cover")?.absUrl("src")
-        genre = document.select("ul.list-none > li > a").eachText().joinToString()
+        thumbnail_url = document.selectFirst("div.hidden.shrink-0.md\\:block img")?.absUrl("src")
+        genre = document.select("h2:contains(Genres) + div a").eachText().joinToString()
 
-        description = document.selectFirst("div.relative > p.leading-tight")?.text()
+        description = document.selectFirst("h2:contains(Description) + p")?.text()
+            ?: document.selectFirst("div.border-t p.leading-relaxed")?.text()
     }
 
     // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
         val doc = response.asJsoup()
-        val episode = SEpisode.create().apply {
-            date_upload = doc.selectFirst("a:has(i.fa-upload)")?.ownText().toDate()
-            setUrlWithoutDomain(doc.location())
-            val num = url.substringAfterLast("-").substringBefore("/")
-            episode_number = num.toFloatOrNull() ?: 1F
-            name = "Episode $num"
-        }
+        val showPath = response.request.url.encodedPath.trimEnd('/')
 
-        return listOf(episode)
+        val uploadDate = runCatching {
+            val dateText = doc.selectFirst("div.mt-4.flex.flex-wrap.items-center.gap-2.text-sm > div:has(i.fa-upload)")
+                ?.text()
+            DATE_FORMATTER.parse(dateText.orEmpty())?.time
+        }.getOrNull() ?: 0L
+
+        return doc.select("a[href*='$showPath-']")
+            .mapNotNull { element ->
+                val href = element.attr("href")
+                val path = element.absUrl("href").toHttpUrl().encodedPath.trimEnd('/')
+                if (!path.startsWith("$showPath-")) return@mapNotNull null
+                val numStr = path.removePrefix("$showPath-")
+                val num = numStr.toFloatOrNull() ?: return@mapNotNull null
+
+                SEpisode.create().apply {
+                    setUrlWithoutDomain(href)
+                    episode_number = num
+                    name = "Episode $numStr"
+                    date_upload = uploadDate
+                }
+            }
+            .distinctBy { it.url }
+            .sortedByDescending { it.episode_number }
     }
 
     override fun episodeListSelector(): String = throw UnsupportedOperationException()
@@ -170,7 +210,7 @@ class Hstream :
             set("X-XSRF-TOKEN", URLDecoder.decode(token, "utf-8"))
         }.build()
 
-        val body = """{"episode_id": "$episodeId"}""".toJsonRequestBody()
+        val body = mapOf("episode_id" to episodeId).toJsonRequestBody()
         val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
             .parseAs<PlayerApiResponse>()
 
@@ -178,9 +218,23 @@ class Hstream :
         val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
 
         val resolutions = listOfNotNull("720", "1080", if (data.resolution == "4k") "2160" else null)
+
+        // Determine if we need to force legacy mode based on manifest inspection to handle html video chunks
+        var forceLegacy = data.legacy != 0
+        if (!forceLegacy) {
+            try {
+                val testUrl = urlBase + "/720/manifest.mpd"
+                val manifestString = client.newCall(GET(testUrl, headers)).execute().body.string()
+                if (manifestString.contains(".html")) {
+                    forceLegacy = true
+                }
+            } catch (_: Exception) {}
+        }
+
         return resolutions.map { resolution ->
-            val url = urlBase + getVideoUrlPath(data.legacy != 0, resolution)
-            Video(url, "${resolution}p", url, subtitleTracks = subtitleList)
+            val path = getVideoUrlPath(forceLegacy, resolution)
+            val url = urlBase + path
+            Video(url, "${resolution}p" + if (forceLegacy) " (Legacy)" else "", url, subtitleTracks = subtitleList)
         }
     }
 
@@ -206,8 +260,6 @@ class Hstream :
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
-
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
@@ -228,14 +280,11 @@ class Hstream :
     }
 
     // ============================= Utilities ==============================
-    private fun String?.toDate(): Long = runCatching { DATE_FORMATTER.parse(orEmpty().trim(' ', '|'))?.time }
-        .getOrNull() ?: 0L
-
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy { it.videoTitle.contains(quality) },
         ).reversed()
     }
 
@@ -244,6 +293,7 @@ class Hstream :
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
         }
 
+        private val EPISODE_PARSER = Regex("""\s*(?:[-–—]\s*|\bEpisode\s*)\d+(?:\.\d+)?\s*$""", RegexOption.IGNORE_CASE)
         const val PREFIX_SEARCH = "id:"
 
         private const val PREF_QUALITY_KEY = "pref_quality_key"

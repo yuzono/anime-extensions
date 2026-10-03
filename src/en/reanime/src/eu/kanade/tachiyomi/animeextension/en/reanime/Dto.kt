@@ -93,6 +93,13 @@ class EpisodeDto(
     @SerialName("is_recap") val isRecap: Boolean = false,
 )
 
+@Serializable
+class ThumbnailsResponseDto(
+    val success: Boolean,
+    val thumbnails: Map<String, String>? = null,
+    val episodeCount: Int? = null,
+)
+
 // ======================== Video Server DTOs ========================
 
 @Serializable
@@ -284,7 +291,6 @@ class FlixcloudEmbedDataDto(
 }
 
 val skipTimesCache by lazy { LruCache<String, SkipTimes>(64) }
-
 class SkipTimes(
     val introStart: Long? = null,
     val introEnd: Long? = null,

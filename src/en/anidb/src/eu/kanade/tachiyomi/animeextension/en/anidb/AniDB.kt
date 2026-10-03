@@ -10,10 +10,10 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 class AniDB :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "AniDB"
@@ -305,12 +305,12 @@ class AniDB :
                     videoNameGen = { quality -> "${language.name} - $quality" },
                 )
             }
-        }.sortVideos()
+        }
     }
 
     override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
 
-    private fun List<Video>.sortVideos(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val qualityPref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val langPref = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
 
@@ -331,7 +331,7 @@ class AniDB :
         }
 
         return this.sortedBy { video ->
-            idealOrder.indexOfFirst { video.quality.startsWith(it) }
+            idealOrder.indexOfFirst { video.videoTitle.startsWith(it) }
                 .let { if (it != -1) it else Int.MAX_VALUE }
         }
     }

@@ -10,10 +10,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.encodeToString
@@ -24,7 +24,7 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
 class VVVVID :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "VVVVID"
@@ -399,7 +399,7 @@ class VVVVID :
         return client.newCall(request)
             .awaitSuccess()
             .let { response ->
-                videoListParse(response, videoId).sort()
+                videoListParse(response, videoId)
             }
     }
 
@@ -547,11 +547,11 @@ class VVVVID :
 
     private fun LinkData.toJsonString(): String = json.encodeToString(this)
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
         return this.sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy { it.videoTitle.contains(quality) },
         ).reversed()
     }
 

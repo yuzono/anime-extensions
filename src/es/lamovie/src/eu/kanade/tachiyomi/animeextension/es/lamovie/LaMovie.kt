@@ -232,7 +232,7 @@ class LaMovie :
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
         val preferredQualityLower = preferredQuality.lowercase(Locale.US)
         val preferredQualityValue = QUALITY_REGEX.find(preferredQualityLower)?.groupValues?.get(1)?.toIntOrNull()
@@ -247,7 +247,7 @@ class LaMovie :
         )
 
         fun Video.matchesPreferredQuality(): Boolean {
-            val normalized = quality.lowercase(Locale.US)
+            val normalized = videoTitle.lowercase(Locale.US)
             if (normalized.contains(preferredQualityLower)) return true
 
             val numericQuality = QUALITY_REGEX.find(normalized)?.groupValues?.get(1)?.toIntOrNull()
@@ -258,7 +258,7 @@ class LaMovie :
         }
 
         fun Video.extractQualityValue(): Int {
-            val normalized = quality.lowercase(Locale.US)
+            val normalized = videoTitle.lowercase(Locale.US)
             val numericQuality = QUALITY_REGEX.find(normalized)?.groupValues?.get(1)?.toIntOrNull()
             if (numericQuality != null) return numericQuality
 
@@ -311,14 +311,14 @@ class LaMovie :
         return serverKey() == preferredKey
     }
 
-    private fun Video.serverKey(): String = detectServer(quality, url)
+    private fun Video.serverKey(): String = detectServer(videoTitle, videoUrl)
 
     private fun Video.matchesLanguage(preferredKey: String): Boolean {
         if (preferredKey == PREF_LANGUAGE_DEFAULT) return false
         return languageCode() == preferredKey
     }
 
-    private fun Video.languageCode(): String = detectLanguage(quality, url)
+    private fun Video.languageCode(): String = detectLanguage(videoTitle, videoUrl)
 
     private fun detectServer(vararg texts: String?): String {
         if (texts.isEmpty()) return SERVER_KEY_UNKNOWN

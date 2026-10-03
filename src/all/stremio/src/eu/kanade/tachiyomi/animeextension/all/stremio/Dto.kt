@@ -2,13 +2,23 @@
 
 package eu.kanade.tachiyomi.animeextension.all.stremio
 
+import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.Source
+import keiyoushi.utils.toJsonString
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.apache.commons.text.StringSubstitutor
@@ -28,13 +38,22 @@ data class LoginDto(
 @Serializable
 data class CatalogListDto(
     val hasMore: Boolean? = null,
-    val metas: List<MetaDto>,
+    val metas: List<MetaDto>? = null,
 )
 
 @Serializable
 data class MetaResultDto(
     val meta: MetaDto,
 )
+
+class ObjectToListSerializer<T : Any>(
+    tSerializer: KSerializer<T>,
+) : JsonTransformingSerializer<List<T>>(ListSerializer(tSerializer)) {
+    override fun transformDeserialize(element: JsonElement): JsonElement = when (element) {
+        JsonNull, is JsonArray -> element
+        is JsonPrimitive, is JsonObject -> JsonArray(listOf(element))
+    }
+}
 
 @Serializable
 data class MetaDto(
@@ -47,9 +66,10 @@ data class MetaDto(
     // Details
     val description: String? = null,
     val genres: List<String>? = null,
+    @Serializable(with = ObjectToListSerializer::class)
     val director: List<String>? = null,
     val cast: List<String>? = null,
-    val year: String? = null,
+    val releaseInfo: String? = null,
 
     // Episodes
     val videos: List<VideoDto>? = null,
@@ -57,11 +77,11 @@ data class MetaDto(
     // Tv
     val streams: List<StreamDto>? = null,
 ) {
-    fun toSAnime(): SAnime = SAnime.create().apply {
+    fun toSAnime(splitSeasons: Boolean): SAnime = SAnime.create().apply {
         title = name
-        url = "$type-$id"
+        url = "#-$type-$id"
         thumbnail_url = poster
-        // background_url = background ?: poster
+        background_url = background ?: poster
 
         genre = genres?.joinToString()
         author = director?.take(5)?.joinToString()
@@ -69,17 +89,23 @@ data class MetaDto(
         description = buildString {
             append(this@MetaDto.description ?: "")
             append("\n\n")
-            year?.let {
+            releaseInfo?.let {
                 append("Release year: ")
                 append(it)
             }
         }.trim()
-        year?.let {
+        releaseInfo?.let {
             status = if (it.last().isDigit()) {
                 SAnime.COMPLETED
             } else {
                 SAnime.ONGOING
             }
+        }
+
+        fetch_type = if (type.equals("movie", true) || !splitSeasons) {
+            FetchType.Episodes
+        } else {
+            FetchType.Seasons
         }
     }
 }
@@ -140,8 +166,8 @@ data class VideoDto(
         url = "$type-$id"
         name = sub.replace(episodeTemplate).trim()
         scanlator = sub.replace(scanlatorTemplate).trim().takeNotBlank()
-        // summary = overview?.takeNotBlank() ?: description
-        // preview_url = thumbnail
+        summary = overview?.takeNotBlank() ?: description
+        preview_url = thumbnail
         episode_number = episode?.toFloat() ?: 1F
         date_upload = DATE_FORMAT.tryParse(released)
     }
@@ -182,7 +208,17 @@ data class StreamDto(
     val url: String? = null,
     val behaviorHints: BehaviorHintDto? = null,
 ) {
-    fun toVideo(serverUrl: String?, subtitleList: List<Track>): Video? {
+    context(source: Source)
+    fun toVideo(serverUrl: String?, hosterData: String): Video? {
+        val (type, id) = hosterData.split("-", limit = 2)
+        val videoData = VideoData(
+            type = type,
+            id = id,
+            videoHash = behaviorHints?.videoHash,
+            videoSize = behaviorHints?.videoSize,
+            filename = behaviorHints?.filename,
+        )
+
         val headers = behaviorHints?.proxyHeaders?.request?.toHeaders()
 
         val videoName = buildString {
@@ -194,11 +230,10 @@ data class StreamDto(
 
         if (url?.isNotEmpty() == true) {
             return Video(
-                url = url,
-                quality = videoName,
+                videoTitle = videoName,
                 videoUrl = url,
-                subtitleTracks = subtitleList,
                 headers = headers,
+                internalData = videoData.toJsonString(),
             )
         }
 
@@ -227,10 +262,9 @@ data class StreamDto(
             }
 
             return Video(
-                url = url,
-                quality = videoName,
+                videoTitle = videoName,
                 videoUrl = url,
-                subtitleTracks = subtitleList,
+                internalData = videoData.toJsonString(),
             )
         }
 
@@ -240,6 +274,9 @@ data class StreamDto(
     @Serializable
     data class BehaviorHintDto(
         val proxyHeaders: ProxyHeaderDto? = null,
+        val filename: String? = null,
+        val videoHash: String? = null,
+        val videoSize: Long? = null,
     ) {
         @Serializable
         data class ProxyHeaderDto(
@@ -247,3 +284,12 @@ data class StreamDto(
         )
     }
 }
+
+@Serializable
+data class VideoData(
+    val type: String,
+    val id: String,
+    val videoHash: String? = null,
+    val videoSize: Long? = null,
+    val filename: String? = null,
+)

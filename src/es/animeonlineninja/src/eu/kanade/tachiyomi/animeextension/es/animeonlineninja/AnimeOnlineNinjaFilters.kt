@@ -95,8 +95,8 @@ object AnimeOnlineNinjaFilters {
         val GENRES = arrayOf(
             EVERY,
             Pair("Sin Censura \uD83D\uDD1E", "sin-censura"),
-            Pair("En emisión ⏩", "en-emision"),
-            Pair("Blu-Ray / DVD \uD83D\uDCC0", "blu-ray-dvd"),
+            Pair("En emisión ⏩", "en-emision-1"),
+            Pair("Blu-Ray / DVD \uD83D\uDCC0", "blu-ray-dvd-2"),
             Pair("Próximamente", "proximamente"),
             Pair("Live Action \uD83C\uDDEF\uD83C\uDDF5", "live-action"),
             Pair("Popular en la web \uD83D\uDCAB", "tendencias"),

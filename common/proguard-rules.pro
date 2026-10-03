@@ -50,3 +50,14 @@
 
 -if @kotlinx.serialization.Serializable class **
 -keep,allowshrinking,allowoptimization,allowobfuscation,allowaccessmodification class <1>
+
+# Legacy video API — the app's AnimeHttpSource still declares getVideoList(SEpisode),
+# videoListRequest(SEpisode) and videoListParse(Response), but extensions-lib 16 doesn't,
+# so R8 sees no library method to match and renames them. The override is then silently
+# lost and the app runs its own base implementation instead.
+# See keiyoushi.utils.AnimeHttpLegacySource / ParsedAnimeHttpLegacySource.
+-keepclassmembers class * extends eu.kanade.tachiyomi.animesource.online.AnimeHttpSource {
+    *** getVideoList(eu.kanade.tachiyomi.animesource.model.SEpisode, kotlin.coroutines.Continuation);
+    *** videoListRequest(eu.kanade.tachiyomi.animesource.model.SEpisode);
+    *** videoListParse(okhttp3.Response);
+}

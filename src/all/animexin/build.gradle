@@ -2,8 +2,8 @@ ext {
     extName = 'AnimeXin'
     extClass = '.AnimeXin'
     themePkg = 'animestream'
-    baseUrl = 'https://animexin.vip'
-    overrideVersionCode = 20
+    baseUrl = 'https://animexin.dev'
+    overrideVersionCode = 22
 }
 
 apply plugin: "kei.plugins.extension.legacy"

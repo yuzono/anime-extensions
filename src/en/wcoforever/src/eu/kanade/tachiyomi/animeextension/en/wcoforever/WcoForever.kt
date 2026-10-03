@@ -11,9 +11,23 @@ class WcoForever : WcoTheme() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        return document.select(episodeListSelector()).map { episodeFromElement(it) }
-            // If opening an episode link instead of anime link, there is no episode list available.
-            // So we return the same episode with the title from the page.
+        val episodes = document.select(episodeListSelector()).mapNotNull {
+            runCatching { episodeFromElement(it) }.getOrNull()
+        }
+
+        // Subbed first, then dubbed; within each group sort by episode number
+        val sorted = episodes.sortedWith(
+            compareBy(
+                { it.name.contains("dub", ignoreCase = true) },
+                { it.episode_number },
+            ),
+        )
+
+        return sorted.mapIndexed { index, episode ->
+            episode.apply {
+                episode_number = (sorted.size - index).toFloat()
+            }
+        }
             .ifEmpty {
                 listOf(
                     SEpisode.create().apply {

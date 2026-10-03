@@ -17,11 +17,12 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.commonEmptyRequestBody
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
@@ -38,7 +39,7 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 
 class GoogleDrive :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Google Drive"
@@ -304,7 +305,7 @@ class GoogleDrive :
                 if (parsed.items == null) throw Exception("Failed to load items, please log in through webview")
                 parsed.items.forEachIndexed { index, it ->
                     if (it.mimeType.startsWith("video")) {
-                        val size = it.fileSize?.toLongOrNull()?.let { formatBytes(it) } ?: ""
+                        val size = it.fileSize?.toLongOrNull()?.formatBytes() ?: ""
                         val pathName = if (preferences.trimEpisodeInfo) path.trimInfo() else path
 
                         if (start != null && maxRecursionDepth == 1 && counter < start) {
@@ -473,7 +474,7 @@ class GoogleDrive :
                             "single",
                             LinkDataInfo(
                                 it.title,
-                                it.fileSize?.toLongOrNull()?.let { formatBytes(it) } ?: "",
+                                it.fileSize?.toLongOrNull()?.formatBytes() ?: "",
                             ),
                         ).toJsonString()
                         thumbnail_url = ""
@@ -524,15 +525,6 @@ class GoogleDrive :
         }
 
         return newString.trim()
-    }
-
-    private fun formatBytes(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes"
-        bytes == 1L -> "$bytes byte"
-        else -> ""
     }
 
     private fun getCookie(url: String): String {

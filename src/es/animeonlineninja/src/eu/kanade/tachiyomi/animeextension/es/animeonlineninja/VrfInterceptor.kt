@@ -12,10 +12,11 @@ class VrfInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val response = chain.proceed(request)
-        val respBody = response.body.string()
+        // Never round-trip binary bodies through a String.
         if (response.headers["Content-Type"]?.contains("image") == true) {
-            return chain.proceed(request)
+            return response
         }
+        val respBody = response.body.string()
         val body = if (respBody.contains("One moment, please")) {
             val parsed = Jsoup.parse(respBody)
             val js = parsed.selectFirst("script:containsData(west=)")!!.data()

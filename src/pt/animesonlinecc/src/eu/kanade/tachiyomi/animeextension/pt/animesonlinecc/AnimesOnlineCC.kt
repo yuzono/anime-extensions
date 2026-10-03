@@ -107,14 +107,14 @@ class AnimesOnlineCC :
     // ============================= Utilities ==============================
     override val animeMenuSelector = "div.pag_episodes div.item a[href] i.icon-bars"
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
         val language = preferences.getString(PREF_LANGUAGE_KEY, PREF_LANGUAGE_DEFAULT)!!
         return sortedWith(
             compareBy(
-                { it.quality.lowercase().contains(language.lowercase()) },
-                { it.quality.lowercase().contains(quality.lowercase()) },
-                { REGEX_QUALITY.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { it.videoTitle.lowercase().contains(language.lowercase()) },
+                { it.videoTitle.lowercase().contains(quality.lowercase()) },
+                { REGEX_QUALITY.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }

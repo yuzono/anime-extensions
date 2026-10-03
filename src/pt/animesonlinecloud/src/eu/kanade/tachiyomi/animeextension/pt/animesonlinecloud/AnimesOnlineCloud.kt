@@ -257,13 +257,13 @@ class AnimesOnlineCloud :
         )
 
     // ============================= Utilities ==============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
 
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(quality) }
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
                 .thenByDescending {
-                    REGEX_QUALITY.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    REGEX_QUALITY.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                 },
         )
     }

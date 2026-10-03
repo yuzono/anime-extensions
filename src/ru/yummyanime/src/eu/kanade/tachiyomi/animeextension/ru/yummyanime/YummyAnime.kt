@@ -13,9 +13,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -26,7 +26,7 @@ import okhttp3.Request
 import okhttp3.Response
 
 class YummyAnime :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "YummyAnime"
@@ -158,8 +158,8 @@ class YummyAnime :
         .let(::voicesBeforeSubtitles)
 
     private fun voicesBeforeSubtitles(videos: List<Video>): List<Video> = videos.sortedBy {
-        if (it.quality.contains("Субтитры", ignoreCase = true) ||
-            it.quality.contains("Subtitle", ignoreCase = true)
+        if (it.videoTitle.contains("Субтитры", ignoreCase = true) ||
+            it.videoTitle.contains("Subtitle", ignoreCase = true)
         ) {
             1
         } else {
@@ -170,12 +170,12 @@ class YummyAnime :
     private fun applyQualityPreference(videos: List<Video>): List<Video> {
         val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.toIntOrNull()
             ?: return videos
-        val available = videos.mapNotNull { it.quality.parseQuality() }.distinct()
+        val available = videos.mapNotNull { it.videoTitle.parseQuality() }.distinct()
         if (available.isEmpty()) return videos
         val target = available.minWithOrNull(
             compareBy({ kotlin.math.abs(it - pref) }, { -it }),
         ) ?: return videos
-        return videos.filter { v -> v.quality.parseQuality()?.let { it == target } ?: true }
+        return videos.filter { v -> v.videoTitle.parseQuality()?.let { it == target } ?: true }
     }
 
     private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()

@@ -5,9 +5,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.tryParse
@@ -19,7 +19,7 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DattebayoBR : AnimeHttpSource() {
+class DattebayoBR : AnimeHttpLegacySource() {
     override val name = "Dattebayo BR"
     override val baseUrl = "https://www.dattebayo-br.com"
     override val lang = "pt-BR"
@@ -268,6 +268,6 @@ class DattebayoBR : AnimeHttpSource() {
             }
             emptyList()
         }
-            .sortedByDescending { it.quality }
+            .sortedByDescending { it.videoTitle }
     }
 }

@@ -3,8 +3,8 @@ package eu.kanade.tachiyomi.multisrc.anilist
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -17,7 +17,7 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-abstract class AniListAnimeHttpSource : AnimeHttpSource() {
+abstract class AniListAnimeHttpSource : AnimeHttpLegacySource() {
     override val supportsLatest = true
     val json by injectLazy<Json>()
 

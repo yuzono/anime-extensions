@@ -1,8 +1,13 @@
 ext {
     extName = 'HentaiMama'
     extClass = '.HentaiMama'
-    extVersionCode = 7
+    libVersion = 16
+    extVersionCode = 8
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+}

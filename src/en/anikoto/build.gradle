@@ -3,6 +3,7 @@ ext {
     extClass = '.Anikoto'
     themePkg = 'anikototheme'
     baseUrl = 'https://anikototv.to'
+    libVersion = 16
     overrideVersionCode = 0
 }
 

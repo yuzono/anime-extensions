@@ -6,12 +6,12 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.jsunpacker.JsUnpacker
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.parallelFlatMapBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -22,7 +22,7 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import keiyoushi.lib.synchrony.Deobfuscator as Synchrony
 
-class NimeGami : ParsedAnimeHttpSource() {
+class NimeGami : ParsedAnimeHttpLegacySource() {
 
     override val name = "NimeGami"
 
@@ -253,8 +253,6 @@ class NimeGami : ParsedAnimeHttpSource() {
     override fun videoListSelector(): String = throw UnsupportedOperationException()
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
     private fun String.b64Decode() = String(Base64.decode(this, Base64.DEFAULT))

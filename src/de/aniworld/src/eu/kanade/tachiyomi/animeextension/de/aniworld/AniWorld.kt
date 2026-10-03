@@ -13,9 +13,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -37,7 +37,7 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
 class AniWorld :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "AniWorld"
@@ -211,12 +211,10 @@ class AniWorld :
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort() = sortedWith(
-        compareByDescending<Video> { it.quality.contains(preferredHoster, true) }
-            .thenByDescending { it.quality.contains(preferredLang, true) },
+    override fun List<Video>.sortVideos() = sortedWith(
+        compareByDescending<Video> { it.videoTitle.contains(preferredHoster, true) }
+            .thenByDescending { it.videoTitle.contains(preferredLang, true) },
     )
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // ===== PREFERENCES ======
     private val preferredLang by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)

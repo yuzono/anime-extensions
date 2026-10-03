@@ -1,7 +1,7 @@
 ext {
     extName = 'Anime Srbija'
     extClass = '.AnimeSrbija'
-    extVersionCode = 22
+    extVersionCode = 23
 }
 
 apply plugin: "kei.plugins.extension.legacy"

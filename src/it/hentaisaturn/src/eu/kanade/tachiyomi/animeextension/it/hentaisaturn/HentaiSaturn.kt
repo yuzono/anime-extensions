@@ -8,9 +8,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.Request
@@ -19,7 +19,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class HentaiSaturn :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "HentaiSaturn"
@@ -123,12 +123,12 @@ class HentaiSaturn :
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString("preferred_quality", "1080")!!
         val qualityList = mutableListOf<Video>()
         var preferred = 0
         for (video in this) {
-            if (video.quality.contains(quality)) {
+            if (video.videoTitle.contains(quality)) {
                 qualityList.add(preferred, video)
                 preferred++
             } else {
@@ -137,8 +137,6 @@ class HentaiSaturn :
         }
         return qualityList
     }
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     override fun searchAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()

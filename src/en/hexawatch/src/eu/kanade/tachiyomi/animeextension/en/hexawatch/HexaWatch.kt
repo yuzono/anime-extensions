@@ -11,9 +11,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
@@ -34,7 +34,7 @@ import java.util.Date
 import java.util.Locale
 
 class HexaWatch :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "HexaWatch"
@@ -407,7 +407,7 @@ class HexaWatch :
         }
 
         val preferredQuality = preferences.videoQualityPref
-        return videos.sortedByDescending { preferredQuality.let(it.quality::contains) }
+        return videos.sortedByDescending { preferredQuality.let(it.videoTitle::contains) }
     }
 
     private suspend fun getSubtitles(requestUrl: String): List<Track> {

@@ -1,7 +1,8 @@
 ext {
     extName = 'Docchi'
     extClass = '.Docchi'
-    extVersionCode = 12
+    extVersionCode = 15
+    libVersion = 16
     isNsfw = true
 }
 
@@ -19,4 +20,5 @@ dependencies {
     implementation(project(':lib:luluextractor'))
     implementation(project(':lib:streamupextractor'))
     implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:megaextractor'))
 }

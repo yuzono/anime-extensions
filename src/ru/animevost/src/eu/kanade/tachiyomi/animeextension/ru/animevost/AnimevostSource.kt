@@ -8,8 +8,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 
 data class AnimeDescription(
     val year: String? = null,
@@ -33,7 +34,7 @@ data class AnimeDescription(
 )
 
 class AnimevostSource(override val name: String, override val baseUrl: String) :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     private enum class SortBy(val by: String) {
         RATING("rating"),
@@ -347,10 +348,12 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
                 // Last-resort fallback: any div that directly wraps a /tip/ link.
                 // We require the container to have an <img> child so that bare
                 // navigation/filter links (genre, type) are not mistaken for anime cards.
-                document.select("a[href*='/tip/']")
-                    .mapNotNull { it.parent() }
-                    .filter { parent -> parent.selectFirst("img") != null }
-                    .distinctBy { it.cssSelector() }
+                Elements(
+                    document.select("a[href*='/tip/']")
+                        .mapNotNull { it.parent() }
+                        .filter { parent -> parent.selectFirst("img") != null }
+                        .distinctBy { it.cssSelector() },
+                )
             }
 
         containers.forEach { container: Element ->
@@ -445,13 +448,13 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
         return videoList
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString("preferred_quality", null)
         if (quality != null) {
             val newList = mutableListOf<Video>()
             var preferred = 0
             for (video in this) {
-                if (video.quality.contains(quality)) {
+                if (video.videoTitle.contains(quality)) {
                     newList.add(preferred, video)
                     preferred++
                 } else {
@@ -466,8 +469,6 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun videoListSelector() = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // Filters
 

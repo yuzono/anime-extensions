@@ -8,8 +8,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -24,7 +24,7 @@ class SamatoDenVideosFactory : AnimeSourceFactory {
     override fun createSources() = listOf(SamatoDenVideos())
 }
 
-class SamatoDenVideos : AnimeHttpSource() {
+class SamatoDenVideos : AnimeHttpLegacySource() {
 
     override val name = "Samato's Den: Videos"
     override val baseUrl = "https://samatoden.blogspot.com"

@@ -3,10 +3,13 @@ package aniyomi.lib.voeextractor
 import android.util.Base64
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.UrlUtils
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
@@ -26,11 +29,13 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
     fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val videoList = mutableListOf<Video>()
         var document = clientDdos.newCall(GET(url, headers)).execute().asJsoup()
+        var baseUrl = url
         val scriptData = document.selectFirst("script")?.data()
         val redirectMatch = scriptData?.let { redirectRegex.find(it) }
 
         if (redirectMatch != null) {
             val originalUrl = redirectMatch.groupValues[1]
+            baseUrl = originalUrl
             document = clientDdos.newCall(GET(originalUrl, headers)).execute().asJsoup()
         }
 
@@ -41,15 +46,42 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
         val m3u8 = decryptedJson["source"]?.jsonPrimitive?.content
         val mp4 = decryptedJson["direct_access_url"]?.jsonPrimitive?.content
 
+        var cleanPrefix = prefix.trim()
+        if (cleanPrefix.startsWith("(") && cleanPrefix.endsWith(")")) {
+            cleanPrefix = cleanPrefix.substring(1, cleanPrefix.length - 1).trim()
+        }
+        if (cleanPrefix.endsWith("-")) {
+            cleanPrefix = cleanPrefix.removeSuffix("-").trim()
+        }
+        val displayPrefix = if (cleanPrefix.isNotBlank()) cleanPrefix else "VOE"
+        // The caption files are SubRip served from a `.srt` url behind a `text/vtt` content type,
+        // which a player will refuse to parse, so they are converted before being handed over.
+        val tracks = runCatching {
+            (decryptedJson["captions"] as? JsonArray).orEmpty()
+                .mapNotNull { caption ->
+                    val obj = caption as? JsonObject ?: return@mapNotNull null
+                    val file = obj["file"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    val url = UrlUtils.fixUrl(file, baseUrl) ?: return@mapNotNull null
+                    Track(url, obj["label"]?.jsonPrimitive?.content ?: "Subtitle")
+                }
+                .let(playlistUtils::fixSubtitles)
+        }.getOrDefault(emptyList())
+        val subHint = if (tracks.isNotEmpty()) " [CC ${tracks.size}]" else ""
+
         if (m3u8 != null) {
             playlistUtils.extractFromHls(
                 m3u8,
-                videoNameGen = { quality -> "${prefix}Voe:$quality" },
+                videoNameGen = { quality ->
+                    val base = if (displayPrefix == "VOE") "VOE:$quality" else "$displayPrefix - VOE $quality"
+                    base + subHint
+                },
+                subtitleList = tracks,
             ).let { videoList.addAll(it) }
         }
         if (mp4 != null) {
+            val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
             videoList.add(
-                Video(mp4, "${prefix}Voe:MP4", mp4),
+                Video(mp4, mp4Quality + subHint, mp4, subtitleTracks = tracks),
             )
         }
 

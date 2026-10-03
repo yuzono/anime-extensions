@@ -9,10 +9,10 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -30,7 +30,7 @@ abstract class DooPlay(
     override val lang: String,
     override val name: String,
     override val baseUrl: String,
-) : ParsedAnimeHttpSource(),
+) : ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -142,8 +142,6 @@ abstract class DooPlay(
     override fun videoListSelector(): String = throw UnsupportedOperationException()
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
 
@@ -464,10 +462,10 @@ abstract class DooPlay(
         else -> attr("abs:src")
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
         return sortedWith(
-            compareBy { it.quality.lowercase().contains(quality.lowercase()) },
+            compareBy { it.videoTitle.lowercase().contains(quality.lowercase()) },
         ).reversed()
     }
 

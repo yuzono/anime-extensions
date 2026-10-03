@@ -13,11 +13,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -51,7 +51,7 @@ enum class FilterUpdateState {
 }
 
 class Xfani :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val baseUrl: String
         get() = "https://anime.xifanacg.com"
@@ -169,13 +169,13 @@ class Xfani :
         }
         return sourceList.zip(sourceNameList) { source, name ->
             if (source == null) {
-                Video("", "", null)
+                Video(url = "", quality = "", videoUrl = null)
             } else if (source.second.endsWith(currentPath)) {
                 Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = videoUrl)
             } else {
                 Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = null)
             }
-        }.filter { it.quality.isNotEmpty() }.sortedByDescending { it.videoUrl != null }
+        }.filter { it.videoTitle.isNotEmpty() }.sortedByDescending { it.videoUrl.isNotEmpty() }
     }
 
     private fun Elements.findSourceOrNull(predicate: (name: String, url: String) -> Boolean): Pair<String, String>? = firstNotNullOfOrNull {

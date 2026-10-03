@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.GenresFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.OrderFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.SeasonFilter
@@ -21,6 +20,7 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.SubFilter
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters.TypeFilter
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -42,7 +42,7 @@ abstract class AnimeStream(
     override val lang: String,
     override val name: String,
     override val baseUrl: String,
-) : ParsedAnimeHttpSource(),
+) : ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -59,7 +59,7 @@ abstract class AnimeStream(
         "pt-BR" -> "Qualidade preferida"
         else -> "Preferred quality"
     }
-    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p")
+    protected open val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p", "144p")
     protected open val prefQualityEntries: List<String>
         get() = prefQualityValues
 
@@ -379,8 +379,6 @@ abstract class AnimeStream(
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
@@ -394,10 +392,10 @@ abstract class AnimeStream(
     }
 
     // ============================= Utilities ==============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.videoSortPref
         return sortedWith(
-            compareBy { it.quality.contains(quality, true) },
+            compareBy { it.videoTitle.contains(quality, true) },
         ).reversed()
     }
 

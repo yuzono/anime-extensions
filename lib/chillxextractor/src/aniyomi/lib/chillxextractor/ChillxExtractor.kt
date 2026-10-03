@@ -40,12 +40,7 @@ class ChillxExtractor(private val client: OkHttpClient, private val headers: Hea
         )
 
         return videoList.map {
-            Video(
-                url = it.url,
-                quality = it.quality,
-                videoUrl = it.videoUrl,
-                headers = it.headers,
-                audioTracks = it.audioTracks,
+            it.copy(
                 subtitleTracks = playlistUtils.fixSubtitles(it.subtitleTracks),
             )
         }

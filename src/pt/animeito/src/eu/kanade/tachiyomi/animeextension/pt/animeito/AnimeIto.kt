@@ -11,7 +11,6 @@ class AnimeIto :
         "Animeito",
         "https://animesonline.io",
     ) {
-    override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
 
     // ============================ Video Links =============================
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
@@ -29,7 +28,8 @@ class AnimeIto :
     private val animeitoExtractor by lazy { AnimeItoExtractor(client, headers) }
 
     override suspend fun getVideoList(url: String, name: String): List<Video> = when {
-        "anidrive.click" in url -> animeitoExtractor.videosFromUrl(url)
+        // Embed = googlevideo/blogger MP4; Prime = HLS (.image segments via m3u8server)
+        "anidrive.click" in url -> animeitoExtractor.videosFromUrl(url, name.trim())
         else -> emptyList()
     }
 }

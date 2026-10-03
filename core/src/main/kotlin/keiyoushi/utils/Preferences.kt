@@ -151,6 +151,7 @@ private const val RESTART_MESSAGE = "Restart the app to apply the new setting."
  * @param inputType Keyboard input type
  * @param validate Validate preference value before applying
  * @param validationMessage Validation message if text isn't valid, based on text value
+ * @param allowBlank Allow a blank value to be saved
  * @param restartRequired Show restart required toast on preference change
  * @param onChange Run block on changed listener for validation, must return *true/false*
  * to determine if the preference change should be accepted
@@ -166,6 +167,7 @@ fun PreferenceScreen.getEditTextPreference(
     inputType: Int? = null,
     validate: ((String) -> Boolean)? = null,
     validationMessage: ((String) -> String)? = null,
+    allowBlank: Boolean = true,
     restartRequired: Boolean = false,
     enabled: Boolean = true,
     onChange: (Preference, String) -> Boolean = { _, _ -> true },
@@ -179,12 +181,16 @@ fun PreferenceScreen.getEditTextPreference(
     this.dialogMessage = dialogMessage
     this.setEnabled(enabled)
 
+    val isValueValid: (String) -> Boolean = { text ->
+        if (text.isBlank()) allowBlank else validate?.invoke(text) != false
+    }
+
     setOnBindEditTextListener { editText ->
         if (inputType != null) {
             editText.inputType = inputType
         }
 
-        if (validate != null) {
+        if (validate != null || !allowBlank) {
             editText.addTextChangedListener(
                 object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -195,9 +201,8 @@ fun PreferenceScreen.getEditTextPreference(
                         requireNotNull(editable)
 
                         val text = editable.toString()
-                        val isValid = text.isBlank() || validate(text)
 
-                        editText.error = if (!isValid) validationMessage?.invoke(text) else null
+                        editText.error = if (!isValueValid(text)) validationMessage?.invoke(text) else null
                         editText.rootView.findViewById<Button>(android.R.id.button1)
                             ?.isEnabled = editText.error == null
                     }
@@ -208,6 +213,13 @@ fun PreferenceScreen.getEditTextPreference(
 
     setOnPreferenceChangeListener { pref, newValue ->
         val value = newValue as String
+        if (!isValueValid(value)) {
+            validationMessage?.invoke(value)?.let {
+                Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            }
+            return@setOnPreferenceChangeListener false
+        }
+
         val isValid = onChange(pref, value)
         if (isValid) {
             if (restartRequired) {
@@ -233,6 +245,7 @@ fun PreferenceScreen.getEditTextPreference(
  * @param inputType Keyboard input type
  * @param validate Validate preference value before applying
  * @param validationMessage Validation message if text isn't valid, based on text value
+ * @param allowBlank Allow a blank value to be saved
  * @param restartRequired Show restart required toast on preference change
  * @param onChange Run block on changed listener for validation, must return *true/false*
  * to determine if the preference change should be accepted
@@ -248,6 +261,7 @@ fun PreferenceScreen.addEditTextPreference(
     inputType: Int? = null,
     validate: ((String) -> Boolean)? = null,
     validationMessage: ((String) -> String)? = null,
+    allowBlank: Boolean = true,
     restartRequired: Boolean = false,
     enabled: Boolean = true,
     onChange: (Preference, String) -> Boolean = { _, _ -> true },
@@ -263,6 +277,7 @@ fun PreferenceScreen.addEditTextPreference(
         inputType = inputType,
         validate = validate,
         validationMessage = validationMessage,
+        allowBlank = allowBlank,
         restartRequired = restartRequired,
         enabled = enabled,
         onChange = onChange,

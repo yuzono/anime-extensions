@@ -1,7 +1,7 @@
 ext {
     extName = 'MhdFlix'
     extClass = '.MhdFlix'
-    extVersionCode = 22
+    extVersionCode = 24
 }
 
 apply plugin: "kei.plugins.extension.legacy"

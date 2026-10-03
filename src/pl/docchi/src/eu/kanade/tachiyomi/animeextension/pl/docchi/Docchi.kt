@@ -9,6 +9,7 @@ import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.googledriveextractor.GoogleDriveExtractor
 import aniyomi.lib.luluextractor.LuluExtractor
 import aniyomi.lib.lycorisextractor.LycorisExtractor
+import aniyomi.lib.megaextractor.MegaExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.sibnetextractor.SibnetExtractor
 import aniyomi.lib.streamupextractor.StreamupExtractor
@@ -16,19 +17,24 @@ import aniyomi.lib.vkextractor.VkExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HttpException
+import keiyoushi.network.get
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonString
 import keiyoushi.utils.tryParse
-import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -45,6 +51,12 @@ class Docchi :
     override val lang = "pl"
 
     override val supportsLatest = true
+
+    override val client by lazy {
+        network.client.newBuilder()
+            .rateLimit(3) { it.host == "api.jikan.moe" }
+            .build()
+    }
 
     private val preferences by getPreferencesLazy()
 
@@ -105,29 +117,27 @@ class Docchi :
 
     // =========================== Anime Details ============================
 
-    // animeDetailsRequest not recomended because i want WebView from site not from api.
-    // override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseApiUrl/v1/series/find/${anime.url.substringAfterLast("/")}")
-
-    override fun animeDetailsParse(response: Response): SAnime {
-        val location = response.useAsJsoup().location().substringAfterLast("/")
-        val animeDetail = client.newCall(
-            GET("$baseApiUrl/v1/series/find/$location"),
-        ).execute()
-            .parseAs<ApiDetail>()
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val slug = anime.url.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        val animeDetail = client.get("$baseApiUrl/v1/series/find/$slug").parseAs<ApiDetail>()
         val myanimeListDetail = myanimelistApi(animeDetail.mal_id)
 
         return SAnime.create().apply {
+            url = anime.url
             title = animeDetail.title
             description = animeDetail.description
-            author = myanimeListDetail.data.studios.first().name
-            status = parseStatus(myanimeListDetail.data.status)
+            thumbnail_url = animeDetail.cover
+            author = myanimeListDetail?.studios?.joinToString(", ") { it.name }?.takeIf(String::isNotBlank)
+            status = parseStatus(myanimeListDetail?.status.orEmpty())
             genre = animeDetail.genres.joinToString(", ")
         }
     }
 
+    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
+
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request = GET(
+    override fun hosterListRequest(episode: SEpisode): Request = GET(
         "$baseApiUrl/v1/episodes/find/${
             episode.url.substringBeforeLast("/").substringAfterLast("/")
         }/${episode.episode_number}",
@@ -144,10 +154,11 @@ class Docchi :
     private val googledriveExtractor by lazy { GoogleDriveExtractor(client, headers) }
     private val streamupExtractor by lazy { StreamupExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
+    private val megaExtractor by lazy { MegaExtractor(client, headers) }
 
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val videolist = response.parseAs<List<VideoList>>()
-        val serverList = videolist.mapNotNull { player ->
+        return videolist.mapNotNull { player ->
             val sub = player.translator_title.uppercase()
 
             val prefix = if (player.isInverted) {
@@ -171,85 +182,119 @@ class Docchi :
                     "google drive",
                     "streamup",
                     "filemoon",
+                    "mega",
                 )
             ) {
                 return@mapNotNull null
             }
 
-            Triple(player.player, prefix, playerName)
-        }
-        // Jeśli dodadzą opcje z mozliwością edytowania mpv to zrobić tak ze jak bedą odwrócone kolory to ustawia dane do mkv <3
-        return serverList.parallelCatchingFlatMapBlocking { (serverUrl, prefix, playerName) ->
-            when {
-                playerName.contains("filemoon") -> {
-                    filemoonExtractor.videosFromUrl(serverUrl, "${prefix}Filemoon - ", headers)
-                }
-
-                serverUrl.contains("vk.com") -> {
-                    vkExtractor.videosFromUrl(serverUrl, prefix)
-                }
-
-                serverUrl.contains("mp4upload") -> {
-                    mp4uploadExtractor.videosFromUrl(serverUrl, headers, prefix)
-                }
-
-                serverUrl.contains("cda.pl") -> {
-                    cdaExtractor.getVideosFromUrl(serverUrl, headers, prefix)
-                }
-
-                serverUrl.contains("dailymotion") -> {
-                    dailymotionExtractor.videosFromUrl(serverUrl, "${prefix}Dailymotion -")
-                }
-
-                serverUrl.contains("sibnet.ru") -> {
-                    sibnetExtractor.videosFromUrl(serverUrl, prefix)
-                }
-
-                serverUrl.contains("dood") -> {
-                    doodExtractor.videosFromUrl(serverUrl, "${prefix}Dood")
-                }
-
-                serverUrl.contains("lycoris.cafe") -> {
-                    lycorisExtractor.getVideosFromUrl(serverUrl, headers, prefix)
-                }
-
-                serverUrl.contains("lulu") -> {
-                    luluExtractor.videosFromUrl(serverUrl, prefix)
-                }
-
-                serverUrl.contains("drive.google.com") -> {
-                    val regex = Regex("/d/([a-zA-Z0-9_-]+)")
-                    val id = regex.find(serverUrl)?.groupValues?.get(1).toString()
-                    googledriveExtractor.videosFromUrl(id, "${prefix}Gdrive -")
-                }
-
-                serverUrl.contains("strmup.to") -> {
-                    streamupExtractor.getVideosFromUrl(serverUrl, headers, prefix)
-                }
-
-                else -> emptyList()
-            }
+            Hoster(
+                hosterUrl = player.player,
+                hosterName = "$prefix${player.player_hosting}",
+                internalData = HosterData(playerName, prefix).toJsonString(),
+            )
         }
     }
 
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val serverUrl = hoster.hosterUrl
+        val data = hoster.internalData.parseAs<HosterData>()
+        val prefix = data.prefix
+        return when {
+            data.playerName == "mega" -> {
+                megaExtractor.videosFromUrl(serverUrl, prefix)
+            }
+
+            data.playerName.contains("filemoon") -> {
+                filemoonExtractor.videosFromUrl(serverUrl, "${prefix}Filemoon - ", headers)
+            }
+
+            serverUrl.contains("vk.com") -> {
+                vkExtractor.videosFromUrl(serverUrl, prefix)
+            }
+
+            serverUrl.contains("mp4upload") -> {
+                mp4uploadExtractor.videosFromUrl(serverUrl, headers, prefix)
+            }
+
+            serverUrl.contains("cda.pl") -> {
+                cdaExtractor.getVideosFromUrl(serverUrl, headers, prefix)
+            }
+
+            serverUrl.contains("dailymotion") -> {
+                dailymotionExtractor.videosFromUrl(serverUrl, "${prefix}Dailymotion -")
+            }
+
+            serverUrl.contains("sibnet.ru") -> {
+                sibnetExtractor.videosFromUrl(serverUrl, prefix)
+            }
+
+            serverUrl.contains("dood") -> {
+                doodExtractor.videosFromUrl(serverUrl, "${prefix}Dood")
+            }
+
+            serverUrl.contains("lycoris.cafe") -> {
+                lycorisExtractor.getVideosFromUrl(serverUrl, headers, prefix)
+            }
+
+            serverUrl.contains("lulu") -> {
+                luluExtractor.videosFromUrl(serverUrl, prefix)
+            }
+
+            serverUrl.contains("drive.google.com") -> {
+                val regex = Regex("/d/([a-zA-Z0-9_-]+)")
+                val id = regex.find(serverUrl)?.groupValues?.get(1).toString()
+                googledriveExtractor.videosFromUrl(id, "${prefix}Gdrive -")
+            }
+
+            serverUrl.contains("strmup.to") -> {
+                streamupExtractor.getVideosFromUrl(serverUrl, headers, prefix)
+            }
+
+            else -> emptyList()
+        }.sortVideos()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString("preferred_server", "cda.pl")!!
+        return sortedWith(
+            compareBy<Hoster> { AI_LABEL_REGEX.containsMatchIn(it.hosterName) }
+                .thenByDescending {
+                    it.hosterName.contains(server, ignoreCase = true) ||
+                        it.hosterUrl.contains(server, ignoreCase = true)
+                },
+        )
+    }
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
+    @Serializable
+    private class HosterData(val playerName: String, val prefix: String)
+
     // ============================= Utilities ==============================
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString("preferred_quality", "1080")!!
         val server = preferences.getString("preferred_server", "cda.pl")!!
 
         return this.sortedWith(
-            compareBy<Video> { it.quality.contains("AI", true) }
-                .thenByDescending { it.quality.contains(quality) }
-                .thenByDescending { it.quality.contains(server, true) },
+            compareBy<Video> { AI_LABEL_REGEX.containsMatchIn(it.videoTitle) }
+                .thenByDescending { it.videoTitle.contains(quality) }
+                .thenByDescending { it.videoTitle.contains(server, true) },
         )
     }
 
-    private fun myanimelistApi(id: Int): MyAnimeListResponse {
-        val response = client.newCall(
-            GET("https://api.jikan.moe/v4/anime/$id"),
-        ).execute()
-        return response.parseAs<MyAnimeListResponse>()
+    private suspend fun myanimelistApi(id: Int): MyAnimeListApi? {
+        if (id <= 0) return null
+        return try {
+            client.get("https://api.jikan.moe/v4/anime/$id").parseAs<MyAnimeListResponse>().data
+        } catch (_: HttpException) {
+            null
+        } catch (_: IOException) {
+            null
+        } catch (_: SerializationException) {
+            null
+        }
     }
 
     private val dateFormat by lazy { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()) }
@@ -272,8 +317,8 @@ class Docchi :
         val videoServerPref = ListPreference(screen.context).apply {
             key = "preferred_server"
             title = "Preferowany serwer"
-            entries = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com")
-            entryValues = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com")
+            entries = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com", "Mega")
+            entryValues = arrayOf("cda.pl", "Dailymotion", "Mp4upload", "Sibnet", "vk.com", "mega")
             setDefaultValue("cda.pl")
             summary = "%s"
         }
@@ -283,19 +328,18 @@ class Docchi :
     }
 
     @Serializable
-    data class MyAnimeListResponse(
-        val data: MyAnimeListApi,
+    class MyAnimeListResponse(
+        val data: MyAnimeListApi? = null,
     )
 
     @Serializable
-    data class MyAnimeListApi(
-        val mal_id: Int,
-        val status: String,
-        val studios: List<StudiosMAL>,
+    class MyAnimeListApi(
+        val status: String? = null,
+        val studios: List<StudiosMAL> = emptyList(),
     )
 
     @Serializable
-    data class StudiosMAL(
+    class StudiosMAL(
         val name: String,
     )
 
@@ -340,7 +384,6 @@ class Docchi :
         val title: String,
         val title_en: String,
         val slug: String,
-        val slug_oa: String?,
         val description: String,
         val cover: String,
         val bg: String?,
@@ -378,4 +421,8 @@ class Docchi :
         val isInverted: Boolean,
         val bg: String?,
     )
+
+    companion object {
+        private val AI_LABEL_REGEX = Regex("""\bAI\b""", RegexOption.IGNORE_CASE)
+    }
 }

@@ -32,7 +32,7 @@ class PluginExtensionLegacy : Plugin<Project> {
         }
 
         assertWithoutFlag(!extra.has("pkgNameSuffix")) { "Gradle configuration cannot contain 'pkgNameSuffix'" }
-        assertWithoutFlag(!extra.has("libVersion")) { "Gradle configuration cannot contain 'libVersion'" }
+        // assertWithoutFlag(!extra.has("libVersion")) { "Gradle configuration cannot contain 'libVersion'" }
 
         assertWithoutFlag(extName.max().code < 0x180) { "Extension name should be romanized" }
 
@@ -59,7 +59,7 @@ class PluginExtensionLegacy : Plugin<Project> {
             defaultConfig {
                 applicationIdSuffix = project.parent?.name + "." + project.name
                 versionCode = if (theme == null) extVersionCode else theme.baseVersionCode + overrideVersionCode
-                versionName = "14.$versionCode"
+                versionName = "$libVersion.$versionCode"
                 base {
                     archivesName.set("aniyomi-$applicationIdSuffix-v$versionName")
                 }
@@ -122,6 +122,7 @@ class PluginExtensionLegacy : Plugin<Project> {
                     buildConfigField("String", "KISSKH_SUB_API", "\"https://script.google.com/macros/s/AKfycbyq6hTj0ZhlinYC6xbggtgo166tp6XaDKBCGtnYk8uOfYBUFwwxBui0sGXiu_zIFmA/exec?id=\"")
                     buildConfigField("String", "KAISVA", "\"https://c-kai-8090.amarullz.com\"")
                     buildConfigField("String", "TMDB_API", "\"${System.getenv("TMDB_API")}\"")
+                    buildConfigField("String", "WYZIE_API", "\"${System.getenv("WYZIE_API")}\"")
                 }
             }
 
@@ -182,6 +183,9 @@ private val Project.extName: String
 
 private val Project.extVersionCode: Int
     get() = extra.get("extVersionCode") as Int
+
+private val Project.libVersion: String
+    get() = extra.getOrNull("libVersion")?.toString() ?: "14"
 
 private val Project.extClass: String
     get() = extra.get("extClass") as String

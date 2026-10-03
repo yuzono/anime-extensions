@@ -10,9 +10,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -32,7 +32,7 @@ import java.net.URLEncoder
 import java.util.Locale
 
 class AV1Encodes :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "AV1Encodes"
@@ -78,7 +78,7 @@ class AV1Encodes :
         val seen = mutableSetOf<String>()
         val animes = mutableListOf<SAnime>()
 
-        var searchContext: Element = doc
+        var searchContext: Element = doc.body()
         val header = doc.select("h1,h2,h3,h4,h5,h6").firstOrNull {
             it.text().contains("Top Downloads", ignoreCase = true)
         }
@@ -87,7 +87,7 @@ class AV1Encodes :
             searchContext = if (sibling != null && sibling.text().length > 20) {
                 sibling
             } else {
-                header.parent() ?: doc
+                header.parent() ?: doc.body()
             }
         }
 
@@ -266,7 +266,7 @@ class AV1Encodes :
             val contentRoot = doc.selectFirst(
                 "main, #main, #content, .content, [class*='anime-list'], [class*='anime-grid'], " +
                     "[class*='result'], [class*='listing'], [class*='airing'], section.animes",
-            ) ?: doc
+            ) ?: doc.body()
             animes = contentRoot.select("h3").mapNotNull { h3 ->
                 val block = h3.parent() ?: return@mapNotNull null
                 val a = block.selectFirst("a[href*='/anime/']")
@@ -361,7 +361,7 @@ class AV1Encodes :
                 ?: extractBg(
                     doc.selectFirst(
                         ".anime-poster, .poster, .anime-hero, [class*='poster'], [class*='hero']",
-                    ) ?: doc,
+                    ) ?: doc.body(),
                 )
 
             description = doc.selectFirst(
@@ -663,7 +663,7 @@ class AV1Encodes :
         buildPreferenceScreen(screen)
     }
 
-    override fun List<Video>.sort(): List<Video> = sortByPreferredQuality(preferences)
+    override fun List<Video>.sortVideos(): List<Video> = sortByPreferredQuality(preferences)
 
     // ══════════════════════════════════════════════════════════════════════════
     // CONSTANTS
