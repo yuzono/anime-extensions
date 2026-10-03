@@ -4,29 +4,34 @@ import android.net.Uri
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.sibnetextractor.SibnetExtractor
+import aniyomi.lib.vkextractor.VkExtractor
 import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
 import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
 class YummyAnime :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "YummyAnime"
@@ -37,6 +42,8 @@ class YummyAnime :
     private val apiUrl = "https://api.yani.tv"
     private val appToken = "o0nap18m_7a0od86"
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
+    private val allohaExtractor by lazy { AllohaExtractor(client) }
+    private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val preferences by getPreferencesLazy()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
@@ -53,6 +60,23 @@ class YummyAnime :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_ALLOHA_KEY
+            title = "Парсить плеер Alloha (beta) / Parse Alloha player (beta)"
+            summary = "Alloha извлекается через WebView при запуске видео (5-25 секунд). " +
+                "Отключите, если озвучки Alloha не воспроизводятся."
+            setDefaultValue(PREF_ALLOHA_DEFAULT)
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_ALLOHA_SUBS_KEY
+            title = "Субтитры Alloha (медленный режим)"
+            summary = "Извлекать Alloha сразу при построении списка видео, чтобы " +
+                "прикрепить дорожки субтитров. Открытие серии станет заметно дольше. " +
+                "Работает только при включённом парсинге Alloha."
+            setDefaultValue(PREF_ALLOHA_SUBS_DEFAULT)
         }.also(screen::addPreference)
     }
 
@@ -81,7 +105,12 @@ class YummyAnime :
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$apiUrl/search?q=$query", headers)
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val url = "$apiUrl/search".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .build()
+        return GET(url, headers)
+    }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val data = response.parseAs<YummyResponse<List<YummyAnimeDto>>>().response
@@ -144,18 +173,170 @@ class YummyAnime :
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request {
+    // Lib 16 drops the episode-level video request/parse pair: videos are produced per
+    // hoster in getVideoList(hoster). Only the hoster/season stubs remain.
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    private fun episodeVideosRequest(episode: SEpisode): Request {
         val parts = episode.url.split("|", limit = 2)
         val animeSlug = parts.getOrElse(0) { "" }
         val episodeNum = parts.getOrElse(1) { "1" }
         return GET("$apiUrl/anime/$animeSlug?need_videos=true&episode=$episodeNum", headers)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = client.newCall(videoListRequest(episode))
-        .awaitSuccess()
-        .use { videoListParseAsync(it) }
-        .let(::applyQualityPreference)
-        .let(::voicesBeforeSubtitles)
+    /**
+     * One hoster per player/dubbing of the episode, read from the same API payload the old
+     * code walked: `video.data.dubbing` is the dubbing, `video.data.player` the player and
+     * `video.iframe_url` the player page.
+     *
+     * `hosterUrl` and `internalData` both carry that url. The app may read either field and
+     * round-trips it through its own storage, so a plain absolute url (no separator, no
+     * control characters) is what is safe to store. The Alloha token lives on the whole series
+     * (only `&episode=` differs between entries), so it does not go stale per entry.
+     */
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = episodeVideos(episode).mapNotNull { video ->
+        val player = video.data?.player?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        if (player.contains("Alloha", ignoreCase = true) &&
+            !preferences.getBoolean(PREF_ALLOHA_KEY, PREF_ALLOHA_DEFAULT)
+        ) {
+            return@mapNotNull null
+        }
+        val playerUrl = video.iframeUrl?.fixProtocol()?.takeIf { it.isNotBlank() }
+            ?: return@mapNotNull null
+        val dubbing = video.data?.dubbing?.takeIf { it.isNotBlank() } ?: "Озвучка"
+        Hoster(
+            hosterUrl = playerUrl,
+            hosterName = "$dubbing (${playerShortName(player)})",
+            internalData = playerUrl,
+        )
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val playerUrl = hoster.hosterUrl.ifBlank { hoster.internalData }
+        if (playerUrl.isBlank()) return emptyList()
+        val dubbing = hoster.hosterName.substringBeforeLast(" (").ifBlank { "Озвучка" }
+
+        // The player is recognised from the url host, so nothing has to be remembered on the
+        // source between getHosterList and getVideoList.
+
+        val videos = when (playerOf(playerUrl)) {
+            // Extracted right here, not deferred to resolveVideo: this app never calls
+            // resolveVideo for unresolved videos, so an entry with an empty videoUrl simply
+            // shows up as "No available videos". The cost is the WebView round-trip per dubbing
+            // when the list is built (5-25s), which is what the subtitle setting used to gate.
+            "Alloha" -> allohaExtractor.videosFromUrl(
+                playerUrl,
+                "$baseUrl/",
+                prefix = dubbing,
+            ).map { extracted ->
+                Video(
+                    // The extractor's own title carries the rendition; rebuilding it here
+                    // would drop the quality, and applyQualityPreference could not rank it.
+                    videoUrl = extracted.videoUrl,
+                    videoTitle = extracted.videoTitle,
+                    headers = extracted.headers,
+                    subtitleTracks = if (preferences.getBoolean(PREF_ALLOHA_SUBS_KEY, PREF_ALLOHA_SUBS_DEFAULT)) {
+                        extracted.subtitleTracks
+                    } else {
+                        emptyList()
+                    },
+                )
+            }
+            // Aksor hands the playlist over as JSON, so this costs one plain request instead
+            // of a WebView round-trip and its links are not tied to a session — they keep
+            // working on the second run of a series, which Alloha's do not.
+            "Aksor" -> aksorVideoLinks(playerUrl, dubbing)
+            "Kodik" -> kodikVideoLinks(playerUrl, dubbing)
+            "VK" -> vkVideoLinks(playerUrl, dubbing)
+            else -> fallbackVideoLinks(playerUrl, dubbing)
+        }
+        return videos.let(::applyQualityPreference).let(::voicesBeforeSubtitles)
+    }
+
+    /** The raw video entries the API returns for one episode. */
+    private suspend fun episodeVideos(episode: SEpisode): List<YummyVideoDto> {
+        val episodeNum = episode.url.substringAfter('|', "1")
+        val data = client.get(episodeVideosRequest(episode).url.toString(), headers)
+            .parseAs<YummyResponse<YummyDetailsDto>>()
+            .response
+            ?: return emptyList()
+        return data.videos.orEmpty().filter { it.number?.content == episodeNum }
+    }
+
+    /**
+     * The Aksor player page is `https://player.aksor.tv/video/<id>`; that id is all the JSON
+     * endpoint needs. Verified against the live player: `GET player.aksor.tv/api/video/<id>`
+     * answers 200 with the per-quality urls, and the `.mpd` they point at is served without
+     * any special header.
+     */
+    private suspend fun aksorVideoLinks(
+        playerUrl: String,
+        dubbing: String,
+    ): List<Video> {
+        val videoId = playerUrl.substringBefore('?').substringAfterLast('/').trim()
+        if (videoId.isBlank()) return emptyList()
+
+        // Wrapped: anything thrown here propagates out of getVideoList and takes the whole
+        // hoster with it, which the app shows as "No available videos" for every dubbing.
+        val response = runCatching {
+            client.get("$AKSOR_API/video/$videoId", headers).parseAs<AksorResponse>()
+        }.onFailure {
+            return emptyList()
+        }.getOrElse { return emptyList() }
+
+        val videos = mutableListOf<Video>()
+        for ((label, url) in response.qualities) {
+            val streamUrl = url?.takeIf { it.isNotBlank() } ?: continue
+            // Aksor answers with a path that may no longer be served — the CDN is sharded and a
+            // dubbing whose file is gone comes back 403/404 only when the player opens it.
+            // Ask for the first byte now, so a dead entry is dropped from the list instead of
+            // being offered and failing on press.
+            if (!isStreamAlive(streamUrl)) continue
+            // Not extractFromDash: that helper takes the stream url from the text inside
+            // <Representation>, and Aksor's manifest carries a <SegmentTemplate> instead, so
+            // it handed back an empty url. The manifest is a plain DASH one that the player
+            // reads natively, so it is passed through as is.
+            videos += Video(
+                videoUrl = streamUrl,
+                videoTitle = "$dubbing (${qualityLabel(label)}p Aksor)",
+                headers = headers,
+            )
+        }
+        return videos
+    }
+
+    /** One byte of the manifest: enough to tell a served file from a dead path, cheap to fetch. */
+    private suspend fun isStreamAlive(url: String): Boolean = runCatching {
+        client.get(url, headers.newBuilder().add("Range", "bytes=0-0").build()).isSuccessful
+    }.getOrDefault(false)
+
+    /** "q1080" -> "1080", "q2k" -> "2160", "q4k" -> "3840". */
+    private fun qualityLabel(label: String): String = when (val value = label.removePrefix("q").lowercase()) {
+        "2k" -> "2160"
+        "4k" -> "3840"
+        else -> value.ifBlank { "auto" }
+    }
+
+    private fun playerShortName(player: String): String = when {
+        player.contains("Alloha", ignoreCase = true) -> "Alloha"
+        player.contains("Aksor", ignoreCase = true) -> "Aksor"
+        player.contains("Kodik", ignoreCase = true) -> "Kodik"
+        player.contains("VK", ignoreCase = true) -> "VK"
+        else -> player.trim()
+    }
+
+    /** Which player a hoster belongs to, recognised by its host. */
+    private fun playerOf(playerUrl: String): String {
+        val host = playerUrl.substringAfter("://").substringBefore('/').lowercase()
+        return when {
+            "alloha." in host -> "Alloha"
+            "aksor." in host -> "Aksor"
+            "kodik" in host -> "Kodik"
+            "vk" in host -> "VK"
+            else -> ""
+        }
+    }
 
     private fun voicesBeforeSubtitles(videos: List<Video>): List<Video> = videos.sortedBy {
         if (it.videoTitle.contains("Субтитры", ignoreCase = true) ||
@@ -167,50 +348,40 @@ class YummyAnime :
         }
     }
 
+    // Put the preferred quality first but keep the others: filtering them out would silently
+    // drop a whole dubbing whose catalogue has no rendition at the preferred quality.
     private fun applyQualityPreference(videos: List<Video>): List<Video> {
         val pref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!.toIntOrNull()
             ?: return videos
-        val available = videos.mapNotNull { it.videoTitle.parseQuality() }.distinct()
-        if (available.isEmpty()) return videos
-        val target = available.minWithOrNull(
-            compareBy({ kotlin.math.abs(it - pref) }, { -it }),
-        ) ?: return videos
-        return videos.filter { v -> v.videoTitle.parseQuality()?.let { it == target } ?: true }
+        return videos.sortedWith(
+            compareBy(
+                { it.videoTitle.parseQuality()?.let { q -> kotlin.math.abs(q - pref) } ?: Int.MAX_VALUE },
+                { -(it.videoTitle.parseQuality() ?: 0) },
+            ),
+        )
     }
 
     private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()
 
-    private suspend fun videoListParseAsync(response: Response): List<Video> {
-        val episodeNum = response.request.url.queryParameter("episode") ?: return emptyList()
-
-        val data = response.parseAs<YummyResponse<YummyDetailsDto>>().response ?: return emptyList()
-
-        val allVideos = data.videos ?: return emptyList()
-
-        val episodeVideos = allVideos.filter { it.number?.content == episodeNum }
-
-        return episodeVideos.parallelCatchingFlatMap { video ->
-            val dubbing = video.data?.dubbing ?: "Unknown"
-            val player = video.data?.player ?: ""
-            val iframeUrl = video.iframeUrl?.fixProtocol() ?: return@parallelCatchingFlatMap emptyList()
-
-            when {
-                player.contains("Kodik", ignoreCase = true) -> kodikVideoLinks(iframeUrl, dubbing)
-                else -> fallbackVideoLinks(iframeUrl, dubbing)
-            }
-        }
-    }
-
-    // ============================ Kodik Player ===============================
-
-    private fun kodikVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
+    /**
+     * Lazy resolution for Alloha videos (empty videoUrl).
+     *
+     * MUST NEVER THROW: the app resolves unresolved videos in a batch when the player
+     * opens, and a single exception marks the whole batch as HosterState.Error — the
+     * user sees "No available videos" even though Kodik links were fine. On failure
+     * null is returned, so only this one entry fails if the user selects it.
+     */
+    private suspend fun kodikVideoLinks(
+        iframeUrl: String,
+        dubbing: String,
+    ): List<Video> {
         val kodikHeaders = Headers.Builder()
             .add("Referer", "$baseUrl/")
             .add("X-Application", appToken)
             .build()
 
         val page = runCatching {
-            client.newCall(GET(iframeUrl, kodikHeaders)).execute().useAsJsoup()
+            client.get(iframeUrl, kodikHeaders).useAsJsoup()
         }.getOrNull() ?: return emptyList()
 
         val pageHtml = page.html()
@@ -274,13 +445,7 @@ class YummyAnime :
             .ifEmpty { "kodikplayer.com" }
 
         val kodikData = runCatching {
-            client.newCall(
-                Request.Builder()
-                    .url("https://$playerHost/ftor")
-                    .post(postBody)
-                    .headers(postHeaders)
-                    .build(),
-            ).execute().parseAs<KodikData>()
+            client.post("https://$playerHost/ftor", postHeaders, postBody).parseAs<KodikData>()
         }.getOrNull() ?: return emptyList()
 
         val hlsHeaders = Headers.Builder()
@@ -302,7 +467,7 @@ class YummyAnime :
             )?.attr("abs:src") ?: return emptyList()
 
         val jsScript = runCatching {
-            client.newCall(GET(scriptUrl, kodikHeaders)).execute().body.string()
+            client.get(scriptUrl, kodikHeaders).bodyString()
         }.getOrNull() ?: return emptyList()
 
         val atobMatch = ATOB_REGEX.find(jsScript) ?: return emptyList()
@@ -336,7 +501,7 @@ class YummyAnime :
         }
     }
 
-    private fun buildKodikVideos(
+    private suspend fun buildKodikVideos(
         hlsUrl: String,
         qualityName: String,
         dubbing: String,
@@ -349,14 +514,48 @@ class YummyAnime :
             hlsHeaders,
         )
     } else {
-        listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+        listOf(
+            Video(
+                videoUrl = hlsUrl,
+                videoTitle = "$dubbing (${qualityName}p Kodik)",
+                headers = hlsHeaders,
+            ),
+        )
+    }
+
+    // ============================== VK Player ================================
+
+    /**
+     * The YummyAnime "Плеер VK" iframe is a thin wrapper:
+     * `//ru.yummyani.me/iframeVK.html?id={oid}_{videoId}`. The id is a standard VK
+     * video identifier, so it is turned into a `video_ext.php` embed URL and handed to
+     * the shared [VkExtractor], which resolves the direct mp4 streams.
+     */
+    private suspend fun vkVideoLinks(
+        iframeUrl: String,
+        dubbing: String,
+    ): List<Video> {
+        val id = runCatching { iframeUrl.toHttpUrl().queryParameter("id") }.getOrNull() ?: return emptyList()
+        val parts = id.split("_", limit = 2)
+        if (parts.size != 2) return emptyList()
+
+        val embedUrl = "https://vk.com/video_ext.php?oid=${parts[0]}&id=${parts[1]}"
+
+        // A VK failure (missing hash429 cookie, HTTP error) must not take the whole
+        // hoster down — the other player paths already degrade to an empty list.
+        return runCatching { vkExtractor.videosFromUrl(embedUrl, prefix = "$dubbing (VK) ") }
+            .getOrDefault(emptyList())
+            .map { Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = it.headers) }
     }
 
     // =========================== Fallback Player =============================
 
-    private fun fallbackVideoLinks(iframeUrl: String, dubbing: String): List<Video> {
+    private suspend fun fallbackVideoLinks(
+        iframeUrl: String,
+        dubbing: String,
+    ): List<Video> {
         val body = runCatching {
-            client.newCall(GET(iframeUrl, headers)).execute().body.string()
+            client.get(iframeUrl, headers).bodyString()
         }.getOrNull() ?: return emptyList()
 
         if (iframeUrl.contains("sibnet.ru") || body.contains("player.src")) {
@@ -367,12 +566,14 @@ class YummyAnime :
                 runCatching {
                     val rn = (Math.random() * 1_0000_0000).toInt()
                     val catchUrl = "https://vst.sibnet.ru/catch?event=load&val=null&videoid=$videoId&referrer=$iframeUrl&rn=$rn"
-                    client.newCall(GET(catchUrl, headers.newBuilder().set("Referer", iframeUrl).build())).execute().close()
+                    client.get(catchUrl, headers.newBuilder().set("Referer", iframeUrl).build())
                 }
             }
 
             val sibVideos = runCatching { sibnetExtractor.videosFromUrl(iframeUrl, "$dubbing (Sibnet) ") }.getOrNull()
-            if (!sibVideos.isNullOrEmpty()) return sibVideos
+            if (!sibVideos.isNullOrEmpty()) {
+                return sibVideos
+            }
         }
 
         val mpd = MPD_REGEX.find(body)?.value
@@ -399,7 +600,13 @@ class YummyAnime :
             .add("X-Application", appToken)
             .build()
 
-        return listOf(Video(stream, "$dubbing (Unknown)", stream, headers = videoHeaders))
+        return listOf(
+            Video(
+                videoUrl = stream,
+                videoTitle = "$dubbing (Unknown)",
+                headers = videoHeaders,
+            ),
+        )
     }
 
     // ============================= Utilities ==============================
@@ -409,8 +616,14 @@ class YummyAnime :
     private fun String.toOrigin(): String = ORIGIN_REGEX.find(this)?.groupValues?.get(1) ?: this
 
     companion object {
+        private const val AKSOR_API = "https://player.aksor.tv/api"
+
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
+        private const val PREF_ALLOHA_KEY = "pref_parse_alloha"
+        private const val PREF_ALLOHA_DEFAULT = false
+        private const val PREF_ALLOHA_SUBS_KEY = "pref_alloha_subs"
+        private const val PREF_ALLOHA_SUBS_DEFAULT = false
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})\s*p""")
         private val ATOB_REGEX = Regex("atob\\([^\"]")

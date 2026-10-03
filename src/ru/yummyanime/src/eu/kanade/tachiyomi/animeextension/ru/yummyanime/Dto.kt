@@ -92,3 +92,14 @@ class KodikVideoQuality(
 
 @Serializable
 class KodikData(val links: KodikVideoQuality)
+
+/**
+ * Aksor serves its playlists from a plain JSON call: the id is the last path segment of the
+ * player page and `qualities` maps "q1080"/"q720"/… to the stream url. No token, no session
+ * and nothing for a WebView to keep alive, which is why these links keep working after
+ * playback starts.
+ */
+@Serializable
+class AksorResponse(
+    val qualities: Map<String, String?> = emptyMap(),
+)
