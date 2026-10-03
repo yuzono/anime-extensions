@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.es.lamovie.extractors
 
 import aniyomi.lib.playlistutils.PlaylistUtils
+import eu.kanade.tachiyomi.animeextension.es.lamovie.EmbedConfigDto
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
@@ -8,10 +9,6 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -45,11 +42,11 @@ class LaMovieEmbedExtractor(
         }
 
         CONFIG_REGEX.find(body)?.groupValues?.getOrNull(1)?.let { configText ->
-            val configJson = runCatching { configText.parseAs<JsonElement>().jsonObject }.getOrNull()
-            configJson?.get("file")?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
+            val config = runCatching { configText.parseAs<EmbedConfigDto>() }.getOrNull()
+            config?.file?.takeIf(String::isNotBlank)?.let {
                 playlistUrl = it.unescapeUrl()
             }
-            configJson?.get("subtitle")?.jsonPrimitive?.contentOrNull?.let { subtitleRaw ->
+            config?.subtitle?.let { subtitleRaw ->
                 SUBTITLE_REGEX.findAll(subtitleRaw).forEach { match ->
                     addSubtitle(match.groupValues[1], match.groupValues[2])
                 }
@@ -57,7 +54,7 @@ class LaMovieEmbedExtractor(
         }
 
         val scriptUnpacked = SCRIPT_REGEX.find(body)?.value?.let { script ->
-            JsUnpacker.unpackAndCombine(script) ?: manualUnpack(script) ?: script
+            JsUnpacker.unpackAndCombine(script) ?: script
         }
 
         if (playlistUrl.isNullOrBlank()) {
@@ -97,72 +94,14 @@ class LaMovieEmbedExtractor(
 
     private fun String.unescapeUrl(): String = replace("\\/", "/").replace("&amp;", "&")
 
-    private fun manualUnpack(script: String): String? {
-        var current = script
-        var decoded = false
-
-        repeat(MAX_UNPACK_ITERATIONS) {
-            val match = PACKER_REGEX.find(current) ?: return@repeat
-
-            val payload = match.groupValues.getOrNull(1)?.unescapePackerString() ?: return@repeat
-            val base = match.groupValues.getOrNull(2)?.toIntOrNull() ?: return@repeat
-            val count = match.groupValues.getOrNull(3)?.toIntOrNull() ?: return@repeat
-            val dictionaryRaw = match.groupValues.getOrNull(4) ?: return@repeat
-            val dictionary = if (dictionaryRaw.isEmpty()) emptyList() else dictionaryRaw.split("|")
-
-            var result = payload
-            for (index in count - 1 downTo 0) {
-                val replacement = dictionary.getOrNull(index) ?: continue
-                if (replacement.isEmpty()) continue
-
-                val token = index.toPackerToken(base)
-                if (token.isEmpty()) continue
-
-                val regex = Regex("\\b" + Regex.escape(token) + "\\b")
-                result = result.replace(regex, replacement)
-            }
-
-            current = result
-            decoded = true
-        }
-
-        return if (decoded) current else null
-    }
-
-    private fun Int.toPackerToken(radix: Int): String {
-        if (radix !in 2..PACKER_ALPHABET.length) return ""
-        if (this == 0) return PACKER_ALPHABET.first().toString()
-
-        var value = this
-        val builder = StringBuilder()
-
-        while (value > 0) {
-            val digit = value % radix
-            builder.append(PACKER_ALPHABET[digit])
-            value /= radix
-        }
-
-        return builder.reverse().toString()
-    }
-
-    private fun String.unescapePackerString(): String = replace("\\\\", "\\")
-        .replace("\\'", "'")
-
     companion object {
-        private const val DEFAULT_ORIGIN = "https://lamovie.link"
-
-        private const val MAX_UNPACK_ITERATIONS = 3
-        private const val PACKER_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        private const val DEFAULT_ORIGIN = "https://lamovie.la"
 
         private val CONFIG_REGEX = Regex(
             pattern = """<script\s+id=['"]config['"][^>]*>(\{[\s\S]*?\})</script>""",
             options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         )
         private val SCRIPT_REGEX = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split('\|')\)\)""")
-        private val PACKER_REGEX = Regex(
-            pattern = """eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\('([^']*)',(\\d+),(\\d+),'([^']*)'\.split\('\|'\)\)""",
-            options = setOf(RegexOption.DOT_MATCHES_ALL),
-        )
         private val M3U8_REGEX = Regex("""https?://[^\s'"]+\.m3u8[^\s'"]*""")
         private val SUBTITLE_REGEX = Regex("""\[(.+?)](https?://[^\s'"]+)""")
     }
