@@ -180,7 +180,7 @@ class AniZone :
         val xData = element.attr("x-data")
 
         return SAnime.create().apply {
-            val rawUrl = titleLink.absUrl("href").toHttpUrl()
+            val rawUrl = runCatching { titleLink.absUrl("href").toHttpUrl() }.getOrNull() ?: return null
             val anmIndex = rawUrl.pathSegments.indexOf("anime")
             val animeUrl = if (anmIndex != -1 && rawUrl.pathSegments.size > anmIndex + 2) {
                 rawUrl.newBuilder()
@@ -261,7 +261,7 @@ class AniZone :
             val fallbackText = document.selectFirst("h1")?.text()?.takeIf { it.isNotEmpty() }
                 ?: document.selectFirst("title")?.text()?.substringBefore(" — AniZone")
 
-            title = getPreferredTitle(xData, fallbackText) ?: throw Exception("Could not find title")
+            title = getPreferredTitle(xData, fallbackText) ?: fallbackText?.clean() ?: "Unknown"
 
             status = document.select("span.inline-block")
                 .firstOrNull {
@@ -397,8 +397,8 @@ class AniZone :
     private val episodeSelector = "ul > li"
 
     private fun episodeFromElement(element: Element): SEpisode? {
-        val url = element.select("a[href*=/anime/]").firstOrNull()?.absUrl("href")
-            ?: element.selectFirst("a[href]")?.absUrl("href")
+        val url = element.select("a[href*=/anime/]").firstOrNull()?.absUrl("href")?.takeIf { it.isNotBlank() }
+            ?: element.selectFirst("a[href]")?.absUrl("href")?.takeIf { it.isNotBlank() }
             ?: return null
 
         val xData = element.attr("x-data")
@@ -504,7 +504,7 @@ class AniZone :
         val loadAll = preferences.loadAll
 
         val audioValue = preferences.audio
-        val audioEntry = PREF_AUDIO_ENTRIES[PREF_AUDIO_ENTRY_VALUES.indexOf(audioValue)]
+        val audioEntry = PREF_AUDIO_ENTRIES.getOrNull(PREF_AUDIO_ENTRY_VALUES.indexOf(audioValue)) ?: PREF_AUDIO_ENTRIES.first()
         val audioRegex = getLangRegex(audioValue)
 
         val fallbackAudioValue = "jpn"
@@ -512,7 +512,7 @@ class AniZone :
         val fallbackAudioRegex = getLangRegex(fallbackAudioValue)
 
         val subValue = preferences.subtitle
-        val subEntry = PREF_SUB_ENTRIES[PREF_SUB_ENTRY_VALUES.indexOf(subValue)]
+        val subEntry = PREF_SUB_ENTRIES.getOrNull(PREF_SUB_ENTRY_VALUES.indexOf(subValue)) ?: PREF_SUB_ENTRIES.first()
         val subRegex = getLangRegex(subValue)
 
         val fallbackSubValue = "eng"
@@ -547,13 +547,16 @@ class AniZone :
         val vidstack = document.vidstackData()
 
         val subtitles = filterSubs(
-            vidstack?.subtitles?.map { Track(it.file.replace("\\/", "/"), it.title) }
-                ?: document.select("track[kind=subtitles]").map {
-                    Track(it.attr("src").replace("\\/", "/"), it.attr("label"))
+            vidstack?.subtitles?.mapNotNull { sub ->
+                sub.file?.takeIf { it.isNotBlank() }?.let { Track(it.replace("\\/", "/"), sub.title ?: "") }
+            }
+                ?: document.select("track[kind=subtitles]").mapNotNull {
+                    val src = it.attr("src").replace("\\/", "/").takeIf { s -> s.isNotBlank() } ?: return@mapNotNull null
+                    Track(src, it.attr("label"))
                 },
         )
 
-        val videoUrl = vidstack?.src ?: document.selectFirst("media-player")?.attr("src")
+        val videoUrl = vidstack?.src?.takeIf { it.isNotBlank() } ?: document.selectFirst("media-player")?.attr("src")?.takeIf { it.isNotBlank() }
             ?: return emptyList()
 
         val allVideos = playlistUtils.extractFromHls(
@@ -663,13 +666,13 @@ class AniZone :
     }
 
     private fun LivewireDto.getHtml(mapKey: String): Document {
-        val data = this.components.first()
+        val data = this.components.firstOrNull() ?: return parseBodyFragment("", baseUrl)
 
-        snapShots[mapKey] = data.snapshot.replace("\\\"", "\"")
+        snapShots[mapKey] = data.snapshot?.replace("\\\"", "\"") ?: snapShots[mapKey] ?: ""
 
         return parseBodyFragment(
-            data.effects.html.replace("\\\"", "\"")
-                .replace("\\n", ""),
+            data.effects?.html?.replace("\\\"", "\"")
+                ?.replace("\\n", "") ?: "",
             baseUrl,
         )
     }
