@@ -1,0 +1,9 @@
+ext {
+    extName = 'AniLiberty'
+    extClass = '.Aniliberty'
+    extVersionCode = 1
+    libVersion = "16"
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
