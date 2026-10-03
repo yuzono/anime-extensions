@@ -215,7 +215,7 @@ jobs:
       - name: Checkout repo branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: yuzono/aniyomi-repo
+          repository: yuzono/anime-repo
           token: ${{ secrets.BOT_PAT }}
           ref: repo
           path: repo
@@ -226,6 +226,7 @@ jobs:
         env:
           DELETE: ${{ needs.prepare.outputs.delete }}
         run: |
+          pip install "protobuf>=7.35.1,<8"
           cd repo
           python ../${{ github.ref_name }}/.github/scripts/merge-repo.py "$DELETE" '${{ github.ref_name }}/repo'
 
