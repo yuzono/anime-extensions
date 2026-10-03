@@ -23,7 +23,7 @@ class AnimeQ :
     DooPlay(
         "pt-BR",
         "AnimeQ",
-        "https://animeq.blog",
+        "https://animeq.cloud",
     ) {
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_a > a, article.w_item_b > a"
@@ -161,7 +161,7 @@ class AnimeQ :
                 val videoHeaders = headers.newBuilder()
                     .set("Referer", "$baseUrl/")
                     .build()
-                listOf(Video(url, name, url, videoHeaders))
+                listOf(Video(videoTitle = name, videoUrl = url, headers = videoHeaders))
             }
 
             else -> emptyList()
