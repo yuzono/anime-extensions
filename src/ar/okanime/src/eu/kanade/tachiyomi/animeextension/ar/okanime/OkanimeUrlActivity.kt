@@ -8,7 +8,7 @@ import android.util.Log
 import kotlin.system.exitProcess
 
 /**
- * Springboard that accepts https://www.okanime.xyz/anime/<item> intents
+ * Springboard that accepts https://ww3.okanime.xyz/anime/<item> intents
  * and redirects them to the main Aniyomi process.
  */
 class OkanimeUrlActivity : Activity() {
