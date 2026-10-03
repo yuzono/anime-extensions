@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.animeextension.all.jellyfin.dto
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class PlaybackInfoDto(
+class PlaybackInfoDto(
     val userId: String,
     val isPlayback: Boolean,
     val mediaSourceId: String,
@@ -16,7 +16,7 @@ data class PlaybackInfoDto(
 )
 
 @Serializable
-data class DeviceProfileDto(
+class DeviceProfileDto(
     val name: String,
     val maxStreamingBitrate: Int,
     val maxStaticBitrate: Int,
@@ -29,26 +29,17 @@ data class DeviceProfileDto(
     val subtitleProfiles: List<SubtitleProfileDto>,
 ) {
     @Serializable
-    data class ProfileDto(
+    class ProfileDto(
         val type: String,
         val container: String? = null,
         val protocol: String? = null,
         val audioCodec: String? = null,
         val videoCodec: String? = null,
-        val codec: String? = null,
         val maxAudioChannels: String? = null,
-        val conditions: List<ProfileConditionDto>? = null,
-    ) {
-        @Serializable
-        data class ProfileConditionDto(
-            val condition: String,
-            val property: String,
-            val value: String,
-        )
-    }
+    )
 
     @Serializable
-    data class SubtitleProfileDto(
+    class SubtitleProfileDto(
         val format: String,
         val method: String,
     )
