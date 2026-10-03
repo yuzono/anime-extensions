@@ -7,35 +7,32 @@ import eu.kanade.tachiyomi.animeextension.pt.animefire.extractors.IframeExtracto
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class AnimeFire :
-    ParsedAnimeHttpLegacySource(),
+    ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Anime Fire"
 
-    override val baseUrl = "https://animefire.io"
+    override val baseUrl = "https://animefire.one"
 
     override val lang = "pt-BR"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -76,7 +73,7 @@ class AnimeFire :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -156,18 +153,29 @@ class AnimeFire :
     }
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
         val videoElement = document.selectFirst("video#my-video")
-        return if (videoElement != null) {
-            AnimeFireExtractor(client, json).videoListFromElement(videoElement, headers)
-        } else {
-            IframeExtractor(client).videoListFromDocument(document, headers)
-        }
+        val url = videoElement?.absUrl("data-video-src")
+            ?: document.selectFirst("div#div_video iframe")?.absUrl("src")
+        if (url.isNullOrBlank()) return emptyList()
+        return listOf(
+            Hoster(
+                hosterUrl = url,
+                hosterName = name,
+                internalData = if (videoElement != null) "json" else "iframe",
+            ),
+        )
     }
 
-    override fun videoListSelector() = throw UnsupportedOperationException()
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = when (hoster.internalData) {
+        "json" -> AnimeFireExtractor(client).videosFromUrl(hoster.hosterUrl, headers)
+        "iframe" -> IframeExtractor(client).videosFromUrl(hoster.hosterUrl, headers)
+        else -> emptyList()
+    }
+
+    override fun seasonListSelector() = throw UnsupportedOperationException()
+    override fun seasonFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -184,7 +192,7 @@ class AnimeFire :
     override fun getFilterList(): AnimeFilterList = AFFilters.FILTER_LIST
 
     // ============================= Utilities ==============================
-    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()) {
+    private fun parseStatus(statusString: String?): Int = when (statusString) {
         "Completo" -> SAnime.COMPLETED
         "Em lançamento" -> SAnime.ONGOING
         else -> SAnime.UNKNOWN
@@ -201,6 +209,7 @@ class AnimeFire :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+        private val LEGACY_HOSTS = setOf("animefire.io", "animefire.plus")
         private const val ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
