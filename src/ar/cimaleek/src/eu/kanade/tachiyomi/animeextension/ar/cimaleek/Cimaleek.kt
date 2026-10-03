@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.cimaleek
 
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
@@ -28,7 +29,7 @@ class Cimaleek :
 
     override val name = "سيما ليك"
 
-    override val baseUrl = "https://m.cimaleek.to"
+    override val baseUrl get() = preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
 
     override val lang = "ar"
 
@@ -275,5 +276,21 @@ class Cimaleek :
             }
         }
         screen.addPreference(videoQualityPref)
+        EditTextPreference(screen.context).apply {
+            key = PREF_BASE_URL_KEY
+            title = "Server URL"
+            summary = "Custom server URL (requires app restart). Current: ${preferences.getString(PREF_BASE_URL_KEY, DEFAULT_BASE_URL)}"
+            setDefaultValue(DEFAULT_BASE_URL)
+            dialogTitle = "Server URL"
+            setOnPreferenceChangeListener { preference, newValue ->
+                preference.summary = "Custom server URL (requires app restart). Current: $newValue"
+                true
+            }
+        }.also(screen::addPreference)
+    }
+
+    companion object {
+        private const val DEFAULT_BASE_URL = "https://r103.cimalek.buzz"
+        private const val PREF_BASE_URL_KEY = "override_base_url"
     }
 }
