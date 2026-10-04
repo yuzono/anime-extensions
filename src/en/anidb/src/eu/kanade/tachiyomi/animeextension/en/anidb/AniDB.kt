@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.network.get
 import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
 import keiyoushi.utils.parseAs
@@ -32,6 +31,8 @@ class AniDB : Source() {
 
     override val supportsLatest = true
 
+    override val disableRelatedAnimesBySearch = true
+
     override val client = network.client.newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -50,23 +51,17 @@ class AniDB : Source() {
     private val preferredLang: String
         by preferences.delegate(PREF_LANG_KEY, PREF_LANG_DEFAULT)
 
-    private val hideFiller: Boolean
-        get() = preferences.getBoolean(PREF_FILLER_HIDE_KEY, PREF_FILLER_HIDE_DEFAULT)
-
-    private val showFillerTag: Boolean
-        get() = preferences.getBoolean(PREF_FILLER_TAG_KEY, PREF_FILLER_TAG_DEFAULT)
-
     // ============================== Popular ===============================
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
-        val response = client.get("$baseUrl/browse?sort=order_top_airing&page=$page", headers)
+        val response = client.get("$baseUrl/browse?sort=order_top_airing&page=$page")
         return parseAnimesPage(response)
     }
 
     // =============================== Latest ===============================
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
-        val response = client.get("$baseUrl/browse?sort=order_updated&page=$page", headers)
+        val response = client.get("$baseUrl/browse?sort=order_updated&page=$page")
         return parseAnimesPage(response)
     }
 
@@ -75,7 +70,7 @@ class AniDB : Source() {
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http")) {
             val url = query.toHttpUrlOrNull()
-            if (url != null && (url.host == "anidb.app" || url.host == "anidb.net") && url.pathSegments.contains("anime")) {
+            if (url != null && url.host == "anidb.app" && url.pathSegments.contains("anime")) {
                 val anime = getAnimeDetails(SAnime.create().apply { this.url = url.encodedPath })
                 return AnimesPage(listOf(anime), false)
             }
@@ -99,7 +94,7 @@ class AniDB : Source() {
         }
         urlBuilder.addQueryParameter("page", page.toString())
 
-        val response = client.get(urlBuilder.build(), headers)
+        val response = client.get(urlBuilder.build())
         return parseAnimesPage(response)
     }
 
@@ -115,7 +110,7 @@ class AniDB : Source() {
     // =========================== Anime Details ============================
 
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val response = client.get(baseUrl + anime.url, headers)
+        val response = client.get(baseUrl + anime.url)
         val document = response.asJsoup()
         val dl = document.selectFirst("dl.grid")
 
@@ -207,22 +202,21 @@ class AniDB : Source() {
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val lastSegment = (baseUrl + anime.url).toHttpUrl().pathSegments.last()
         val animeId = ANIME_ID_REGEX.find(lastSegment)?.groupValues?.get(1) ?: lastSegment
-        val response = client.get("$baseUrl/api/frontend/anime/$animeId/episodes", headers)
+        val response = client.get("$baseUrl/api/frontend/anime/$animeId/episodes")
         val episodesArr = response.parseAs<EpisodeResponseDto>().episodes
 
         val minEpNumber = episodesArr.minOfOrNull { it.number.toFloat() } ?: 0f
         val offset = if (minEpNumber > 1f) minEpNumber - 1f else 0f
 
         return episodesArr
-            .filter { !hideFiller || !it.filler }
-            .map { it.toSEpisode(offset, showFillerTag) }
+            .map { it.toSEpisode(offset) }
             .reversed()
     }
 
     // =========================== Hosters & Videos ==========================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val response = client.get("$baseUrl/api/frontend/episode/${episode.url}/languages", headers)
+        val response = client.get("$baseUrl/api/frontend/episode/${episode.url}/languages")
         val languages = response.parseAs<LanguageResponseDto>().languages
 
         return languages.map { lang ->
@@ -239,7 +233,7 @@ class AniDB : Source() {
     }
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val embedResponse = client.get(hoster.hosterUrl, headers)
+        val embedResponse = client.get(hoster.hosterUrl)
         val html = embedResponse.bodyString()
         val m3u8Url = M3U8_REGEX.find(html)?.groupValues?.get(1)
             ?: return emptyList()
@@ -279,20 +273,6 @@ class AniDB : Source() {
             entries = PREF_LANG_ENTRIES,
             entryValues = PREF_LANG_VALUES,
             default = PREF_LANG_DEFAULT,
-        )
-
-        screen.addSwitchPreference(
-            key = PREF_FILLER_TAG_KEY,
-            title = PREF_FILLER_TAG_TITLE,
-            summary = "Adds '(Filler)' to episode names when available.",
-            default = PREF_FILLER_TAG_DEFAULT,
-        )
-
-        screen.addSwitchPreference(
-            key = PREF_FILLER_HIDE_KEY,
-            title = PREF_FILLER_HIDE_TITLE,
-            summary = "Hides detected filler episodes from episode list.",
-            default = PREF_FILLER_HIDE_DEFAULT,
         )
     }
 
@@ -344,14 +324,6 @@ class AniDB : Source() {
         private const val PREF_LANG_DEFAULT = "jpn"
         private val PREF_LANG_ENTRIES = listOf("Japanese", "English")
         private val PREF_LANG_VALUES = listOf("jpn", "eng")
-
-        private const val PREF_FILLER_TAG_KEY = "append_filler_tag"
-        private const val PREF_FILLER_TAG_TITLE = "Filler Detection"
-        private const val PREF_FILLER_TAG_DEFAULT = true
-
-        private const val PREF_FILLER_HIDE_KEY = "hide_filler"
-        private const val PREF_FILLER_HIDE_TITLE = "Hide Filler Episodes"
-        private const val PREF_FILLER_HIDE_DEFAULT = false
 
         private val ANIME_ID_REGEX = Regex("-(\\d+)$")
         private val M3U8_REGEX = Regex("""file:\s*['"](https?://[^'"]+master\.m3u8)['"]""")
