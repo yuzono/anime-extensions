@@ -92,12 +92,12 @@ object Filters {
         UriPartFilter(
             "Sort by",
             arrayOf(
+                Pair("Trending", "order_trending"),
                 Pair("Top Rated", "order_top"),
                 Pair("Latest Updated", "order_updated"),
                 Pair("Most Popular", "order_popular"),
                 Pair("Most Favorited", "order_favorite"),
                 Pair("Top Airing", "order_top_airing"),
-                Pair("By Score", "score"),
                 Pair("Title A-Z", "title"),
                 Pair("Newest First", "aired_start"),
             ),
