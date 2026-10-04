@@ -16,7 +16,7 @@ class EpisodeDto(
     val number2: Double? = null,
     val filler: Boolean = false,
 ) {
-    fun toSEpisode(offset: Float, showFillerTag: Boolean = true): SEpisode = SEpisode.create().apply {
+    fun toSEpisode(offset: Float): SEpisode = SEpisode.create().apply {
         val num = number.toFloat()
         val num2 = number2?.toFloat()
         val adjustedNumber = num - offset
@@ -29,8 +29,8 @@ class EpisodeDto(
         }
 
         name = "Episode $label"
-        if (filler && showFillerTag) name += " (Filler)"
         episode_number = adjustedNumber
+        fillermark = filler
         url = id.toString()
     }
 }
