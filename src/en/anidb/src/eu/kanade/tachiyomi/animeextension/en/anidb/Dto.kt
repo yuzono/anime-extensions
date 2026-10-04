@@ -6,13 +6,13 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 class EpisodeResponseDto(
-    val episodes: List<EpisodeDto>,
+    val episodes: List<EpisodeDto> = emptyList(),
 )
 
 @Serializable
 class EpisodeDto(
-    val id: Long,
-    val number: Double,
+    val id: Long = 0L,
+    val number: Double = 0.0,
     val number2: Double? = null,
     val filler: Boolean = false,
 ) {
@@ -37,11 +37,11 @@ class EpisodeDto(
 
 @Serializable
 class LanguageResponseDto(
-    val languages: List<LanguageDto>,
+    val languages: List<LanguageDto> = emptyList(),
 )
 
 @Serializable
 class LanguageDto(
-    val name: String,
-    @SerialName("embed_url") val embedUrl: String,
+    val name: String = "",
+    @SerialName("embed_url") val embedUrl: String = "",
 )
