@@ -310,8 +310,8 @@ class KissKH : Source() {
         val quality = preferredQuality
         return sortedWith(
             compareByDescending<Video> { it.videoTitle.contains(quality) }
-                .thenBy { video ->
-                    PREF_QUALITY_VALUES.indexOfFirst { video.videoTitle.contains(it) }.takeIf { it >= 0 } ?: Int.MAX_VALUE
+                .thenByDescending { video ->
+                    QUALITY_REGEX.find(video.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                 },
         ).mapIndexed { index, video ->
             if (index == 0) video.copy(preferred = true) else video
@@ -420,5 +420,7 @@ class KissKH : Source() {
         private val COUNTDOWN_REGEX by lazy {
             Regex("""window\.countdown\("([^"]+)",\s*"[^"]*",\s*\d+,\s*"[^"]*",\s*"([^"]+)"""")
         }
+
+        private val QUALITY_REGEX by lazy { Regex("""(\d+)p?""") }
     }
 }
