@@ -1,0 +1,13 @@
+ext {
+    extName = 'Flixer'
+    extClass = '.Flixer'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:m3u8server"))
+}
