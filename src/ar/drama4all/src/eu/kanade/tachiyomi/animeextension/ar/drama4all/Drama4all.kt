@@ -126,7 +126,10 @@ class Drama4all : AnimeHttpLegacySource() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        return document.select("a[href*='/watch/']").mapNotNull { el ->
+        // Scoped to the episode list (`a.r12-ep`): the series page also carries a
+        // hero "watch now" button pointing at episode 1, so a bare `/watch/`
+        // selector yields a duplicate first episode on every series.
+        return document.select("a.r12-ep[href*='/watch/']").mapNotNull { el ->
             val href = el.attr("href")
             if (href.isBlank()) return@mapNotNull null
             SEpisode.create().apply {
@@ -153,8 +156,10 @@ class Drama4all : AnimeHttpLegacySource() {
         if (segments == null || !segments.contains("watch")) return emptyList()
         // `getOrNull` so a stale/restored episode URL that has no slug after
         // `/watch` returns an empty list instead of throwing IndexOutOfBounds.
+        // `isNotBlank` also rejects an empty segment (`/watch//1`), which would
+        // otherwise spend two retry requests on `/api/episode//1`.
         val watchIndex = segments.indexOf("watch")
-        val slug = segments.getOrNull(watchIndex + 1)?.takeIf { it != "watch" }
+        val slug = segments.getOrNull(watchIndex + 1)?.takeIf { it.isNotBlank() && it != "watch" }
             ?: return emptyList()
         val epNum = segments.lastOrNull()?.toIntOrNull() ?: return emptyList()
 
@@ -307,15 +312,23 @@ class Drama4all : AnimeHttpLegacySource() {
         var inString = false
         var escaped = false
         for (i in arrayStart until length) {
-            when (val c = this[i]) {
-                '"' -> if (!escaped) inString = !inString
-                '\\' -> if (inString) escaped = !escaped
+            val c = this[i]
+            // An escaped character is consumed wholesale: leaving `escaped` set
+            // after a `\"` would stop the next `"` from closing the string, so
+            // the closing `]` would be read as string content and the whole
+            // catalogue would come back empty.
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            when (c) {
+                '\\' -> if (inString) escaped = true
+                '"' -> inString = !inString
                 '[' -> if (!inString) depth++
                 ']' -> {
                     if (!inString) depth--
                     if (depth == 0) return substring(arrayStart, i + 1)
                 }
-                else -> if (c != '\\' && inString) escaped = false
             }
         }
         return null
