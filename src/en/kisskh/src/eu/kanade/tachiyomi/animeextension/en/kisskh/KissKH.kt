@@ -54,6 +54,9 @@ class KissKH : Source() {
     private val hideUnaired: Boolean
         get() = preferences.getBoolean(PREF_HIDE_UNAIRED_KEY, PREF_HIDE_UNAIRED_DEFAULT)
 
+    private val preferredQuality: String
+        by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+
     private var subDecryptor by LazyMutable { SubDecryptor(client, headers, baseUrl) }
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -280,7 +283,7 @@ class KissKH : Source() {
         )
 
         if (!fixedVideoUrl.toHttpUrl().encodedPath.endsWith(".m3u8", ignoreCase = true)) {
-            return listOf(video)
+            return listOf(video).sortVideos()
         }
 
         return try {
@@ -294,11 +297,24 @@ class KissKH : Source() {
                     subtitleList = subList,
                 )
             }.ifEmpty { listOf(video) }
+                .sortVideos()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w("KissKH", "Failed to extract HLS qualities: ${e.message}")
-            listOf(video)
+            listOf(video).sortVideos()
+        }
+    }
+
+    override fun List<Video>.sortVideos(): List<Video> {
+        val quality = preferredQuality
+        return sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
+                .thenBy { video ->
+                    PREF_QUALITY_VALUES.indexOfFirst { video.videoTitle.contains(it) }.takeIf { it >= 0 } ?: Int.MAX_VALUE
+                },
+        ).mapIndexed { index, video ->
+            if (index == 0) video.copy(preferred = true) else video
         }
     }
 
@@ -364,6 +380,15 @@ class KissKH : Source() {
             summary = "Hide upcoming episodes that only have a countdown timer",
             default = PREF_HIDE_UNAIRED_DEFAULT,
         )
+
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_VALUES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
     }
 
     private val titleUriRegex by lazy { Regex("[^a-zA-Z0-9]") }
@@ -386,6 +411,11 @@ class KissKH : Source() {
 
         private const val PREF_HIDE_UNAIRED_KEY = "pref_hide_unaired_episodes"
         private const val PREF_HIDE_UNAIRED_DEFAULT = true
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
+        private const val PREF_QUALITY_DEFAULT = "1080"
 
         private val COUNTDOWN_REGEX by lazy {
             Regex("""window\.countdown\("([^"]+)",\s*"[^"]*",\s*\d+,\s*"[^"]*",\s*"([^"]+)"""")
