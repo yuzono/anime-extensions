@@ -8,11 +8,11 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.network.get
 import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
-import keiyoushi.utils.asJsoup
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
 import keiyoushi.utils.parseAs
@@ -266,6 +266,7 @@ class AniDB : Source() {
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = PREF_QUALITY_TITLE,
+            summary = "%s",
             entries = PREF_QUALITY_ENTRIES,
             entryValues = PREF_QUALITY_ENTRIES,
             default = PREF_QUALITY_DEFAULT,
@@ -274,6 +275,7 @@ class AniDB : Source() {
         screen.addListPreference(
             key = PREF_LANG_KEY,
             title = PREF_LANG_TITLE,
+            summary = "%s",
             entries = PREF_LANG_ENTRIES,
             entryValues = PREF_LANG_VALUES,
             default = PREF_LANG_DEFAULT,
