@@ -283,7 +283,7 @@ class KissKH : Source() {
         )
 
         if (!fixedVideoUrl.toHttpUrl().encodedPath.endsWith(".m3u8", ignoreCase = true)) {
-            return listOf(video).sortVideos()
+            return listOf(video)
         }
 
         return try {
@@ -297,24 +297,20 @@ class KissKH : Source() {
                     subtitleList = subList,
                 )
             }.ifEmpty { listOf(video) }
-                .sortVideos()
+                .sortedWith(
+                    compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
+                        .thenByDescending { video ->
+                            QUALITY_REGEX.find(video.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                        },
+                )
+                .mapIndexed { index, v ->
+                    if (index == 0) v.copy(preferred = true) else v
+                }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w("KissKH", "Failed to extract HLS qualities: ${e.message}")
-            listOf(video).sortVideos()
-        }
-    }
-
-    override fun List<Video>.sortVideos(): List<Video> {
-        val quality = preferredQuality
-        return sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(quality) }
-                .thenByDescending { video ->
-                    QUALITY_REGEX.find(video.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                },
-        ).mapIndexed { index, video ->
-            if (index == 0) video.copy(preferred = true) else video
+            listOf(video)
         }
     }
 
