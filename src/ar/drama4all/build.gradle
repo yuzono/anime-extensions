@@ -1,6 +1,7 @@
 ext {
     extName = 'Drama4All'
     extClass = '.Drama4all'
+    libVersion = 16
     extVersionCode = 1
     isNsfw = false
 }

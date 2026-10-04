@@ -6,9 +6,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
@@ -32,8 +32,12 @@ import okhttp3.Response
  * startup, leaving the player silently dead — see OctopusExtractor's notes), so
  * the unmodified master is passed to the player with the audio declared natively
  * in `#EXT-X-MEDIA`. mpv autoselects the usable rendition itself.
+ *
+ * Built on [AnimeHttpLegacySource] (lib 16): every episode resolves to exactly
+ * one video, so the legacy `getVideoList(SEpisode)` entry point is kept as-is and
+ * the shim wraps its result into a single `Hoster` for the app's hoster-based API.
  */
-class Drama4all : AnimeHttpSource() {
+class Drama4all : AnimeHttpLegacySource() {
 
     override val name = "دراما للجميع"
     override val baseUrl = "https://drama4all.com"
@@ -137,6 +141,12 @@ class Drama4all : AnimeHttpSource() {
 
     // ============================ Video Links =============================
 
+    /**
+     * Resolves the playable video for [episode].
+     *
+     * Every episode exposes exactly one video, so the lib-16 `Hoster` layer is
+     * filled in for us by [AnimeHttpLegacySource] (a single wrapper hoster).
+     */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val epUrl = episode.url.takeIf { it.startsWith("http") } ?: "$baseUrl${episode.url}"
         val segments = epUrl.toHttpUrlOrNull()?.pathSegments
