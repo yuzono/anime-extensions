@@ -151,7 +151,10 @@ class Drama4all : AnimeHttpLegacySource() {
         val epUrl = episode.url.takeIf { it.startsWith("http") } ?: "$baseUrl${episode.url}"
         val segments = epUrl.toHttpUrlOrNull()?.pathSegments
         if (segments == null || !segments.contains("watch")) return emptyList()
-        val slug = segments[segments.indexOf("watch") + 1].takeIf { it != "watch" }
+        // `getOrNull` so a stale/restored episode URL that has no slug after
+        // `/watch` returns an empty list instead of throwing IndexOutOfBounds.
+        val watchIndex = segments.indexOf("watch")
+        val slug = segments.getOrNull(watchIndex + 1)?.takeIf { it != "watch" }
             ?: return emptyList()
         val epNum = segments.lastOrNull()?.toIntOrNull() ?: return emptyList()
 
