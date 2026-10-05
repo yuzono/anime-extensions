@@ -263,10 +263,10 @@ class AnimeFire :
             Hoster(
                 hosterUrl = stream.url!!,
                 hosterName =
-                    buildString {
-                        append(if (stream.audio == "dublado") "Dublado" else "Legendado")
-                        if (stream.isMtl) append(" (tradução automática)")
-                    },
+                buildString {
+                    append(if (stream.audio == "dublado") "Dublado" else "Legendado")
+                    if (stream.isMtl) append(" (tradução automática)")
+                },
             )
         }
 
