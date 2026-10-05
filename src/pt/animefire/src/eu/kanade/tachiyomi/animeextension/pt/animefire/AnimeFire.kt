@@ -75,18 +75,21 @@ class AnimeFire :
                 .firstOrNull { it.key == "new-episodes" }
                 ?.items
                 .orEmpty()
-                .distinctBy { it.titles to it.posterSrc }
+                .distinctBy { it.id }
         val offset = (page - 1) * LATEST_PAGE_SIZE
-        // Recent cards contain episode IDs; resolve their parent anime before exposing library URLs.
-        val animes = episodes.drop(offset).take(LATEST_PAGE_SIZE).chunked(3).flatMap { batch ->
-            batch.parallelMap { episode ->
+        // Recent cards contain episode IDs; paginate their distinct parents in first-seen order.
+        val animes = linkedMapOf<String, SAnime>()
+        for (batch in episodes.chunked(3)) {
+            val parents = batch.parallelMap { episode ->
                 client.get(apiEndpoint("/episode").addPathSegment(episode.id).build())
                     .parseAs<AFResponse<AFPlayback>>()
                     .data.anime
-                    .toSAnime()
             }
-        }.distinctBy { it.url }
-        return AnimesPage(animes, offset + LATEST_PAGE_SIZE < episodes.size)
+            parents.forEach { anime -> animes.getOrPut(anime.id) { anime.toSAnime() } }
+            // Resolve one extra parent to determine whether another page exists.
+            if (animes.size > offset + LATEST_PAGE_SIZE) break
+        }
+        return AnimesPage(animes.values.drop(offset).take(LATEST_PAGE_SIZE), animes.size > offset + LATEST_PAGE_SIZE)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
