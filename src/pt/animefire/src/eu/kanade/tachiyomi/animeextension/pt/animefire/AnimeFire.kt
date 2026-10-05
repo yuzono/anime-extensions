@@ -148,6 +148,10 @@ class AnimeFire :
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
+
+    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
+
     private fun animeApiUrl(anime: SAnime): HttpUrl {
         val url = getAnimeUrl(anime).toHttpUrl()
         require(url.pathSegments.firstOrNull() == "anime" && !url.pathSegments.getOrNull(1).isNullOrBlank()) {
