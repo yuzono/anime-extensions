@@ -81,7 +81,7 @@ internal class AnimeFireStreamServer(
                 return response.copyRangeHeaders(upstream)
             }
             val source = upstream.body.source()
-            if (source.rangeEquals(0, "#EXTM3U".encodeUtf8())) {
+            if (upstream.code == 200 && source.rangeEquals(0, "#EXTM3U".encodeUtf8())) {
                 val text = upstream.body.string()
                 val parent = upstream.request.url
                 upstream.close()
