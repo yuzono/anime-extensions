@@ -292,7 +292,21 @@ class AnimeFire :
             hoster.hosterUrl,
             referer = "$baseUrl/",
             videoNameGen = { "${hoster.hosterName} - $it" },
-        ).sortVideos()
+        ).map { video ->
+            // The CDN disguises fMP4 segments as .jpg; patched FFmpeg otherwise rejects them.
+            video.copy(
+                initialized = true,
+                mpvArgs = video.mpvArgs + listOf(
+                    "demuxer-lavf-format" to "hls",
+                    "demuxer-lavf-o" to "allowed_extensions=ALL,extension_picky=0",
+                ),
+                ffmpegStreamArgs = video.ffmpegStreamArgs + listOf(
+                    "f" to "hls",
+                    "allowed_extensions" to "ALL",
+                    "extension_picky" to "0",
+                ),
+            )
+        }.sortVideos()
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val audio = preferences.getString(PREF_AUDIO_KEY, "Legendado")!!
