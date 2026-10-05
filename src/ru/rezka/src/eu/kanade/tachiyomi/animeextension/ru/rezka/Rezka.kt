@@ -47,6 +47,8 @@ class Rezka :
 
     override val supportsLatest = true
 
+    override val disableRelatedAnimesBySearch = true
+
     private val preferences by getPreferencesLazy()
 
     override val baseUrl: String
@@ -105,7 +107,7 @@ class Rezka :
                 .addQueryParameter("q", query)
                 .addQueryParameter("page", page.toString())
                 .build()
-            return GET(url.toString(), headers)
+            return GET(url, headers)
         }
 
         var section = ""
@@ -141,9 +143,12 @@ class Rezka :
                 ?: return@mapNotNull null
             val href = link.attr("abs:href").ifEmpty { link.attr("href") }
             if (href.isBlank()) return@mapNotNull null
+            val title = link.text().ifEmpty { item.selectFirst(".b-content__inline_item-cover img")?.attr("alt") }
+                ?.ifBlank { null }
+                ?: return@mapNotNull null
             SAnime.create().apply {
                 setUrlWithoutDomain(href)
-                title = link.text().ifBlank { item.selectFirst(".b-content__inline_item-cover img")?.attr("alt") ?: "" }
+                this.title = title
                 thumbnail_url = item.selectFirst(".b-content__inline_item-cover img")
                     ?.let { it.attr("src").ifEmpty { it.attr("data-src") } }
             }
@@ -151,7 +156,7 @@ class Rezka :
 
         val nav = document.selectFirst(".b-navigation")
         val hasNextPage = nav != null && (
-            nav.select("a").any { it.text().trim().toIntOrNull()?.let { n -> n > page } == true } ||
+            nav.select("a").any { it.text().toIntOrNull()?.let { n -> n > page } == true } ||
                 nav.selectFirst("a.b-navigation__next") != null
             )
         return AnimesPage(animes, hasNextPage)
@@ -162,8 +167,7 @@ class Rezka :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst(".b-post__title")?.text()
-                ?: document.selectFirst("h1")?.text().orEmpty()
+            title = (document.selectFirst(".b-post__title") ?: document.selectFirst("h1"))!!.text()
             thumbnail_url = document.selectFirst(".b-sidecover img, .b-post__infotable_left img")
                 ?.let { it.attr("src").ifEmpty { it.attr("data-src") } }
             description = document.selectFirst(".b-post__description_text")?.text()
@@ -669,7 +673,7 @@ class Rezka :
         @SerialName("subtitle_lns") val subtitleLns: JsonElement? = null,
     )
 
-    private data class Translator(val name: String, val id: String, val active: Boolean)
+    private class Translator(val name: String, val id: String, val active: Boolean)
 
     companion object {
         private val qualityRegex = Regex("""(\d{3,4})\s*[pр]""")
