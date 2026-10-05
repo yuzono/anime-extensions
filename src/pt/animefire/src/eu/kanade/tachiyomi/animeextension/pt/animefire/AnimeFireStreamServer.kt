@@ -72,9 +72,8 @@ internal class AnimeFireStreamServer(
         .build()
         .toString()
 
-    private fun isCdnUrl(url: HttpUrl): Boolean =
-        url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() &&
-            url.password.isEmpty()
+    private fun isCdnUrl(url: HttpUrl): Boolean = url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() &&
+        url.password.isEmpty()
 
     private fun IHTTPSession.cdnUrl(name: String) = parameters[name]
         ?.firstOrNull()
