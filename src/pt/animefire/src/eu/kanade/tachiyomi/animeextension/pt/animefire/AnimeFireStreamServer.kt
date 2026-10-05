@@ -17,6 +17,11 @@ import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
 /**
@@ -35,7 +40,17 @@ internal class AnimeFireStreamServer(
     private val token = UUID.randomUUID().toString()
 
     private val inits = lruCache<String, Fmp4.Init>(16)
-    private val segments = lruCache<String, ByteArray>(4)
+    private val segments = lruCache<String, FutureTask<ByteArray>>(MAX_CACHED_SEGMENTS)
+    private val playlists = lruCache<String, List<HttpUrl>>(8)
+
+    // FFmpeg's DASH demuxer fetches one fragment at a time, so the next few are read ahead.
+    private val prefetcher = ThreadPoolExecutor(
+        PREFETCH_THREADS,
+        PREFETCH_THREADS,
+        30,
+        TimeUnit.SECONDS,
+        LinkedBlockingQueue(),
+    ) { Thread(it, "AnimeFireStream").apply { isDaemon = true } }.apply { allowCoreThreadTimeOut(true) }
 
     @Synchronized
     fun localUrl(url: String): String {
@@ -86,12 +101,14 @@ internal class AnimeFireStreamServer(
         }
         val url = session.cdnUrl("url") ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
         return try {
-            if (kind == null) return newFixedLengthResponse(Status.OK, "application/dash+xml", manifest(url))
-            val initUrl = if (isInit) url else session.cdnUrl("init")
-            val init = initUrl?.let(::init) ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
+            // Served with range support so the player sees a seekable input and can start at a resume position.
+            if (kind == null) return bytesResponse(manifest(url).toByteArray(), "application/dash+xml", session.headers["range"])
+            val initUrl = (if (isInit) url else session.cdnUrl("init"))
+                ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
+            val init = init(initUrl)
             val trackId = init.trackIds[kind] ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Track not found")
-            val body = if (isInit) init.forTrack(kind) else Fmp4.fragments(segment(url), trackId, init.defaultSizes)
-            bytesResponse(body, session.headers["range"])
+            val body = if (isInit) init.forTrack(kind) else Fmp4.fragments(segment(url, initUrl), trackId, init.defaultSizes)
+            bytesResponse(body, "video/mp4", session.headers["range"])
         } catch (_: IOException) {
             newFixedLengthResponse(Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Video CDN unavailable")
         }
@@ -99,6 +116,7 @@ internal class AnimeFireStreamServer(
 
     private fun bytesResponse(
         body: ByteArray,
+        mime: String,
         range: String?,
     ): Response {
         val match = range?.let { RANGE_REGEX.matchEntire(it) }
@@ -108,12 +126,12 @@ internal class AnimeFireStreamServer(
             if (match != null && start <= end) {
                 newFixedLengthResponse(
                     Status.PARTIAL_CONTENT,
-                    "video/mp4",
+                    mime,
                     ByteArrayInputStream(body, start, end - start + 1),
                     (end - start + 1).toLong(),
                 ).apply { addHeader("Content-Range", "bytes $start-$end/${body.size}") }
             } else {
-                newFixedLengthResponse(Status.OK, "video/mp4", ByteArrayInputStream(body), body.size.toLong())
+                newFixedLengthResponse(Status.OK, mime, ByteArrayInputStream(body), body.size.toLong())
             }
         return response.apply { addHeader("Accept-Ranges", "bytes") }
     }
@@ -136,8 +154,42 @@ internal class AnimeFireStreamServer(
     }
 
     // Audio and video are requested for the same fragment at about the same time, so it is downloaded once.
-    private fun segment(url: HttpUrl): ByteArray = synchronized(segments) {
-        segments.getOrPut(url.toString()) { fetch(url) }
+    private fun download(url: HttpUrl): FutureTask<ByteArray> {
+        var created: FutureTask<ByteArray>? = null
+        val task = synchronized(segments) {
+            val key = url.toString()
+            val existing = segments[key]
+            val failed = existing != null && existing.isDone && runCatching { existing.get() }.isFailure
+            if (existing != null && !failed) {
+                existing
+            } else {
+                FutureTask { fetch(url) }.also {
+                    created = it
+                    segments[key] = it
+                }
+            }
+        }
+        created?.let(prefetcher::execute)
+        return task
+    }
+
+    private fun segment(
+        url: HttpUrl,
+        initUrl: HttpUrl,
+    ): ByteArray {
+        val task = download(url)
+        synchronized(playlists) { playlists[initUrl.toString()] }?.let { fragments ->
+            val index = fragments.indexOf(url)
+            if (index >= 0) fragments.drop(index + 1).take(PREFETCH_AHEAD).forEach(::download)
+        }
+        // Runs the download here if no pool thread has picked it up yet, so a seek isn't queued behind old read-aheads.
+        task.run()
+        return try {
+            task.get()
+        } catch (e: ExecutionException) {
+            synchronized(segments) { if (segments[url.toString()] === task) segments.remove(url.toString()) }
+            throw e.cause as? IOException ?: IOException(e.cause)
+        }
     }
 
     private fun manifest(playlistUrl: HttpUrl): String {
@@ -156,6 +208,7 @@ internal class AnimeFireStreamServer(
         // FFmpeg maps a seek to fragment `position / duration`, so every fragment but the last has to match.
         val duration = (durations.first() * 1000).roundToLong()
         val tracks = init(initUrl).trackIds.keys
+        synchronized(playlists) { playlists[initUrl.toString()] = fragments }
         return buildString {
             append("""<?xml version="1.0" encoding="UTF-8"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" """)
             append(
@@ -185,6 +238,9 @@ internal class AnimeFireStreamServer(
     }
 
     companion object {
+        private const val MAX_CACHED_SEGMENTS = 10
+        private const val PREFETCH_AHEAD = 3
+        private const val PREFETCH_THREADS = 4
         private val MAP_REGEX = Regex("""^#EXT-X-MAP:.*URI="([^"]+)"""")
         private val RANGE_REGEX = Regex("""bytes=(\d+)-(\d*)""")
     }
