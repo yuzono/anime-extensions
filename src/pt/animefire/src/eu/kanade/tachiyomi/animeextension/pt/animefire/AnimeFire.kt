@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.network.get
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import okhttp3.CacheControl
@@ -67,16 +68,28 @@ class AnimeFire :
 
     override fun latestUpdatesRequest(page: Int) = GET(apiEndpoint("/home").build(), headers)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val result = response.parseAs<AFResponse<AFHome>>()
-        val animes =
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        val result = client.get(latestUpdatesRequest(page).url).parseAs<AFResponse<AFHome>>()
+        val episodes =
             result.data.carousels
                 .firstOrNull { it.key == "new-episodes" }
                 ?.items
                 .orEmpty()
-                .distinctBy { it.id }
-        return AnimesPage(animes.map { it.toSAnime() }, false)
+                .distinctBy { it.titles to it.posterSrc }
+        val offset = (page - 1) * LATEST_PAGE_SIZE
+        // Recent cards contain episode IDs; resolve their parent anime before exposing library URLs.
+        val animes = episodes.drop(offset).take(LATEST_PAGE_SIZE).chunked(3).flatMap { batch ->
+            batch.parallelMap { episode ->
+                client.get(apiEndpoint("/episode").addPathSegment(episode.id).build())
+                    .parseAs<AFResponse<AFPlayback>>()
+                    .data.anime
+                    .toSAnime()
+            }
+        }.distinctBy { it.url }
+        return AnimesPage(animes, offset + LATEST_PAGE_SIZE < episodes.size)
     }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     override suspend fun getSearchAnime(
         page: Int,
@@ -320,5 +333,6 @@ class AnimeFire :
         private val LEGACY_HOSTS = setOf("animefire.io", "animefire.plus")
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_AUDIO_KEY = "preferred_audio"
+        private const val LATEST_PAGE_SIZE = 9
     }
 }

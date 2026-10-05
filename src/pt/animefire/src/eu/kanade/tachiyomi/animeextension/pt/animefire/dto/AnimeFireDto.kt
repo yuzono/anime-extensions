@@ -35,7 +35,14 @@ class AFHome(
 @Serializable
 class AFCarousel(
     val key: String,
-    val items: List<AFAnime>,
+    val items: List<AFRecentEpisode>,
+)
+
+@Serializable
+class AFRecentEpisode(
+    val id: String,
+    val titles: Map<String, String>,
+    @SerialName("poster_src") val posterSrc: String,
 )
 
 @Serializable
@@ -63,6 +70,7 @@ class AFEpisode(
 
 @Serializable
 class AFPlayback(
+    val anime: AFAnime,
     val streams: List<AFStream>,
 )
 
