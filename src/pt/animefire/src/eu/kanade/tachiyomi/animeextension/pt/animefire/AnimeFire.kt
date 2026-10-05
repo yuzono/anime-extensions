@@ -301,17 +301,25 @@ class AnimeFire :
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val masterUrl = hoster.hosterUrl.toHttpUrl()
         val lines = client.get(masterUrl, headers).bodyString().lines()
-        val videos = lines.zipWithNext().mapNotNull { (info, uri) ->
-            if (!info.startsWith("#EXT-X-STREAM-INF:")) return@mapNotNull null
-            val quality = RESOLUTION_REGEX.group(info)?.let { "${it}p" } ?: "Auto"
-            val codec = CODECS_REGEX.group(info)?.let(::codecLabel)
-            Video(
-                videoUrl = masterUrl.resolve(uri.trim())?.toString() ?: return@mapNotNull null,
-                videoTitle = buildString {
-                    append(hoster.hosterName).append(" - ").append(quality)
-                    codec?.let { append(" (").append(it).append(")") }
-                },
-            )
+        val videos = mutableListOf<Video>()
+        var info: String? = null
+        for (line in lines.map { it.trim() }) {
+            when {
+                line.startsWith("#EXT-X-STREAM-INF:") -> info = line
+                line.isEmpty() || line.startsWith("#") -> Unit
+                info != null -> {
+                    val quality = RESOLUTION_REGEX.group(info)?.let { "${it}p" } ?: "Auto"
+                    val codec = CODECS_REGEX.group(info)?.let(::codecLabel)
+                    info = null
+                    videos += Video(
+                        videoUrl = masterUrl.resolve(line)?.toString() ?: continue,
+                        videoTitle = buildString {
+                            append(hoster.hosterName).append(" - ").append(quality)
+                            codec?.let { append(" (").append(it).append(")") }
+                        },
+                    )
+                }
+            }
         }
         return videos.ifEmpty { listOf(Video(videoUrl = hoster.hosterUrl, videoTitle = hoster.hosterName)) }.sortVideos()
     }

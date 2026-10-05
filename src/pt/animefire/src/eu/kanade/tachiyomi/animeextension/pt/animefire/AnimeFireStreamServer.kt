@@ -202,7 +202,7 @@ internal class AnimeFireStreamServer(
                 playlistUrl.resolve(it.trim())?.takeIf(::isCdnUrl) ?: throw IOException("Unsupported HLS CDN URL")
             }
         val durations = lines.mapNotNull { it.substringAfter("#EXTINF:", "").substringBefore(',').toDoubleOrNull() }
-        if (fragments.isEmpty() || !isCdnUrl(initUrl)) throw IOException("Invalid HLS playlist")
+        if (fragments.isEmpty() || durations.isEmpty() || !isCdnUrl(initUrl)) throw IOException("Invalid HLS playlist")
         // FFmpeg maps a seek to fragment `position / duration`, so every fragment but the last has to match.
         val duration = (durations.first() * 1000).roundToLong()
         val tracks = init(initUrl).trackIds.keys
