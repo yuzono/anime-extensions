@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animefire
 
+import android.util.Log
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -108,8 +109,10 @@ internal class AnimeFireStreamServer(
             val trackId = init.trackIds[kind] ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Track not found")
             val body = if (isInit) init.forTrack(kind) else Fmp4.fragments(segment(url, initUrl), trackId, init.defaultSizes)
             bytesResponse(body, "video/mp4", session.headers["range"])
-        } catch (_: IOException) {
-            newFixedLengthResponse(Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Video CDN unavailable")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to serve ${session.uri.removePrefix(prefix)}", e)
+            val status = if (e is IOException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
+            newFixedLengthResponse(status, MIME_PLAINTEXT, e.toString())
         }
     }
 
@@ -144,7 +147,7 @@ internal class AnimeFireStreamServer(
                 .build(),
         ).execute()
         .use {
-            if (!it.isSuccessful) throw IOException("Video CDN returned ${it.code}")
+            if (!it.isSuccessful) throw IOException("Video CDN returned ${it.code} for ${url.encodedPath}")
             it.body.bytes()
         }
 
@@ -237,6 +240,7 @@ internal class AnimeFireStreamServer(
     }
 
     companion object {
+        private const val TAG = "AnimeFireStream"
         private const val MAX_CACHED_SEGMENTS = 10
         private const val PREFETCH_AHEAD = 3
         private const val PREFETCH_THREADS = 4
