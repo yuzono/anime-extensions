@@ -50,6 +50,13 @@ class AFDetails(
     val hero: AFAnime,
     val seasons: List<AFSeason>,
     val episodes: List<AFEpisode>,
+    val relations: AFRelated? = null,
+    val recommendations: AFRelated? = null,
+)
+
+@Serializable
+class AFRelated(
+    val items: List<AFAnime> = emptyList(),
 )
 
 @Serializable

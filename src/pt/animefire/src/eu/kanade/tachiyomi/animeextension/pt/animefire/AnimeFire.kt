@@ -43,6 +43,7 @@ class AnimeFire :
     private val apiUrl = "https://api.animefire.one"
     private val preferences by getPreferencesLazy()
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val streamServer by lazy { AnimeFireStreamServer(client, headers) }
 
     override fun headersBuilder() = super
         .headersBuilder()
@@ -265,6 +266,14 @@ class AnimeFire :
         }
     }
 
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val details = response.parseAs<AFResponse<AFDetails>>().data
+        return (details.relations?.items.orEmpty() + details.recommendations?.items.orEmpty())
+            .filter { it.id != details.hero.id }
+            .distinctBy { it.id }
+            .map { it.toSAnime() }
+    }
+
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val id =
             getEpisodeUrl(episode).toHttpUrl().queryParameter("episode")
@@ -298,7 +307,7 @@ class AnimeFire :
         ).map { video ->
             // The CDN disguises fMP4 segments as .jpg; patched FFmpeg otherwise rejects them.
             video.copy(
-                initialized = true,
+                initialized = false,
                 mpvArgs = video.mpvArgs + listOf(
                     "demuxer-lavf-format" to "hls",
                     "demuxer-lavf-o" to "allowed_extensions=ALL,extension_picky=0",
@@ -310,6 +319,11 @@ class AnimeFire :
                 ),
             )
         }.sortVideos()
+
+    override suspend fun resolveVideo(video: Video): Video = video.copy(
+        videoUrl = streamServer.localUrl(video.videoUrl),
+        initialized = true,
+    )
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val audio = preferences.getString(PREF_AUDIO_KEY, "Legendado")!!
