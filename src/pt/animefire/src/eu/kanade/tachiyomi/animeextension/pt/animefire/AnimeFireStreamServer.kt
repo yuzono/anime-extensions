@@ -100,7 +100,8 @@ internal class AnimeFireStreamServer(
         }
         val url = session.cdnUrl("url") ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
         return try {
-            if (kind == null) return newFixedLengthResponse(Status.OK, "application/dash+xml", manifest(url))
+            // Served with range support so the player sees a seekable input and can start at a resume position.
+            if (kind == null) return bytesResponse(manifest(url).toByteArray(), "application/dash+xml", session.headers["range"])
             val initUrl = (if (isInit) url else session.cdnUrl("init"))
                 ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
             val init = init(initUrl)
