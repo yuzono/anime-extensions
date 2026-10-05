@@ -42,7 +42,9 @@ internal class AnimeFireStreamServer(
 
     private val inits = lruCache<String, Fmp4.Init>(16)
     private val segments = lruCache<String, FutureTask<ByteArray>>(MAX_CACHED_SEGMENTS)
-    private val playlists = lruCache<String, List<HttpUrl>>(8)
+    private val playlists = lruCache<String, Playlist>(16)
+
+    private class Playlist(val initUrl: HttpUrl, val fragments: List<HttpUrl>)
 
     // FFmpeg's DASH demuxer fetches one fragment at a time, so the next few are read ahead.
     private val prefetcher = ThreadPoolExecutor(
@@ -64,14 +66,16 @@ internal class AnimeFireStreamServer(
     private fun route(
         name: String,
         url: HttpUrl,
-        init: HttpUrl? = null,
     ): String = "http://127.0.0.1:$listeningPort/$token/$name"
         .toHttpUrl()
         .newBuilder()
         .addQueryParameter("url", url.toString().encodeUtf8().base64Url())
-        .apply { init?.let { addQueryParameter("init", it.toString().encodeUtf8().base64Url()) } }
         .build()
         .toString()
+
+    // FFmpeg's DASH demuxer sizes its SegmentList URL buffer from the manifest URL and silently
+    // truncates longer ones, so fragments are addressed by a short playlist ID and index.
+    private fun local(vararg segments: String) = "http://127.0.0.1:$listeningPort/$token/${segments.joinToString("/")}"
 
     private fun isCdnUrl(url: HttpUrl): Boolean = url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() &&
         url.password.isEmpty()
@@ -93,27 +97,38 @@ internal class AnimeFireStreamServer(
                 .takeIf { it.startsWith(prefix) }
                 ?.removePrefix(prefix)
                 ?.split('/')
-        val kind = path?.firstOrNull()?.let { name -> Fmp4.Kind.entries.firstOrNull { it.name.lowercase() == name } }
-        val isInit = path?.size == 2 && path[1] == "init.mp4"
-        val isSegment = path?.size == 2 && path[1] == "segment.mp4"
-        if (path != listOf("manifest.mpd") && (kind == null || !(isInit || isSegment))) {
+        if (path == listOf("manifest.mpd")) {
+            val url = session.cdnUrl("url") ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
+            return try {
+                // Served with range support so the player sees a seekable input and can start at a resume position.
+                bytesResponse(manifest(url).toByteArray(), "application/dash+xml", session.headers["range"])
+            } catch (e: Exception) {
+                failure(session, e)
+            }
+        }
+        val playlist = path?.takeIf { it.size == 3 }?.let { synchronized(playlists) { playlists[it[0]] } }
+        val kind = path?.getOrNull(1)?.let { name -> Fmp4.Kind.entries.firstOrNull { it.name.lowercase() == name } }
+        val index = path?.getOrNull(2)?.removeSuffix(".mp4")?.toIntOrNull()?.takeIf { playlist != null && it in playlist.fragments.indices }
+        if (playlist == null || kind == null || (path[2] != "init.mp4" && index == null)) {
             return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
         }
-        val url = session.cdnUrl("url") ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
         return try {
-            // Served with range support so the player sees a seekable input and can start at a resume position.
-            if (kind == null) return bytesResponse(manifest(url).toByteArray(), "application/dash+xml", session.headers["range"])
-            val initUrl = (if (isInit) url else session.cdnUrl("init"))
-                ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
-            val init = init(initUrl)
+            val init = init(playlist.initUrl)
             val trackId = init.trackIds[kind] ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Track not found")
-            val body = if (isInit) init.forTrack(kind) else Fmp4.fragments(segment(url, initUrl), trackId, init.defaultSizes)
+            val body = if (index == null) init.forTrack(kind) else Fmp4.fragments(segment(playlist, index), trackId, init.defaultSizes)
             bytesResponse(body, "video/mp4", session.headers["range"])
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to serve ${session.uri.removePrefix(prefix)}", e)
-            val status = if (e is IOException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
-            newFixedLengthResponse(status, MIME_PLAINTEXT, e.toString())
+            failure(session, e)
         }
+    }
+
+    private fun failure(
+        session: IHTTPSession,
+        e: Exception,
+    ): Response {
+        Log.e(TAG, "Failed to serve ${session.uri}", e)
+        val status = if (e is IOException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
+        return newFixedLengthResponse(status, MIME_PLAINTEXT, e.toString())
     }
 
     private fun bytesResponse(
@@ -176,14 +191,12 @@ internal class AnimeFireStreamServer(
     }
 
     private fun segment(
-        url: HttpUrl,
-        initUrl: HttpUrl,
+        playlist: Playlist,
+        index: Int,
     ): ByteArray {
+        val url = playlist.fragments[index]
         val task = download(url)
-        synchronized(playlists) { playlists[initUrl.toString()] }?.let { fragments ->
-            val index = fragments.indexOf(url)
-            if (index >= 0) fragments.drop(index + 1).take(PREFETCH_AHEAD).forEach(::download)
-        }
+        playlist.fragments.drop(index + 1).take(PREFETCH_AHEAD).forEach(::download)
         // Runs the download here if no pool thread has picked it up yet, so a seek isn't queued behind old read-aheads.
         task.run()
         return try {
@@ -210,7 +223,8 @@ internal class AnimeFireStreamServer(
         // FFmpeg maps a seek to fragment `position / duration`, so every fragment but the last has to match.
         val duration = (durations.first() * 1000).roundToLong()
         val tracks = init(initUrl).trackIds.keys
-        synchronized(playlists) { playlists[initUrl.toString()] = fragments }
+        val id = UUID.nameUUIDFromBytes(playlistUrl.toString().toByteArray()).toString()
+        synchronized(playlists) { playlists[id] = Playlist(initUrl, fragments) }
         return buildString {
             append("""<?xml version="1.0" encoding="UTF-8"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" """)
             append(
@@ -220,20 +234,14 @@ internal class AnimeFireStreamServer(
                 val name = kind.name.lowercase()
                 append("""<AdaptationSet mimeType="$name/mp4"><Representation id="$name">""")
                 append(
-                    """<SegmentList timescale="1000" duration="$duration"><Initialization sourceURL="${route(
-                        "$name/init.mp4",
-                        initUrl,
-                    ).escape()}"/>""",
+                    """<SegmentList timescale="1000" duration="$duration"><Initialization sourceURL="${local(id, name, "init.mp4")}"/>""",
                 )
-                fragments.forEach { append("""<SegmentURL media="${route("$name/segment.mp4", it, initUrl).escape()}"/>""") }
+                fragments.indices.forEach { append("""<SegmentURL media="${local(id, name, "$it.mp4")}"/>""") }
                 append("</SegmentList></Representation></AdaptationSet>")
             }
             append("</Period></MPD>")
         }
     }
-
-    // URLs are normalized by HttpUrl, so `&` is the only XML-special character they can contain.
-    private fun String.escape() = replace("&", "&amp;")
 
     private fun <K, V> lruCache(limit: Int) = object : LinkedHashMap<K, V>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?) = size > limit
