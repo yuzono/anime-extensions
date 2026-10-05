@@ -6,6 +6,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okio.ByteString.Companion.decodeBase64
 import okio.ByteString.Companion.encodeUtf8
 import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
@@ -24,31 +25,33 @@ internal class AnimeFireStreamServer(
     private val client: OkHttpClient,
     private val headers: Headers,
 ) : NanoHTTPD("127.0.0.1", 0) {
-    private val path = "/${UUID.randomUUID()}/stream"
+    private val path = "/${UUID.randomUUID()}"
 
     @Synchronized
     fun localUrl(url: String): String {
         val upstream = url.toHttpUrl()
         require(isCdnUrl(upstream)) { "Servidor de vídeo não suportado" }
         if (!isAlive) start()
-        return proxyUrl(upstream)
+        return proxyUrl(upstream, playlist = true)
     }
 
-    private fun proxyUrl(url: HttpUrl): String = "http://127.0.0.1:$listeningPort$path"
+    private fun proxyUrl(url: HttpUrl, playlist: Boolean = false): String = "http://127.0.0.1:$listeningPort$path/${if (playlist) "index.m3u8" else "segment.mp4"}"
         .toHttpUrl()
         .newBuilder()
-        .addQueryParameter("url", url.toString())
+        .addQueryParameter("url", url.toString().encodeUtf8().base64Url())
         .build()
         .toString()
 
     private fun isCdnUrl(url: HttpUrl): Boolean = url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() && url.password.isEmpty()
 
     override fun handle(session: IHTTPSession): Response {
-        if (session.uri != path) return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
+        if (session.uri != "$path/index.m3u8" && session.uri != "$path/segment.mp4") {
+            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
+        }
         if (session.method != Method.GET && session.method != Method.HEAD) {
             return newFixedLengthResponse(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "Use GET or HEAD")
         }
-        val url = session.parameters["url"]?.firstOrNull()?.toHttpUrlOrNull()
+        val url = session.parameters["url"]?.firstOrNull()?.decodeBase64()?.utf8()?.toHttpUrlOrNull()
         if (url == null || !isCdnUrl(url)) {
             return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
         }
@@ -112,18 +115,26 @@ internal class AnimeFireStreamServer(
         }
     }
 
-    private fun rewritePlaylist(text: String, parent: HttpUrl): String = text.lineSequence().joinToString("\n") { line ->
-        fun rewrite(uri: String): String {
-            val resolved = parent.resolve(uri) ?: throw IOException("Invalid HLS URI")
-            if (!isCdnUrl(resolved)) throw IOException("Unsupported HLS CDN URL")
-            return proxyUrl(resolved)
-        }
-        when {
-            line.isBlank() -> line
-            line.startsWith("#") -> line.replace(URI_ATTRIBUTE) { match ->
-                "URI=\"${rewrite(match.groupValues[1])}\""
+    private fun rewritePlaylist(text: String, parent: HttpUrl): String {
+        var nextIsPlaylist = false
+        return text.lineSequence().joinToString("\n") { line ->
+            fun rewrite(uri: String, playlist: Boolean): String {
+                val resolved = parent.resolve(uri) ?: throw IOException("Invalid HLS URI")
+                if (!isCdnUrl(resolved)) throw IOException("Unsupported HLS CDN URL")
+                return proxyUrl(resolved, playlist)
             }
-            else -> rewrite(line.trim())
+            when {
+                line.isBlank() -> line
+                line.startsWith("#EXT-X-STREAM-INF:") -> {
+                    nextIsPlaylist = true
+                    line
+                }
+                line.startsWith("#") -> line.replace(URI_ATTRIBUTE) { match ->
+                    val playlist = line.startsWith("#EXT-X-MEDIA:") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF:")
+                    "URI=\"${rewrite(match.groupValues[1], playlist)}\""
+                }
+                else -> rewrite(line.trim(), nextIsPlaylist).also { nextIsPlaylist = false }
+            }
         }
     }
 
