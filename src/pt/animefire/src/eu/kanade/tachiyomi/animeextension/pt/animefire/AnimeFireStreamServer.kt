@@ -12,133 +12,180 @@ import org.nanohttpd.protocols.http.IHTTPSession
 import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.request.Method
 import org.nanohttpd.protocols.http.response.Response
-import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.io.ByteArrayInputStream
-import java.io.FilterInputStream
 import java.io.IOException
 import java.util.UUID
+import kotlin.math.roundToLong
 
-// Use Android's OkHttp TLS stack for the CDN, including HLS initialization and media segments.
+/**
+ * Serves Anime Fire's fMP4 HLS variants as DASH over loopback.
+ *
+ * The app's FFmpeg (7.1, used by both the player and the downloader) keeps stale mov state after an
+ * HLS seek, so seeking an fMP4 playlist past the cache never resumes. Its DASH demuxer reopens the
+ * segment demuxer on every seek instead. The CDN also calls its fMP4 files JPEG images and needs
+ * Android's OkHttp TLS stack, so the init segments and fragments are fetched here, split per track
+ * (see [Fmp4]) and served as `.mp4`.
+ */
 internal class AnimeFireStreamServer(
     private val client: OkHttpClient,
     private val headers: Headers,
 ) : NanoHTTPD("127.0.0.1", 0) {
-    private val path = "/${UUID.randomUUID()}"
+    private val token = UUID.randomUUID().toString()
+
+    private val inits = lruCache<String, Fmp4.Init>(16)
+    private val segments = lruCache<String, ByteArray>(4)
 
     @Synchronized
     fun localUrl(url: String): String {
         val upstream = url.toHttpUrl()
         require(isCdnUrl(upstream)) { "Servidor de vídeo não suportado" }
         if (!isAlive) start()
-        return proxyUrl(upstream, playlist = true)
+        return route("manifest.mpd", upstream)
     }
 
-    private fun proxyUrl(url: HttpUrl, playlist: Boolean = false): String = "http://127.0.0.1:$listeningPort$path/${if (playlist) "index.m3u8" else "segment.mp4"}"
+    private fun route(
+        name: String,
+        url: HttpUrl,
+        init: HttpUrl? = null,
+    ): String = "http://127.0.0.1:$listeningPort/$token/$name"
         .toHttpUrl()
         .newBuilder()
         .addQueryParameter("url", url.toString().encodeUtf8().base64Url())
+        .apply { init?.let { addQueryParameter("init", it.toString().encodeUtf8().base64Url()) } }
         .build()
         .toString()
 
-    private fun isCdnUrl(url: HttpUrl): Boolean = url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() && url.password.isEmpty()
+    private fun isCdnUrl(url: HttpUrl): Boolean =
+        url.isHttps && url.host == "akumast.net" && url.encodedPath.startsWith("/i/") && url.port == 443 && url.username.isEmpty() &&
+            url.password.isEmpty()
+
+    private fun IHTTPSession.cdnUrl(name: String) = parameters[name]
+        ?.firstOrNull()
+        ?.decodeBase64()
+        ?.utf8()
+        ?.toHttpUrlOrNull()
+        ?.takeIf(::isCdnUrl)
 
     override fun handle(session: IHTTPSession): Response {
-        if (session.uri != "$path/index.m3u8" && session.uri != "$path/segment.mp4") {
-            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
-        }
         if (session.method != Method.GET && session.method != Method.HEAD) {
             return newFixedLengthResponse(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "Use GET or HEAD")
         }
-        val url = session.parameters["url"]?.firstOrNull()?.decodeBase64()?.utf8()?.toHttpUrlOrNull()
-        if (url == null || !isCdnUrl(url)) {
-            return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
+        val prefix = "/$token/"
+        val path =
+            session.uri
+                .takeIf { it.startsWith(prefix) }
+                ?.removePrefix(prefix)
+                ?.split('/')
+        val kind = path?.firstOrNull()?.let { name -> Fmp4.Kind.entries.firstOrNull { it.name.lowercase() == name } }
+        val isInit = path?.size == 2 && path[1] == "init.mp4"
+        val isSegment = path?.size == 2 && path[1] == "segment.mp4"
+        if (path != listOf("manifest.mpd") && (kind == null || !(isInit || isSegment))) {
+            return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
         }
-        val request = Request.Builder().url(url).headers(headers).apply {
-            // Byte-range HLS segments and seeking must retain the upstream range semantics.
-            session.headers["range"]?.let { header("Range", it) }
-            if (session.method == Method.HEAD) head()
-        }.build()
+        val url = session.cdnUrl("url") ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
         return try {
-            serve(request, session.method == Method.HEAD)
+            if (kind == null) return newFixedLengthResponse(Status.OK, "application/dash+xml", manifest(url))
+            val initUrl = if (isInit) url else session.cdnUrl("init")
+            val init = initUrl?.let(::init) ?: return newFixedLengthResponse(Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid CDN URL")
+            val trackId = init.trackIds[kind] ?: return newFixedLengthResponse(Status.NOT_FOUND, MIME_PLAINTEXT, "Track not found")
+            val body = if (isInit) init.forTrack(kind) else Fmp4.fragments(segment(url), trackId, init.defaultSizes)
+            bytesResponse(body, session.headers["range"])
         } catch (_: IOException) {
             newFixedLengthResponse(Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Video CDN unavailable")
         }
     }
 
-    private fun serve(request: Request, head: Boolean): Response {
-        val upstream = client.newCall(request).execute()
-        try {
-            val status = Status.lookup(upstream.code) ?: Status.SERVICE_UNAVAILABLE
-            if (!upstream.isSuccessful) {
-                upstream.close()
-                return newFixedLengthResponse(status, MIME_PLAINTEXT, "Video CDN returned ${upstream.code}")
-            }
-            if (head) {
-                val response = newFixedLengthResponse(status, "application/octet-stream", ByteArrayInputStream(byteArrayOf()), upstream.body.contentLength())
-                upstream.close()
-                return response.copyRangeHeaders(upstream)
-            }
-            val source = upstream.body.source()
-            if (upstream.code == 200 && source.rangeEquals(0, "#EXTM3U".encodeUtf8())) {
-                val text = upstream.body.string()
-                val parent = upstream.request.url
-                upstream.close()
-                return newFixedLengthResponse(Status.OK, "application/vnd.apple.mpegurl", rewritePlaylist(text, parent))
-            }
-            // Do not alter the fMP4 bytes, even though the CDN calls these files JPEG images.
-            val stream = object : FilterInputStream(upstream.body.byteStream()) {
-                override fun close() {
-                    try {
-                        super.close()
-                    } finally {
-                        upstream.close()
-                    }
-                }
-            }
-            val length = upstream.body.contentLength()
-            return if (length >= 0) {
-                newFixedLengthResponse(status, "video/mp4", stream, length)
+    private fun bytesResponse(
+        body: ByteArray,
+        range: String?,
+    ): Response {
+        val match = range?.let { RANGE_REGEX.matchEntire(it) }
+        val start = match?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val end = (match?.groupValues?.get(2)?.toIntOrNull() ?: (body.size - 1)).coerceAtMost(body.size - 1)
+        val response =
+            if (match != null && start <= end) {
+                newFixedLengthResponse(
+                    Status.PARTIAL_CONTENT,
+                    "video/mp4",
+                    ByteArrayInputStream(body, start, end - start + 1),
+                    (end - start + 1).toLong(),
+                ).apply { addHeader("Content-Range", "bytes $start-$end/${body.size}") }
             } else {
-                newChunkedResponse(status, "video/mp4", stream)
-            }.copyRangeHeaders(upstream)
-        } catch (e: Exception) {
-            upstream.close()
-            throw e
+                newFixedLengthResponse(Status.OK, "video/mp4", ByteArrayInputStream(body), body.size.toLong())
+            }
+        return response.apply { addHeader("Accept-Ranges", "bytes") }
+    }
+
+    private fun fetch(url: HttpUrl): ByteArray = client
+        .newCall(
+            Request
+                .Builder()
+                .url(url)
+                .headers(headers)
+                .build(),
+        ).execute()
+        .use {
+            if (!it.isSuccessful) throw IOException("Video CDN returned ${it.code}")
+            it.body.bytes()
+        }
+
+    private fun init(url: HttpUrl): Fmp4.Init = synchronized(inits) {
+        inits.getOrPut(url.toString()) { Fmp4.parseInit(fetch(url)) }
+    }
+
+    // Audio and video are requested for the same fragment at about the same time, so it is downloaded once.
+    private fun segment(url: HttpUrl): ByteArray = synchronized(segments) {
+        segments.getOrPut(url.toString()) { fetch(url) }
+    }
+
+    private fun manifest(playlistUrl: HttpUrl): String {
+        val lines = fetch(playlistUrl).decodeToString().lines()
+        val initUrl =
+            lines
+                .firstNotNullOfOrNull { MAP_REGEX.find(it)?.groupValues?.get(1) }
+                ?.let { playlistUrl.resolve(it) }
+                ?: throw IOException("Missing HLS initialization segment")
+        val fragments =
+            lines.filter { it.isNotBlank() && !it.startsWith("#") }.map {
+                playlistUrl.resolve(it.trim())?.takeIf(::isCdnUrl) ?: throw IOException("Unsupported HLS CDN URL")
+            }
+        val durations = lines.mapNotNull { it.substringAfter("#EXTINF:", "").substringBefore(',').toDoubleOrNull() }
+        if (fragments.isEmpty() || !isCdnUrl(initUrl)) throw IOException("Invalid HLS playlist")
+        // FFmpeg maps a seek to fragment `position / duration`, so every fragment but the last has to match.
+        val duration = (durations.first() * 1000).roundToLong()
+        val tracks = init(initUrl).trackIds.keys
+        return buildString {
+            append("""<?xml version="1.0" encoding="UTF-8"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" """)
+            append(
+                """profiles="urn:mpeg:dash:profile:full:2011" minBufferTime="PT2S" mediaPresentationDuration="PT${durations.sum()}S"><Period>""",
+            )
+            tracks.forEach { kind ->
+                val name = kind.name.lowercase()
+                append("""<AdaptationSet mimeType="$name/mp4"><Representation id="$name">""")
+                append(
+                    """<SegmentList timescale="1000" duration="$duration"><Initialization sourceURL="${route(
+                        "$name/init.mp4",
+                        initUrl,
+                    ).escape()}"/>""",
+                )
+                fragments.forEach { append("""<SegmentURL media="${route("$name/segment.mp4", it, initUrl).escape()}"/>""") }
+                append("</SegmentList></Representation></AdaptationSet>")
+            }
+            append("</Period></MPD>")
         }
     }
 
-    private fun Response.copyRangeHeaders(upstream: okhttp3.Response): Response = apply {
-        listOf("Content-Range", "Accept-Ranges").forEach { name ->
-            upstream.header(name)?.let { addHeader(name, it) }
-        }
-    }
+    // URLs are normalized by HttpUrl, so `&` is the only XML-special character they can contain.
+    private fun String.escape() = replace("&", "&amp;")
 
-    private fun rewritePlaylist(text: String, parent: HttpUrl): String {
-        var nextIsPlaylist = false
-        return text.lineSequence().joinToString("\n") { line ->
-            fun rewrite(uri: String, playlist: Boolean): String {
-                val resolved = parent.resolve(uri) ?: throw IOException("Invalid HLS URI")
-                if (!isCdnUrl(resolved)) throw IOException("Unsupported HLS CDN URL")
-                return proxyUrl(resolved, playlist)
-            }
-            when {
-                line.isBlank() -> line
-                line.startsWith("#EXT-X-STREAM-INF:") -> {
-                    nextIsPlaylist = true
-                    line
-                }
-                line.startsWith("#") -> line.replace(URI_ATTRIBUTE) { match ->
-                    val playlist = line.startsWith("#EXT-X-MEDIA:") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF:")
-                    "URI=\"${rewrite(match.groupValues[1], playlist)}\""
-                }
-                else -> rewrite(line.trim(), nextIsPlaylist).also { nextIsPlaylist = false }
-            }
-        }
+    private fun <K, V> lruCache(limit: Int) = object : LinkedHashMap<K, V>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?) = size > limit
     }
 
     companion object {
-        private val URI_ATTRIBUTE = Regex("URI=\"([^\"]+)\"")
+        private val MAP_REGEX = Regex("""^#EXT-X-MAP:.*URI="([^"]+)"""")
+        private val RANGE_REGEX = Regex("""bytes=(\d+)-(\d*)""")
     }
 }

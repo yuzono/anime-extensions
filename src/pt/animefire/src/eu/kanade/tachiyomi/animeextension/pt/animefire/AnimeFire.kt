@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.pt.animefire
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.pt.animefire.dto.AFAnime
 import eu.kanade.tachiyomi.animeextension.pt.animefire.dto.AFDetails
 import eu.kanade.tachiyomi.animeextension.pt.animefire.dto.AFEpisode
@@ -19,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.network.get
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMap
@@ -42,7 +42,6 @@ class AnimeFire :
 
     private val apiUrl = "https://api.animefire.one"
     private val preferences by getPreferencesLazy()
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val streamServer by lazy { AnimeFireStreamServer(client, headers) }
 
     override fun headersBuilder() = super
@@ -299,12 +298,35 @@ class AnimeFire :
             )
         }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = playlistUtils
-        .extractFromHls(
-            hoster.hosterUrl,
-            referer = "$baseUrl/",
-            videoNameGen = { "${hoster.hosterName} - $it" },
-        ).sortVideos()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val masterUrl = hoster.hosterUrl.toHttpUrl()
+        val lines = client.get(masterUrl, headers).bodyString().lines()
+        val videos = lines.zipWithNext().mapNotNull { (info, uri) ->
+            if (!info.startsWith("#EXT-X-STREAM-INF:")) return@mapNotNull null
+            val quality = RESOLUTION_REGEX.group(info)?.let { "${it}p" } ?: "Auto"
+            val codec = CODECS_REGEX.group(info)?.let(::codecLabel)
+            Video(
+                videoUrl = masterUrl.resolve(uri.trim())?.toString() ?: return@mapNotNull null,
+                videoTitle = buildString {
+                    append(hoster.hosterName).append(" - ").append(quality)
+                    codec?.let { append(" (").append(it).append(")") }
+                },
+            )
+        }
+        return videos.ifEmpty { listOf(Video(videoUrl = hoster.hosterUrl, videoTitle = hoster.hosterName)) }.sortVideos()
+    }
+
+    private fun Regex.group(input: String) = find(input)?.groupValues?.get(1)
+
+    private fun codecLabel(codecs: String) = codecs.split(',').firstNotNullOfOrNull { codec ->
+        when {
+            codec.startsWith("av01") -> "AV1"
+            codec.startsWith("avc1") -> "H.264"
+            codec.startsWith("hvc1") || codec.startsWith("hev1") -> "HEVC"
+            codec.startsWith("vp09") -> "VP9"
+            else -> null
+        }
+    }
 
     override suspend fun resolveVideo(video: Video): Video = video.copy(
         videoUrl = streamServer.localUrl(video.videoUrl),
@@ -351,5 +373,7 @@ class AnimeFire :
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_AUDIO_KEY = "preferred_audio"
         private const val LATEST_PAGE_SIZE = 9
+        private val RESOLUTION_REGEX = Regex("""RESOLUTION=\d+x(\d+)""")
+        private val CODECS_REGEX = Regex("""CODECS="([^"]+)"""")
     }
 }
