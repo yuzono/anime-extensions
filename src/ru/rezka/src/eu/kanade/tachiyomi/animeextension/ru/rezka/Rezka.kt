@@ -415,12 +415,17 @@ class Rezka :
             .replace(HTML_TAG_REGEX, "")
             .replace(WHITESPACE_REGEX, " ")
             .trim()
-        // Each quality lists several mirror URLs after " or " — keep only the first so a
-        // single (dubbing, quality) doesn't show up multiple times. A ":hls:manifest.m3u8"
-        // suffix names the HLS side of the same rendition; the bare target is the MP4.
-        val url = match.groupValues[2]
-            .split(" or ").first().trim()
-            .removeSuffix(":hls:manifest.m3u8").trim()
+        // Each quality lists several mirror URLs after " or " — keep only one so a single
+        // (dubbing, quality) doesn't show up multiple times. A ":hls:manifest.m3u8" suffix
+        // names the HLS side of the same rendition; the bare target is the MP4. HLS starts
+        // after the first segment, while an MP4 whose index (moov) sits at the end of the
+        // file can stall the player for tens of seconds before the first frame.
+        val mirrors = match.groupValues[2].split(" or ").map { it.trim() }
+        val url = if (preferHls) {
+            mirrors.firstOrNull { it.endsWith(".m3u8") } ?: mirrors.first()
+        } else {
+            mirrors.first().removeSuffix(HLS_SUFFIX)
+        }
         if (!url.startsWith("http")) return@mapNotNull null
         Video(
             videoUrl = url,
@@ -429,6 +434,9 @@ class Rezka :
             subtitleTracks = subs,
         )
     }
+
+    private val preferHls: Boolean
+        get() = preferences.getString(PREF_FORMAT_KEY, PREF_FORMAT_DEFAULT) == "hls"
 
     // Subtitles come in the same bracketed grammar as the quality list; the codes map
     // maps each label to a language code ("откл." is the player's own "off" menu item).
@@ -570,6 +578,15 @@ class Rezka :
             entries = listOf("1080p", "720p", "480p", "360p"),
             entryValues = listOf("1080", "720", "480", "360"),
         )
+
+        screen.addListPreference(
+            key = PREF_FORMAT_KEY,
+            default = PREF_FORMAT_DEFAULT,
+            title = "Формат потока / Stream format",
+            summary = "%s\nHLS запускается быстрее; MP4 — прямой файл, на части фильмов стартует с задержкой.",
+            entries = listOf("HLS (m3u8)", "MP4"),
+            entryValues = listOf("hls", "mp4"),
+        )
     }
 
     // ─── DTO / helpers ───────────────────────────────────────────────────────
@@ -607,5 +624,8 @@ class Rezka :
         private const val PREF_LATEST_DEFAULT = "last"
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
+        private const val PREF_FORMAT_KEY = "pref_stream_format"
+        private const val PREF_FORMAT_DEFAULT = "hls"
+        private const val HLS_SUFFIX = ":hls:manifest.m3u8"
     }
 }
