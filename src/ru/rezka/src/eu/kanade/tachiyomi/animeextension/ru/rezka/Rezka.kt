@@ -328,14 +328,12 @@ class Rezka :
             add("action", if (type == "series") "get_stream" else "get_movie")
         }.build()
 
-        // The response is not a stable API — the site changes it without notice — so
-        // never let a single failed call kill the fallback path.
-        val response = runCatching {
-            ajaxClient.post("$baseUrl/ajax/get_cdn_series/?t=${System.currentTimeMillis()}", ajaxHeaders(), body)
-                .bodyString()
-        }.getOrNull()
+        // Network, timeout and HTTP errors propagate (and so does cancellation). Only the
+        // body is parsed leniently: it is not a stable API and changes without notice.
+        val response = ajaxClient.post("$baseUrl/ajax/get_cdn_series/?t=${System.currentTimeMillis()}", ajaxHeaders(), body)
+            .bodyString()
 
-        val decoded = response?.let { runCatching { it.parseAs<CdnResponse>() }.getOrNull() }
+        val decoded = runCatching { response.parseAs<CdnResponse>() }.getOrNull()
 
         if (decoded?.success == true) {
             val videos = parseStreams(
