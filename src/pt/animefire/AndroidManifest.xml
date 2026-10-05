@@ -15,6 +15,10 @@
 
                 <data
                     android:host="animefire.one"
+                    android:pathPattern="/anime/..*"
+                    android:scheme="https" />
+                <data
+                    android:host="animefire.one"
                     android:pathPattern="/animes/..*"
                     android:scheme="https" />
                 <data
