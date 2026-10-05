@@ -25,14 +25,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import java.util.concurrent.TimeUnit
 
 class Rezka :
     AnimeHttpSource(),
@@ -62,6 +65,12 @@ class Rezka :
     // already is a browser UA. `super.headersBuilder()` keeps it, so it also stays current.
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
+
+    // get_cdn_series either answers within a second or hangs; cap it so a hang falls
+    // through to the error path instead of holding the player for the app's 2-minute limit.
+    private val ajaxClient: OkHttpClient by lazy {
+        client.newBuilder().callTimeout(AJAX_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+    }
 
     private fun ajaxHeaders(): Headers = headers.newBuilder()
         .add("Origin", baseUrl)
@@ -241,14 +250,15 @@ class Rezka :
         }
 
         val postId = findPostId(document, html, titlePath) ?: ""
-        // internalData: path|type|season|episode|post_id|translator_id[|inline fallback]
+        // internalData: path|type|season|episode|post_id|translator_id
         val prefix = "$titlePath|$type|$season|$ep|$postId"
 
-        // hdrezka.fi inlines the stream list of the *default* voiceover in a <script>
-        // (the player's first paint), so it can only serve as a fallback for that one
-        // voiceover — for any other hoster it would be the wrong streams.
-        val inlineFallback = if (type == "movie") findInlineStreams(html) else null
-        val defaultTranslatorId = scrapeTranslatorId(html)
+        // Films: the page inits the player with the stream list of the voiceover it opens
+        // with. That hoster comes back with its videos already attached, so the app plays
+        // it straight away instead of first waiting on a get_cdn_series round trip.
+        val inlineVideos = if (type == "movie") parseInlinePlayer(html) else emptyList()
+        val inlineTranslatorId = INIT_TRANSLATOR_REGEX.find(html)?.groupValues?.get(1)
+        val defaultTranslatorId = inlineTranslatorId ?: scrapeTranslatorId(html)
 
         if (translators.isNotEmpty()) {
             // The voiceover the page inits the player with is the only eager hoster:
@@ -257,19 +267,21 @@ class Rezka :
             // eager makes the app fire one get_cdn_series POST per voiceover in
             // parallel, and the site's anti-flood then drops most of them (only a few
             // hosters ever show up in the sheet).
-            val defaultTranslator = translators.firstOrNull { it.active || it.id == defaultTranslatorId }
+            val defaultTranslator = translators.firstOrNull { it.id == defaultTranslatorId }
+                ?: translators.firstOrNull { it.active }
                 ?: translators.first()
 
             return translators.map { translator ->
                 val isDefault = translator === defaultTranslator
-                val internalData = if (inlineFallback != null && isDefault) {
-                    "$prefix|${translator.id}|$inlineFallback"
-                } else {
-                    "$prefix|${translator.id}"
-                }
                 Hoster(
                     hosterName = translator.name,
-                    internalData = internalData,
+                    internalData = "$prefix|${translator.id}",
+                    // Only hand over the inline streams when they provably belong to this
+                    // voiceover (or the page didn't say, and this is the one it opens with).
+                    videoList = inlineVideos.takeIf {
+                        isDefault && it.isNotEmpty() &&
+                            (inlineTranslatorId == null || inlineTranslatorId == translator.id)
+                    },
                     lazy = !isDefault,
                 )
             }.sortedBy { it.lazy } // the default (eager) hoster goes first
@@ -277,12 +289,13 @@ class Rezka :
 
         // Single voiceover — its id lives only in the player init script.
         val soleId = defaultTranslatorId ?: "0"
-        val internalData = if (inlineFallback != null) {
-            "$prefix|$soleId|$inlineFallback"
-        } else {
-            "$prefix|$soleId"
-        }
-        return listOf(Hoster(hosterName = "По умолчанию", internalData = internalData))
+        return listOf(
+            Hoster(
+                hosterName = "По умолчанию",
+                internalData = "$prefix|$soleId",
+                videoList = inlineVideos.ifEmpty { null },
+            ),
+        )
     }
 
     // ─── Videos ───────────────────────────────────────────────────────────────
@@ -293,8 +306,8 @@ class Rezka :
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        // internalData segments: path|type|season|episode|post_id|translator_id[|inline fallback]
-        val parts = hoster.internalData.split("|", limit = 7)
+        // internalData segments: path|type|season|episode|post_id|translator_id
+        val parts = hoster.internalData.split("|")
         val type = parts.getOrElse(1) { "movie" }
         // The endpoint expects season/episode for movies too (the site's own player
         // posts "1"/"1" for films) — not the legacy is_camrip/is_ads/is_director set.
@@ -302,7 +315,6 @@ class Rezka :
         val ep = parts.getOrElse(3) { "" }.ifBlank { "1" }
         val postId = parts.getOrElse(4) { "" }
         val translatorId = parts.getOrElse(5) { "0" }
-        val inlineFallback = parts.getOrNull(6)
 
         val body = FormBody.Builder().apply {
             add("id", postId)
@@ -315,25 +327,17 @@ class Rezka :
         // The response is not a stable API — the site changes it without notice — so
         // never let a single failed call kill the fallback path.
         val response = runCatching {
-            client.post("$baseUrl/ajax/get_cdn_series/?t=${System.currentTimeMillis()}", ajaxHeaders(), body)
+            ajaxClient.post("$baseUrl/ajax/get_cdn_series/?t=${System.currentTimeMillis()}", ajaxHeaders(), body)
                 .bodyString()
         }.getOrNull()
 
         val decoded = response?.let { runCatching { it.parseAs<CdnResponse>() }.getOrNull() }
 
         if (decoded?.success == true) {
-            val raw = decoded.url.orEmpty()
-            // Some mirrors return the stream list already decoded (starts with "[360p]…"),
-            // others "trash"-encode it (starts with "#h" / contains //_//).
-            val streams = if (raw.trimStart().startsWith("[")) raw else clearTrash(raw)
-            val videos = parseStreams(streams, parseSubtitles(decoded))
-            if (videos.isNotEmpty()) return videos
-        }
-
-        // Films: the default voiceover's stream list is inlined on the page itself, so a
-        // change in the endpoint contract (or a missing session) still leaves a way in.
-        inlineFallback?.let {
-            val videos = parseStreams(it.unescapeJsString(), emptyList())
+            val videos = parseStreams(
+                decodeStreams(decoded.url.stringOrNull().orEmpty()),
+                parseSubtitles(decoded.subtitle, decoded.subtitleLns),
+            )
             if (videos.isNotEmpty()) return videos
         }
 
@@ -392,9 +396,63 @@ class Rezka :
         ?: titlePath.trim('/').substringAfterLast('/').substringBefore('-')
             .takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
 
-    // The first-paint stream list for the default voiceover, JS-escaped inside a
-    // <script> (quoted "[1080p]https://…,[720p]…"). Extracted raw and unescaped later.
-    private fun findInlineStreams(html: String): String? = INLINE_STREAM_REGEX.find(html)?.groupValues?.get(1)
+    // The player init call carries a JSON config — {"id":"cdnplayer","streams":"[360p]…",
+    // "subtitle":…} — with the stream list of the voiceover the page opens with.
+    // Mirrors whose script has another shape still quote the bare stream list, which
+    // INLINE_STREAM_REGEX picks up.
+    private fun parseInlinePlayer(html: String): List<Video> {
+        findPlayerConfig(html)?.let { config ->
+            val videos = parseStreams(
+                decodeStreams(config.streams.stringOrNull().orEmpty()),
+                parseSubtitles(config.subtitle, config.subtitleLns),
+            )
+            if (videos.isNotEmpty()) return videos
+        }
+        val raw = INLINE_STREAM_REGEX.find(html)?.groupValues?.get(1) ?: return emptyList()
+        return parseStreams(raw.unescapeJsString(), emptyList())
+    }
+
+    private fun findPlayerConfig(html: String): PlayerConfig? {
+        val call = PLAYER_INIT_REGEX.find(html) ?: return null
+        val start = html.indexOf('{', call.range.last)
+        // The config is the last argument, after a handful of short scalars.
+        if (start == -1 || start - call.range.last > 500) return null
+        val end = findObjectEnd(html, start) ?: return null
+        return runCatching { html.substring(start, end + 1).parseAs<PlayerConfig>() }.getOrNull()
+    }
+
+    // Index of the brace that closes the JSON object opening at [start]; braces inside
+    // string literals (stream labels carry HTML, ad configs carry JS) don't count.
+    private fun findObjectEnd(text: String, start: Int): Int? {
+        var depth = 0
+        var inString = false
+        var i = start
+        while (i < text.length) {
+            val c = text[i]
+            if (inString) {
+                when (c) {
+                    '\\' -> i++
+                    '"' -> inString = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> if (--depth == 0) return i
+                }
+            }
+            i++
+        }
+        return null
+    }
+
+    // Some mirrors return the stream list already decoded (starts with "[360p]…"),
+    // others "trash"-encode it (starts with "#h" / contains //_//).
+    private fun decodeStreams(raw: String): String = if (raw.trimStart().startsWith("[")) raw else clearTrash(raw)
+
+    // The site sends `false` instead of a string/object for absent fields
+    // ("subtitle":false, "subtitle_lns":false), so those are read as raw JSON.
+    private fun JsonElement?.stringOrNull(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     private fun String.unescapeJsString(): String {
         // \uXXXX escapes first, then any leftover backslashes (e.g. escaped "\/").
@@ -415,12 +473,17 @@ class Rezka :
             .replace(HTML_TAG_REGEX, "")
             .replace(WHITESPACE_REGEX, " ")
             .trim()
-        // Each quality lists several mirror URLs after " or " — keep only the first so a
-        // single (dubbing, quality) doesn't show up multiple times. A ":hls:manifest.m3u8"
-        // suffix names the HLS side of the same rendition; the bare target is the MP4.
-        val url = match.groupValues[2]
-            .split(" or ").first().trim()
-            .removeSuffix(":hls:manifest.m3u8").trim()
+        // Each quality lists several mirror URLs after " or " — keep only one so a single
+        // (dubbing, quality) doesn't show up multiple times. A ":hls:manifest.m3u8" suffix
+        // names the HLS side of the same rendition; the bare target is the MP4. HLS starts
+        // after the first segment, while an MP4 whose index (moov) sits at the end of the
+        // file can stall the player for tens of seconds before the first frame.
+        val mirrors = match.groupValues[2].split(" or ").map { it.trim() }
+        val url = if (preferHls) {
+            mirrors.firstOrNull { it.endsWith(".m3u8") } ?: mirrors.first()
+        } else {
+            mirrors.first().removeSuffix(HLS_SUFFIX)
+        }
         if (!url.startsWith("http")) return@mapNotNull null
         Video(
             videoUrl = url,
@@ -430,11 +493,14 @@ class Rezka :
         )
     }
 
+    private val preferHls: Boolean
+        get() = preferences.getString(PREF_FORMAT_KEY, PREF_FORMAT_DEFAULT) == "hls"
+
     // Subtitles come in the same bracketed grammar as the quality list; the codes map
     // maps each label to a language code ("откл." is the player's own "off" menu item).
-    private fun parseSubtitles(decoded: CdnResponse): List<Track> {
-        val data = decoded.subtitle ?: return emptyList()
-        val codes = decoded.subtitleLns as? JsonObject
+    private fun parseSubtitles(subtitle: JsonElement?, subtitleLns: JsonElement?): List<Track> {
+        val data = subtitle.stringOrNull()?.ifBlank { null } ?: return emptyList()
+        val codes = subtitleLns as? JsonObject
         return data.split(STREAM_COMMA_REGEX).mapNotNull { part ->
             val match = STREAM_ENTRY_REGEX.find(part) ?: return@mapNotNull null
             val label = match.groupValues[1].replace(HTML_TAG_REGEX, "").trim()
@@ -570,18 +636,36 @@ class Rezka :
             entries = listOf("1080p", "720p", "480p", "360p"),
             entryValues = listOf("1080", "720", "480", "360"),
         )
+
+        screen.addListPreference(
+            key = PREF_FORMAT_KEY,
+            default = PREF_FORMAT_DEFAULT,
+            title = "Формат потока / Stream format",
+            summary = "%s\nHLS запускается быстрее; MP4 — прямой файл, на части фильмов стартует с задержкой.",
+            entries = listOf("HLS (m3u8)", "MP4"),
+            entryValues = listOf("hls", "mp4"),
+        )
     }
 
     // ─── DTO / helpers ───────────────────────────────────────────────────────
 
-    // `subtitle_lns` comes back as the boolean `false` (not as an object) when a
-    // voiceover has no subtitles, so it must be a JsonElement rather than a Map.
+    // `subtitle` / `subtitle_lns` (and on failures even `url`) come back as the boolean
+    // `false` rather than a string/object, so they are kept as raw JSON.
     @Serializable
-    private data class CdnResponse(
+    private class CdnResponse(
         val success: Boolean = false,
-        val url: String? = null,
+        val url: JsonElement? = null,
         val message: String? = null,
-        val subtitle: String? = null,
+        val subtitle: JsonElement? = null,
+        @SerialName("subtitle_lns") val subtitleLns: JsonElement? = null,
+    )
+
+    // The player config inlined in the watch page (same fields as CdnResponse, but the
+    // stream list is under `streams`).
+    @Serializable
+    private class PlayerConfig(
+        val streams: JsonElement? = null,
+        val subtitle: JsonElement? = null,
         @SerialName("subtitle_lns") val subtitleLns: JsonElement? = null,
     )
 
@@ -593,6 +677,8 @@ class Rezka :
         private val TRANSLATOR_ID_REGEX = Regex(
             """(?:initCDN(?:Movies|Series)Events\(\s*\d+\s*,\s*|["']?translator_id["']?\s*[:=]\s*)["']?(\d+)["']?""",
         )
+        private val PLAYER_INIT_REGEX = Regex("""initCDN(?:Movies|Series)Events\(""")
+        private val INIT_TRANSLATOR_REGEX = Regex("""initCDN(?:Movies|Series)Events\(\s*\d+\s*,\s*(\d+)""")
         private val INLINE_STREAM_REGEX = Regex("""["'](\[(?:1080|720|480|360|2160)p[^\]]*\][^"']+)["']""")
         private val STREAM_COMMA_REGEX = Regex(""",(?=\[)""")
         private val STREAM_ENTRY_REGEX = Regex("""^\[([^\]]+)\](.+)$""", RegexOption.DOT_MATCHES_ALL)
@@ -607,5 +693,9 @@ class Rezka :
         private const val PREF_LATEST_DEFAULT = "last"
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
+        private const val PREF_FORMAT_KEY = "pref_stream_format"
+        private const val PREF_FORMAT_DEFAULT = "hls"
+        private const val HLS_SUFFIX = ":hls:manifest.m3u8"
+        private const val AJAX_TIMEOUT_SECONDS = 15L
     }
 }
