@@ -251,15 +251,28 @@ class Rezka :
         val defaultTranslatorId = scrapeTranslatorId(html)
 
         if (translators.isNotEmpty()) {
+            // The voiceover the page inits the player with is the only eager hoster:
+            // it is what auto-play and external players resolve. Every other voiceover
+            // is lazy — the app loads it only when the user taps it. Making them all
+            // eager makes the app fire one get_cdn_series POST per voiceover in
+            // parallel, and the site's anti-flood then drops most of them (only a few
+            // hosters ever show up in the sheet).
+            val defaultTranslator = translators.firstOrNull { it.active || it.id == defaultTranslatorId }
+                ?: translators.first()
+
             return translators.map { translator ->
-                val isDefault = translator.id == defaultTranslatorId || translator.active
+                val isDefault = translator === defaultTranslator
                 val internalData = if (inlineFallback != null && isDefault) {
                     "$prefix|${translator.id}|$inlineFallback"
                 } else {
                     "$prefix|${translator.id}"
                 }
-                Hoster(hosterName = translator.name, internalData = internalData)
-            }
+                Hoster(
+                    hosterName = translator.name,
+                    internalData = internalData,
+                    lazy = !isDefault,
+                )
+            }.sortedBy { it.lazy } // the default (eager) hoster goes first
         }
 
         // Single voiceover — its id lives only in the player init script.
@@ -328,6 +341,10 @@ class Rezka :
         decoded?.message?.takeIf { it.isNotBlank() }?.let { throw Exception(it) }
         return emptyList()
     }
+
+    // The app applies sortVideos() to every hoster's list itself, so the preferred
+    // quality is hoisted through the hook instead of manual sorting.
+    override fun List<Video>.sortVideos(): List<Video> = applyQualityPreference(this)
 
     // Put the preferred quality first but keep the others: filtering them out would silently
     // drop a whole dubbing whose catalogue has no rendition at the preferred quality.
@@ -411,7 +428,7 @@ class Rezka :
             headers = headers,
             subtitleTracks = subs,
         )
-    }.let(::applyQualityPreference)
+    }
 
     // Subtitles come in the same bracketed grammar as the quality list; the codes map
     // maps each label to a language code ("откл." is the player's own "off" menu item).
