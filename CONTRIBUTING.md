@@ -740,8 +740,9 @@ The app reads the lib version from the version name: Anikku accepts versions `12
 a higher lib version as an update. Users need an app release that supports lib 16 to install a
 `16.x` extension.
 
-Fully migrated examples: `src/en/reanime` (hosters, `resolveVideo`), `src/all/jellyfin` (seasons),
-and `src/pt/animeito` (a theme extension overriding only the hoster flow).
+Fully migrated examples: `src/en/reanime` (hosters, `resolveVideo`) and `src/all/jellyfin` (seasons).
+`src/pt/animeito` shows a smaller step: its theme still uses the legacy shim, and the extension
+overrides only the hoster flow.
 
 ### HTML and Video Processing
 
@@ -932,13 +933,16 @@ If a source has no separate servers, return the videos wrapped with `videos.toHo
 - Build videos with named parameters: `Video(videoUrl = ..., videoTitle = ..., headers = ...)`, plus
 `subtitleTracks`, `audioTracks`, `resolution`, `bitrate` or `timestamps` when available. The old
 positional `Video(url, quality, videoUrl, headers)` constructor is deprecated.
-- `Video.videoUrl` **should be an absolute URL**.
+- `Video.videoUrl` **should be an absolute URL** once the video is resolved (see below).
 - If a stream URL expires quickly or is expensive to fetch, return the `Video` with
-`initialized = false` and the data needed in `internalData`. The app calls `resolveVideo(video)` when
+`initialized = false`, an empty `videoUrl` and the data needed in `internalData`. The app calls `resolveVideo(video)` when
 it plays that video; return the resolved copy with `initialized = true`, or `null` on failure. This
 replaces the deprecated `getVideoUrl` / `videoUrlRequest` / `videoUrlParse`.
-- Don't sort the lists yourself. Override `List<Hoster>.sortHosters()` and `List<Video>.sortVideos()`
-to apply the user's server and quality preferences; the app calls them.
+- Return hosters and videos already ordered by the user's server and quality preferences: sort them
+in `getHosterList` / `getVideoList(hoster)` before returning, so anything that relies on the order
+(such as setting `Video.preferred` on the first match) sees the sorted list. The app also applies
+`List<Hoster>.sortHosters()` and `List<Video>.sortVideos()` afterwards; their defaults keep the
+order, so you don't need to override them.
 - If you need to pass additional data to a custom extractor, it is recommended to pass it as a URL
 fragment (e.g. `url + "#data"`). OkHttp does not send fragments to the server, so there is no need
 to strip it out afterwards.
@@ -1023,10 +1027,6 @@ To do this, you need two files:
                     android:host="mysite.com"
                     android:pathPattern="/..*"
                     android:scheme="https" />
-                <data
-                    android:host="mysite.net"
-                    android:pathPattern="/..*"
-                    android:scheme="https" />
             </intent-filter>
         </activity>
     </application>
@@ -1035,7 +1035,7 @@ To do this, you need two files:
 
 The `AndroidManifest.xml` file will contain an `android:name` attribute that refers to the path of your `UrlActivity.kt` file. For example, for NyaaTorrent (`src/all/nyaatorrent`) the `android:name` is `.all.nyaatorrent.NyaaTorrentUrlActivity`.
 
-Next, you have the `<data android:scheme="https" android:host="host" android:pathPattern="/..*" />` element; you can have it multiple times, which allows you to specify the URL that can be opened in Anikku. You can read more about this in Android's [`<data>` documentation](https://developer.android.com/guide/topics/manifest/data-element).
+Next, you have the `<data android:scheme="https" android:host="host" android:pathPattern="/..*" />` element; you can have it multiple times, which allows you to specify the URL that can be opened in Anikku. Every host you add here must also be accepted by the URL check in `getSearchAnime` below. You can read more about this in Android's [`<data>` documentation](https://developer.android.com/guide/topics/manifest/data-element).
 
 Now, as for `UrlActivity`, you can just use the example below.
 
@@ -1081,8 +1081,9 @@ Now all you need to do is adapt the search function (`getSearchAnime`) in your e
 override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
     val url = query.toHttpUrlOrNull()
     if (url != null && url.host == baseUrl.toHttpUrl().host) {
-        val slug = url.pathSegments.getOrNull(1) ?: throw Exception("Unsupported url")
-        val path = "/anime/$slug"
+        val segments = url.pathSegments
+        if (segments.size < 2 || segments[0] != "anime") throw Exception("Unsupported url")
+        val path = "/anime/${segments[1]}"
         val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
             .apply { this.url = path }
         return AnimesPage(listOf(anime), false)
