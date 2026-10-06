@@ -51,7 +51,7 @@ class AniDB :
         PlaylistUtils(client, headers)
     }
 
-    private val postCache = LruCache<Long, PostDto>(POST_CACHE_SIZE)
+    private val postCache by lazy { LruCache<Long, PostDto>(POST_CACHE_SIZE) }
 
     // ============================== Popular ===============================
 
