@@ -10,7 +10,7 @@ Yuzono Anikku/Aniyomi anime extensions – Kotlin + Jsoup/OkHttp scrapers. Each 
 
 ## Commands
 
-**Always scope a task to a module.** The build has ~400 modules (307 extensions + 79 libs + 12 themes);
+**Always scope a task to a module.** The build has ~330 modules (250 extensions + 73 libs + 9 themes);
 an unscoped `./gradlew <task>` configures every one of them.
 
 - Verify a change (fast – no APK link/package step): `./gradlew :src:<lang>:<source>:compileDebugKotlin`
@@ -50,7 +50,7 @@ loadIndividualExtension("en", "miruro")
 
 ## Structure
 
-- `src/<lang>/<source>/build.gradle` – extension metadata (`extName`, `extClass`, `extVersionCode` **or** `themePkg`+`overrideVersionCode`, `isNsfw`)
+- `src/<lang>/<source>/build.gradle` – extension metadata (`extName`, `extClass`, `extVersionCode` **or** `themePkg`+`overrideVersionCode`, `isNsfw`, optional `libVersion`)
 - `src/<lang>/<source>/src/eu/kanade/tachiyomi/animeextension/<lang>/<source>/` – source code (package must match)
 - `lib-multisrc/<theme>/build.gradle.kts` – theme base (`baseVersionCode`, `alias(kei.plugins.multisrc)`)
 - `lib-multisrc/<theme>/src/.../multisrc/<theme>/` – abstract theme class `extends AnimeHttpSource`
@@ -67,6 +67,7 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
 - Use `response.parseAs<T>()`, `response.asJsoup()`, `SimpleDateFormat(...).tryParse()`, `element.absUrl("href")` + `setUrlWithoutDomain()`.
 - No hardcoded `User-Agent`, no `Thread.sleep()`, no manual Cloudflare checks, no `buildJsonObject` for requests.
 - Preserve `id` when renaming `name`/`lang`; keep package name stable.
+- New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = 16` in `build.gradle`. See `CONTRIBUTING.md#extensions-lib-16`.
 
 ### `keiyoushi.network` client helpers
 
@@ -114,7 +115,7 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
 
 ## Boundaries
 
-- Do not change `versionName` manually (generated `14.<versionCode>`).
+- Do not change `versionName` manually (generated `<libVersion>.<versionCode>`, lib version defaults to `14`).
 - Do not commit `web_hi_res_512.png` (delete after Icon Generator).
 - Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:170-196`). Use `origin` (your fork) for PRs.
 - Never commit secrets, keystore, or `local.properties`.

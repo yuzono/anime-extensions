@@ -58,7 +58,7 @@ class PluginSpotless : Plugin<Project> {
 
 private object RandomUACheck {
     fun create(): FormatterStep = FormatterStep.create(
-        "randomua-requires-getMangaUrl",
+        "randomua-requires-getAnimeUrl",
         State(),
         State::toFormatter,
     )
@@ -67,10 +67,10 @@ private object RandomUACheck {
         fun toFormatter() = FormatterFunc { content ->
             if ("package keiyoushi.lib.randomua" !in content &&
                 "keiyoushi.lib.randomua" in content &&
-                "override fun getMangaUrl(" !in content
+                "override fun getAnimeUrl(" !in content
             ) {
                 throw AssertionError(
-                    "usage of :lib:randomua requires override of getMangaUrl()",
+                    "usage of :lib:randomua requires override of getAnimeUrl()",
                 )
             }
             content
