@@ -4,7 +4,6 @@ import android.net.Uri
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.sibnetextractor.SibnetExtractor
 import aniyomi.lib.vkextractor.VkExtractor
@@ -43,7 +42,6 @@ class YummyAnime :
     private val apiUrl = "https://api.yani.tv"
     private val appToken = "o0nap18m_7a0od86"
     private val sibnetExtractor by lazy { SibnetExtractor(client) }
-    private val allohaExtractor by lazy { AllohaExtractor(client) }
     private val vkExtractor by lazy { VkExtractor(client, headers) }
     private val preferences by getPreferencesLazy()
 
@@ -61,23 +59,6 @@ class YummyAnime :
             entryValues = arrayOf("1080", "720", "480", "360")
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_ALLOHA_KEY
-            title = "Парсить плеер Alloha (beta) / Parse Alloha player (beta)"
-            summary = "Alloha извлекается через WebView при запуске видео (5-25 секунд). " +
-                "Отключите, если озвучки Alloha не воспроизводятся."
-            setDefaultValue(PREF_ALLOHA_DEFAULT)
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_ALLOHA_SUBS_KEY
-            title = "Субтитры Alloha (медленный режим)"
-            summary = "Извлекать Alloha сразу при построении списка видео, чтобы " +
-                "прикрепить дорожки субтитров. Открытие серии станет заметно дольше. " +
-                "Работает только при включённом парсинге Alloha."
-            setDefaultValue(PREF_ALLOHA_SUBS_DEFAULT)
         }.also(screen::addPreference)
     }
 
@@ -193,8 +174,10 @@ class YummyAnime :
      *
      * `hosterUrl` and `internalData` both carry that url. The app may read either field and
      * round-trips it through its own storage, so a plain absolute url (no separator, no
-     * control characters) is what is safe to store. The Alloha token lives on the whole series
-     * (only `&episode=` differs between entries), so it does not go stale per entry.
+     * control characters) is what is safe to store.
+     *
+     * Alloha entries are skipped: its CDN rejects every link the app obtains (see the
+     * archive/yummyanime-alloha branch for the extractor and the investigation).
      */
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val videos = episodeVideos(episode)
@@ -205,11 +188,7 @@ class YummyAnime :
 
     private fun playerHosters(videos: List<YummyVideoDto>): List<Hoster> = videos.mapNotNull { video ->
         val player = video.data?.player?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        if (player.contains("Alloha", ignoreCase = true) &&
-            !preferences.getBoolean(PREF_ALLOHA_KEY, PREF_ALLOHA_DEFAULT)
-        ) {
-            return@mapNotNull null
-        }
+        if (player.contains("Alloha", ignoreCase = true)) return@mapNotNull null
         val playerUrl = video.iframeUrl?.fixProtocol()?.takeIf { it.isNotBlank() }
             ?: return@mapNotNull null
         val dubbing = video.data?.dubbing?.takeIf { it.isNotBlank() } ?: "Озвучка"
@@ -229,36 +208,8 @@ class YummyAnime :
         // source between getHosterList and getVideoList.
 
         val videos = when (playerOf(playerUrl)) {
-            // Extracted right here, not deferred to resolveVideo: this app never calls
-            // resolveVideo for unresolved videos, so an entry with an empty videoUrl simply
-            // shows up as "No available videos". The cost is the WebView round-trip per dubbing
-            // when the list is built (5-25s), which is what the subtitle setting used to gate.
-            "Alloha" -> allohaExtractor.videosFromUrl(
-                playerUrl,
-                "$baseUrl/",
-                prefix = dubbing,
-                // The token is the only part that may change between calls; without it the
-                // url still names the series, translation and episode.
-                cacheKey = runCatching {
-                    playerUrl.toHttpUrl().newBuilder().removeAllQueryParameters("token").build().toString()
-                }.getOrNull(),
-            ).map { extracted ->
-                Video(
-                    // The extractor's own title carries the rendition; rebuilding it here
-                    // would drop the quality, and applyQualityPreference could not rank it.
-                    videoUrl = extracted.videoUrl,
-                    videoTitle = extracted.videoTitle,
-                    headers = extracted.headers,
-                    subtitleTracks = if (preferences.getBoolean(PREF_ALLOHA_SUBS_KEY, PREF_ALLOHA_SUBS_DEFAULT)) {
-                        extracted.subtitleTracks
-                    } else {
-                        emptyList()
-                    },
-                )
-            }
-            // Aksor hands the playlist over as JSON, so this costs one plain request instead
-            // of a WebView round-trip and its links are not tied to a session — they keep
-            // working on the second run of a series, which Alloha's do not.
+            // Aksor hands the playlist over as JSON: one plain request, and its links are not
+            // tied to a session, so they keep working on the second run of a series.
             "Aksor" -> aksorVideoLinks(playerUrl, dubbing)
             "CVH" -> cvhVideoLinks(playerUrl, dubbing)
             "Kodik" -> kodikVideoLinks(playerUrl, dubbing)
@@ -400,7 +351,6 @@ class YummyAnime :
     }
 
     private fun playerShortName(player: String): String = when {
-        player.contains("Alloha", ignoreCase = true) -> "Alloha"
         player.contains("Aksor", ignoreCase = true) -> "Aksor"
         player.contains("CVH", ignoreCase = true) -> "CVH"
         player.contains("Kodik", ignoreCase = true) -> "Kodik"
@@ -412,7 +362,6 @@ class YummyAnime :
     private fun playerOf(playerUrl: String): String {
         val host = playerUrl.substringAfter("://").substringBefore('/').lowercase()
         return when {
-            "alloha." in host -> "Alloha"
             "aksor." in host -> "Aksor"
             // The site's own wrapper page for the player, and the player API it is turned into.
             "cdnvideohub." in host || "/iframeCVH" in playerUrl -> "CVH"
@@ -447,14 +396,6 @@ class YummyAnime :
 
     private fun String.parseQuality(): Int? = QUALITY_REGEX.find(this)?.groupValues?.get(1)?.toIntOrNull()
 
-    /**
-     * Lazy resolution for Alloha videos (empty videoUrl).
-     *
-     * MUST NEVER THROW: the app resolves unresolved videos in a batch when the player
-     * opens, and a single exception marks the whole batch as HosterState.Error — the
-     * user sees "No available videos" even though Kodik links were fine. On failure
-     * null is returned, so only this one entry fails if the user selects it.
-     */
     private suspend fun kodikVideoLinks(
         iframeUrl: String,
         dubbing: String,
@@ -707,10 +648,6 @@ class YummyAnime :
 
         private const val PREF_QUALITY_KEY = "pref_quality"
         private const val PREF_QUALITY_DEFAULT = "720"
-        private const val PREF_ALLOHA_KEY = "pref_parse_alloha"
-        private const val PREF_ALLOHA_DEFAULT = false
-        private const val PREF_ALLOHA_SUBS_KEY = "pref_alloha_subs"
-        private const val PREF_ALLOHA_SUBS_DEFAULT = false
 
         private val QUALITY_REGEX = Regex("""(\d{3,4})\s*p""")
         private val ATOB_REGEX = Regex("atob\\([^\"]")
