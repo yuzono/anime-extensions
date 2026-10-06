@@ -1081,7 +1081,7 @@ Now all you need to do is adapt the search function (`getSearchAnime`) in your e
 override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
     val url = query.toHttpUrlOrNull()
     val segments = url?.pathSegments.orEmpty()
-    val slug = segments.getOrNull(1).takeIf { segments[0] == "anime" }
+    val slug = segments.getOrNull(1).takeIf { segments.firstOrNull() == "anime" }
     if (url?.host == baseUrl.toHttpUrl().host && !slug.isNullOrEmpty()) {
         val path = "/anime/$slug"
         val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
