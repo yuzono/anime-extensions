@@ -280,6 +280,7 @@ class KissKH : Source() {
             videoTitle = "FirstParty",
             subtitleTracks = subList,
             headers = videoHeaders,
+            mpvArgs = listOf("sub-ass-override" to "strip"),
         )
 
         if (!fixedVideoUrl.toHttpUrl().encodedPath.endsWith(".m3u8", ignoreCase = true)) {
@@ -304,7 +305,10 @@ class KissKH : Source() {
                         },
                 )
                 .mapIndexed { index, v ->
-                    if (index == 0) v.copy(preferred = true) else v
+                    v.copy(
+                        preferred = index == 0,
+                        mpvArgs = video.mpvArgs,
+                    )
                 }
         } catch (e: CancellationException) {
             throw e
