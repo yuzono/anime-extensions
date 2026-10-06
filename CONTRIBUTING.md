@@ -1080,9 +1080,8 @@ Now all you need to do is adapt the search function (`getSearchAnime`) in your e
 ```kotlin
 override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
     val url = query.toHttpUrlOrNull()
-    if (url != null && url.host == baseUrl.toHttpUrl().host) {
-        val segments = url.pathSegments
-        if (segments.size < 2 || segments[0] != "anime") throw Exception("Unsupported url")
+    val segments = url?.pathSegments.orEmpty()
+    if (url?.host == baseUrl.toHttpUrl().host && segments.size >= 2 && segments[0] == "anime") {
         val path = "/anime/${segments[1]}"
         val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
             .apply { this.url = path }
