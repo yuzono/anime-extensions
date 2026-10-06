@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.ru.yummyanime
 
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
@@ -23,6 +24,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -175,14 +177,13 @@ class YummyAnime :
      * `hosterUrl` and `internalData` both carry that url. The app may read either field and
      * round-trips it through its own storage, so a plain absolute url (no separator, no
      * control characters) is what is safe to store.
-     *
-     * Alloha entries are skipped: its CDN rejects every link the app obtains (see the
-     * archive/yummyanime-alloha branch for the extractor and the investigation).
      */
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val videos = episodeVideos(episode)
         val (cvh, others) = videos.partition { playerOf(it.iframeUrl?.fixProtocol().orEmpty()) == "CVH" }
-        val cvhHosters = runCatching { cvhHosters(cvh) }.getOrDefault(emptyList())
+        val cvhHosters = catching { cvhHosters(cvh) }
+            .onFailure { Log.w(TAG, "CVH playlist failed for ${episode.url}", it) }
+            .getOrDefault(emptyList())
         return playerHosters(others) + cvhHosters
     }
 
@@ -244,11 +245,12 @@ class YummyAnime :
 
         // Wrapped: anything thrown here propagates out of getVideoList and takes the whole
         // hoster with it, which the app shows as "No available videos" for every dubbing.
-        val response = runCatching {
+        val response = catching {
             client.get("$AKSOR_API/video/$videoId", headers).parseAs<AksorResponse>()
-        }.onFailure {
+        }.getOrElse {
+            Log.w(TAG, "Aksor video $videoId failed", it)
             return emptyList()
-        }.getOrElse { return emptyList() }
+        }
 
         val videos = mutableListOf<Video>()
         for ((label, url) in response.qualities) {
@@ -315,9 +317,12 @@ class YummyAnime :
 
     /** Progressive mp4 renditions from okcdn; the links are bound to the requesting IP. */
     private suspend fun cvhVideoLinks(videoUrl: String, dubbing: String): List<Video> {
-        val sources = runCatching {
+        val sources = catching {
             client.get(videoUrl, cvhHeaders).parseAs<CvhVideo>().sources
-        }.getOrElse { return emptyList() }
+        }.getOrElse {
+            Log.w(TAG, "CVH video $videoUrl failed", it)
+            return emptyList()
+        }
 
         val streamHeaders = Headers.Builder()
             .add("Referer", "https://player.cdnvideohub.com/")
@@ -339,14 +344,14 @@ class YummyAnime :
     }
 
     /** One byte of the manifest: enough to tell a served file from a dead path, cheap to fetch. */
-    private suspend fun isStreamAlive(url: String): Boolean = runCatching {
+    private suspend fun isStreamAlive(url: String): Boolean = catching {
         client.get(url, headers.newBuilder().add("Range", "bytes=0-0").build()).use { it.isSuccessful }
     }.getOrDefault(false)
 
-    /** "q1080" -> "1080", "q2k" -> "2160", "q4k" -> "3840". */
+    /** Vertical resolution: "q1080" -> "1080", "q2k" -> "1440", "q4k" -> "2160". */
     private fun qualityLabel(label: String): String = when (val value = label.removePrefix("q").lowercase()) {
-        "2k" -> "2160"
-        "4k" -> "3840"
+        "2k" -> "1440"
+        "4k" -> "2160"
         else -> value.ifBlank { "auto" }
     }
 
@@ -405,7 +410,7 @@ class YummyAnime :
             .add("X-Application", appToken)
             .build()
 
-        val page = runCatching {
+        val page = catching {
             client.get(iframeUrl, kodikHeaders).useAsJsoup()
         }.getOrNull() ?: return emptyList()
 
@@ -469,7 +474,7 @@ class YummyAnime :
             .substringBefore('/')
             .ifEmpty { "kodikplayer.com" }
 
-        val kodikData = runCatching {
+        val kodikData = catching {
             client.post("https://$playerHost/ftor", postHeaders, postBody).parseAs<KodikData>()
         }.getOrNull() ?: return emptyList()
 
@@ -491,7 +496,7 @@ class YummyAnime :
                 ?: page.selectFirst("script[src*=player]")
             )?.attr("abs:src") ?: return emptyList()
 
-        val jsScript = runCatching {
+        val jsScript = catching {
             client.get(scriptUrl, kodikHeaders).bodyString()
         }.getOrNull() ?: return emptyList()
 
@@ -568,7 +573,8 @@ class YummyAnime :
 
         // A VK failure (missing hash429 cookie, HTTP error) must not take the whole
         // hoster down — the other player paths already degrade to an empty list.
-        return runCatching { vkExtractor.videosFromUrl(embedUrl, prefix = "$dubbing (VK) ") }
+        return catching { vkExtractor.videosFromUrl(embedUrl, prefix = "$dubbing (VK) ") }
+            .onFailure { Log.w(TAG, "VK video $embedUrl failed", it) }
             .getOrDefault(emptyList())
             .map { Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = it.headers) }
     }
@@ -579,7 +585,7 @@ class YummyAnime :
         iframeUrl: String,
         dubbing: String,
     ): List<Video> {
-        val body = runCatching {
+        val body = catching {
             client.get(iframeUrl, headers).bodyString()
         }.getOrNull() ?: return emptyList()
 
@@ -588,14 +594,14 @@ class YummyAnime :
                 ?: VIDEO_ID_REGEX.find(iframeUrl)?.groupValues?.get(1)
 
             if (!videoId.isNullOrBlank()) {
-                runCatching {
+                catching {
                     val rn = (Math.random() * 1_0000_0000).toInt()
                     val catchUrl = "https://vst.sibnet.ru/catch?event=load&val=null&videoid=$videoId&referrer=$iframeUrl&rn=$rn"
-                    client.get(catchUrl, headers.newBuilder().set("Referer", iframeUrl).build())
+                    client.get(catchUrl, headers.newBuilder().set("Referer", iframeUrl).build()).close()
                 }
             }
 
-            val sibVideos = runCatching { sibnetExtractor.videosFromUrl(iframeUrl, "$dubbing (Sibnet) ") }.getOrNull()
+            val sibVideos = catching { sibnetExtractor.videosFromUrl(iframeUrl, "$dubbing (Sibnet) ") }.getOrNull()
             if (!sibVideos.isNullOrEmpty()) {
                 return sibVideos
             }
@@ -638,9 +644,19 @@ class YummyAnime :
 
     private fun String.fixProtocol(): String = if (startsWith("//")) "https:$this" else this
 
+    /** Like runCatching, but lets coroutine cancellation through instead of reporting it as a failure. */
+    private inline fun <T> catching(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        Result.failure(e)
+    }
+
     private fun String.toOrigin(): String = ORIGIN_REGEX.find(this)?.groupValues?.get(1) ?: this
 
     companion object {
+        private const val TAG = "YummyAnime"
         private const val AKSOR_API = "https://player.aksor.tv/api"
         private const val CVH_API = "https://plapi.cdnvideohub.com/api/v1"
         private const val CVH_PUBLISHER_ID = 745
