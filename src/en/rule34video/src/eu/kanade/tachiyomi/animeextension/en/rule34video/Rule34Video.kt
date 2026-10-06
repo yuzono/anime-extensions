@@ -15,11 +15,16 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.util.concurrent.atomic.AtomicBoolean
 
 class Rule34Video :
     ParsedAnimeHttpLegacySource(),
@@ -43,18 +48,20 @@ class Rule34Video :
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) {
+    override fun popularAnimeRequest(page: Int): Request {
+        // Preload the tag catalog so the filter sheet and tapping a tag on a video are responsive.
+        ensureTagsLoaded()
+        if (!preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) {
+            return GET("$baseUrl/latest-updates/$page/")
+        }
         val uploaderId = preferences.getString(PREF_UPLOADER_ID_KEY, "") ?: ""
         if (uploaderId.isNotBlank()) {
             val url = "$baseUrl/members/$uploaderId/videos/?mode=async&function=get_block&block_id=list_videos_uploaded_videos&sort_by=&from_videos=$page"
             Log.e("Rule34Video", "Loading popular videos from uploader ID: $uploaderId, page: $page, URL: $url")
-            GET(url)
-        } else {
-            Log.e("Rule34Video", "Uploader filter enabled but ID is blank, loading latest updates.")
-            GET("$baseUrl/latest-updates/$page/")
+            return GET(url)
         }
-    } else {
-        GET("$baseUrl/latest-updates/$page/")
+        Log.e("Rule34Video", "Uploader filter enabled but ID is blank, loading latest updates.")
+        return GET("$baseUrl/latest-updates/$page/")
     }
 
     override fun popularAnimeSelector() = "div.item.thumb"
@@ -99,32 +106,52 @@ class Rule34Video :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val orderFilter = filters.getUriPart<OrderFilter>()
-        val categoryFilter = filters.getUriPart<CategoryBy>()
         val sortType = when (orderFilter) {
             "latest-updates" -> "post_date"
             "most-popular" -> "video_viewed"
             "top-rated" -> "rating"
+            "longest" -> "duration"
+            "random" -> "pseudo_rand"
             else -> ""
         }
 
-        val tagFilter = (filters.find { it is TagFilter } as? TagFilter)?.state ?: ""
+        val includedTags = linkedSetOf<String>()
+        val includedCategories = linkedSetOf<String>()
+        val excludedTokens = linkedSetOf<String>()
+        filters.forEach { collectFilter(it, includedTags, includedCategories, excludedTokens) }
+        (filters.list as? DynamicFilterList)?.collectSelectedTags(includedTags, excludedTokens)
+        // A tag can be selected in two places (Categories and the A-Z list); if it ends up both
+        // included and excluded, let the exclusion win so we never send a contradictory query.
+        val excludedTagIds = excludedTokens.filter { it.startsWith("tag:") }.map { it.substringAfter(":") }.toSet()
+        includedTags.removeAll(excludedTagIds)
+        val duration = filters.find { it is DurationFilterGroup } as? DurationFilterGroup
 
-        val url = "$baseUrl/search_ajax.php?tag=${tagFilter.ifBlank { "." }}"
-        val response = client.newCall(GET(url, headers)).execute()
-        tagDocument = response.asJsoup()
+        val params = mutableListOf<Pair<String, String>>()
+        if (sortType.isNotBlank()) params += "sort_by" to sortType
+        params += "from_videos" to page.toString()
+        if (includedTags.isNotEmpty()) params += "tag_ids" to "all,${includedTags.joinToString(",")}"
+        if (includedCategories.isNotEmpty()) params += "category_ids" to includedCategories.joinToString(",")
+        duration?.min?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }?.let { params += "duration_from" to it }
+        duration?.max?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }?.let { params += "duration_to" to it }
+        if (excludedTokens.isNotEmpty()) params += "temp_skip_items" to excludedTokens.joinToString(",")
 
-        val tagSearch = filters.getUriPart<TagSearch>()
-
-        return if (query.isNotEmpty()) {
-            if (query.startsWith(PREFIX_SEARCH)) {
-                val newQuery = query.removePrefix(PREFIX_SEARCH).dropLastWhile { it.isDigit() }
-                GET("$baseUrl/search/$newQuery")
-            } else {
-                GET("$baseUrl/search/${query.replace(Regex("\\s"), "-")}/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch")
-            }
-        } else {
-            GET("$baseUrl/search/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch")
+        if (query.isNotEmpty() && query.startsWith(PREFIX_SEARCH)) {
+            val newQuery = query.removePrefix(PREFIX_SEARCH).dropLastWhile { it.isDigit() }
+            return GET("$baseUrl/search/$newQuery")
         }
+
+        val requestUrl = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("search")
+            .apply {
+                if (query.isNotEmpty()) {
+                    addPathSegment(query.replace(Regex("\\s"), "-"))
+                }
+            }
+            .addPathSegment("")
+            .apply { params.forEach { (key, value) -> addQueryParameter(key, value) } }
+            .build()
+
+        return GET(requestUrl)
     }
 
     override fun searchAnimeSelector() = popularAnimeSelector()
@@ -287,55 +314,169 @@ class Rule34Video :
     }
 
     // ============================== Filters ===============================
-    private var tagDocument = Document("")
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private fun tagsResults(document: Document): Array<Pair<String, String>> {
-        val tagList = mutableListOf(Pair("<Select>", ""))
-        tagList.addAll(
-            document.select("div.item").map {
-                val tagValue = it.selectFirst("input")!!.attr("value")
-                val tagName = it.selectFirst("label")!!.text()
-                Pair(tagName, tagValue)
-            },
-        )
-        return tagList.toTypedArray()
+    @Volatile private var allTags: List<Pair<String, String>>? = null
+
+    @Volatile private var tagsRetryAfter = 0L
+
+    private val tagsLoading = AtomicBoolean(false)
+
+    private fun ensureTagsLoaded() {
+        if (
+            allTags != null ||
+            System.currentTimeMillis() < tagsRetryAfter ||
+            !tagsLoading.compareAndSet(false, true)
+        ) {
+            return
+        }
+        scope.launch {
+            val loaded = runCatching {
+                client.newCall(GET("$baseUrl/search_ajax.php?tag=.", headers)).execute().use { response ->
+                    response.asJsoup().select("div.item").mapNotNull { element ->
+                        val id = element.selectFirst("input")?.attr("value")
+                        val name = element.selectFirst("label")?.text()
+                        if (id.isNullOrBlank() || name.isNullOrBlank()) null else name to id
+                    }
+                }
+            }.getOrNull()
+            if (loaded.isNullOrEmpty()) {
+                tagsRetryAfter = System.currentTimeMillis() + TAG_RETRY_COOLDOWN_MS
+                tagsLoading.set(false)
+            } else {
+                allTags = loaded
+            }
+        }
     }
 
-    override fun getFilterList(): AnimeFilterList = if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false) &&
-        preferences.getString(PREF_UPLOADER_ID_KEY, "")?.isNotBlank() == true
+    private fun letterOf(name: String): String {
+        val first = name.firstOrNull()?.uppercaseChar() ?: return "#"
+        return if (first in 'A'..'Z') first.toString() else "#"
+    }
+
+    private fun collectFilter(
+        filter: AnimeFilter<*>,
+        includedTags: MutableSet<String>,
+        includedCategories: MutableSet<String>,
+        excludedTokens: MutableSet<String>,
     ) {
-        AnimeFilterList() // If uploader filter is enabled and ID is set, show no other filters
-    } else {
-        AnimeFilterList(
-            OrderFilter(),
-            CategoryBy(),
-            AnimeFilter.Separator(),
-            AnimeFilter.Header("Entered a \"tag\", click on \"filter\" then Click \"reset\" to load tags."),
-            TagFilter(),
-            TagSearch(tagsResults(tagDocument)),
-        )
+        when (filter) {
+            is TagTriState -> when {
+                filter.isIncluded() -> includedTags += filter.id
+                filter.isExcluded() -> excludedTokens += "tag:${filter.id}"
+            }
+            is CategoryTriState -> when {
+                filter.isIncluded() -> if (filter.token.startsWith("cat:")) includedCategories += filter.id else includedTags += filter.id
+                filter.isExcluded() -> excludedTokens += filter.token
+            }
+            is AnimeFilter.Group<*> ->
+                filter.state
+                    .filterIsInstance<AnimeFilter<*>>()
+                    .forEach { collectFilter(it, includedTags, includedCategories, excludedTokens) }
+            else -> {}
+        }
     }
 
-    private class TagFilter : AnimeFilter.Text("Click \"reset\" without any text to load all A-Z tags.", "")
+    override fun getFilterList(): AnimeFilterList {
+        if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false) &&
+            preferences.getString(PREF_UPLOADER_ID_KEY, "")?.isNotBlank() == true
+        ) {
+            return AnimeFilterList() // If uploader filter is enabled and ID is set, show no other filters
+        }
 
-    private class TagSearch(results: Array<Pair<String, String>>) :
-        UriPartFilter(
-            "Tag Filter ",
-            results,
+        ensureTagsLoaded()
+
+        return AnimeFilterList(DynamicFilterList())
+    }
+
+    private class TagQueryFilter : AnimeFilter.Text("Tag search")
+
+    private class TagTriState(name: String, val id: String) : AnimeFilter.TriState(name)
+
+    private class TagLetterGroup(letter: String, tags: List<TagTriState>) : AnimeFilter.Group<TagTriState>(letter, tags)
+
+    // Backing list of the filter dialog, rebuilt on each recomposition so the tag search filters live.
+    // Tags stay at the top level so the app's searchGenre() can find a tag tapped on a video.
+    private inner class DynamicFilterList : AbstractList<AnimeFilter<*>>() {
+        private val queryFilter = TagQueryFilter()
+        private val staticPart: List<AnimeFilter<*>> = listOf(
+            OrderFilter(),
+            CategoryFilter(CATEGORIES.map { (name, id, kind) -> CategoryTriState(name, id, "$kind:$id", AnimeFilter.TriState.STATE_IGNORE) }),
+            DurationFilterGroup(),
+            AnimeFilter.Separator(),
+            queryFilter,
         )
 
-    private class CategoryBy :
-        UriPartFilter(
-            "Category Filter ",
-            arrayOf(
-                Pair("All", ""),
-                Pair("Straight", "2109"),
-                Pair("Futa", "15"),
-                Pair("Gay", "192"),
-                Pair("Music", "4747"),
-                Pair("Iwara", "1821"),
+        private var cacheAllTags: List<Pair<String, String>>? = null
+        private var cacheQuery: String? = null
+        private var cache: List<AnimeFilter<*>> = staticPart
+        private var itemsById: Map<String, TagTriState> = emptyMap()
+        private var letterGroups: List<TagLetterGroup> = emptyList()
+
+        @Synchronized
+        private fun compute(): List<AnimeFilter<*>> {
+            val tags = allTags
+            val query = queryFilter.state.trim()
+            if (tags === cacheAllTags && query == cacheQuery) return cache
+
+            if (tags !== cacheAllTags) {
+                itemsById = buildMap { tags.orEmpty().forEach { (name, id) -> put(id, TagTriState(name, id)) } }
+                letterGroups = tags.orEmpty()
+                    .groupBy { letterOf(it.first) }
+                    .toSortedMap()
+                    .map { (letter, group) -> TagLetterGroup(letter, group.map { itemsById.getValue(it.second) }) }
+            }
+
+            cacheAllTags = tags
+            cacheQuery = query
+            val tagSection = when {
+                tags == null -> listOf(AnimeFilter.Header("Loading the full tag list… reopen in a moment."))
+                query.length < TAG_SEARCH_MIN_CHARS -> letterGroups
+                else -> {
+                    val matchedIds = HashSet<String>()
+                    val matched = tags.filter { it.first.contains(query, ignoreCase = true) }
+                        .onEach { matchedIds += it.second }
+                        .map { itemsById.getValue(it.second) }
+                    val selected = itemsById.values.filter { !it.isIgnored() && it.id !in matchedIds }
+                    selected + matched
+                }
+            }
+            cache = staticPart + tagSection
+            return cache
+        }
+
+        override val size: Int get() = compute().size
+
+        override fun get(index: Int): AnimeFilter<*> = compute()[index]
+
+        fun collectSelectedTags(includedTags: MutableSet<String>, excludedTokens: MutableSet<String>) {
+            compute()
+            itemsById.values.forEach { tag ->
+                when {
+                    tag.isIncluded() -> includedTags += tag.id
+                    tag.isExcluded() -> excludedTokens += "tag:${tag.id}"
+                }
+            }
+        }
+    }
+
+    private class CategoryFilter(categories: List<CategoryTriState>) : AnimeFilter.Group<CategoryTriState>("Categories", categories)
+
+    private class CategoryTriState(name: String, val id: String, val token: String, state: Int) : AnimeFilter.TriState(name, state)
+
+    private class DurationEntry(name: String) : AnimeFilter.Text(name)
+
+    private class DurationFilterGroup :
+        AnimeFilter.Group<DurationEntry>(
+            "Duration (seconds)",
+            listOf(
+                DurationEntry("Min"),
+                DurationEntry("Max"),
             ),
-        )
+        ) {
+        val min: String get() = state[0].state.trim()
+        val max: String get() = state[1].state.trim()
+    }
 
     private class OrderFilter :
         UriPartFilter(
@@ -344,6 +485,8 @@ class Rule34Video :
                 Pair("Latest", "latest-updates"),
                 Pair("Most Viewed", "most-popular"),
                 Pair("Top Rated", "top-rated"),
+                Pair("Longest", "longest"),
+                Pair("Random", "random"),
             ),
         )
 
@@ -355,6 +498,18 @@ class Rule34Video :
         const val PREFIX_SEARCH = "slug:"
 
         private val QUALITY_REGEX = Regex("_(\\d+p)\\.mp4")
+
+        private const val TAG_SEARCH_MIN_CHARS = 2
+
+        private const val TAG_RETRY_COOLDOWN_MS = 30_000L
+
+        private val CATEGORIES = listOf(
+            Triple("Straight", "2109", "tag"),
+            Triple("Futa", "15", "tag"),
+            Triple("Gay", "192", "tag"),
+            Triple("Music", "2111", "tag"),
+            Triple("Iwara", "1617", "cat"),
+        )
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
