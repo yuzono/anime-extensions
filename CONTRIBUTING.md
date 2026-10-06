@@ -726,7 +726,7 @@ The repository compiles against [aniyomi-extensions-lib](https://github.com/komi
 Most existing extensions still extend the `keiyoushi.utils.AnimeHttpLegacySource` or
 `ParsedAnimeHttpLegacySource` shims. They keep the old `videoListRequest(episode)` /
 `videoListParse(response)` methods and wrap the result into a single hoster with `toHosterList()`.
-Those extensions keep the default lib version `14`.
+Extensions that only use the shims keep the default lib version `14`.
 
 When writing a new extension, or migrating an existing one:
 
@@ -735,9 +735,12 @@ When writing a new extension, or migrating an existing one:
   needs them, otherwise throw `UnsupportedOperationException()` from `seasonListParse`.
 - Build videos with the [new `Video` constructor](#hosters-and-videos).
 - Add `libVersion = 16` to the `ext` block in `build.gradle`, and bump the version code as usual.
+  This also applies when only the extension implements the hoster flow on top of a theme that still
+  uses a shim, as `src/pt/animeito` does.
 
-The app reads the lib version from the version name: Anikku accepts versions `12` to `16`, and treats
-a higher lib version as an update. Users need an app release that supports lib 16 to install a
+The app reads the lib version from the version name: Anikku accepts versions `12` to `16`
+([`ExtensionLoader`](https://github.com/komikku-app/anikku/blob/master/app/src/main/java/eu/kanade/tachiyomi/extension/util/ExtensionLoader.kt)),
+and treats a higher lib version as an update. Users need an app release that supports lib 16 to install a
 `16.x` extension.
 
 Fully migrated examples: `src/en/reanime` (hosters, `resolveVideo`) and `src/all/jellyfin` (seasons).
@@ -896,7 +899,9 @@ will be cached.
 
     episode.date_upload = dateFormat.tryParse(dateStr)
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("UTC") // the site's timezone, if known
+    }
     ```
 
     Make sure you make the `SimpleDateFormat` a class constant or variable so it doesn't get
@@ -938,11 +943,11 @@ positional `Video(url, quality, videoUrl, headers)` constructor is deprecated.
 `initialized = false`, an empty `videoUrl` and the data needed in `internalData`. The app calls `resolveVideo(video)` when
 it plays that video; return the resolved copy with `initialized = true`, or `null` on failure. This
 replaces the deprecated `getVideoUrl` / `videoUrlRequest` / `videoUrlParse`.
-- Return hosters and videos already ordered by the user's server and quality preferences: sort them
-in `getHosterList` / `getVideoList(hoster)` before returning, so anything that relies on the order
-(such as setting `Video.preferred` on the first match) sees the sorted list. The app also applies
-`List<Hoster>.sortHosters()` and `List<Video>.sortVideos()` afterwards; their defaults keep the
-order, so you don't need to override them.
+- Order hosters and videos by the user's server and quality preferences, either by sorting them in
+`getHosterList` / `getVideoList(hoster)` before returning, or by overriding `List<Hoster>.sortHosters()`
+/ `List<Video>.sortVideos()`, which the app applies afterwards (their defaults keep the order). Sort
+before returning when your own code relies on the order, such as setting `Video.preferred` on the
+first match.
 - If you need to pass additional data to a custom extractor, it is recommended to pass it as a URL
 fragment (e.g. `url + "#data"`). OkHttp does not send fragments to the server, so there is no need
 to strip it out afterwards.
@@ -982,7 +987,7 @@ value. Also use this pattern for unused inherited methods.
 - **When to bump `versionId`:** The `versionId` property dictates how the app tracks the source. **Only override and bump `versionId` if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
 - **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), make your class implement the `UnmeteredSource` interface. This tells the app not to apply standard rate-limiting to the user's own local server.
 - **Preference listeners:** When implementing `ConfigurableAnimeSource`, you do not need to manually save values inside `setOnPreferenceChangeListener`. The Android preference framework saves the value to `SharedPreferences` automatically.
-- **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = UpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
+- **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
 - **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` will change, which disconnects existing users' libraries. To prevent this, override `id` with the old value (found in the repository's `index.json`).
 - **Avoid hardcoded host checks:** When checking URLs in deep links or search overrides, avoid hardcoding the host string (e.g., `queryUrl.host == "site.com"`). This breaks if mirrors are added. Prefer checking against the source's `baseUrl` dynamically.
 - **Empty Lists vs Exceptions:** If `videoListParse` or `episodeListParse` finds no items (e.g., a locked or empty episode), return `emptyList()` instead of throwing a hardcoded exception. The app will display a properly localized error message to the user.
@@ -1109,9 +1114,9 @@ These do not need to be included in global app updates. Excluding them saves a l
 and prevents unnecessary load on the source servers. To change the update strategy of a `SAnime`,
 use the `update_strategy` field. You can find below a description of the current possible values.
 
-- `UpdateStrategy.ALWAYS_UPDATE`: Titles marked as always update will be included in the library
+- `AnimeUpdateStrategy.ALWAYS_UPDATE`: Titles marked as always update will be included in the library
 update if they aren't excluded by additional restrictions.
-- `UpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once will be automatically skipped
+- `AnimeUpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once will be automatically skipped
 during library updates. Useful for cases where the series is previously known to be finished and have
 only a single episode, for example.
 
