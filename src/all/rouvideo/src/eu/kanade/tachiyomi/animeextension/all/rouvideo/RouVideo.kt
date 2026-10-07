@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.rouvideo
 
+import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animeextension.all.rouvideo.RouVideoDto.toAnimePage
 import eu.kanade.tachiyomi.animeextension.all.rouvideo.RouVideoFilter.ALL_VIDEOS
@@ -70,13 +71,14 @@ class RouVideo(
 
     private val videoHeaders by lazy {
         headers.newBuilder().apply {
-            add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-            add("Host", apiUrl.toHttpUrl().host)
-            add("Referer", "$videoUrl/")
+            set("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+            set("Origin", videoUrl)
+            set("Referer", "$videoUrl/")
         }.build()
     }
 
-    private val playlistUtils by lazy { PlaylistUtils(client) }
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val m3u8Integration by lazy { M3u8Integration(client) }
 
     // ============================== Popular ===============================
 
@@ -451,16 +453,24 @@ class RouVideo(
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode) = GET("$apiUrl/$VIDEO_SLUG/${episode.url}", apiHeaders)
+    /** Fetches the episode page containing the encoded video data. */
+    override fun videoListRequest(episode: SEpisode) = GET(getEpisodeUrl(episode), docHeaders)
 
+    /** Decodes the episode data, extracts HLS variants, and proxies them through the local m3u8 server. */
     override fun videoListParse(response: Response): List<Video> {
-        val jsonStr = response.body.string()
-        val data = json.decodeFromString<RouVideoDto.VideoData>(jsonStr).video
+        val data = response.asJsoup().selectFirst("script#__NEXT_DATA__")?.data()
+            ?: return emptyList()
+        val ev = json.decodeFromString<RouVideoDto.VideoDetails>(data).props.pageProps.ev
+        val video = json.decodeFromString<RouVideoDto.DecodedVideo>(
+            RouVideoDto.decodeVideoData(ev.d, ev.k),
+        )
 
         return playlistUtils.extractFromHls(
-            playlistUrl = data.videoUrl,
+            playlistUrl = normalizePlaylistUrl(video.videoUrl),
             referer = "$videoUrl/",
-        )
+            masterHeaders = playlistUtils.generateMasterHeaders(headers, "$videoUrl/"),
+            videoHeaders = videoHeaders,
+        ).let(m3u8Integration::processVideoList)
     }
 
     // Sorts by quality
@@ -470,8 +480,27 @@ class RouVideo(
 
     private val resolutionRegex = Regex("""Resolution: (\d+)p""")
     companion object {
+        /** Converts RouVideo API and CDN playlist endpoints to normalized HLS playlist URLs. */
+        internal fun normalizePlaylistUrl(url: String): String {
+            val httpUrl = VIDEO_ORIGIN.toHttpUrl().resolve(url)
+                ?: throw IllegalArgumentException("Invalid playlist URL")
+            return httpUrl.newBuilder().apply {
+                if (
+                    httpUrl.host == VIDEO_ORIGIN.toHttpUrl().host &&
+                    httpUrl.pathSegments.getOrNull(0) == "api" &&
+                    httpUrl.pathSegments.getOrNull(1) == "hls"
+                ) {
+                    // The fragment is not sent upstream; it only lets M3u8Integration recognize this HLS API URL.
+                    fragment(".m3u8")
+                } else if (httpUrl.pathSegments.lastOrNull() == "index.jpg") {
+                    setPathSegment(httpUrl.pathSize - 1, "index.m3u8")
+                }
+            }.build().toString()
+        }
+
         internal fun resolutionDesc(resolution: String) = "Resolution: ${resolution}p"
 
+        private const val VIDEO_ORIGIN = "https://rou.video"
         private const val VIDEO_SLUG = "v"
         private const val CATEGORY_SLUG = "t"
 

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.rouvideo
 
+import android.util.Base64
 import eu.kanade.tachiyomi.animeextension.all.rouvideo.RouVideo.Companion.resolutionDesc
 import eu.kanade.tachiyomi.animeextension.all.rouvideo.RouVideoFilter.SORT_LIKE_KEY
 import eu.kanade.tachiyomi.animeextension.all.rouvideo.RouVideoFilter.SORT_VIEW_KEY
@@ -129,9 +130,31 @@ internal object RouVideoDto {
             data class PagePropsObject(
                 val video: Video,
                 val relatedVideos: List<Video>,
-            )
+                val ev: Ev,
+            ) {
+                @Serializable
+                data class Ev(
+                    val d: String,
+                    val k: Int,
+                )
+            }
         }
     }
+
+    @Serializable
+    data class DecodedVideo(
+        val videoUrl: String,
+        val thumbVTTUrl: String? = null,
+    )
+
+    /** Reverses RouVideo's additive Base64 encoding to recover the video data JSON. */
+    internal fun decodeVideoData(data: String, k: Int): String = decodeVideoData(Base64.decode(data, Base64.DEFAULT), k)
+
+    /** Reverses RouVideo's additive Base64 encoding from decoded bytes. */
+    internal fun decodeVideoData(data: ByteArray, k: Int): String = data
+        .map { byte -> ((byte.toInt() and 0xFF) - k).toByte() }
+        .toByteArray()
+        .toString(Charsets.UTF_8)
 
     @Serializable
     data class Video(
@@ -228,17 +251,6 @@ internal object RouVideoDto {
         val parent: String,
         val level: Int, // usually 0
     )
-
-    @Serializable
-    data class VideoData(
-        val video: VideoObject,
-    ) {
-        @Serializable
-        data class VideoObject(
-            val thumbVTTUrl: String,
-            val videoUrl: String,
-        )
-    }
 
     /* Not available in details */
     @Serializable
