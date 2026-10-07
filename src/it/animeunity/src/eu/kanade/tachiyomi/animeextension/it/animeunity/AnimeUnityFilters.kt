@@ -169,7 +169,7 @@ object AnimeUnityFilters {
             Pair("Sì", "true"),
         )
 
-        val YEAR get() = arrayOf(ANY) + (1970..Calendar.getInstance().get(Calendar.YEAR))
+        val YEAR get() = arrayOf(ANY) + (1966..Calendar.getInstance().get(Calendar.YEAR))
             .map { Pair(it.toString(), it.toString()) }.reversed()
     }
 }
