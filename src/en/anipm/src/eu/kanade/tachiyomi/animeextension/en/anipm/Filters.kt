@@ -49,6 +49,14 @@ object Filters {
         }
     }
 
+    class LanguageFilter : AnimeFilter.Select<String>("Language", AUDIO_ENTRIES, 0) {
+        fun getValue(): String? = AUDIO_VALUES[state]
+        companion object {
+            private val AUDIO_ENTRIES = arrayOf("Any", "Sub", "Dub")
+            private val AUDIO_VALUES = arrayOf(null, "sub", "dub")
+        }
+    }
+
     // ========================= Checkbox groups =========================
 
     /** Group of TriState boxes: tap cycles ignore → include → exclude (site-native semantics). */
@@ -83,6 +91,7 @@ object Filters {
             SeasonFilter(),
             FormatFilter(),
             StatusFilter(),
+            LanguageFilter(),
         )
     }
 }

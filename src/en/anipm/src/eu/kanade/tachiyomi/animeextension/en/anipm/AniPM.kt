@@ -93,6 +93,7 @@ class AniPM :
                 is Filters.StatusFilter -> f.getValue()?.let { url.addQueryParameter("status", it) }
                 is Filters.SeasonFilter -> f.getValue()?.let { url.addQueryParameter("season", it) }
                 is Filters.YearFilter -> f.getValue()?.let { url.addQueryParameter("year", it) }
+                is Filters.LanguageFilter -> f.getValue()?.let { url.addQueryParameter("audio", it) }
 
                 is Filters.GenreFilter -> {
                     f.getIncluded().forEach { url.addQueryParameter("genre", it) }
