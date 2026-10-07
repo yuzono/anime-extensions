@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.Calendar
 
 object AnimeUnityFilters {
 
@@ -112,50 +113,22 @@ object AnimeUnityFilters {
         )
 
         val GENRE = arrayOf(
-            Pair("Action", "51"),
-            Pair("Adventure", "21"),
-            Pair("Cars", "29"),
-            Pair("Comedy", "37"),
-            Pair("Dementia", "43"),
-            Pair("Demons", "13"),
-            Pair("Drama", "22"),
-            Pair("Ecchi", "5"),
-            Pair("Fantasy", "9"),
-            Pair("Game", "44"),
-            Pair("Harem", "15"),
-            Pair("Hentai", "4"),
-            Pair("Historical", "30"),
-            Pair("Horror", "3"),
-            Pair("Josei", "45"),
-            Pair("Kids", "14"),
-            Pair("Magic", "23"),
-            Pair("Martial Arts", "Martial 31"),
-            Pair("Mecha", "38"),
-            Pair("Military", "46"),
-            Pair("Music", "16"),
-            Pair("Mystery", "24"),
-            Pair("Parody", "32"),
-            Pair("Police", "39"),
-            Pair("Psychological", "47"),
-            Pair("Romance", "17"),
-            Pair("Samurai", "25"),
-            Pair("School", "33"),
-            Pair("Sci-fi", "Sci-40"),
-            Pair("Seinen", "49"),
-            Pair("Shoujo", "18"),
-            Pair("Shoujo Ai", "Shoujo 26"),
-            Pair("Shounen", "34"),
-            Pair("Shounen Ai", "Shounen 41"),
-            Pair("Slice of Life", "Slice of 50"),
-            Pair("Space", "19"),
-            Pair("Splatter", "52"),
-            Pair("Sports", "27"),
-            Pair("Super Power", "Super 35"),
-            Pair("Supernatural", "42"),
-            Pair("Thriller", "48"),
+            Pair("Action", "51"), Pair("Adventure", "21"), Pair("Avant Garde", "43"),
+            Pair("Boys Love", "59"), Pair("Comedy", "37"), Pair("Demons", "13"),
+            Pair("Drama", "22"), Pair("Ecchi", "5"), Pair("Fantasy", "9"),
+            Pair("Game", "44"), Pair("Girls Love", "58"), Pair("Gore", "52"),
+            Pair("Gourmet", "56"), Pair("Harem", "15"), Pair("Hentai", "4"),
+            Pair("Historical", "30"), Pair("Horror", "3"), Pair("Isekai", "53"),
+            Pair("Josei", "45"), Pair("Kids", "14"), Pair("Mahou Shoujo", "57"),
+            Pair("Martial Arts", "31"), Pair("Mecha", "38"), Pair("Military", "46"),
+            Pair("Music", "16"), Pair("Mystery", "24"), Pair("Parody", "32"),
+            Pair("Police", "39"), Pair("Psychological", "47"), Pair("Racing", "29"),
+            Pair("Reincarnation", "54"), Pair("Romance", "17"), Pair("Samurai", "25"),
+            Pair("School", "33"), Pair("Sci-fi", "40"), Pair("Seinen", "49"),
+            Pair("Shoujo", "18"), Pair("Shounen", "34"), Pair("Slice of Life", "50"),
+            Pair("Space", "19"), Pair("Sports", "27"), Pair("Super Power", "35"),
+            Pair("Supernatural", "42"), Pair("Survival", "55"), Pair("Thriller", "48"),
             Pair("Vampire", "20"),
-            Pair("Yaoi", "28"),
-            Pair("Yuri", "36"),
         )
 
         val ORDER = arrayOf(
@@ -196,8 +169,7 @@ object AnimeUnityFilters {
             Pair("Sì", "true"),
         )
 
-        val YEAR = arrayOf(ANY) + (1969..2025).map {
-            Pair(it.toString(), it.toString())
-        }.reversed().toTypedArray()
+        val YEAR get() = arrayOf(ANY) + (1970..Calendar.getInstance().get(Calendar.YEAR))
+            .map { Pair(it.toString(), it.toString()) }.reversed()
     }
 }
