@@ -44,7 +44,7 @@ class FilmiFen : AnimeHttpSource() {
 
     override fun headersBuilder() = super.headersBuilder().add("Referer", "$baseUrl/")
 
-    private val seriesUrls = LruCache<String, String>(128)
+    private val seriesUrls by lazy { LruCache<String, String>(128) }
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val okruExtractor by lazy { OkruExtractor(client, headers) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }
