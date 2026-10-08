@@ -203,13 +203,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Authenticated, so the lookup isn't subject to the shared runner IP's anonymous rate limit
+      - name: Download extensions inspector
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INSPECTOR_LINK="$(curl -fsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/komikku-app/aniyomi-extensions-inspector/releases/latest" | jq -er '.assets[0].browser_download_url')"
+          curl -fL --retry 3 "$INSPECTOR_LINK" -o "$RUNNER_TEMP/Inspector.jar"
+
       - name: Create repo artifacts
         run: |
           cd ${{ github.ref_name }}
           python ./.github/scripts/move-built-apks.py
-          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/komikku-app/aniyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
-          curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
-          java -jar ./Inspector.jar "repo/apk" "output.json" "tmp"
+          java -jar "$RUNNER_TEMP/Inspector.jar" "repo/apk" "output.json" "tmp"
           python ./.github/scripts/create-repo.py
 
       - name: Checkout repo branch
