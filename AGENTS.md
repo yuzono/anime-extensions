@@ -86,6 +86,9 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   `by lazy` keeps serving the stale client. See `lib-multisrc/anikototheme/.../AnikotoTheme.kt`.
 - Do not eagerly initialize `client` in a theme base class: the initializer runs before subclass
   constructors, so an overridden `open val rateLimit` reads `0`.
+- Do not create `android.*` objects (e.g. `LruCache`) in a source's constructor or property
+  initializers – use `by lazy`. The repo publisher instantiates sources on a plain JVM where they
+  throw `Stub!`, which blocks the publish for every extension. See `CONTRIBUTING.md#misc-notes`.
 
 ## Versioning – bump once per PR, theme bump propagates
 
