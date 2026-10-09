@@ -125,6 +125,7 @@ class DetailsResponse(
                         }
                         format?.let { append("\nType: $format") }
                         episodes?.let { append("\nTotal Episode Count: $episodes") }
+                        id?.let { append("\n[AniList](https://anilist.co/anime/$id)") }
                     }.trim()
 
                     status = when (this@MediaObject.status) {
