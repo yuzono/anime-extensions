@@ -13,6 +13,32 @@ class Mapping(
 )
 
 @Serializable
+class TitleObject(
+    val romaji: String? = null,
+    val english: String? = null,
+    val native: String? = null,
+) {
+    fun getTitle(titlePref: String): String? {
+        val title = when (titlePref) {
+            "english" -> english ?: romaji ?: native
+            "native" -> native ?: romaji ?: english
+            else -> romaji ?: english ?: native
+        }
+        return title?.takeIf { it.isNotBlank() }
+    }
+}
+
+@Serializable
+class CoverObject(
+    val extraLarge: String? = null,
+    val large: String? = null,
+    val medium: String? = null,
+) {
+    val bestCoverUrl: String?
+        get() = extraLarge ?: large ?: medium
+}
+
+@Serializable
 class PagesResponse(
     val data: PagesData,
 ) {
@@ -37,22 +63,14 @@ class PagesResponse(
                 val animeTitle: TitleObject,
                 val coverImage: CoverObject,
             ) {
-                fun toSAnime(titlePref: String): SAnime = SAnime.create().apply {
-                    title = when (titlePref) {
-                        "romaji" -> animeTitle.romaji ?: animeTitle.english ?: animeTitle.native ?: ""
-                        "english" -> animeTitle.english ?: animeTitle.romaji ?: animeTitle.native ?: ""
-                        else -> animeTitle.native ?: animeTitle.romaji ?: animeTitle.english ?: ""
+                fun toSAnimeOrNull(titlePref: String): SAnime? {
+                    val resolvedTitle = animeTitle.getTitle(titlePref) ?: return null
+                    return SAnime.create().apply {
+                        url = id.toString()
+                        title = resolvedTitle
+                        thumbnail_url = coverImage.bestCoverUrl
                     }
-                    thumbnail_url = coverImage.extraLarge ?: coverImage.large ?: coverImage.medium ?: ""
-                    url = id.toString()
                 }
-
-                @Serializable
-                class TitleObject(
-                    val romaji: String? = null,
-                    val english: String? = null,
-                    val native: String? = null,
-                )
             }
         }
     }
@@ -81,55 +99,48 @@ class DetailsResponse(
             val studios: StudioObject? = null,
             val episodes: Int? = null,
         ) {
-            fun toSAnime(titlePref: String): SAnime = SAnime.create().apply {
-                url = id.toString()
-                thumbnail_url = coverImage.extraLarge ?: coverImage.large ?: coverImage.medium ?: ""
-                title = when (titlePref) {
-                    "romaji" -> animeTitle.romaji ?: animeTitle.english ?: animeTitle.native ?: ""
-                    "english" -> animeTitle.english ?: animeTitle.romaji ?: animeTitle.native ?: ""
-                    else -> animeTitle.native ?: animeTitle.romaji ?: animeTitle.english ?: ""
-                }
+            fun toSAnime(titlePref: String): SAnime {
+                val resolvedTitle = animeTitle.getTitle(titlePref)
+                    ?: throw IllegalStateException("Anime $id is missing title")
+                return SAnime.create().apply {
+                    url = id.toString()
+                    thumbnail_url = coverImage.bestCoverUrl
+                    title = resolvedTitle
 
-                description = buildString {
-                    append(
-                        this@MediaObject.description?.let {
-                            Jsoup.parseBodyFragment(
-                                it.replace("<br>\n", "br2n")
-                                    .replace("<br>", "br2n")
-                                    .replace("\n", "br2n"),
-                            ).text().replace("br2n", "\n")
-                        },
-                    )
-                    append("\n\n")
-                    if (!(season == null && seasonYear == null)) {
-                        append("Release: ${season ?: ""} ${seasonYear ?: ""}")
+                    description = buildString {
+                        append(
+                            this@MediaObject.description?.let {
+                                Jsoup.parseBodyFragment(
+                                    it.replace("<br>\n", "br2n")
+                                        .replace("<br>", "br2n")
+                                        .replace("\n", "br2n"),
+                                ).text().replace("br2n", "\n")
+                            },
+                        )
+                        append("\n\n")
+                        if (!(season == null && seasonYear == null)) {
+                            append("Release: ${season ?: ""} ${seasonYear ?: ""}")
+                        }
+                        format?.let { append("\nType: $format") }
+                        episodes?.let { append("\nTotal Episode Count: $episodes") }
+                    }.trim()
+
+                    status = when (this@MediaObject.status) {
+                        "FINISHED" -> SAnime.COMPLETED
+                        "RELEASING" -> SAnime.ONGOING
+                        "CANCELLED" -> SAnime.CANCELLED
+                        "HIATUS" -> SAnime.ON_HIATUS
+                        else -> SAnime.UNKNOWN
                     }
-                    format?.let { append("\nType: $format") }
-                    episodes?.let { append("\nTotal Episode Count: $episodes") }
-                }.trim()
 
-                status = when (this@MediaObject.status) {
-                    "FINISHED" -> SAnime.COMPLETED
-                    "RELEASING" -> SAnime.ONGOING
-                    "CANCELLED" -> SAnime.CANCELLED
-                    "HIATUS" -> SAnime.ON_HIATUS
-                    else -> SAnime.UNKNOWN
-                }
+                    genre = this@MediaObject.genres.joinToString(", ")
 
-                genre = this@MediaObject.genres.joinToString(", ")
-
-                author = studios?.let {
-                    it.edges.firstOrNull { edge -> edge.isMain }?.node?.name
-                        ?: it.edges.firstOrNull()?.node?.name
+                    author = studios?.let {
+                        it.edges.firstOrNull { edge -> edge.isMain }?.node?.name
+                            ?: it.edges.firstOrNull()?.node?.name
+                    }
                 }
             }
-
-            @Serializable
-            class TitleObject(
-                val romaji: String? = null,
-                val english: String? = null,
-                val native: String? = null,
-            )
 
             @Serializable
             class StudioObject(
@@ -151,11 +162,48 @@ class DetailsResponse(
 }
 
 @Serializable
-class CoverObject(
-    val extraLarge: String? = null,
-    val large: String? = null,
-    val medium: String? = null,
-)
+class PersonalListResponse(
+    val data: PersonalListData,
+) {
+    @Serializable
+    class PersonalListData(
+        @SerialName("Page") val page: PersonalListPage,
+    ) {
+        @Serializable
+        class PersonalListPage(
+            val pageInfo: PageInfoObject,
+            val mediaList: List<PersonalListEntry> = emptyList(),
+        ) {
+            @Serializable
+            class PageInfoObject(
+                val hasNextPage: Boolean,
+            )
+
+            @Serializable
+            class PersonalListEntry(
+                val media: PersonalListMedia? = null,
+            ) {
+                @Serializable
+                class PersonalListMedia(
+                    val id: Int,
+                    val isAdult: Boolean = false,
+                    @SerialName("title")
+                    val animeTitle: TitleObject,
+                    val coverImage: CoverObject,
+                ) {
+                    fun toSAnimeOrNull(titlePref: String): SAnime? {
+                        val resolvedTitle = animeTitle.getTitle(titlePref) ?: return null
+                        return SAnime.create().apply {
+                            url = id.toString()
+                            title = resolvedTitle
+                            thumbnail_url = coverImage.bestCoverUrl
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Serializable
 class AniListEpisodeResponse(
@@ -259,46 +307,43 @@ class FanartDto(
 }
 
 @Serializable
-class PersonalListResponse(
-    val data: PersonalListData,
-) {
-    @Serializable
-    class PersonalListData(
-        @SerialName("Page") val page: PersonalListPage,
-    ) {
-        @Serializable
-        class PersonalListPage(
-            val pageInfo: PageInfoObject,
-            val mediaList: List<PersonalListEntry> = emptyList(),
-        ) {
-            @Serializable
-            class PageInfoObject(
-                val hasNextPage: Boolean,
-            )
+data class SortVariables(
+    val page: Int,
+    val perPage: Int,
+    val sort: List<String>,
+    val type: String = "ANIME",
+    val status: String? = null,
+    val isAdult: Boolean? = null,
+)
 
-            @Serializable
-            class PersonalListEntry(
-                val media: PersonalListMedia? = null,
-            ) {
-                @Serializable
-                class PersonalListMedia(
-                    val id: Int,
-                    val isAdult: Boolean = false,
-                    @SerialName("title")
-                    val animeTitle: PagesResponse.PagesData.PageObject.MediaObject.TitleObject,
-                    val coverImage: CoverObject,
-                ) {
-                    fun toSAnime(titlePref: String): SAnime = SAnime.create().apply {
-                        url = id.toString()
-                        title = when (titlePref) {
-                            "romaji" -> animeTitle.romaji ?: animeTitle.english ?: animeTitle.native ?: ""
-                            "english" -> animeTitle.english ?: animeTitle.romaji ?: animeTitle.native ?: ""
-                            else -> animeTitle.native ?: animeTitle.romaji ?: animeTitle.english ?: ""
-                        }
-                        thumbnail_url = coverImage.extraLarge ?: coverImage.large ?: coverImage.medium ?: ""
-                    }
-                }
-            }
-        }
-    }
-}
+@Serializable
+data class SearchVariables(
+    val page: Int,
+    val perPage: Int,
+    val sort: List<String>? = null,
+    val type: String = "ANIME",
+    val search: String? = null,
+    val genres: List<String>? = null,
+    val format: List<String>? = null,
+    val year: String? = null,
+    val season: String? = null,
+    val seasonYear: Int? = null,
+    val status: String? = null,
+    val countryOfOrigin: String? = null,
+    val isAdult: Boolean? = null,
+)
+
+@Serializable
+data class PersonalListVariables(
+    val userName: String,
+    val type: String = "ANIME",
+    val status: String? = null,
+    val page: Int,
+    val perPage: Int,
+)
+
+@Serializable
+data class MediaVariables(
+    val id: Int,
+    val type: String = "ANIME",
+)
