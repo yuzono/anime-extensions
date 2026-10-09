@@ -27,7 +27,7 @@ class RedirectorBypasser(private val client: OkHttpClient, private val headers: 
         val httpUrl = nextUrl.toHttpUrlOrNull() ?: return null
         val cookieName = httpUrl.queryParameter("go") ?: return null
         val cookieValue = script.substringAfter("'$cookieName', '").substringBefore("'")
-        val cookie = Cookie.parse(httpUrl, "$cookieName=$cookieValue")!!
+        val cookie = Cookie.parse(httpUrl, "$cookieName=$cookieValue") ?: return null
         val headers = headers.newBuilder().set("referer", lastDoc.location()).build()
 
         val doc = runBlocking(Dispatchers.IO) {

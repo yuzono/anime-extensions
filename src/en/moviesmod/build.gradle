@@ -1,7 +1,9 @@
 ext {
     extName = 'MoviesMod'
     extClass = '.MoviesMod'
+    libVersion = 16
     extVersionCode = 3
+    isNsfw = false
 }
 
 apply plugin: "kei.plugins.extension.legacy"
