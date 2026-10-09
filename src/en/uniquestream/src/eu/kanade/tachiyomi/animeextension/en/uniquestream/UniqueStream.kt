@@ -1,23 +1,25 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.parallelFlatMapBlocking
+import keiyoushi.network.get
+import keiyoushi.utils.Source
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.delegate
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
-import okhttp3.Response
 import kotlin.math.ceil
 
-class UniqueStream : AnimeHttpLegacySource() {
+class UniqueStream : Source() {
 
     override val name = "UniqueStream"
 
@@ -29,39 +31,40 @@ class UniqueStream : AnimeHttpLegacySource() {
 
     private val apiUrl get() = "$baseUrl/api/v1"
 
+    private val preferredAudio by preferences.delegate(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT)
+    private val preferredQuality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
+
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$apiUrl/videos/popular?page=$page&limit=$PAGE_SIZE&type=all")
-
-    override fun popularAnimeParse(response: Response): AnimesPage {
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val response = client.get("$apiUrl/videos/popular?page=$page&limit=$PAGE_SIZE&type=all")
         val animeList = response.parseAs<List<BrowseItemDto>>().map { it.toSAnime() }
         return AnimesPage(animeList, animeList.size >= PAGE_SIZE)
     }
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$apiUrl/videos/new?page=$page&limit=$PAGE_SIZE&type=all")
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        val response = client.get("$apiUrl/videos/new?page=$page&limit=$PAGE_SIZE&type=all")
+        val animeList = response.parseAs<List<BrowseItemDto>>().map { it.toSAnime() }
+        return AnimesPage(animeList, animeList.size >= PAGE_SIZE)
+    }
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.isBlank()) return getPopularAnime(page)
+
         val url = "$apiUrl/search".toHttpUrl().newBuilder().apply {
             addQueryParameter("page", page.toString())
             addQueryParameter("query", query)
             addQueryParameter("t", "all")
             addQueryParameter("limit", PAGE_SIZE.toString())
-        }
-        return GET(url.build())
-    }
+        }.build()
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
+        val response = client.get(url)
         val result = response.parseAs<SearchResponseDto>()
         val animeList = (result.series.orEmpty() + result.movies.orEmpty()).map { it.toSAnime() }
-        // Totals stay constant on every page while lists paginate per type, so
-        // comparing the total against the current page loops forever past the end.
-        val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
         val totals = result.totals
         val hasNextPage = if (totals == null) {
             animeList.size >= PAGE_SIZE
@@ -77,9 +80,8 @@ class UniqueStream : AnimeHttpLegacySource() {
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(apiUrl + anime.url)
-
-    override fun animeDetailsParse(response: Response): SAnime {
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val response = client.get(apiUrl + anime.url)
         val details = response.parseAs<DetailsDto>()
         return SAnime.create().apply {
             title = details.title
@@ -98,9 +100,8 @@ class UniqueStream : AnimeHttpLegacySource() {
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
-
-    override fun episodeListParse(response: Response): List<SEpisode> {
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val response = client.get(apiUrl + anime.url)
         val details = response.parseAs<DetailsDto>()
 
         if (details.seasons == null) {
@@ -110,6 +111,7 @@ class UniqueStream : AnimeHttpLegacySource() {
                     name = "Movie"
                     episode_number = 1F
                     url = "movie/${details.contentId}|${details.audioLocales?.firstOrNull() ?: DEFAULT_AUDIO}"
+                    scanlator = getScanlatorLabel(details.audioLocales)
                 },
             )
         }
@@ -119,87 +121,158 @@ class UniqueStream : AnimeHttpLegacySource() {
                 (1..ceil(season.episodeCount / PAGE_SIZE.toDouble()).toInt()).map { season to it }
             }
 
-        return seasonPages.parallelFlatMapBlocking { (season, page) ->
-            client.newCall(GET("$apiUrl/season/${season.contentId}/episodes?page=$page&limit=$PAGE_SIZE"))
-                .awaitSuccess()
+        return seasonPages.parallelCatchingFlatMap { (season, page) ->
+            client.get("$apiUrl/season/${season.contentId}/episodes?page=$page&limit=$PAGE_SIZE")
                 .parseAs<List<EpisodeDto>>()
                 .map { it.toEpisode(season.displayNumber) }
         }.reversed()
     }
 
-    // ============================ Video Links =============================
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${anime.url}"
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        val (mediaPath, _) = episode.url.split("|")
+        return "$baseUrl/$mediaPath"
+    }
+
+    // =========================== Hosters & Videos ==========================
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val parts = episode.url.split("|")
         require(parts.size == 2) { "Outdated episode entry, refresh the entry" }
         val (mediaPath, locale) = parts
-        val media = client.newCall(
-            GET("$apiUrl/$mediaPath/media/hls/$locale"),
-        ).awaitSuccess().parseAs<MediaResponse>()
+        val media = client.get("$apiUrl/$mediaPath/media/hls/$locale").parseAs<MediaResponse>()
 
         val hls = requireNotNull(media.hls) { "No HLS media available for this episode" }
-        // The top-level track is the original audio (usually raw Japanese, no
-        // subs), so label it by its locale instead of claiming it is a sub.
-        val originalLabel = hls.locale?.let { localeNames[it] } ?: ORIGINAL_LABEL
+        val mediaId = media.mediaId
+        val hosters = mutableListOf<Hoster>()
 
-        UniqueStreamHlsServer.setUp(client)
+        // Hard subs (e.g. English Hard Sub)
+        hls.hardSubs.orEmpty().forEach { sub ->
+            sub.playlist?.let { playlist ->
+                hosters.add(
+                    Hoster(
+                        hosterName = hardSubLabel(sub.locale),
+                        hosterUrl = playlist,
+                        internalData = mediaId,
+                    ),
+                )
+            }
+        }
 
-        // Emits a locale as a single Video whose proxied master keeps every
-        // variant inside, so the player resolves qualities without this
-        // extension fetching that master up front.
-        fun singleVideo(label: String, dto: MediaResponse.HlsDto): Video? {
-            val masterUrl = dto.playlist ?: return null
-            return Video(
-                url = masterUrl,
-                quality = label,
-                videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId),
+        // Original track (usually raw Japanese)
+        hls.playlist?.let { playlist ->
+            val label = hls.locale?.let { "${localeNames[it] ?: it} (Raw)" } ?: "Raw"
+            hosters.add(
+                Hoster(
+                    hosterName = label,
+                    hosterUrl = playlist,
+                    internalData = mediaId,
+                ),
             )
         }
 
-        // Only the original track gets its master inspected, to keep the
-        // familiar per-height quality entries; dubs and hardsubs stay
-        // un-fetched, cutting N master round-trips down to exactly 1.
-        // If the inspection fails, fall back to a single unfiltered Video.
-        val originalVideos = hls.playlist?.let { masterUrl ->
-            runCatching {
-                fetchText(masterUrl).let { master ->
-                    VARIANT_REGEX.findAll(master).mapNotNull { match ->
-                        val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-                        val variantUrl = masterUrl.toHttpUrl().resolve(match.groupValues[2])?.toString()
-                            ?: return@mapNotNull null
-                        Video(
-                            url = variantUrl,
-                            quality = "$originalLabel - ${height}p",
-                            videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, media.mediaId, height),
-                        )
-                    }.toList()
-                }
-            }.getOrElse { listOfNotNull(singleVideo(originalLabel, hls)) }
-        } ?: emptyList<Video>()
-
-        val videos = originalVideos +
-            hls.hardSubs.orEmpty().mapNotNull { sub -> singleVideo(hardSubLabel(sub.locale), sub) } +
-            media.versions?.hls.orEmpty().mapNotNull { version ->
-                singleVideo(version.locale?.let { localeNames[it] } ?: "Dub", version)
+        // Dub versions
+        media.versions?.hls.orEmpty().forEach { version ->
+            version.playlist?.let { playlist ->
+                val langName = version.locale?.let { localeNames[it] ?: it } ?: "Dub"
+                hosters.add(
+                    Hoster(
+                        hosterName = "$langName (Dub)",
+                        hosterUrl = playlist,
+                        internalData = mediaId,
+                    ),
+                )
             }
+            version.hardSubs.orEmpty().forEach { sub ->
+                sub.playlist?.let { playlist ->
+                    val langName = version.locale?.let { localeNames[it] ?: it } ?: "Dub"
+                    val subLang = sub.locale?.let { localeNames[it] ?: it } ?: "Hard Sub"
+                    hosters.add(
+                        Hoster(
+                            hosterName = "$langName Dub ($subLang Sub)",
+                            hosterUrl = playlist,
+                            internalData = mediaId,
+                        ),
+                    )
+                }
+            }
+        }
 
-        require(videos.isNotEmpty()) { "Failed to fetch videos" }
+        require(hosters.isNotEmpty()) { "No hosters found for this episode" }
+        return hosters.sortHosters()
+    }
 
-        return videos.sortedWith(
-            compareByDescending<Video> { it.videoTitle.substringBefore(" - ") == originalLabel }
-                .thenByDescending { it.videoTitle.substringAfterLast(" ").removeSuffix("p").toIntOrNull() ?: 0 },
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val isDub = preferredAudio == "dub"
+        return sortedWith(
+            compareByDescending<Hoster> {
+                if (isDub) {
+                    it.hosterName.contains("Dub", ignoreCase = true)
+                } else {
+                    it.hosterName.contains("Sub", ignoreCase = true)
+                }
+            }.thenByDescending {
+                it.hosterName.contains("English", ignoreCase = true)
+            },
         )
     }
 
-    private fun fetchText(url: String): String = client.newCall(GET(url)).execute().use { response ->
-        check(response.isSuccessful) { "Failed to fetch playlist: ${response.code}" }
-        response.body.string()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val masterUrl = hoster.hosterUrl
+        val mediaId = hoster.internalData
+        UniqueStreamHlsServer.setUp(client)
+
+        val videos = runCatching {
+            val master = client.get(masterUrl).bodyString()
+            VARIANT_REGEX.findAll(master).mapNotNull { match ->
+                val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val variantUrl = masterUrl.toHttpUrl().resolve(match.groupValues[2])?.toString()
+                    ?: return@mapNotNull null
+                Video(
+                    videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, mediaId, height),
+                    videoTitle = "${hoster.hosterName} - ${height}p",
+                )
+            }.toList()
+        }.getOrNull().orEmpty()
+
+        val result = if (videos.isNotEmpty()) {
+            videos
+        } else {
+            listOf(
+                Video(
+                    videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, mediaId),
+                    videoTitle = hoster.hosterName,
+                ),
+            )
+        }
+
+        val quality = preferredQuality
+        return result.sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains("${quality}p") }
+                .thenByDescending { it.videoTitle.substringAfterLast(" - ").removeSuffix("p").toIntOrNull() ?: 0 },
+        )
     }
 
-    private fun hardSubLabel(locale: String?): String = when (locale) {
-        "en-US" -> "English Hard Sub"
-        null -> "Hard Sub"
-        else -> "${localeNames[locale] ?: locale} Hard Sub"
+    // ============================ Preferences =============================
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addListPreference(
+            key = PREF_AUDIO_KEY,
+            title = "Preferred Audio",
+            entries = PREF_AUDIO_ENTRIES,
+            entryValues = PREF_AUDIO_VALUES,
+            default = PREF_AUDIO_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred Quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_VALUES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
     }
 
     // ============================= Utilities ==============================
@@ -291,6 +364,7 @@ class UniqueStream : AnimeHttpLegacySource() {
             }
             episode_number = episodeNumber.toFloat()
             url = "episode/$contentId|${audioLocales?.firstOrNull() ?: DEFAULT_AUDIO}"
+            scanlator = getScanlatorLabel(audioLocales)
         }
     }
 
@@ -317,14 +391,23 @@ class UniqueStream : AnimeHttpLegacySource() {
     companion object {
         private const val PAGE_SIZE = 20
         private const val DEFAULT_AUDIO = "ja-JP"
-        private const val ORIGINAL_LABEL = "Original"
+
+        private const val PREF_AUDIO_KEY = "preferred_audio"
+        private val PREF_AUDIO_ENTRIES = listOf("Sub", "Dub")
+        private val PREF_AUDIO_VALUES = listOf("sub", "dub")
+        private const val PREF_AUDIO_DEFAULT = "sub"
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
+        private const val PREF_QUALITY_DEFAULT = "1080"
 
         // Master playlists carry one line of metadata followed by the variant URL.
         private val VARIANT_REGEX = Regex("""RESOLUTION=\d+x(\d+)[^\n]*\n([^\n#]+\.m3u8[^\n]*)""")
 
         private val localeNames = mapOf(
             "ja-JP" to "Japanese",
-            "en-US" to "Dub",
+            "en-US" to "English",
             "es-419" to "Spanish (LatAm)",
             "es-ES" to "Spanish (Spain)",
             "pt-BR" to "Portuguese",
@@ -337,5 +420,23 @@ class UniqueStream : AnimeHttpLegacySource() {
             "ta-IN" to "Tamil",
             "pl-PL" to "Polish",
         )
+
+        private fun hardSubLabel(locale: String?): String = when (locale) {
+            "en-US" -> "English Hard Sub"
+            null -> "Hard Sub"
+            else -> "${localeNames[locale] ?: locale} Hard Sub"
+        }
+
+        private fun getScanlatorLabel(locales: List<String>?): String? {
+            if (locales.isNullOrEmpty()) return null
+            val hasSub = locales.contains("ja-JP")
+            val hasDub = locales.any { it != "ja-JP" }
+            return when {
+                hasSub && hasDub -> "Sub, Dub"
+                hasDub -> "Dub"
+                hasSub -> "Sub"
+                else -> null
+            }
+        }
     }
 }

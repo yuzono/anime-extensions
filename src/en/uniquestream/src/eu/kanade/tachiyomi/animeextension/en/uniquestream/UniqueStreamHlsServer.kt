@@ -144,7 +144,7 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
                 line.startsWith("#EXT-X-STREAM-INF:") -> pendingStreamInf = line.trim()
                 line.startsWith("#EXT-X-I-FRAME-STREAM-INF") -> Unit
                 pendingStreamInf != null && !line.startsWith("#") && line.isNotBlank() -> {
-                    variants.add(pendingStreamInf!! to resolveHlsUrl(baseHttpUrl, line.trim()))
+                    variants.add(pendingStreamInf to resolveHlsUrl(baseHttpUrl, line.trim()))
                     pendingStreamInf = null
                 }
                 pendingStreamInf != null -> Unit

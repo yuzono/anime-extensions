@@ -1,7 +1,8 @@
 ext {
     extName = 'UniqueStream'
     extClass = '.UniqueStream'
-    extVersionCode = 8
+    libVersion = 16
+    extVersionCode = 9
 }
 
 apply plugin: "kei.plugins.extension.legacy"
