@@ -25,7 +25,8 @@ class HlsVariant(
  * Audio-only variants are skipped. A variant only gets the renditions of the AUDIO/SUBTITLES group
  * it references; variants without a known group, and renditions of groups no variant references,
  * get every rendition of that type. Relative URIs are resolved against [playlistUrl], while
- * absolute URLs are kept byte-for-byte so signed URLs are never re-encoded.
+ * absolute URLs are kept byte-for-byte so signed URLs are never re-encoded. Audio renditions are
+ * ordered by DEFAULT, then AUTOSELECT, keeping their playlist order within each priority.
  */
 fun parseHlsMasterPlaylist(playlistUrl: String, masterPlaylist: String): List<HlsVariant>? {
     if (PLAYLIST_SEPARATOR !in masterPlaylist) return null
@@ -66,7 +67,13 @@ private fun renditionTracks(
     variants: List<Map<String, String>>,
     playlistUrl: String,
 ): (String?) -> List<Track> {
-    val ofType = renditions.filter { it["TYPE"] == type }
+    val ofType = renditions.filter { it["TYPE"] == type }.let { tracks ->
+        if (type == "AUDIO") {
+            tracks.sortedWith(compareByDescending<Map<String, String>> { it["DEFAULT"] == "YES" }.thenByDescending { it["AUTOSELECT"] == "YES" })
+        } else {
+            tracks
+        }
+    }
     val referenced = variants.mapNotNullTo(mutableSetOf()) { it[type] }
     fun List<Map<String, String>>.toTracks() = mapNotNull { attributes ->
         val uri = attributes["URI"] ?: return@mapNotNull null
@@ -79,7 +86,9 @@ private fun renditionTracks(
     val all = ofType.toTracks()
     val byGroup = ofType.mapNotNullTo(mutableSetOf()) { it["GROUP-ID"] }
         .filter { it in referenced }
-        .associateWith { group -> ofType.filter { it["GROUP-ID"] == group || it["GROUP-ID"] !in referenced }.toTracks() }
+        .associateWith { group ->
+            (ofType.filter { it["GROUP-ID"] == group } + ofType.filter { it["GROUP-ID"] !in referenced }).toTracks()
+        }
     return { group -> group?.let(byGroup::get) ?: all }
 }
 

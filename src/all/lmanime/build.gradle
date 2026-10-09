@@ -3,7 +3,7 @@ ext {
     extClass = '.LMAnime'
     themePkg = 'animestream'
     baseUrl = 'https://lmanime.com'
-    overrideVersionCode = 21
+    overrideVersionCode = 22
 }
 
 apply plugin: "kei.plugins.extension.legacy"

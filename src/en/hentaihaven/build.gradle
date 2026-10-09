@@ -2,12 +2,12 @@ ext {
     extName = 'HentaiHaven'
     extClass = '.HentaiHaven'
     libVersion = 16
-    extVersionCode = 8
+    extVersionCode = 9
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
+    implementation(project(':lib:hlsdash'))
 }

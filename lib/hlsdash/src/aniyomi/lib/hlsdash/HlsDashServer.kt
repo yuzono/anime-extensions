@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.en.hentaihaven.extractors
+package aniyomi.lib.hlsdash
 
 import eu.kanade.tachiyomi.network.GET
 import okhttp3.Headers
@@ -17,17 +17,30 @@ import java.util.concurrent.FutureTask
 import kotlin.math.roundToLong
 
 /**
- * Serves Octopus HLS variants as DASH manifests over loopback.
+ * Serves fMP4 HLS media playlists to the player as DASH manifests over loopback.
  *
- * Octopus segments are fMP4. The app's FFmpeg (7.1, used by both the player and the downloader)
- * keeps stale mov state after an HLS seek, so seeking past the cache never resumes. Its DASH
- * demuxer reopens the segment demuxer on every seek instead.
+ * The app's FFmpeg (7.1, used by both the player and the downloader) keeps stale mov state after a
+ * seek in fMP4 (`EXT-X-MAP`) HLS, so seeking past the cache never resumes. Its DASH demuxer
+ * reopens the segment demuxer on every seek instead. A separate audio rendition is served as an
+ * adaptation set of the same manifest rather than as an external audio track.
  *
  * That demuxer fetches one segment at a time, which leaves small low-quality segments dominated
  * by request latency and the buffer barely filling. The segments are therefore proxied through
  * the shared OkHttp client (reusing its connections) and the next few are read ahead.
  */
-object OctopusDash : NanoHTTPD("127.0.0.1", 0) {
+object HlsDashServer {
+    /**
+     * Registers a stream and returns the loopback URL of its DASH manifest, to use as the video URL.
+     *
+     * @param client client used for the playlist and segment requests
+     * @param headers headers sent with every playlist and segment request
+     * @param videoUrl fMP4 HLS media playlist of the video
+     * @param audioUrl fMP4 HLS media playlist of a separate audio rendition, if any
+     */
+    fun register(client: OkHttpClient, headers: Headers, videoUrl: String, audioUrl: String?): String = DashServer.register(client, headers, videoUrl, audioUrl)
+}
+
+private object DashServer : NanoHTTPD("127.0.0.1", 0) {
 
     private const val VIDEO = "video"
     private const val AUDIO = "audio"
@@ -61,7 +74,7 @@ object OctopusDash : NanoHTTPD("127.0.0.1", 0) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FutureTask<ByteArray>>?) = size > MAX_CACHED_SEGMENTS
     }
 
-    private val prefetcher = Executors.newFixedThreadPool(PREFETCH_THREADS) { Thread(it, "OctopusDash").apply { isDaemon = true } }
+    private val prefetcher = Executors.newFixedThreadPool(PREFETCH_THREADS) { Thread(it, "HlsDashServer").apply { isDaemon = true } }
 
     @Synchronized
     fun register(client: OkHttpClient, headers: Headers, videoUrl: String, audioUrl: String?): String {
@@ -191,7 +204,10 @@ object OctopusDash : NanoHTTPD("127.0.0.1", 0) {
 
     private fun Stream.fetch(url: String): Playlist {
         val playlistUrl = url.toHttpUrl()
-        val lines = client.newCall(GET(playlistUrl, headers)).execute().use { it.body.string() }.lines()
+        val lines = client.newCall(GET(playlistUrl, headers)).execute().use { response ->
+            check(response.isSuccessful) { "HTTP ${response.code} for $url" }
+            response.body.string()
+        }.lines()
 
         var init: Resource? = null
         var pendingDuration = 0.0
@@ -254,22 +270,24 @@ object OctopusDash : NanoHTTPD("127.0.0.1", 0) {
     private fun StringBuilder.appendAdaptationSet(type: String, playlist: Playlist, baseUrl: String) {
         val segments = playlist.segments
         val body = segments.dropLast(1).map { it.durationMs }
-        val fixedLength = !USE_SEGMENT_TIMELINE || body.isEmpty() ||
+        val fixedLength = body.isEmpty() ||
             (body.max() - body.min() <= 1 && segments.last().durationMs <= body.max() + 1)
 
         append("""<AdaptationSet mimeType="$type/mp4"><Representation id="$type">""")
         if (fixedLength) {
-            val duration = (playlist.totalMs.toDouble() / segments.size).roundToLong()
+            // The final segment may be shorter; including it shifts every seek toward a later segment.
+            val duration = if (body.isEmpty()) segments.first().durationMs else body.average().roundToLong()
             append("""<SegmentList timescale="1000" duration="$duration">""")
+            append("""<Initialization sourceURL="$baseUrl/$type/init"/>""")
+            segments.indices.forEach { append("""<SegmentURL media="$baseUrl/$type/$it"/>""") }
+            append("</SegmentList>")
         } else {
-            append("""<SegmentList timescale="1000">""")
+            // FFmpeg 7.1 reads a representation's timeline from SegmentTemplate, but not SegmentList.
+            append("""<SegmentTemplate timescale="1000" startNumber="0" initialization="$baseUrl/$type/init" media="$baseUrl/$type/${'$'}Number${'$'}">""")
+            appendTimeline(segments)
+            append("</SegmentTemplate>")
         }
-        append("""<Initialization sourceURL="$baseUrl/$type/init"/>""")
-
-        if (!fixedLength) appendTimeline(segments)
-
-        segments.indices.forEach { append("""<SegmentURL media="$baseUrl/$type/$it"/>""") }
-        append("</SegmentList></Representation></AdaptationSet>")
+        append("</Representation></AdaptationSet>")
     }
 
     private fun StringBuilder.appendTimeline(segments: List<Segment>) {
@@ -288,10 +306,6 @@ object OctopusDash : NanoHTTPD("127.0.0.1", 0) {
         }
         append("</SegmentTimeline>")
     }
-
-    // The app's FFmpeg seeks reliably with a fixed SegmentList `duration` (what the original manifest used).
-    // Flip this to emit a per-segment SegmentTimeline for playlists with varying EXTINF durations.
-    private const val USE_SEGMENT_TIMELINE = false
 
     private val MAP_URI_REGEX = Regex("""URI="([^"]+)"""")
     private val MAP_RANGE_REGEX = Regex("""BYTERANGE="([^"]+)"""")

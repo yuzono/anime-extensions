@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimeKhor'
     themePkg = 'animestream'
     baseUrl = 'https://animekhor.org'
-    overrideVersionCode = 21
+    overrideVersionCode = 22
 }
 
 apply plugin: "kei.plugins.extension.legacy"

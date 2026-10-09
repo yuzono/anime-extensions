@@ -1,5 +1,6 @@
 package aniyomi.lib.dailymotionextractor
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
@@ -8,30 +9,35 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonTransformingSerializer
 
 @Serializable
-data class DailyQuality(
+class DailyQuality(
     val qualities: Auto? = null,
     val subtitles: Subtitle? = null,
     val error: Error? = null,
     val id: String? = null,
+    @SerialName("stream_formats") private val streamFormats: Map<String, String>? = null,
 ) {
     @Serializable
-    data class Error(val type: String)
+    class Error(val type: String)
+
+    /** Whether every quality is served as fMP4 HLS (`EXT-X-MAP` init segments) rather than MPEG-TS. */
+    val isFmp4: Boolean
+        get() = !streamFormats.isNullOrEmpty() && streamFormats.values.all { it.equals("fMP4", ignoreCase = true) }
 }
 
 @Serializable
-data class Auto(val auto: List<Item>) {
+class Auto(val auto: List<Item>) {
     @Serializable
-    data class Item(val type: String, val url: String)
+    class Item(val url: String)
 }
 
 @Serializable
-data class Subtitle(
+class Subtitle(
     @Serializable(with = SubtitleListSerializer::class)
     val data: List<SubtitleDto>,
 )
 
 @Serializable
-data class SubtitleDto(val label: String, val urls: List<String>)
+class SubtitleDto(val label: String, val urls: List<String>)
 
 object SubtitleListSerializer :
     JsonTransformingSerializer<List<SubtitleDto>>(ListSerializer(SubtitleDto.serializer())) {
@@ -42,19 +48,16 @@ object SubtitleListSerializer :
 }
 
 @Serializable
-data class TokenResponse(
-    val access_token: String,
-    val token_type: String,
+class TokenResponse(
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("token_type") val tokenType: String,
 )
 
 @Serializable
-data class ProtectedResponse(val data: DataObject) {
+class ProtectedResponse(val data: DataObject) {
     @Serializable
-    data class DataObject(val video: VideoObject) {
+    class DataObject(val video: VideoObject) {
         @Serializable
-        data class VideoObject(
-            val id: String,
-            val xid: String,
-        )
+        class VideoObject(val xid: String)
     }
 }

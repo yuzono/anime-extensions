@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hentaihaven.extractors
 
+import aniyomi.lib.hlsdash.HlsDashServer
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.network.get
@@ -11,7 +12,7 @@ import okhttp3.OkHttpClient
 
 /**
  * Builds one [Video] per quality of the Octopus VP9/CMAF stream. Each variant is handed to the
- * player as a DASH manifest by [OctopusDash] so that seeking works.
+ * player as a DASH manifest by [HlsDashServer] so that seeking works.
  */
 class OctopusExtractor(private val client: OkHttpClient) {
 
@@ -52,7 +53,7 @@ class OctopusExtractor(private val client: OkHttpClient) {
                     val audioUrl = selectAudio(masterUrl, audioGroups[info["AUDIO"]] ?: audioGroups.values.flatten())
                     videos += Video(
                         videoTitle = info["RESOLUTION"]?.substringAfter('x')?.toIntOrNull()?.let { "${it}p" } ?: "Auto",
-                        videoUrl = OctopusDash.register(client, videoHeaders, videoUrl, audioUrl),
+                        videoUrl = HlsDashServer.register(client, videoHeaders, videoUrl, audioUrl),
                         headers = videoHeaders,
                         subtitleTracks = subtitles,
                     )
