@@ -7,19 +7,23 @@ import okhttp3.OkHttpClient
 
 class CoverProviders(private val client: OkHttpClient, private val headers: Headers) {
     fun getMALCovers(malId: String): List<String> {
-        return client.newCall(
-            GET("https://api.tenrai.org/v1/anime/$malId/pictures", headers),
-        ).execute().use { response ->
-            if (!response.isSuccessful) return@use emptyList()
-
+        for (baseUrl in MAL_API_URLS) {
             try {
-                response.parseAs<MALPicturesDto>().data?.mapNotNull { imgs ->
-                    imgs.jpg?.let { it.largeImageUrl ?: it.imageUrl ?: it.smallImageUrl }
-                } ?: emptyList()
+                val covers = client.newCall(
+                    GET("$baseUrl/anime/$malId/pictures", headers),
+                ).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+
+                    response.parseAs<MALPicturesDto>().data?.mapNotNull { imgs ->
+                        imgs.jpg?.let { it.largeImageUrl ?: it.imageUrl ?: it.smallImageUrl }
+                    }
+                }
+                if (!covers.isNullOrEmpty()) return covers
             } catch (_: Exception) {
-                emptyList()
+                // Try next fallback mirror
             }
         }
+        return emptyList()
     }
 
     fun getFanartCovers(tvdbId: String, type: String): List<String> {
