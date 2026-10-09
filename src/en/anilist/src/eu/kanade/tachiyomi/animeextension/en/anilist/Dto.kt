@@ -250,6 +250,7 @@ class MALPicturesDto(
 @Serializable
 class FanartDto(
     val tvposter: List<ImageDto>? = null,
+    val movieposter: List<ImageDto>? = null,
 ) {
     @Serializable
     class ImageDto(
