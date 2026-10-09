@@ -36,6 +36,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -193,7 +194,7 @@ class AniList :
     @Volatile
     private var cachedViewerToken: String? = null
 
-    private var personalListAniListPage = 1
+    private val personalListPages = ConcurrentHashMap<String, Int>()
 
     private suspend fun getOrFetchUsername(): String {
         val prefUsername = preferences.getString(PREF_USERNAME_KEY, "")?.trim().orEmpty()
@@ -233,8 +234,9 @@ class AniList :
         val titleLang = preferences.titleLang
         val allowAdult = preferences.allowAdult
         val status = listFilter.getStatus()
+        val cacheKey = "$username:${status ?: "ALL"}"
 
-        var currentAniListPage = if (page == 1) 1 else maxOf(personalListAniListPage, page)
+        var currentAniListPage = if (page == 1) 1 else maxOf(personalListPages[cacheKey] ?: 1, page)
         val animeList = mutableListOf<SAnime>()
         var hasNextPage = false
 
@@ -268,7 +270,7 @@ class AniList :
             if (!hasNextPage) break
         }
 
-        personalListAniListPage = currentAniListPage
+        personalListPages[cacheKey] = currentAniListPage
         return AnimesPage(animeList, hasNextPage)
     }
 
