@@ -603,12 +603,15 @@ class AniList :
                     val data = client.newCall(
                         GET("$baseUrl/anime/$malId/episodes?page=$page", headers),
                     ).execute().use { response ->
-                        if (!response.isSuccessful) return@use null
+                        if (!response.isSuccessful) {
+                            throw IOException("HTTP ${response.code} from $baseUrl on page $page")
+                        }
                         response.parseAs<JikanEpisodesDto>()
-                    } ?: break
+                    }
 
                     if (data.pagination.lastPage == 1 && data.data.isEmpty()) {
-                        return getSingleEpisodeFromMal(malId)
+                        val singleEpisode = getSingleEpisodeFromMal(malId)
+                        if (singleEpisode.isNotEmpty()) return singleEpisode
                     }
 
                     episodeList.addAll(
