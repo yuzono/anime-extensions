@@ -256,3 +256,48 @@ class FanartDto(
         val url: String,
     )
 }
+
+@Serializable
+class PersonalListResponse(
+    val data: PersonalListData,
+) {
+    @Serializable
+    class PersonalListData(
+        @SerialName("Page") val page: PersonalListPage,
+    ) {
+        @Serializable
+        class PersonalListPage(
+            val pageInfo: PageInfoObject,
+            val mediaList: List<PersonalListEntry> = emptyList(),
+        ) {
+            @Serializable
+            class PageInfoObject(
+                val hasNextPage: Boolean,
+            )
+
+            @Serializable
+            class PersonalListEntry(
+                val media: PersonalListMedia? = null,
+            ) {
+                @Serializable
+                class PersonalListMedia(
+                    val id: Int,
+                    val isAdult: Boolean = false,
+                    @SerialName("title")
+                    val animeTitle: PagesResponse.PagesData.PageObject.MediaObject.TitleObject,
+                    val coverImage: CoverObject,
+                ) {
+                    fun toSAnime(titlePref: String): SAnime = SAnime.create().apply {
+                        url = id.toString()
+                        title = when (titlePref) {
+                            "romaji" -> animeTitle.romaji ?: animeTitle.english ?: animeTitle.native ?: ""
+                            "english" -> animeTitle.english ?: animeTitle.romaji ?: animeTitle.native ?: ""
+                            else -> animeTitle.native ?: animeTitle.romaji ?: animeTitle.english ?: ""
+                        }
+                        thumbnail_url = coverImage.extraLarge ?: coverImage.large ?: coverImage.medium ?: ""
+                    }
+                }
+            }
+        }
+    }
+}
