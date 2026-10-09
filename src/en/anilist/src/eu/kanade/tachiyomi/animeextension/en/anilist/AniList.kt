@@ -40,6 +40,7 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.time.Duration.Companion.milliseconds
@@ -273,17 +274,19 @@ class AniList :
                 }
             }
 
-            if (params.season.isBlank() && params.year.isNotBlank()) {
-                put("year", "${params.year}%")
+            val effectiveYear = if (params.season.isNotBlank() && params.year.isBlank()) {
+                Calendar.getInstance().get(Calendar.YEAR).toString()
+            } else {
+                params.year
             }
 
-            if (params.season.isNotBlank() && params.year.isBlank()) {
-                throw Exception("Year cannot be blank if season is set")
+            if (params.season.isBlank() && effectiveYear.isNotBlank()) {
+                put("year", "$effectiveYear%")
             }
 
-            if (params.season.isNotBlank() && params.year.isNotBlank()) {
+            if (params.season.isNotBlank() && effectiveYear.isNotBlank()) {
                 put("season", params.season)
-                put("seasonYear", params.year.toInt())
+                put("seasonYear", effectiveYear.toInt())
             }
 
             if (params.status.isNotBlank()) {
