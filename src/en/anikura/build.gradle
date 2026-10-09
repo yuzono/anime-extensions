@@ -1,0 +1,9 @@
+ext {
+    extName = 'Anikura'
+    extClass = '.Anikura'
+    extVersionCode = 1
+    isNsfw = false
+    libVersion = 16
+}
+
+apply plugin: "kei.plugins.extension.legacy"
