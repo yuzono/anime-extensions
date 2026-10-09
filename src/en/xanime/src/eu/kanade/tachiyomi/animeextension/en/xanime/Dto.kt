@@ -386,3 +386,15 @@ class GraphQlPayload(
     private val query: String,
     private val variables: JsonElement,
 )
+
+@Serializable
+data class HosterData(
+    val url: String,
+    val tracks: List<HosterTrack> = emptyList(),
+)
+
+@Serializable
+data class HosterTrack(
+    val url: String,
+    val label: String,
+)

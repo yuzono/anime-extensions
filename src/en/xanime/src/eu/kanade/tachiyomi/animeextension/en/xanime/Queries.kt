@@ -1,13 +1,11 @@
 package eu.kanade.tachiyomi.animeextension.en.xanime
 
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.network.post
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
-import okhttp3.Request
 
 class Queries(
     private val client: OkHttpClient,
@@ -111,16 +109,12 @@ class Queries(
         return executeRequest<NodeResponse>(payload).node
     }
 
-    fun getRelatedAnimeRequest(aniId: String): Request {
+    suspend fun getRelatedAnime(aniId: String): RelatedResponse {
         val payload = GraphQlPayload(
             query = relationsQuery,
             variables = DetailsVariables(aniId).toJsonElement(),
         )
-        return POST(
-            "${baseUrlProvider()}/z2/",
-            headers = headers,
-            body = payload.toJsonRequestBody(),
-        )
+        return executeRequest(payload)
     }
 
     suspend fun getEpisodes(aniId: String, page: Int = 1): EpisodesResponse {
@@ -140,12 +134,12 @@ class Queries(
     }
 
     private suspend inline fun <reified T> executeRequest(payload: GraphQlPayload): T {
-        val request = POST(
-            "${baseUrlProvider()}/z2/",
+        val response = client.post(
+            url = "${baseUrlProvider()}/z2/",
             headers = headers,
             body = payload.toJsonRequestBody(),
         )
-        return client.newCall(request).awaitSuccess().parseAs<GraphQlResponse<T>>().data
+        return response.parseAs<GraphQlResponse<T>>().data
             ?: throw Exception("Unexpected API response")
     }
 }

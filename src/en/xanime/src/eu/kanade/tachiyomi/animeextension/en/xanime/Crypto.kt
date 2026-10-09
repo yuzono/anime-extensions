@@ -41,7 +41,7 @@ class Crypto : Interceptor {
 
         val originalResponse = chain.proceed(newRequest)
 
-        val encryptedResponseStr = originalResponse.body?.string() ?: return originalResponse
+        val encryptedResponseStr = originalResponse.body.string()
 
         try {
             val jsonElement = encryptedResponseStr.parseAs<CryptoWrapper>()
@@ -54,7 +54,7 @@ class Crypto : Interceptor {
                 val decryptedBytes = decrypt(ct, iv)
 
                 return originalResponse.newBuilder()
-                    .body(decryptedBytes.toString(Charsets.UTF_8).toResponseBody(originalResponse.body?.contentType()))
+                    .body(decryptedBytes.toString(Charsets.UTF_8).toResponseBody(originalResponse.body.contentType()))
                     .build()
             }
         } catch (e: Exception) {
@@ -62,7 +62,7 @@ class Crypto : Interceptor {
         }
 
         return originalResponse.newBuilder()
-            .body(encryptedResponseStr.toResponseBody(originalResponse.body?.contentType()))
+            .body(encryptedResponseStr.toResponseBody(originalResponse.body.contentType()))
             .build()
     }
 
