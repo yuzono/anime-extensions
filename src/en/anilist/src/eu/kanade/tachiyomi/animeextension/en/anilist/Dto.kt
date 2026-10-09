@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.anilist
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.jsoup.Jsoup
@@ -307,21 +309,38 @@ class FanartDto(
 }
 
 @Serializable
-data class SortVariables(
+class ViewerResponse(
+    val data: ViewerData,
+) {
+    @Serializable
+    class ViewerData(
+        @SerialName("Viewer") val viewer: ViewerObject? = null,
+    ) {
+        @Serializable
+        class ViewerObject(
+            val name: String? = null,
+        )
+    }
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+class SortVariables(
     val page: Int,
     val perPage: Int,
     val sort: List<String>,
-    val type: String = "ANIME",
+    @EncodeDefault val type: String = "ANIME",
     val status: String? = null,
     val isAdult: Boolean? = null,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class SearchVariables(
+class SearchVariables(
     val page: Int,
     val perPage: Int,
     val sort: List<String>? = null,
-    val type: String = "ANIME",
+    @EncodeDefault val type: String = "ANIME",
     val search: String? = null,
     val genres: List<String>? = null,
     val format: List<String>? = null,
@@ -333,17 +352,19 @@ data class SearchVariables(
     val isAdult: Boolean? = null,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class PersonalListVariables(
+class PersonalListVariables(
     val userName: String,
-    val type: String = "ANIME",
+    @EncodeDefault val type: String = "ANIME",
     val status: String? = null,
     val page: Int,
     val perPage: Int,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class MediaVariables(
+class MediaVariables(
     val id: Int,
-    val type: String = "ANIME",
+    @EncodeDefault val type: String = "ANIME",
 )
