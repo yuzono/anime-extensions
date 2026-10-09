@@ -22,10 +22,9 @@ import keiyoushi.utils.graphQLPost
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.parseGraphQLAs
 import keiyoushi.utils.tryParse
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
@@ -155,6 +154,7 @@ class AniList :
             page = page,
             perPage = PER_PAGE,
             sort = listOf(sort),
+            type = "ANIME",
             status = status,
             isAdult = if (!preferences.allowAdult) false else null,
         )
@@ -194,7 +194,8 @@ class AniList :
     @Volatile
     private var cachedViewerToken: String? = null
 
-    private val personalListPages = ConcurrentHashMap<String, Int>()
+    private val personalListPageMappings = ConcurrentHashMap<String, ConcurrentHashMap<Int, Int>>()
+    private val personalListMutexes = ConcurrentHashMap<String, Mutex>()
 
     private suspend fun getOrFetchUsername(): String {
         val prefUsername = preferences.getString(PREF_USERNAME_KEY, "")?.trim().orEmpty()
@@ -216,8 +217,7 @@ class AniList :
             json = json,
         )
         val name = client.newCall(request).awaitSuccess().use { response ->
-            val jsonElem = json.parseToJsonElement(response.body.string()).jsonObject
-            jsonElem["data"]?.jsonObject?.get("Viewer")?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull?.takeIf { it != "null" }
+            response.parseGraphQLAs<ViewerResponse.ViewerData>(json).viewer?.name
         }
 
         if (!name.isNullOrBlank()) {
@@ -229,49 +229,59 @@ class AniList :
         throw Exception("Failed to resolve AniList username from provided API token.")
     }
 
-    private suspend fun getPersonalListAnime(page: Int, listFilter: Filters.AniListListFilter): AnimesPage {
+    private suspend fun getPersonalListAnime(page: Int, listFilter: Filters.AniListListFilter, query: String = ""): AnimesPage {
         val username = getOrFetchUsername()
         val titleLang = preferences.titleLang
         val allowAdult = preferences.allowAdult
         val status = listFilter.getStatus()
-        val cacheKey = "$username:${status ?: "ALL"}"
+        val cacheKey = "$username:${status ?: "ALL"}:$query"
+        val mutex = personalListMutexes.getOrPut(cacheKey) { Mutex() }
 
-        var currentAniListPage = if (page == 1) 1 else maxOf(personalListPages[cacheKey] ?: 1, page)
-        val animeList = mutableListOf<SAnime>()
-        var hasNextPage = false
-
-        while (animeList.isEmpty()) {
-            val variables = PersonalListVariables(
-                userName = username,
-                status = status,
-                page = currentAniListPage,
-                perPage = 50,
-            )
-            val request = graphQLPost(
-                apiUrl,
-                headers,
-                query = getPersonalListQuery(),
-                variables = variables,
-                json = json,
-            )
-            val personalListPage = client.newCall(request).awaitSuccess().use { response ->
-                response.parseGraphQLAs<PersonalListResponse.PersonalListData>(json).page
+        return mutex.withLock {
+            val pageMap = personalListPageMappings.getOrPut(cacheKey) { ConcurrentHashMap() }
+            if (page == 1) {
+                pageMap.clear()
+                pageMap[1] = 1
             }
 
-            personalListPage.mediaList.forEach { entry ->
-                val media = entry.media ?: return@forEach
-                if (!allowAdult && media.isAdult) return@forEach
-                media.toSAnimeOrNull(titleLang)?.let(animeList::add)
+            var currentAniListPage = pageMap[page] ?: page
+            val animeList = mutableListOf<SAnime>()
+            var hasNextPage = false
+
+            while (animeList.isEmpty()) {
+                val variables = PersonalListVariables(
+                    userName = username,
+                    type = "ANIME",
+                    status = status,
+                    page = currentAniListPage,
+                    perPage = 50,
+                )
+                val request = graphQLPost(
+                    apiUrl,
+                    headers,
+                    query = getPersonalListQuery(),
+                    variables = variables,
+                    json = json,
+                )
+                val personalListPage = client.newCall(request).awaitSuccess().use { response ->
+                    response.parseGraphQLAs<PersonalListResponse.PersonalListData>(json).page
+                }
+
+                personalListPage.mediaList.forEach { entry ->
+                    val media = entry.media ?: return@forEach
+                    if (!allowAdult && media.isAdult) return@forEach
+                    media.toSAnimeOrNull(titleLang)?.let(animeList::add)
+                }
+
+                hasNextPage = personalListPage.pageInfo.hasNextPage
+                currentAniListPage++
+
+                if (!hasNextPage) break
             }
 
-            hasNextPage = personalListPage.pageInfo.hasNextPage
-            currentAniListPage++
-
-            if (!hasNextPage) break
+            pageMap[page + 1] = currentAniListPage
+            AnimesPage(animeList, hasNextPage)
         }
-
-        personalListPages[cacheKey] = currentAniListPage
-        return AnimesPage(animeList, hasNextPage)
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -292,6 +302,7 @@ class AniList :
             page = page,
             perPage = PER_PAGE,
             sort = sortParam,
+            type = "ANIME",
             search = query.trim().takeIf { it.isNotBlank() },
             genres = params.genres.takeIf { it.isNotEmpty() },
             format = params.format.takeIf { it.isNotEmpty() },
@@ -317,7 +328,7 @@ class AniList :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         val listFilter = filters.firstOrNull { it is Filters.AniListListFilter } as? Filters.AniListListFilter
         if (listFilter != null && listFilter.isActive()) {
-            return getPersonalListAnime(page, listFilter)
+            return getPersonalListAnime(page, listFilter, query)
         }
         return client.newCall(searchAnimeRequest(page, query, filters)).awaitSuccess().use(::searchAnimeParse)
     }
@@ -354,7 +365,7 @@ class AniList :
             apiUrl,
             headers,
             query = getDetailsQuery(),
-            variables = MediaVariables(id = id),
+            variables = MediaVariables(id = id, type = "ANIME"),
             json = json,
         )
     }
@@ -419,7 +430,7 @@ class AniList :
             apiUrl,
             headers,
             query = getMalIdQuery(),
-            variables = MediaVariables(id = id),
+            variables = MediaVariables(id = id, type = "ANIME"),
             json = json,
         )
     }
@@ -467,7 +478,7 @@ class AniList :
         apiUrl,
         headers,
         query = getEpisodeQuery(),
-        variables = MediaVariables(id = anilistId),
+        variables = MediaVariables(id = anilistId, type = "ANIME"),
         json = json,
     )
 
@@ -573,10 +584,6 @@ class AniList :
                     }
 
                     return episodeList.filter { it.episode_number <= episodeCount }.sortedBy { -it.episode_number }
-                }
-
-                if (isSingleEpisodeAnime) {
-                    break
                 }
             } catch (e: Exception) {
                 Log.w("AniList", "Failed to get episodes from $baseUrl: ${e.message}")
