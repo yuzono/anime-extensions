@@ -33,7 +33,13 @@ class CoverProviders(private val client: OkHttpClient, private val headers: Head
             if (!response.isSuccessful) return@use emptyList()
 
             try {
-                response.parseAs<FanartDto>().tvposter?.map { it.url } ?: emptyList()
+                val fanart = response.parseAs<FanartDto>()
+                val posters = if (type == "movies") {
+                    fanart.movieposter ?: fanart.tvposter
+                } else {
+                    fanart.tvposter ?: fanart.movieposter
+                }
+                posters?.map { it.url } ?: emptyList()
             } catch (_: Exception) {
                 emptyList()
             }
