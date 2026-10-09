@@ -24,12 +24,9 @@ import keiyoushi.utils.parseGraphQLAs
 import keiyoushi.utils.tryParse
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -75,13 +72,6 @@ class AniList :
         }
         .build()
 
-    private val json: Json by lazy {
-        Json(Injekt.get<Json>()) {
-            explicitNulls = false
-            ignoreUnknownKeys = true
-        }
-    }
-
     private val preferences by getPreferencesLazy()
 
     @Volatile
@@ -107,7 +97,7 @@ class AniList :
         val request = chain.request()
         val authToken = preferences.getString(PREF_AUTH_TOKEN_KEY, "")?.trim().orEmpty()
 
-        if (authToken.isNotBlank() && request.url.toString().startsWith(apiUrl)) {
+        if (authToken.isNotBlank() && request.url.isHttps && request.url.host == "graphql.anilist.co") {
             val token = if (authToken.startsWith("Bearer", ignoreCase = true)) authToken else "Bearer $authToken"
             val newRequest = request.newBuilder()
                 .header("Authorization", token)
@@ -163,14 +153,13 @@ class AniList :
             headers,
             query = getSortQuery(),
             variables = variables,
-            json = json,
         )
     }
 
     override fun popularAnimeRequest(page: Int): Request = createSortRequest("TRENDING_DESC", page)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val page = response.parseGraphQLAs<PagesResponse.PagesData>(json).page
+        val page = response.parseGraphQLAs<PagesResponse.PagesData>().page
         val titleLang = preferences.titleLang
         val animeList = page.media.mapNotNull { it.toSAnimeOrNull(titleLang) }
         return AnimesPage(animeList, page.pageInfo.hasNextPage)
@@ -214,10 +203,9 @@ class AniList :
             apiUrl,
             headers,
             query = "{ Viewer { name } }",
-            json = json,
         )
         val name = client.newCall(request).awaitSuccess().use { response ->
-            response.parseGraphQLAs<ViewerResponse.ViewerData>(json).viewer?.name
+            response.parseGraphQLAs<ViewerResponse.ViewerData>().viewer?.name
         }
 
         if (!name.isNullOrBlank()) {
@@ -261,10 +249,9 @@ class AniList :
                     headers,
                     query = getPersonalListQuery(),
                     variables = variables,
-                    json = json,
                 )
                 val personalListPage = client.newCall(request).awaitSuccess().use { response ->
-                    response.parseGraphQLAs<PersonalListResponse.PersonalListData>(json).page
+                    response.parseGraphQLAs<PersonalListResponse.PersonalListData>().page
                 }
 
                 personalListPage.mediaList.forEach { entry ->
@@ -319,7 +306,6 @@ class AniList :
             headers,
             query = getSortQuery(),
             variables = variables,
-            json = json,
         )
     }
 
@@ -366,7 +352,6 @@ class AniList :
             headers,
             query = getDetailsQuery(),
             variables = MediaVariables(id = id, type = "ANIME"),
-            json = json,
         )
     }
 
@@ -382,7 +367,7 @@ class AniList :
 
     override fun animeDetailsParse(response: Response): SAnime {
         val titleLang = preferences.titleLang
-        val animeData = response.parseGraphQLAs<DetailsResponse.DetailsData>(json).media
+        val animeData = response.parseGraphQLAs<DetailsResponse.DetailsData>().media
         val anime = animeData.toSAnime(titleLang)
 
         if (currentAnime != anime.url) {
@@ -431,12 +416,11 @@ class AniList :
             headers,
             query = getMalIdQuery(),
             variables = MediaVariables(id = id, type = "ANIME"),
-            json = json,
         )
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val data = response.parseGraphQLAs<AnilistToMalResponse.DataObject>(json).media
+        val data = response.parseGraphQLAs<AnilistToMalResponse.DataObject>().media
         if (data.status == "NOT_YET_RELEASED") {
             return emptyList()
         }
@@ -445,7 +429,7 @@ class AniList :
         val anilistId = data.id
 
         val episodeData = client.newCall(anilistEpisodeRequest(anilistId)).execute().use {
-            it.parseGraphQLAs<AniListEpisodeResponse.DataObject>(json).media
+            it.parseGraphQLAs<AniListEpisodeResponse.DataObject>().media
         }
         val episodeCount = episodeData.nextAiringEpisode?.episode?.minus(1)
             ?: episodeData.episodes ?: 0
@@ -479,7 +463,6 @@ class AniList :
         headers,
         query = getEpisodeQuery(),
         variables = MediaVariables(id = anilistId, type = "ANIME"),
-        json = json,
     )
 
     private fun parseDate(dateString: String?): Long {
@@ -490,12 +473,16 @@ class AniList :
                 .replace(REGEX_Z, "+0000")
                 .replace(REGEX_TZ_OFFSET, "$1$2")
                 .replace(REGEX_MILLIS, "$1")
-            val parsed = DATE_FORMAT_TZ.tryParse(normalized)
+            val parsed = synchronized(DATE_FORMAT_TZ) {
+                DATE_FORMAT_TZ.tryParse(normalized)
+            }
             if (parsed != 0L) {
                 parsed
             } else {
                 val dateWithoutOffset = if (cleanDate.length >= 19) cleanDate.substring(0, 19) else cleanDate
-                DATE_FORMAT_UTC.tryParse(dateWithoutOffset)
+                synchronized(DATE_FORMAT_UTC) {
+                    DATE_FORMAT_UTC.tryParse(dateWithoutOffset)
+                }
             }
         } catch (_: Exception) {
             0L
@@ -518,6 +505,8 @@ class AniList :
                         episode_number = 1F
                         date_upload = parseDate(animeData.aired.from)
                         url = "1"
+                        summary = animeData.synopsis
+                        preview_url = animeData.images?.jpg?.largeImageUrl ?: animeData.images?.jpg?.imageUrl
                     },
                 )
             } catch (_: Exception) {
@@ -532,7 +521,6 @@ class AniList :
 
         for (baseUrl in MAL_API_URLS) {
             try {
-                val markFillers = preferences.markFiller
                 val episodeList = mutableListOf<SEpisode>()
 
                 var hasNextPage = true
@@ -556,14 +544,15 @@ class AniList :
                         data.data.map { ep ->
                             val airedOn = parseDate(ep.aired)
                             val fullName = ep.title?.let { "Ep. ${ep.number} - $it" } ?: "Episode ${ep.number}"
-                            val scanlatorText = if (markFillers && ep.filler) "Filler episode" else null
 
                             SEpisode.create().apply {
                                 date_upload = airedOn
                                 episode_number = ep.number.toFloat()
                                 url = ep.number.toString()
                                 name = SANITY_REGEX.replace(fullName) { m -> m.groupValues[1] }
-                                scanlator = scanlatorText
+                                fillermark = ep.filler
+                                summary = ep.synopsis
+                                preview_url = ep.images?.jpg?.imageUrl
                             }
                         },
                     )
@@ -631,9 +620,6 @@ class AniList :
         private const val PREF_USERNAME_KEY = "pref_anilist_username"
         private const val PREF_AUTH_TOKEN_KEY = "pref_anilist_auth_token"
 
-        private const val MARK_FILLERS_KEY = "preferred_mark_fillers"
-        private const val MARK_FILLERS_DEFAULT = true
-
         private const val PREF_ALLOW_ADULT_KEY = "preferred_allow_adult"
         private const val PREF_ALLOW_ADULT_DEFAULT = false
 
@@ -641,17 +627,14 @@ class AniList :
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"
 
         private val DATE_FORMAT_TZ by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.ROOT)
         }
         private val DATE_FORMAT_UTC by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH).apply {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
         }
     }
-
-    private val SharedPreferences.markFiller
-        get() = getBoolean(MARK_FILLERS_KEY, MARK_FILLERS_DEFAULT)
 
     private val SharedPreferences.allowAdult
         get() = getBoolean(PREF_ALLOW_ADULT_KEY, PREF_ALLOW_ADULT_DEFAULT)
@@ -695,12 +678,6 @@ class AniList :
             entryValues = arrayOf("romaji", "english", "native")
             setDefaultValue(PREF_TITLE_LANG_DEFAULT)
             summary = "%s"
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = MARK_FILLERS_KEY
-            title = "Mark filler episodes"
-            setDefaultValue(MARK_FILLERS_DEFAULT)
         }.also(screen::addPreference)
     }
 }
