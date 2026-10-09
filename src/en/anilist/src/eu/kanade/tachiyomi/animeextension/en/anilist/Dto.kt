@@ -252,6 +252,8 @@ class JikanAnimeDto(
     @Serializable
     class JikanAnimeDataDto(
         val aired: AiredDto,
+        val synopsis: String? = null,
+        val images: MALPicturesDto.MALCoverDto? = null,
     ) {
         @Serializable
         class AiredDto(
@@ -276,8 +278,20 @@ class JikanEpisodesDto(
         @SerialName("mal_id") val number: Int,
         val title: String? = null,
         val aired: String? = null,
-        val filler: Boolean,
-    )
+        val filler: Boolean = false,
+        val synopsis: String? = null,
+        val images: JikanImagesDto? = null,
+    ) {
+        @Serializable
+        class JikanImagesDto(
+            val jpg: JikanJpgDto? = null,
+        ) {
+            @Serializable
+            class JikanJpgDto(
+                @SerialName("image_url") val imageUrl: String? = null,
+            )
+        }
+    }
 }
 
 @Serializable
