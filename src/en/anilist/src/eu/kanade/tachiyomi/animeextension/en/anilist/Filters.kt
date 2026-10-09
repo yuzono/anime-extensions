@@ -171,6 +171,7 @@ object Filters {
             Pair("Finished", "FINISHED"),
             Pair("Not Yet Aired", "NOT_YET_RELEASED"),
             Pair("Cancelled", "CANCELLED"),
+            Pair("On Hiatus", "HIATUS"),
         )
 
         val COUNTRY_LIST = arrayOf(
