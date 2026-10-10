@@ -1,7 +1,7 @@
 ext {
     extName = 'MonosChinos'
     extClass = '.MonosChinos'
-    extVersionCode = 57
+    extVersionCode = 58
 }
 
 apply plugin: "kei.plugins.extension.legacy"
