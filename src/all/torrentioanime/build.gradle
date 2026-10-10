@@ -1,7 +1,8 @@
 ext {
     extName = 'Torrentio Anime (Torrent / Debrid)'
     extClass = '.Torrentio'
-    extVersionCode = 22
+    libVersion = 16
+    extVersionCode = 23
     isNsfw = false
 }
 

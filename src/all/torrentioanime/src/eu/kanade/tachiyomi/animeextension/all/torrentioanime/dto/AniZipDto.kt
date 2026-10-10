@@ -22,8 +22,8 @@ data class AniZipEpisode(
     val title: Map<String, String?>? = null,
     val length: Int? = null,
     val runtime: Int? = null,
-    @SerialName("airdate")
     val airDate: String? = null,
+    val airDateUtc: String? = null,
     val rating: String? = null,
     @SerialName("anidbEid")
     val aniDbEpisodeId: Long? = null,
