@@ -30,7 +30,7 @@ class Kuramanime :
     ConfigurableAnimeSource {
     override val name = "Kuramanime"
 
-    override val baseUrl = "https://v8.kuramanime.tel"
+    override val baseUrl = "https://v20.kuramanime.ing"
 
     override val lang = "id"
 
