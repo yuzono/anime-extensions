@@ -7,6 +7,7 @@ import aniyomi.lib.burstcloudextractor.BurstCloudExtractor
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.fastreamextractor.FastreamExtractor
 import aniyomi.lib.filemoonextractor.FilemoonExtractor
+import aniyomi.lib.mixdropextractor.MixDropExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.okruextractor.OkruExtractor
 import aniyomi.lib.streamlareextractor.StreamlareExtractor
@@ -22,53 +23,59 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.extractNextJs
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.RequestBody
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
+import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 
 class Doramasflix :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Doramasflix"
 
     override val baseUrl = "https://doramasflix.in"
 
-    private val apiUrl = "https://sv1.fluxcedene.net/api/gql"
-
-    // The token is made through a type of milliseconds encryption in combination
-    // with other calculated strings, the milliseconds indicate the expiration date
-    // of the token, so it was calculated to expire in 100 years.
-    private val accessPlatform = "RxARncfg1S_MdpSrCvreoLu_SikCGMzE1NzQzODc3NjE2MQ=="
-
     override val lang = "es"
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
+    private val preferences by getPreferencesLazy()
+
+    private val brandHost = baseUrl.toHttpUrl().host
+
+    private val actionIds = ConcurrentHashMap(DEFAULT_ACTION_IDS)
+
+    private val actionIdsMutex = Mutex()
 
     companion object {
         private const val PREF_LANGUAGE_KEY = "preferred_language"
@@ -87,180 +94,294 @@ class Doramasflix :
         private const val PREF_SERVER_DEFAULT = "Voe"
         private val SERVER_LIST = arrayOf(
             "YourUpload", "BurstCloud", "Voe", "Mp4Upload", "Doodstream",
-            "Upload", "BurstCloud", "Upstream", "StreamTape", "Amazon",
-            "Fastream", "Filemoon", "StreamWish", "Okru", "Streamlare",
-            "Uqload",
+            "Upload", "Upstream", "StreamTape", "Fastream", "Filemoon",
+            "StreamWish", "Okru", "Streamlare", "Uqload",
         )
 
-        private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
+        private const val DORAMA_PATH = "doramas-online"
+        private const val MOVIE_PATH = "peliculas-online"
+        private const val EPISODE_PATH = "episodios"
+
+        private const val PAGE_SIZE = 24
+        private const val SEARCH_LIMIT = 30
+        private const val EPISODES_LIMIT = 5000
+
+        private const val SORT_POPULARITY = "POPULARITY_DESC"
+        private const val SORT_LATEST = "_ID_DESC"
+        private const val SORT_EPISODES = "NUMBER_DESC"
+
+        private const val ACTION_PAGINATION_DORAMAS = "getPaginationDoramas"
+        private const val ACTION_MOVIES = "getMovies"
+        private const val ACTION_SEARCH = "searchQuickAction"
+        private const val ACTION_EPISODES = "getEpisodesPagination"
+        private const val ACTION_EPISODE_LINKS = "getEpisodeLinks"
+        private const val ACTION_MOVIE_LINKS = "getMovieLinks"
+
+        // Next.js server action ids are generated at build time; they are re-scraped from the
+        // site's JS chunks when the server answers "Server action not found".
+        private val DEFAULT_ACTION_IDS = mapOf(
+            ACTION_PAGINATION_DORAMAS to "c078cc0fb52d994ccfbb9ae505092c444182b32bee",
+            ACTION_MOVIES to "c0c3f9f4ae9e70fc3e1934e162a9bb469d4917ee3c",
+            ACTION_SEARCH to "405ed996744ddd110d953845f332ab56811b896686",
+            ACTION_EPISODES to "40b6d43174dd2350c91535c115434850724f4e5054",
+            ACTION_EPISODE_LINKS to "40c6078a8a671297b1458299a5b27a01081afdcb7e",
+            ACTION_MOVIE_LINKS to "40d13c95d97d42603131850ca52dc09bd280b08d5a",
+        )
+
+        private val ACTION_ID_REGEX = Regex("""createServerReference\)?\("([0-9a-f]+)"[^"]*"(\w+)"\)""")
+        private val CHUNK_REGEX = Regex("""/_next/static/chunks/[A-Za-z0-9_~.\-]+\.js""")
+        private val FLIGHT_ROOT_REGEX = Regex("""\$@([0-9a-f]+)""")
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+        // Server code -> token matched against by serverVideoResolver
+        private val SERVERS = mapOf(
+            "7286" to "doodstream",
+            "958695" to "filemoon",
+            "453634" to "mega",
+            "3889" to "mixdrop",
+            "1234" to "mp4upload",
+            "1113" to "okru",
+            "4721" to "primeload",
+            "8309" to "streamtape",
+            "38585" to "streamwish",
+            "1233" to "uqload",
+            "576857" to "streamhide",
+            "1230" to "voe",
+        )
+    }
+
+    // ============================== Server actions ==============================
+
+    private suspend fun callAction(name: String, body: RequestBody): String {
+        val actionId = actionIds.getValue(name)
+        var response = client.newCall(actionRequest(actionId, body)).await()
+        if (response.code == 404) {
+            response.close()
+            refreshActionIds(name, actionId)
+            response = client.newCall(actionRequest(actionIds.getValue(name), body)).await()
+        }
+        return response.use {
+            check(it.isSuccessful) { "HTTP ${it.code}" }
+            it.body.string()
         }
     }
 
-    private val preferences by getPreferencesLazy()
-
-    private val popularRequestHeaders = Headers.headersOf(
-        "authority", "sv1.fluxcedene.net",
-        "accept", "application/json, text/plain, */*",
-        "content-type", "application/json;charset=UTF-8",
-        "origin", "https://doramasflix.in",
-        "referer", "https://doramasflix.in/",
-        "platform", "doramasflix",
-        "authorization", "Bear",
-        "x-access-jwt-token", "",
-        "x-access-platform", accessPlatform,
+    private fun actionRequest(actionId: String, body: RequestBody) = POST(
+        "$baseUrl/",
+        headers.newBuilder().set("Next-Action", actionId).build(),
+        body,
     )
 
-    private fun externalOrInternalImg(url: String, isThumb: Boolean = false): String = if (url.contains("https")) {
-        url
-    } else if (isThumb) {
-        "https://image.tmdb.org/t/p/w220_and_h330_face$url"
-    } else {
-        "https://image.tmdb.org/t/p/w500$url"
-    }
+    private suspend fun refreshActionIds(name: String, staleId: String) = actionIdsMutex.withLock {
+        if (actionIds[name] != staleId) return@withLock
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
-        val anime = SAnime.create()
-
-        document.select("script").forEach { el ->
-            if (el.data().contains("{\"props\":{\"pageProps\":{")) {
-                val apolloState = json.decodeFromString<JsonObject>(el.data()).jsonObject["props"]!!.jsonObject["pageProps"]!!.jsonObject["apolloState"]!!.jsonObject
-                val dorama = apolloState.entries.firstOrNull { (key, _) -> Regex("\\b(?:Movie|Dorama):[a-zA-Z0-9]+").matches(key) }!!.value.jsonObject
-
-                val genres = try {
-                    apolloState.entries.filter { x -> x.key.contains("genres") }.joinToString { it.value.jsonObject["name"]!!.jsonPrimitive.content }
-                } catch (_: Exception) {
-                    ""
-                }
-                val network = try {
-                    apolloState.entries.firstOrNull { x -> x.key.contains("networks") }?.value?.jsonObject?.get("name")!!.jsonPrimitive.content
-                } catch (_: Exception) {
-                    ""
-                }
-                val artist = try {
-                    dorama["cast"]?.jsonObject?.get("json")?.jsonArray?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.content
-                } catch (_: Exception) {
-                    ""
-                }
-                val type = try {
-                    dorama["__typename"]!!.jsonPrimitive.content.lowercase()
-                } catch (_: Exception) {
-                    ""
-                }
-                val poster = try {
-                    dorama["poster_path"]!!.jsonPrimitive.content
-                } catch (_: Exception) {
-                    ""
-                }
-                val urlImg = try {
-                    poster.ifEmpty { dorama["poster"]!!.jsonPrimitive.content }
-                } catch (_: Exception) {
-                    ""
-                }
-
-                val id = dorama["_id"]!!.jsonPrimitive.content
-                anime.title = "${dorama["name"]?.jsonPrimitive?.content} (${dorama["name_es"]?.jsonPrimitive?.content})"
-                anime.description = dorama["overview"]?.jsonPrimitive?.content?.trim() ?: ""
-                if (genres.isNotEmpty()) anime.genre = genres
-                if (network.isNotEmpty()) anime.author = network
-                if (artist != null) anime.artist = artist
-                if (type.isNotEmpty()) anime.status = if (type == "movie") SAnime.COMPLETED else SAnime.UNKNOWN
-                if (urlImg.isNotEmpty()) anime.thumbnail_url = externalOrInternalImg(urlImg)
-                anime.setUrlWithoutDomain(urlSolverByType(dorama["__typename"]!!.jsonPrimitive.content, dorama["slug"]!!.jsonPrimitive.content, id))
+        val html = client.newCall(GET(baseUrl, headers)).awaitSuccess().bodyString()
+        val chunks = CHUNK_REGEX.findAll(html).map { it.value }.distinct().toList()
+        val scripts = chunks.parallelCatchingMapNotNull { path ->
+            client.newCall(GET(baseUrl + path, headers)).awaitSuccess().bodyString()
+        }
+        scripts.forEach { script ->
+            ACTION_ID_REGEX.findAll(script).forEach { match ->
+                val (id, actionName) = match.destructured
+                if (actionName in DEFAULT_ACTION_IDS) actionIds[actionName] = id
             }
         }
-        return anime
     }
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        val id = anime.url.substringAfter("?id=")
-        return if (anime.url.contains("peliculas-online")) {
-            GET(baseUrl + anime.url)
+    private inline fun <reified T> String.parseFlight(): T {
+        val lines = lines()
+        val rowId = FLIGHT_ROOT_REGEX.find(lines.first())?.groupValues?.get(1) ?: "1"
+        val row = lines.firstOrNull { it.startsWith("$rowId:") }?.substring(rowId.length + 1) ?: "null"
+        return row.parseAs<T>()
+    }
+
+    // ============================== Popular ==============================
+
+    override fun popularAnimeRequest(page: Int) = throw UnsupportedOperationException()
+
+    override fun popularAnimeParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getPopularAnime(page: Int): AnimesPage = fetchList(page, SORT_POPULARITY, GenreFilter.DORAMAS)
+
+    // ============================== Latest ==============================
+
+    override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
+
+    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = fetchList(page, SORT_LATEST, GenreFilter.DORAMAS)
+
+    // ============================== Search ==============================
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = throw UnsupportedOperationException()
+
+    override fun searchAnimeParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.isBlank()) {
+            val type = filters.firstInstanceOrNull<GenreFilter>()?.toUriPart() ?: GenreFilter.DORAMAS
+            return fetchList(page, SORT_POPULARITY, type)
+        }
+        if (page > 1) return AnimesPage(emptyList(), false)
+
+        val body = listOf(SearchRequest(query.replace("+", " "), SEARCH_LIMIT)).toJsonRequestBody()
+        val result = callAction(ACTION_SEARCH, body).parseFlight<SearchDto>().data
+        val animes = result.doramas.map { it.toSAnime(DORAMA_PATH) } + result.movies.map { it.toSAnime(MOVIE_PATH) }
+        return AnimesPage(animes, false)
+    }
+
+    private suspend fun fetchList(page: Int, sort: String, type: String): AnimesPage {
+        if (type == GenreFilter.MOVIES) {
+            // getMovies only supports a limit, so fetch through this page plus one item.
+            val offset = (page - 1) * PAGE_SIZE
+            val request = MoviesRequest(offset + PAGE_SIZE + 1, sort, FilterRequest(), brandHost)
+            val movies = callAction(ACTION_MOVIES, listOf(request).toJsonRequestBody())
+                .parseFlight<List<MediaDto>>()
+            return AnimesPage(
+                movies.drop(offset).take(PAGE_SIZE).map { it.toSAnime(MOVIE_PATH) },
+                movies.size > offset + PAGE_SIZE,
+            )
+        }
+
+        val request = PaginationRequest(page, PAGE_SIZE, sort, FilterRequest(type == GenreFilter.VARIETIES), brandHost)
+        val result = callAction(ACTION_PAGINATION_DORAMAS, listOf(request).toJsonRequestBody())
+            .parseFlight<PaginationDto>()
+        return AnimesPage(result.items.map { it.toSAnime(DORAMA_PATH) }, result.pageInfo.hasNextPage)
+    }
+
+    // ============================== Details ==============================
+
+    override fun animeDetailsParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val document = client.newCall(GET(baseUrl + anime.url, headers)).awaitSuccess().useAsJsoup()
+        return SAnime.create().apply {
+            title = anime.title
+            url = anime.url
+            thumbnail_url = anime.thumbnail_url ?: document.selectFirst("meta[property=og:image]")?.attr("content")
+            description = document.selectFirst("p.line-clamp-4")?.wholeText()
+            genre = document.select("a[href^=/generos/]").map { it.text() }.distinct().joinToString()
+            author = document.detail("Red")
+            artist = document.selectFirst("a[href^=/reparto/]")?.text()
+            status = if (MOVIE_PATH in anime.url) {
+                SAnime.COMPLETED
+            } else {
+                val state = document.detail("Estado")?.lowercase().orEmpty()
+                when {
+                    "emisi" in state || "subiendo" in state -> SAnime.ONGOING
+                    "finaliz" in state -> SAnime.COMPLETED
+                    else -> SAnime.UNKNOWN
+                }
+            }
+        }
+    }
+
+    private fun Document.detail(label: String): String? = select("dt").firstOrNull { it.text() == label }
+        ?.nextElementSibling()
+        ?.text()
+        ?.takeIf { it.isNotEmpty() }
+
+    // ============================== Episodes ==============================
+
+    override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        if (MOVIE_PATH in anime.url) {
+            return listOf(
+                SEpisode.create().apply {
+                    episode_number = 1F
+                    name = "Película"
+                    url = anime.url
+                },
+            )
+        }
+
+        val document = client.newCall(GET(baseUrl + anime.url, headers)).awaitSuccess().useAsJsoup()
+        val series = document.extractNextJs<SeriesDto>() ?: return emptyList()
+        val now = System.currentTimeMillis()
+        val dateFormats = listOf("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd").map {
+            SimpleDateFormat(it, Locale.ROOT).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+                isLenient = false
+            }
+        }
+
+        return series.seasons.map { it.seasonNumber }.sortedDescending().flatMap { season ->
+            val request = EpisodesRequest(series.serieId, season, 1, EPISODES_LIMIT, SORT_EPISODES, brandHost)
+            callAction(ACTION_EPISODES, listOf(request).toJsonRequestBody())
+                .parseFlight<EpisodesDto>()
+                .items
+                .map { episode ->
+                    val number = episode.episodeNumber.toString().removeSuffix(".0")
+                    val airDate = episode.airDate?.toLongOrNull()
+                        ?: dateFormats.firstNotNullOfOrNull { it.tryParse(episode.airDate).takeIf { date -> date != 0L } }
+                        ?: 0L
+                    SEpisode.create().apply {
+                        name = "T${episode.seasonNumber} - E$number - Capítulo $number"
+                        episode_number = episode.episodeNumber
+                        date_upload = airDate
+                        scanlator = if (airDate > now) "Próximamente..." else null
+                        url = "/$EPISODE_PATH/${episode.slug}?id=${episode.id}"
+                    }
+                }
+        }
+    }
+
+    // ============================== Videos ==============================
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val pageUrl = (baseUrl + episode.url).toHttpUrl()
+        val links = if (pageUrl.pathSegments.firstOrNull() == MOVIE_PATH) {
+            val body = listOf(MovieLinksRequest(fetchMovieId(pageUrl))).toJsonRequestBody()
+            callAction(ACTION_MOVIE_LINKS, body).parseFlight<List<LinkDto>?>()
         } else {
-            val body = (
-                $$"{\"operationName\":\"listSeasons\",\"variables\":{\"serie_id\":\"$$id\"},\"query\":\"query listSeasons($serie_id: MongoID!) " +
-                    $$"{\\n  listSeasons(sort: NUMBER_ASC, filter: {serie_id: $serie_id}) {\\n    slug\\n    season_number\\n    poster_path\\n    air_date\\n    " +
-                    "serie_name\\n    poster\\n    backdrop\\n    __typename\\n  }\\n}\\n\"}"
-                ).toJsonRequestBody()
-            POST("$apiUrl?id=$id", popularRequestHeaders, body)
+            val episodeId = pageUrl.queryParameter("id") ?: fetchEpisodeId(pageUrl)
+            val body = listOf(EpisodeLinksRequest(episodeId)).toJsonRequestBody()
+            callAction(ACTION_EPISODE_LINKS, body).parseFlight<List<LinkDto>?>()
+        }
+
+        return links.orEmpty().mapNotNull { link ->
+            val url = link.link.decodeEmbedLink().toHttpUrlOrNull() ?: return@mapNotNull null
+            val prefix = link.lang?.getLang().orEmpty()
+            val server = SERVERS[link.server]
+            if (server == "mega" || server == "primeload") return@mapNotNull null
+            Hoster(
+                hosterUrl = url.toString(),
+                hosterName = "$prefix ${server ?: url.host}",
+                internalData = HosterData(prefix, server).toJsonString(),
+            )
         }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> = if (response.request.url.toString().contains("peliculas-online")) {
-        listOf(
-            SEpisode.create().apply {
-                episode_number = 1F
-                name = "Película"
-                setUrlWithoutDomain(response.request.url.toString())
-            },
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val data = hoster.internalData.parseAs<HosterData>()
+        return serverVideoResolver(hoster.hosterUrl, data.prefix, data.server).sortVideos()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val language = preferences.getString(PREF_LANGUAGE_KEY, PREF_LANGUAGE_DEFAULT)!!
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return sortedWith(
+            compareByDescending<Hoster> { it.hosterName.contains(language) }
+                .thenByDescending { it.hosterName.contains(server, true) },
         )
-    } else {
-        val id = response.request.url.toString().substringAfter("?id=")
-        val responseString = response.body.string()
-        val data = json.decodeFromString<SeasonModel>(responseString).data
-
-        data.listSeasons.parallelCatchingFlatMapBlocking {
-            val season = it.seasonNumber
-            val body = (
-                "{\"operationName\":\"listEpisodes\",\"variables\":{\"serie_id\":\"$id\",\"season_number\":$season},\"query\":\"query " +
-                    $$"listEpisodes($season_number: Float!, $serie_id: MongoID!) {\\n  listEpisodes(sort: NUMBER_ASC, filter: {type_serie: \\\"dorama\\\", " +
-                    $$"serie_id: $serie_id, season_number: $season_number}) {\\n    _id\\n    name\\n    slug\\n    serie_name\\n    serie_name_es\\n    " +
-                    "serie_id\\n    still_path\\n    air_date\\n    season_number\\n    episode_number\\n    languages\\n    poster\\n    backdrop\\n    __typename\\n  }\\n}\\n\"}"
-                ).toJsonRequestBody()
-
-            val episodes = client.newCall(POST(apiUrl, popularRequestHeaders, body)).awaitSuccess()
-                .parseAs<EpisodeModel>(json)
-            parseEpisodeListJson(episodes)
-        }
-    }.reversed()
-
-    private fun parseEpisodeListJson(episodes: EpisodeModel): List<SEpisode> {
-        var isUpcoming = false
-        val currentDate = Date().time
-        return episodes.data.listEpisodes.mapIndexed { idx, episodeObject ->
-            val dateEp = episodeObject.airDate
-            val nameEp = if (episodeObject.name.isNullOrEmpty()) "- Capítulo ${episodeObject.episodeNumber}" else "- ${episodeObject.name}"
-            if (dateEp != null && dateEp.toDate() > currentDate && !isUpcoming) isUpcoming = true
-
-            SEpisode.create().apply {
-                name = "T${episodeObject.seasonNumber} - E${episodeObject.episodeNumber} $nameEp"
-                episode_number = episodeObject.episodeNumber?.toFloat() ?: idx.toFloat()
-                date_upload = dateEp?.toDate() ?: 0L
-                scanlator = if (isUpcoming) "Próximamente..." else null
-                setUrlWithoutDomain(urlSolverByType("episode", episodeObject.slug))
-            }
-        }
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val responseString = response.body.string()
-        return when {
-            responseString.contains("paginationMovie") -> parsePopularJson(responseString, "movie")
-            else -> parsePopularJson(responseString, "dorama")
-        }
+    @Serializable
+    private class HosterData(val prefix: String, val server: String?)
+
+    private suspend fun fetchMovieId(url: HttpUrl): String {
+        val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+        return document.extractNextJs<MoviePageDto> { it is JsonObject && it["movie"] is JsonObject }?.movie?.id
+            ?: throw Exception("No se pudo obtener la película")
     }
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        val body = (
-            "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"CREATEDAT_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":false}}," +
-                $$"\"query\":\"query listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  " +
-                $$"paginationDorama(page: $page, perPage: $perPage, sort: $sort, filter: $filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      " +
-                "hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      " +
-                "cast\\n      names\\n      overview\\n      languages\\n      created_by\\n      popularity\\n      poster_path\\n      vote_average\\n      " +
-                "backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      backdrop\\n      genres {\\n        " +
-                "name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        __typename\\n      }\\n      " +
-                "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toJsonRequestBody()
-        return POST(apiUrl, popularRequestHeaders, body)
-    }
-
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val responseString = response.body.string()
-        return when {
-            responseString.contains("paginationMovie") -> parsePopularJson(responseString, "movie")
-            else -> parsePopularJson(responseString, "dorama")
-        }
+    private suspend fun fetchEpisodeId(url: HttpUrl): String {
+        val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+        return document.extractNextJs<EpisodePageDto> { it is JsonObject && it["episode"] is JsonObject }?.episode?.id
+            ?: throw Exception("No se pudo obtener el episodio")
     }
 
     private val languages = arrayOf(
@@ -280,217 +401,16 @@ class Doramasflix :
 
     private fun String.getLang(): String = languages.firstOrNull { it.first == this }?.second ?: ""
 
-    private fun parsePopularJson(jsonLine: String?, type: String): AnimesPage {
-        val jsonData = jsonLine ?: return AnimesPage(emptyList(), false)
-        val data = json.decodeFromString<PaginationModel>(jsonData).data
-
-        val pagination = when (type) {
-            "dorama" -> data.paginationDorama
-            "movie" -> data.paginationMovie
-            else -> throw IllegalArgumentException("Tipo de dato no válido: $type")
-        }
-
-        val hasNextPage = pagination?.pageInfo?.hasNextPage ?: false
-        val animeList = pagination?.items?.map { animeObject ->
-            val urlImg = when {
-                !animeObject.posterPath.isNullOrEmpty() -> animeObject.posterPath
-                !animeObject.poster.isNullOrEmpty() -> animeObject.poster
-                else -> ""
-            }
-
-            SAnime.create().apply {
-                title = "${animeObject.name} (${animeObject.nameEs})"
-                description = animeObject.overview
-                genre = animeObject.genres.joinToString { it.name ?: "" }
-                thumbnail_url = externalOrInternalImg(urlImg, true)
-                setUrlWithoutDomain(urlSolverByType(animeObject.typename, animeObject.slug, animeObject.id))
-            }
-        }
-        return AnimesPage(animeList ?: emptyList(), hasNextPage)
+    private fun String.decodeEmbedLink(): String {
+        val payload = substringAfterLast('/').split('.').getOrNull(1) ?: return this
+        return runCatching {
+            val token = String(Base64.decode(payload, Base64.URL_SAFE)).parseAs<EmbedTokenDto>()
+            String(Base64.decode(token.link, Base64.DEFAULT))
+        }.getOrDefault(this)
     }
 
-    private fun urlSolverByType(type: String, slug: String, id: String? = ""): String = when (type.lowercase()) {
-        "dorama" -> "$baseUrl/doramas-online/$slug?id=$id"
-        "episode" -> "$baseUrl/episodios/$slug"
-        "movie" -> "$baseUrl/peliculas-online/$slug?id=$id"
-        else -> ""
-    }
-
-    override fun popularAnimeRequest(page: Int): Request {
-        val body = (
-            "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"POPULARITY_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":false}}," +
-                $$"\"query\":\"query listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  " +
-                $$"paginationDorama(page: $page, perPage: $perPage, sort: $sort, filter: $filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      " +
-                "hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      " +
-                "cast\\n      names\\n      overview\\n      languages\\n      created_by\\n      popularity\\n      poster_path\\n      vote_average\\n      " +
-                "backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      backdrop\\n      genres {\\n        " +
-                "name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        __typename\\n      }\\n      " +
-                "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toJsonRequestBody()
-        return POST(apiUrl, popularRequestHeaders, body)
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val responseString = response.body.string()
-        return when {
-            responseString.contains("searchDorama") -> parseSearchAnimeJson(responseString)
-            responseString.contains("paginationMovie") -> parsePopularJson(responseString, "movie")
-            else -> parsePopularJson(responseString, "dorama")
-        }
-    }
-
-    private fun parseSearchAnimeJson(jsonLine: String?): AnimesPage {
-        val jsonData = jsonLine ?: return AnimesPage(emptyList(), false)
-        val jsonObject = json.decodeFromString<SearchModel>(jsonData).data
-
-        val animeList = mutableListOf<SAnime>()
-        jsonObject.searchDorama.map { castToSAnime(it) }.also(animeList::addAll)
-        jsonObject.searchMovie.map { castToSAnime(it) }.also(animeList::addAll)
-
-        return AnimesPage(animeList, false)
-    }
-
-    private fun castToSAnime(animeObject: SearchDorama): SAnime {
-        val urlImg = when {
-            !animeObject.posterPath.isNullOrEmpty() -> animeObject.posterPath
-            !animeObject.poster.isNullOrEmpty() -> animeObject.poster
-            else -> ""
-        }
-        return SAnime.create().apply {
-            title = "${animeObject.name} (${animeObject.nameEs})"
-            thumbnail_url = externalOrInternalImg(urlImg, true)
-            setUrlWithoutDomain(urlSolverByType(animeObject.typename, animeObject.slug, animeObject.id))
-        }
-    }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val filterList = if (filters.isEmpty()) getFilterList() else filters
-        val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
-
-        return when {
-            query.isNotBlank() -> searchQueryRequest(query)
-            "peliculas" in genreFilter.toUriPart() -> popularMovieRequest(page)
-            "variedades" in genreFilter.toUriPart() -> popularVarietiesRequest(page)
-            else -> popularAnimeRequest(page)
-        }
-    }
-
-    private fun searchQueryRequest(query: String): Request {
-        val fxQuery = query.replace("+", " ")
-        val body = (
-            $$"{\"operationName\":\"searchAll\",\"variables\":{\"input\":\"$$fxQuery\"},\"query\":\"query searchAll($input: String!) {\\n  " +
-                $$"searchDorama(input: $input, limit: 32) {\\n    _id\\n    slug\\n    name\\n    name_es\\n    poster_path\\n    poster\\n    " +
-                $$"__typename\\n  }\\n  searchMovie(input: $input, limit: 32) {\\n    _id\\n    name\\n    name_es\\n    slug\\n    poster_path\\n    " +
-                "poster\\n    __typename\\n  }\\n}\\n\"}"
-            ).toJsonRequestBody()
-        return POST(apiUrl, popularRequestHeaders, body)
-    }
-
-    private fun popularMovieRequest(page: Int): Request {
-        val body = (
-            "{\"operationName\":\"listMovies\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{},\"page\":$page},\"query\":\"query " +
-                $$"listMovies($page: Int, $perPage: Int, $sort: SortFindManyMovieInput, $filter: FilterFindManyMovieInput) {\\n  paginationMovie(page: $page" +
-                $$", perPage: $perPage, sort: $sort, filter: $filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n" +
-                "      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      cast\\n      names\\n      overview\\n      " +
-                "languages\\n      popularity\\n      poster_path\\n      vote_average\\n      backdrop_path\\n      release_date\\n      runtime\\n      poster\\n      " +
-                "backdrop\\n      genres {\\n        name\\n        __typename\\n      }\\n      networks {\\n        name\\n        __typename\\n      }\\n      " +
-                "__typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toJsonRequestBody()
-
-        return POST(apiUrl, popularRequestHeaders, body)
-    }
-
-    private fun popularVarietiesRequest(page: Int): Request {
-        val body = (
-            "{\"operationName\":\"listDoramas\",\"variables\":{\"page\":$page,\"sort\":\"CREATEDAT_DESC\",\"perPage\":32,\"filter\":{\"isTVShow\":true}},\"query\":\"query " +
-                $$"listDoramas($page: Int, $perPage: Int, $sort: SortFindManyDoramaInput, $filter: FilterFindManyDoramaInput) {\\n  paginationDorama(page: $page, perPage: $perPage, " +
-                $$"sort: $sort, filter: $filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    " +
-                "items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      cast\\n      names\\n      overview\\n      languages\\n      created_by\\n      " +
-                "popularity\\n      poster_path\\n      vote_average\\n      backdrop_path\\n      first_air_date\\n      episode_run_time\\n      isTVShow\\n      poster\\n      " +
-                "backdrop\\n      genres {\\n        name\\n        slug\\n        __typename\\n      }\\n      networks {\\n        name\\n        slug\\n        " +
-                "__typename\\n      }\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
-            ).toJsonRequestBody()
-
-        return POST(apiUrl, popularRequestHeaders, body)
-    }
-
-    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
-        GenreFilter(),
-    )
-
-    private class GenreFilter :
-        UriPartFilter(
-            "Géneros",
-            arrayOf(
-                Pair("Doramas", "doramas"),
-                Pair("Películas", "peliculas"),
-                Pair("Variedades", "variedades"),
-            ),
-        )
-
-    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
-        fun toUriPart() = vals[state].second
-    }
-
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
-
-    override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val jsonData = document.selectFirst("script:containsData({\"props\":{\"pageProps\":{)")!!.data()
-        val apolloState = json.decodeFromString<JsonObject>(jsonData).jsonObject["props"]!!.jsonObject["pageProps"]!!.jsonObject["apolloState"]!!.jsonObject
-        val episodeItem = apolloState.entries.firstOrNull { x -> x.key.contains("Episode:") }
-
-        val episode = episodeItem?.value?.jsonObject
-            ?: apolloState.entries.firstOrNull { (key, _) -> Regex("\\b(?:Movie|Dorama):[a-zA-Z0-9]+").matches(key) }?.value?.jsonObject
-
-        var linksOnline = episode?.get("links_online")?.jsonObject?.get("json")?.jsonArray
-        val bMovies = apolloState.entries.any { x -> x.key.contains("ROOT_QUERY.getMovieLinks(") }
-
-        if (bMovies && linksOnline == null) {
-            linksOnline = apolloState.entries.firstOrNull { x -> x.key.contains("ROOT_QUERY.getMovieLinks(") }
-                ?.value?.jsonObject?.get("links_online")?.jsonObject?.get("json")?.jsonArray
-        }
-
-        return linksOnline?.parallelCatchingFlatMapBlocking {
-            val link = it.jsonObject["link"]!!.jsonPrimitive.content
-            val lang = it.jsonObject["lang"]?.jsonPrimitive?.content?.getLang() ?: ""
-            serverVideoResolver(link, lang)
-        } ?: apolloState.entries.filter { x -> x.key.contains("ROOT_QUERY.listProblems(") }
-            .mapNotNull { entry ->
-                val server = entry.value.jsonObject["server"]?.jsonObject?.get("json")?.jsonObject
-                val link = server?.get("link")?.jsonPrimitive?.content
-                val lang = server?.get("lang")?.jsonPrimitive?.content?.getLang() ?: ""
-                link?.let { it to lang }
-            }.distinctBy { it.first }
-            .parallelCatchingFlatMapBlocking { (link, lang) ->
-                val finalLink = getRealLink(link)
-                serverVideoResolver(finalLink, lang)
-            }
-    }
-
-    private suspend fun getRealLink(link: String): String {
-        if (!link.contains("fkplayer.xyz")) return link
-
-        val token = client.newCall(GET(link)).awaitSuccess().useAsJsoup()
-            .selectFirst("script:containsData({\"props\":{\"pageProps\":{)")?.data()
-            ?.parseAs<TokenModel>()
-
-        val requestBody = "{\"token\":\"${token?.props?.pageProps?.token ?: token?.query?.token}\"}".toJsonRequestBody()
-
-        val headersVideo = headers.newBuilder()
-            .add("origin", "https://${link.toHttpUrl().host}")
-            .add("Content-Type", "application/json")
-            .build()
-
-        val json = client.newCall(POST("https://fkplayer.xyz/api/decoding", headersVideo, requestBody))
-            .awaitSuccess().parseAs<VideoToken>()
-
-        return String(Base64.decode(json.link, Base64.DEFAULT))
-    }
-
-    private suspend fun serverVideoResolver(url: String, prefix: String = ""): List<Video> {
-        val embedUrl = url.lowercase()
+    private suspend fun serverVideoResolver(url: String, prefix: String, server: String?): List<Video> {
+        val embedUrl = server ?: url.lowercase()
         return when {
             "voe" in embedUrl -> VoeExtractor(client, headers).videosFromUrl(url, " $prefix")
 
@@ -508,8 +428,10 @@ class Doramasflix :
 
             "mp4upload" in embedUrl -> Mp4uploadExtractor(client).videosFromUrl(url, prefix = "$prefix ", headers = headers)
 
+            "mixdrop" in embedUrl -> MixDropExtractor(client).videosFromUrl(url, prefix = "$prefix ")
+
             "doodstream" in embedUrl || "dood." in embedUrl ->
-                listOf(DoodExtractor(client).videoFromUrl(url.replace("https://doodstream.com/e/", "https://dood.to/e/"), "$prefix DoodStream")!!)
+                listOfNotNull(DoodExtractor(client).videoFromUrl(url.replace("https://doodstream.com/e/", "https://dood.to/e/"), "$prefix DoodStream"))
 
             "streamlare" in embedUrl -> StreamlareExtractor(client).videosFromUrl(url, prefix = prefix)
 
@@ -529,9 +451,11 @@ class Doramasflix :
 
             "upstream" in embedUrl -> UpstreamExtractor(client).videosFromUrl(url, prefix = "$prefix ")
 
-            "streamtape" in embedUrl || "stp" in embedUrl || "stape" in embedUrl -> listOf(StreamTapeExtractor(client).videoFromUrl(url, quality = "$prefix StreamTape")!!)
+            "streamtape" in embedUrl || "stp" in embedUrl || "stape" in embedUrl ->
+                listOfNotNull(StreamTapeExtractor(client).videoFromUrl(url, quality = "$prefix StreamTape"))
 
-            "ahvsh" in embedUrl || "streamhide" in embedUrl -> VidHideExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHide:$it" })
+            "ahvsh" in embedUrl || "streamhide" in embedUrl ->
+                VidHideExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix StreamHide:$it" })
 
             "filelions" in embedUrl || "lion" in embedUrl -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "$prefix FileLions:$it" })
 
@@ -540,6 +464,37 @@ class Doramasflix :
             else -> emptyList()
         }
     }
+
+    // ============================== Filters ==============================
+
+    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
+        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
+        GenreFilter(),
+    )
+
+    private class GenreFilter :
+        UriPartFilter(
+            "Géneros",
+            arrayOf(
+                Pair("Doramas", DORAMAS),
+                Pair("Películas", MOVIES),
+                Pair("Variedades", VARIETIES),
+            ),
+        ) {
+        companion object {
+            const val DORAMAS = "doramas"
+            const val MOVIES = "peliculas"
+            const val VARIETIES = "variedades"
+        }
+    }
+
+    private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+        fun toUriPart() = vals[state].second
+    }
+
+    // ============================== Settings ==============================
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -550,7 +505,7 @@ class Doramasflix :
                 { it.videoTitle.contains(lang) },
                 { it.videoTitle.contains(server, true) },
                 { it.videoTitle.contains(quality) },
-                { Regex("""(\d+)p""").find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
@@ -563,13 +518,6 @@ class Doramasflix :
             entryValues = LANGUAGE_LIST
             setDefaultValue(PREF_LANGUAGE_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -579,13 +527,6 @@ class Doramasflix :
             entryValues = QUALITY_LIST
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -595,13 +536,6 @@ class Doramasflix :
             entryValues = SERVER_LIST
             setDefaultValue(PREF_SERVER_DEFAULT)
             summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
         }.also(screen::addPreference)
     }
 }
