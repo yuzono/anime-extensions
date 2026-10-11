@@ -1,76 +1,114 @@
 package eu.kanade.tachiyomi.animeextension.es.lamovie
 
-import eu.kanade.tachiyomi.animeextension.es.lamovie.LaMovie.Companion.DEFAULT_LISTING_TYPE
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-
-data class AnimeContext(
-    val type: String,
-    val slug: String,
-    val id: Long?,
-)
-
-data class EpisodeContext(val postId: Long)
 
 @Serializable
-data class ListingDataDto(
-    val posts: List<PostDto> = emptyList(),
+class ItemsDto(
+    val items: List<ItemDto>,
     val pagination: PaginationDto? = null,
 )
 
 @Serializable
-data class PaginationDto(
-    @SerialName("current_page") val currentPage: Int? = null,
-    @SerialName("last_page") val lastPage: Int? = null,
+class PaginationDto(
+    @SerialName("has_next") val hasNext: Boolean = false,
 )
 
 @Serializable
-data class PostDto(
-    @SerialName("_id") val id: Long,
-    val title: String = "",
-    val overview: String? = null,
-    val slug: String = "",
-    val images: ImagesDto? = null,
-    val type: String? = null,
-    @SerialName("original_title") val originalTitle: String? = null,
-    val gallery: String? = null,
+class ItemResponseDto(
+    val item: ItemDto,
+)
+
+@Serializable
+class ItemDto(
+    @SerialName("tmdb_id") private val tmdbId: Long,
+    private val kind: String,
+    private val title: String,
+    @SerialName("original_title") private val originalTitle: String? = null,
+    @SerialName("poster_path") private val posterPath: String? = null,
+    private val overview: String? = null,
+    private val tagline: String? = null,
+    private val status: String? = null,
+    private val genres: List<GenreDto> = emptyList(),
 ) {
-    val postType: String
-        get() = type?.takeIf { it.isNotBlank() } ?: DEFAULT_LISTING_TYPE
+    fun toSAnime() = SAnime.create().apply {
+        url = "/$kind/$tmdbId"
+        title = this@ItemDto.title
+        thumbnail_url = posterPath?.let { "$TMDB_IMAGE_BASE$it" }
+        genre = genres.joinToString { it.title }.ifEmpty { null }
+        description = buildString {
+            overview?.takeIf { it.isNotBlank() }?.let(::append)
+            tagline?.takeIf { it.isNotBlank() }?.let { append("\n\n\"$it\"") }
+            originalTitle?.takeIf { it.isNotBlank() && it != this@ItemDto.title }?.let {
+                append("\n\nTítulo original: $it")
+            }
+        }.ifEmpty { null }
+        status = when {
+            kind == LaMovie.KIND_MOVIE -> SAnime.COMPLETED
+            this@ItemDto.status == "Ended" -> SAnime.COMPLETED
+            this@ItemDto.status == "Returning Series" -> SAnime.ONGOING
+            else -> SAnime.UNKNOWN
+        }
+    }
+
+    companion object {
+        private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
+    }
 }
 
 @Serializable
-data class ImagesDto(
-    val poster: String? = null,
-    val backdrop: String? = null,
+class GenreDto(
+    val title: String,
 )
 
 @Serializable
-data class EpisodeDto(
-    @SerialName("_id") val id: Long,
-    val name: String? = null,
-    val title: String? = null,
-    @SerialName("season_number") val seasonNumber: Int? = null,
-    @SerialName("episode_number") val episodeNumber: Int? = null,
-    val date: String? = null,
+class SeasonsDto(
+    val seasons: List<SeasonSummaryDto>,
 )
 
 @Serializable
-data class EpisodesListDto(
-    val posts: List<EpisodeDto> = emptyList(),
-    val pagination: PaginationDto? = null,
-    val seasons: List<Int>? = null,
+class SeasonSummaryDto(
+    val season: Int,
 )
 
 @Serializable
-data class PlayerDataDto(
-    val embeds: JsonElement? = null,
+class SeasonResponseDto(
+    val season: SeasonDto,
 )
 
-data class EmbedItem(
-    val server: String,
+@Serializable
+class SeasonDto(
+    val episodes: List<EpisodeDto>,
+)
+
+@Serializable
+class EpisodeDto(
+    val season: Int,
+    val episode: Int,
+    private val title: String? = null,
+    @SerialName("air_date") val airDate: String? = null,
+    val playable: Boolean = true,
+) {
+    val name: String
+        get() = "T${season}x$episode - ${title?.takeIf { it.isNotBlank() } ?: "Episodio $episode"}"
+}
+
+@Serializable
+class PlaybackDto(
+    val embeds: List<EmbedItem> = emptyList(),
+)
+
+@Serializable
+class EmbedItem(
+    val server: String = "",
     val url: String,
     val quality: String? = null,
-    val language: String? = null,
+    @SerialName("lang") val language: String? = null,
+)
+
+@Serializable
+class EmbedConfigDto(
+    val file: String? = null,
+    val subtitle: String? = null,
 )
