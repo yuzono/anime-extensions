@@ -283,7 +283,14 @@ class Movy :
     override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
 
     // ============================== Details ==============================
-    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
+    override fun getAnimeUrl(anime: SAnime): String {
+        val path = if ("/season/" in anime.url) {
+            anime.url.substringBefore("/season/")
+        } else {
+            anime.url
+        }
+        return "$baseUrl$path"
+    }
 
     private fun animeUrlToId(anime: SAnime): Pair<String, String> = animeUrlRegex.find(anime.url)?.let { matchResult ->
         val type = matchResult.groupValues[1]
