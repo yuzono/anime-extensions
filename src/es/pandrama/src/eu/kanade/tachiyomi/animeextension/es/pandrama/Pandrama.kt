@@ -8,30 +8,32 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonString
-import keiyoushi.utils.useAsJsoup
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
+import keiyoushi.utils.tryParse
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import java.net.URLDecoder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class Pandrama :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Pandrama"
 
-    override val baseUrl = "https://pandrama.com"
+    override val baseUrl = "https://www.pandrama.tv"
 
     override val lang = "es"
 
@@ -39,73 +41,32 @@ class Pandrama :
 
     private val preferences by getPreferencesLazy()
 
-    companion object {
-        private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_DEFAULT = "1080"
-        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
-
-        private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "Vk"
-        private val SERVER_LIST = arrayOf("Vk", "Okru")
+    private val apiHeaders: Headers by lazy {
+        headers.newBuilder()
+            .set("Accept", "application/json")
+            .set("Referer", "$baseUrl/")
+            .build()
     }
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.useAsJsoup()
-        val details = SAnime.create().apply {
-            status = SAnime.UNKNOWN
-            description = document.selectFirst("#height_limit")?.ownText()
-            genre = document.select(".this-desc-labels a").joinToString { it.text() }
-        }
-        for (element in document.select(".this-info")) {
-            val title = element.select("strong").text()
-            when {
-                title.contains("Director:") -> details.author = element.selectFirst("a")?.text()
-                title.contains("Actores:") -> details.artist = element.selectFirst("a")?.text()
-            }
-        }
-        return details
-    }
-
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/explorar/Dramas--------$page---/", headers)
+    override fun popularAnimeRequest(page: Int) = channelRequest(page)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.useAsJsoup()
-        val elements = document.select("a.public-list-exp")
-        val nextPage = document.select("[title=\"Página siguiente\"]").any()
-        val animeList = elements.map { element ->
-            val langTag = element.select(".public-prt").text().trim()
-            val prefix = when {
-                langTag.contains("Español") -> "\uD83C\uDDF2\uD83C\uDDFD "
-                langTag.contains("Castellano") -> "\uD83C\uDDEA\uD83C\uDDF8 "
-                else -> ""
-            }
-            SAnime.create().apply {
-                title = "$prefix ${element.attr("title")}".trim()
-                thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
-                setUrlWithoutDomain(element.attr("abs:href"))
-            }
-        }
-        return AnimesPage(animeList, nextPage)
+        val result = response.parseAs<ChannelResponse>().pagination
+        return AnimesPage(result.data.map { it.toSAnime() }, result.nextPage != null)
     }
 
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/explorar/Dramas--hits------$page---/", headers)
+    override fun latestUpdatesRequest(page: Int) = channelRequest(page, order = "updated_at:desc")
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val filterList = if (filters.isEmpty()) getFilterList() else filters
-        val genreFilter = filterList.find { it is GenreFilter } as GenreFilter
-        return when {
-            query.isNotBlank() -> GET("$baseUrl/buscar/media/$query----------$page---/")
-            genreFilter.state != 0 -> GET("$baseUrl${genreFilter.toUriPart().replace("page", "$page")}")
-            else -> popularAnimeRequest(page)
-        }
+        val genre = filters.firstInstanceOrNull<GenreFilter>()?.toUriPart().orEmpty()
+        return channelRequest(page, query = query, genre = genre)
     }
 
     override fun searchAnimeParse(response: Response) = popularAnimeParse(response)
 
-    override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        AnimeFilter.Header("La busqueda por texto ignora el filtro"),
+    override fun getFilterList() = AnimeFilterList(
         GenreFilter(),
     )
 
@@ -114,65 +75,157 @@ class Pandrama :
             "Género",
             arrayOf(
                 Pair("<Seleccionar>", ""),
-                Pair("Acción", "/explorar/Dramas---Acción-----page---/"),
-                Pair("Comedia", "/explorar/Dramas---Comedia-----page---/"),
-                Pair("Crimen", "/explorar/Dramas---Crimen-----page---/"),
-                Pair("BL", "/explorar/Dramas---BL-----page---/"),
-                Pair("GL", "/explorar/Dramas---GL-----page---/"),
-                Pair("Investigación", "/explorar/Dramas---Investigación-----page---/"),
-                Pair("Drama", "/explorar/Dramas---Drama-----page---/"),
-                Pair("Familiar", "/explorar/Dramas---Familiar-----page---/"),
-                Pair("Fantasía", "/explorar/Dramas---Fantasía-----page---/"),
-                Pair("De época", "/explorar/Dramas---De+época-----page---/"),
-                Pair("Juvenil", "/explorar/Dramas---Juvenil-----page---/"),
-                Pair("Legal", "/explorar/Dramas---Legal-----page---/"),
-                Pair("Maduro", "/explorar/Dramas---Maduro-----page---/"),
-                Pair("Médico", "/explorar/Dramas---Médico-----page---/"),
-                Pair("Melodrama", "/explorar/Dramas---Melodrama-----page---/"),
-                Pair("Militar", "/explorar/Dramas---Militar-----page---/"),
-                Pair("Misterio", "/explorar/Dramas---Misterio-----page---/"),
-                Pair("Musical", "/explorar/Dramas---Musical-----page---/"),
-                Pair("Oficina", "/explorar/Dramas---Oficina-----page---/"),
-                Pair("Politica", "/explorar/Dramas---Politica-----page---/"),
-                Pair("Psicológico", "/explorar/Dramas---Psicológico-----page---/"),
-                Pair("Romance", "/explorar/Dramas---Romance-----page---/"),
-                Pair("Rom&Com", "/explorar/Dramas---Rom%26Com-----page---/"),
-                Pair("Escolar", "/explorar/Dramas---Escolar-----page---/"),
-                Pair("Ciencia Ficción", "/explorar/Dramas---Ciencia+Ficción-----page---/"),
-                Pair("Deportes", "/explorar/Dramas---Deportes-----page---/"),
-                Pair("Sobrenatural", "/explorar/Dramas---Sobrenatural-----page---/"),
-                Pair("Suspenso", "/explorar/Dramas---Suspenso-----page---/"),
-                Pair("Terror", "/explorar/Dramas---Terror-----page---/"),
+                Pair("Acción", "Acción"),
+                Pair("Aventura", "Aventura"),
+                Pair("Boys Love", "Boys Love"),
+                Pair("Ciencia ficción", "Ciencia ficción"),
+                Pair("Comedia", "Comedia"),
+                Pair("Crimen", "Crimen"),
+                Pair("Deporte", "Deporte"),
+                Pair("Drama", "Drama"),
+                Pair("Escolar", "Escolar"),
+                Pair("Familia", "Familia"),
+                Pair("Fantasía", "Fantasía"),
+                Pair("Girls Love", "Girls Love"),
+                Pair("Histórico", "Histórico"),
+                Pair("Juventud", "Juventud"),
+                Pair("Medicina", "Medicina"),
+                Pair("Melodrama", "Melodrama"),
+                Pair("Misterio", "Misterio"),
+                Pair("Música", "Música"),
+                Pair("Romance", "Romance"),
+                Pair("Sobrenatural", "Sobrenatural"),
+                Pair("Suspense", "Suspense"),
+                Pair("Terror", "Terror"),
+                Pair("Thriller", "Thriller"),
             ),
         )
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.useAsJsoup()
-        return document.select(".anthology-list-play li a").groupBy { it.text().trim() }.map {
-            val urlList = it.value.map { it.attr("abs:href") }.toJsonString()
-            SEpisode.create().apply {
-                name = "Episodio ${it.key.substringAfter("Ep.").trim()}"
-                episode_number = it.key.substringAfter("Ep.").trim().toFloatOrNull() ?: 0F
-                url = urlList
+    private fun channelRequest(
+        page: Int,
+        order: String? = null,
+        query: String = "",
+        genre: String = "",
+    ): Request {
+        val url = "$baseUrl/api/v1/channel/dramas".toHttpUrl().newBuilder()
+            .addQueryParameter("channelType", "channel")
+            .addQueryParameter("returnContentOnly", "true")
+            .addQueryParameter("page", page.toString())
+            .apply {
+                if (order != null) addQueryParameter("order", order)
+                if (query.isNotBlank()) addQueryParameter("query", query)
+                if (genre.isNotEmpty()) addQueryParameter("genre", genre)
             }
-        }.reversed()
+            .build()
+        return GET(url, apiHeaders)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val serverData = episode.url.parseAs<List<String>>()
-        return serverData.parallelCatchingFlatMap {
-            val page = client.newCall(GET(it)).awaitSuccess().useAsJsoup()
-            val jsonData = page.selectFirst("script:containsData(var player_aaaa)")
-                ?.data()?.substringAfter("var player_aaaa=")?.trim()
-                ?: return@parallelCatchingFlatMap emptyList()
-            val player = jsonData.parseAs<PlayerDto>()
-            val url = if (player.encrypt == 2) {
-                URLDecoder.decode(base64decode(player.url ?: ""), "UTF-8")
-            } else {
-                URLDecoder.decode(player.url ?: "", "UTF-8")
-            }
-            serverVideoResolver(url)
+    override fun animeDetailsRequest(anime: SAnime) = GET("$baseUrl/api/v1/titles/${anime.url.titleId()}", apiHeaders)
+
+    override fun getAnimeUrl(anime: SAnime) = baseUrl + anime.url
+
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
+        val resolved = resolveAnime(anime)
+        return super.getAnimeDetails(resolved).apply {
+            url = resolved.url
+            title = resolved.title
         }
+    }
+
+    private suspend fun resolveAnime(anime: SAnime): SAnime {
+        if (anime.url.titleIdOrNull() != null) return anime
+
+        val title = anime.title.trim().removePrefix("🇲🇽").removePrefix("🇪🇸").trim()
+        require(title.isNotBlank()) { "No se pudo migrar un drama sin título" }
+        val result = client.newCall(channelRequest(1, query = title))
+            .awaitSuccess()
+            .parseAs<ChannelResponse>()
+        return result.pagination.data.map { it.toSAnime() }
+            .filter { it.title.equals(title, ignoreCase = true) }
+            .distinctBy { it.url }
+            .singleOrNull()
+            ?: throw Exception("No se pudo migrar este drama. Búscalo de nuevo en Pandrama para actualizar su enlace.")
+    }
+
+    override fun animeDetailsParse(response: Response): SAnime {
+        val result = response.parseAs<TitleResponse>()
+        return result.title.toSAnime(result.credits)
+    }
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val resolved = resolveAnime(anime)
+        val titleId = resolved.url.titleId()
+        val seasons = client.newCall(GET("$baseUrl/api/v1/titles/$titleId", apiHeaders))
+            .awaitSuccess()
+            .parseAs<TitleResponse>()
+            .availableSeasons
+            .sorted()
+        val multipleSeasons = seasons.size > 1
+        val episodeDateFormat = dateFormat
+
+        return seasons
+            .flatMap { fetchSeasonEpisodes(titleId, it) }
+            .map { episode ->
+                SEpisode.create().apply {
+                    name = if (multipleSeasons) {
+                        "T${episode.seasonNumber} - Episodio ${episode.episodeNumber}"
+                    } else {
+                        "Episodio ${episode.episodeNumber}"
+                    }
+                    episode_number = episode.episodeNumber.toFloat()
+                    date_upload = episodeDateFormat.tryParse(episode.releaseDate?.take(DATE_LENGTH))
+                    url = "${resolved.url.trimEnd('/')}/season/${episode.seasonNumber}/episode/${episode.episodeNumber}"
+                }
+            }
+            .reversed()
+    }
+
+    private suspend fun fetchSeasonEpisodes(titleId: String, season: Int): List<EpisodeDto> {
+        val episodes = mutableListOf<EpisodeDto>()
+        var page: Int? = 1
+        while (page != null) {
+            val url = "$baseUrl/api/v1/titles/$titleId/seasons/$season/episodes".toHttpUrl().newBuilder()
+                .addQueryParameter("perPage", "100")
+                .addQueryParameter("page", page.toString())
+                .build()
+            val result = client.newCall(GET(url, apiHeaders)).awaitSuccess()
+                .parseAs<EpisodesResponse>()
+                .pagination
+            episodes += result.data
+            page = result.nextPage
+        }
+        return episodes
+    }
+
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val (titleId, season, number) = EPISODE_URL_REGEX.find(episode.url)?.destructured
+            ?: throw Exception("URL de episodio no válida")
+        val servers = client.newCall(GET("$baseUrl/api/v1/titles/$titleId/seasons/$season/episodes/$number", apiHeaders))
+            .awaitSuccess()
+            .parseAs<EpisodeVideosResponse>()
+            .episode
+            .videos
+
+        return servers.mapNotNull { server ->
+            val url = server.src.lowercase()
+            val name = when {
+                url.contains("ok.ru") || url.contains("okru") -> "Okru"
+                url.contains("vk.com") || url.contains("vkvideo") -> "Vk"
+                else -> return@mapNotNull null
+            }
+            Hoster(hosterUrl = server.src, hosterName = name)
+        }
+    }
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = serverVideoResolver(hoster.hosterUrl).sortVideos()
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return sortedByDescending { it.hosterName.contains(server, true) }
     }
 
     private val okruExtractor by lazy { OkruExtractor(client) }
@@ -182,10 +235,12 @@ class Pandrama :
         val embedUrl = url.lowercase()
         return when {
             embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> okruExtractor.videosFromUrl(url)
-            embedUrl.contains("vk.") -> vkExtractor.videosFromUrl(url)
+            embedUrl.contains("vk.com") || embedUrl.contains("vkvideo") -> vkExtractor.videosFromUrl(url, "Vk:")
             else -> emptyList()
         }
     }
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
@@ -194,7 +249,7 @@ class Pandrama :
             compareBy(
                 { it.videoTitle.contains(server, true) },
                 { it.videoTitle.contains(quality) },
-                { Regex("""(\d+)p""").find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }
@@ -223,85 +278,30 @@ class Pandrama :
         fun toUriPart() = vals[state].second
     }
 
-    private val base64DecodeChars = intArrayOf(
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-        17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26,
-        27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-        43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
-    )
-
-    private fun base64decode(str: String): String {
-        var c1: Int
-        var c2: Int
-        var c3: Int
-        var c4: Int
-        var i = 0
-        val len = str.length
-        val out = StringBuilder()
-        while (i < len) {
-            do {
-                c1 = base64DecodeChars[str[i].toInt() and 255]
-                i++
-            } while (i < len && c1 == -1)
-            if (c1 == -1) break
-            do {
-                c2 = base64DecodeChars[str[i].toInt() and 255]
-                i++
-            } while (i < len && c2 == -1)
-            if (c2 == -1) break
-            out.append(((c1 shl 2) or ((c2 and 48) shr 4)).toChar())
-            do {
-                c3 = str[i].toInt() and 255
-                if (c3 == 61) return out.toString()
-                c3 = base64DecodeChars[c3]
-                i++
-            } while (i < len && c3 == -1)
-            if (c3 == -1) break
-            out.append((((c2 and 15) shl 4) or ((c3 and 60) shr 2)).toChar())
-            do {
-                c4 = str[i].toInt() and 255
-                if (c4 == 61) return out.toString()
-                c4 = base64DecodeChars[c4]
-                i++
-            } while (i < len && c4 == -1)
-            if (c4 == -1) break
-            out.append((((c3 and 3) shl 6) or c4).toChar())
-        }
-        return out.toString()
+    private fun String.titleIdOrNull(): String? {
+        val segments = baseUrl.toHttpUrl().resolve(this)?.pathSegments ?: return null
+        return segments.takeIf { it.size > 1 && it[0] == "titles" }
+            ?.get(1)?.takeIf { (it.toIntOrNull() ?: 0) > 0 }
     }
 
-    @Serializable
-    data class PlayerDto(
-        @SerialName("flag") var flag: String? = null,
-        @SerialName("encrypt") var encrypt: Int? = null,
-        @SerialName("trysee") var trysee: Int? = null,
-        @SerialName("points") var points: Int? = null,
-        @SerialName("link") var link: String? = null,
-        @SerialName("poster") var poster: String? = null,
-        @SerialName("doblado") var doblado: String? = null,
-        @SerialName("vod_en_py") var vodEnPy: String? = null,
-        @SerialName("link_next") var linkNext: String? = null,
-        @SerialName("link_pre") var linkPre: String? = null,
-        @SerialName("vod_data") var vodData: VodData? = VodData(),
-        @SerialName("url") var url: String? = null,
-        @SerialName("url_next") var urlNext: String? = null,
-        @SerialName("from") var from: String? = null,
-        @SerialName("server") var server: String? = null,
-        @SerialName("note") var note: String? = null,
-        @SerialName("id") var id: String? = null,
-        @SerialName("sid") var sid: Int? = null,
-        @SerialName("nid") var nid: Int? = null,
-    )
+    private fun String.titleId() = titleIdOrNull() ?: throw Exception("URL de drama no válida")
 
-    @Serializable
-    data class VodData(
-        @SerialName("vod_name") var vodName: String? = null,
-        @SerialName("vod_actor") var vodActor: String? = null,
-        @SerialName("vod_director") var vodDirector: String? = null,
-        @SerialName("vod_class") var vodClass: String? = null,
-    )
+    private val dateFormat: SimpleDateFormat
+        get() = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+    companion object {
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "1080"
+        private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
+
+        private const val PREF_SERVER_KEY = "preferred_server"
+        private const val PREF_SERVER_DEFAULT = "Vk"
+        private val SERVER_LIST = arrayOf("Vk", "Okru")
+
+        private const val DATE_LENGTH = 10
+        private val QUALITY_REGEX = Regex("""(\d+)p""")
+        private val EPISODE_URL_REGEX = Regex("""/titles/(\d+)(?:/[^/]+)?/season/(\d+)/episode/(\d+)""")
+    }
 }
