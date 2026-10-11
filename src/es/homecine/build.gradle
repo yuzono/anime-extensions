@@ -1,5 +1,6 @@
 ext {
     extName = 'HomeCine'
+    libVersion = '16'
     extClass = '.HomeCine'
     extVersionCode = 21
 }
