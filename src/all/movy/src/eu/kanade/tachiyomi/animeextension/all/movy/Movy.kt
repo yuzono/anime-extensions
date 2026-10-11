@@ -20,11 +20,14 @@ import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -89,14 +92,17 @@ class Movy :
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
 
     private fun latestUpdatesRequest(page: Int, mediaType: String): Request {
+        val sortBy = if (mediaType == "movie") "primary_release_date.desc" else "first_air_date.desc"
+        val dateField = if (mediaType == "movie") "primary_release_date.lte" else "first_air_date.lte"
+
         val url = apiUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("discover")
             addPathSegment(mediaType)
             addQueryParameter("language", "en-US")
-            addQueryParameter("sort_by", "primary_release_date.desc")
+            addQueryParameter("sort_by", sortBy)
             addQueryParameter("page", page.toString())
             addQueryParameter("vote_count.gte", "50")
-            addQueryParameter("primary_release_date.lte", today())
+            addQueryParameter(dateField, today())
         }.build()
         return GET(url)
     }
@@ -133,6 +139,8 @@ class Movy :
             return runCatching {
                 getAnimeDetails(tempAnime).apply { this.url = url }
                     .let(::listOf)
+            }.onFailure {
+                if (it is CancellationException) throw it
             }.getOrElse { emptyList() }
                 .let { AnimesPage(it, false) }
         }
@@ -464,29 +472,32 @@ class Movy :
                 )
                 val extraDataEncoded = extraData.toJsonString()
 
-                tv.seasons
-                    .filter { it.seasonNumber > 0 }
-                    .parallelCatchingFlatMap { season ->
-                        val seasonDetail = client.get(
-                            "$apiUrl/tv/$tvId/season/${season.seasonNumber}",
-                        ).parseAs<TvSeasonDetailDto>()
-                        seasonDetail.episodes.map { episode ->
-                            SEpisode.create().apply {
-                                name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
-                                episode_number = episode.episodeNumber.toFloat()
-                                scanlator = "Season ${season.seasonNumber}"
-                                date_upload = parseDate(episode.airDate)
-                                summary = episode.overview?.takeIf { it.isNotBlank() }
-                                preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-                                url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}#$extraDataEncoded"
+                coroutineScope {
+                    tv.seasons
+                        .filter { it.seasonNumber > 0 }
+                        .map { season ->
+                            async {
+                                val seasonDetail = client.get(
+                                    "$apiUrl/tv/$tvId/season/${season.seasonNumber}",
+                                ).parseAs<TvSeasonDetailDto>()
+                                seasonDetail.episodes.reversed().map { episode ->
+                                    SEpisode.create().apply {
+                                        name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
+                                        episode_number = episode.episodeNumber.toFloat()
+                                        scanlator = "Season ${season.seasonNumber}"
+                                        date_upload = parseDate(episode.airDate)
+                                        summary = episode.overview?.takeIf { it.isNotBlank() }
+                                        preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+                                        url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}#$extraDataEncoded"
+                                    }
+                                }
                             }
-                        }
-                    }
-                    .sortedWith(
-                        compareByDescending<SEpisode> {
-                            it.scanlator?.substringAfter(" ")?.toIntOrNull()
-                        }.thenByDescending { it.episode_number },
-                    )
+                        }.awaitAll().flatten()
+                }.sortedWith(
+                    compareByDescending<SEpisode> {
+                        it.scanlator?.substringAfter(" ")?.toIntOrNull()
+                    }.thenByDescending { it.episode_number },
+                )
             }
             else -> {
                 val response = client.get(animeDetailsRequest(anime).url.toString())
@@ -557,14 +568,21 @@ class Movy :
             baseUrl = apiOrigin(baseUrl),
             subLimit = preferences.subLimitPref.toIntOrNull()
                 ?: PREF_SUB_LIMIT_DEFAULT.toInt(),
-            qualityPref = preferences.qualityPref,
         )
 
         val preferredQuality = preferences.qualityPref
-        return videoList.map { video ->
-            val isPreferredQuality = video.videoTitle.contains(preferredQuality, ignoreCase = true) ||
-                (preferredQuality == "2160" && video.videoTitle.contains("4k", ignoreCase = true))
-            if (isPreferredQuality) video.copy(preferred = true) else video
+        return videoList.sortedWith(
+            compareByDescending<Video> {
+                it.videoTitle.contains(preferredQuality, ignoreCase = true) ||
+                    (preferredQuality == "2160" && it.videoTitle.contains("4k", ignoreCase = true))
+            }.thenByDescending { v ->
+                val match = qualityRegex.find(v.videoTitle)
+                match?.groupValues?.get(1)?.toIntOrNull() ?: if (v.videoTitle.contains("4k", ignoreCase = true)) 2160 else 0
+            },
+        ).map { v ->
+            val isPreferred = v.videoTitle.contains(preferredQuality, ignoreCase = true) ||
+                (preferredQuality == "2160" && v.videoTitle.contains("4k", ignoreCase = true))
+            if (isPreferred) v.copy(preferred = true) else v
         }
     }
 
@@ -712,6 +730,8 @@ class Movy :
         private val DEEP_LINK_PATH_REGEX = Regex("""(movie|tv)/\d+""")
 
         private val animeUrlRegex = Regex("""/(movie|tv)/(\d+)""")
+
+        private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
 
         private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
 

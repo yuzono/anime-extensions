@@ -9,6 +9,7 @@ import keiyoushi.utils.get
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toJsonRequestBody
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -62,7 +63,6 @@ class MovyExtractor(
         imdbId: String,
         baseUrl: String,
         subLimit: Int,
-        qualityPref: String,
     ): List<Video> {
         val pathParts = path.split("/")
         val isMovie = pathParts.first() == "movie"
@@ -133,15 +133,9 @@ class MovyExtractor(
                 resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
             }
             serverFailureState.remove(stateKey)
-            buildVideos(server, decrypted, baseUrl, subLimit).sortedWith(
-                compareByDescending<Video> {
-                    it.videoTitle.contains(qualityPref, ignoreCase = true) ||
-                        (qualityPref == "2160" && it.videoTitle.contains("4k", ignoreCase = true))
-                }.thenByDescending {
-                    extractQualityValue(it.videoTitle)
-                },
-            )
-        } catch (_: Throwable) {
+            buildVideos(server, decrypted, baseUrl, subLimit)
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
             serverFailureState.merge(
                 stateKey,
                 FailureState(1, now),
@@ -208,19 +202,6 @@ class MovyExtractor(
             quality.contains("4k", ignoreCase = true) ||
             quality.all { it.isDigit() }
         )
-
-    /**
-     * Extracts a numeric quality value for sorting. Maps "4K" to 2160
-     * so it sorts above 1080p instead of being treated as 0.
-     */
-    private fun extractQualityValue(quality: String): Int {
-        val match = qualityRegex.find(quality)
-        if (match != null) {
-            return match.groupValues[1].toIntOrNull() ?: 0
-        }
-        if (quality.contains("4k", ignoreCase = true)) return 2160
-        return 0
-    }
 
     private fun buildVideos(
         server: VideasyServer,
