@@ -13,6 +13,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 private val NEWLINE_REGEX = Regex("""\n""")
+private val EXPR_REGEX = Regex("""^(\w+)(?:\s*([+\-*/])\s*([\d.]+))?(?::(.+))?$""")
 
 // From https://github.com/jellyfin/jellyfin-sdk-kotlin
 fun getAuthHeader(deviceInfo: Jellyfin.DeviceInfo, token: String? = null): String {
@@ -189,9 +190,8 @@ fun getDeviceProfile(
 }
 
 fun format(values: Map<String, Any>, input: String): String {
-    val exprRegex = Regex("""^(\w+)(?:\s*([+\-*/])\s*([\d.]+))?(?::(.+))?$""")
     val lookup = StringLookup { key ->
-        val match = exprRegex.find(key)
+        val match = EXPR_REGEX.find(key)
             ?: throw IllegalArgumentException("Invalid format: $key")
 
         val (valueKey, operator, operand, formatStr) = match.destructured

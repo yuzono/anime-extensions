@@ -14,13 +14,13 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Serializable
-data class ItemListDto(
+class ItemListDto(
     val items: List<ItemDto>,
     val totalRecordCount: Int,
 )
 
 @Serializable
-data class ItemDto(
+class ItemDto(
     // Common
     val name: String,
     val type: ItemType,
@@ -56,12 +56,12 @@ data class ItemDto(
     val mediaSources: List<MediaDto>? = null,
 ) {
     @Serializable
-    data class ImageDto(
+    class ImageDto(
         val primary: String? = null,
     )
 
     @Serializable
-    data class StudioDto(
+    class StudioDto(
         val name: String,
     )
 
@@ -77,8 +77,7 @@ data class ItemDto(
         )
         fetch_type = when (type) {
             ItemType.BoxSet, ItemType.Series -> FetchType.Seasons
-            ItemType.Movie, ItemType.Season -> FetchType.Episodes
-            else -> FetchType.Episodes
+            ItemType.Movie, ItemType.Season, ItemType.Episode, ItemType.Other -> FetchType.Episodes
         }
         url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("Users")
@@ -101,8 +100,8 @@ data class ItemDto(
         }
         title = name
         description = overview?.let(::convertHtml)
-        genre = genres?.joinToString(", ")
-        author = studios?.joinToString(", ") { it.name }
+        genre = genres?.joinToString()
+        author = studios?.joinToString { it.name }
         season_number = indexNumber?.toDouble() ?: -1.0
 
         status = if (type == ItemType.Movie) {
@@ -246,13 +245,13 @@ data class ItemDto(
 }
 
 @Serializable
-data class SessionDto(
+class SessionDto(
     val mediaSources: List<MediaDto>,
     val playSessionId: String,
 )
 
 @Serializable
-data class MediaDto(
+class MediaDto(
     val size: Long? = null,
     val id: String? = null,
     val bitrate: Int? = null,
@@ -265,7 +264,7 @@ data class MediaDto(
     val mediaStreams: List<MediaStreamDto>,
 ) {
     @Serializable
-    data class MediaStreamDto(
+    class MediaStreamDto(
         val codec: String? = null,
         val index: Int,
         val type: String,
