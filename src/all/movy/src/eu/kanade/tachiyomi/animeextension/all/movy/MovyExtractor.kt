@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.movy
 
+import android.util.Log
 import android.util.LruCache
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -13,7 +14,6 @@ import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Resolves Videasy embeds for a Movy episode/movie: double-encoded
@@ -30,8 +30,6 @@ class MovyExtractor(
     private val resultCache = LruCache<CacheKey, CachedResult>(CACHE_SIZE)
     private val resultCacheLock = Any()
 
-    private val serverFailureState = ConcurrentHashMap<String, FailureState>()
-
     private data class CacheKey(
         val server: VideasyServer,
         val path: String,
@@ -43,11 +41,6 @@ class MovyExtractor(
     private data class CachedResult(
         val result: VideasyDecryptedResult,
         val expiresAtMillis: Long,
-    )
-
-    private data class FailureState(
-        val count: Int,
-        val lastFailureAtMillis: Long,
     )
 
     private fun getOrigin(url: String, stripWww: Boolean = true): String {
@@ -69,15 +62,6 @@ class MovyExtractor(
         val tmdbId = pathParts[1]
 
         val now = System.currentTimeMillis()
-        val stateKey = "${server.displayName}:$path"
-        val state = serverFailureState[stateKey]
-        val circuitOpen = state != null &&
-            state.count >= MAX_SERVER_FAILURES &&
-            now - state.lastFailureAtMillis < CIRCUIT_COOLDOWN_MS
-        if (circuitOpen) {
-            return emptyList()
-        }
-
         val cacheKey = cacheKey(server, path, title, year, imdbId)
 
         val cached = synchronized(resultCacheLock) {
@@ -132,14 +116,11 @@ class MovyExtractor(
             synchronized(resultCacheLock) {
                 resultCache.put(cacheKey, CachedResult(decrypted, now + CACHE_TTL_MS))
             }
-            serverFailureState.remove(stateKey)
             buildVideos(server, decrypted, baseUrl, subLimit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
-            if (e is CancellationException) throw e
-            serverFailureState.merge(
-                stateKey,
-                FailureState(1, now),
-            ) { old, _ -> FailureState(old.count + 1, now) }
+            Log.e("MovyExtractor", "Error resolving video for server ${server.displayName}", e)
             emptyList()
         }
     }
@@ -246,11 +227,11 @@ class MovyExtractor(
                     // - Quality is a generic placeholder (e.g. "Auto", "video")
                     //   to catch playlists that lack a file extension.
                     //
-                    // FORCE EXPANSION FOR BREACH: m4uhd often returns a master playlist
+                    // FORCE EXPANSION FOR PHOENIX: phoenix often returns a master playlist
                     // without a .m3u8 extension. We force it here to extract the variants.
                     val isGeneric = isGenericQuality(rawQuality)
                     val needsExpansion = (!isRealResolution(rawQuality) && (isHls || isDash || isLang || isGeneric)) ||
-                        (server.displayName == "Breach")
+                        (server.displayName == "Phoenix")
 
                     if (needsExpansion) {
                         val expanded = runCatching {
@@ -298,15 +279,28 @@ class MovyExtractor(
                 }
             }
             decrypted.url != null -> {
-                playlistUtils.extractFromHls(
-                    playlistUrl = decrypted.url,
-                    videoNameGen = { quality ->
-                        buildVideoLabel(server, quality, decrypted.url, subtitles.size)
-                    },
-                    subtitleList = subtitles,
-                    masterHeaders = videoHeaders,
-                    videoHeaders = videoHeaders,
-                )
+                val expanded = runCatching {
+                    playlistUtils.extractFromHls(
+                        playlistUrl = decrypted.url,
+                        videoNameGen = { quality ->
+                            buildVideoLabel(server, quality, decrypted.url, subtitles.size)
+                        },
+                        subtitleList = subtitles,
+                        masterHeaders = videoHeaders,
+                        videoHeaders = videoHeaders,
+                    )
+                }.getOrDefault(emptyList())
+
+                expanded.ifEmpty {
+                    listOf(
+                        Video(
+                            videoUrl = decrypted.url,
+                            videoTitle = buildVideoLabel(server, "Auto", decrypted.url, subtitles.size),
+                            headers = videoHeaders,
+                            subtitleTracks = subtitles,
+                        ),
+                    )
+                }
             }
             else -> emptyList()
         }
@@ -367,9 +361,6 @@ class MovyExtractor(
 
         private const val CACHE_SIZE = 64
         private const val CACHE_TTL_MS = 60_000L
-
-        private const val MAX_SERVER_FAILURES = 2
-        private const val CIRCUIT_COOLDOWN_MS = 180_000L
 
         private val qualityRegex = Regex("""(\d{3,4})[pP]?""")
 

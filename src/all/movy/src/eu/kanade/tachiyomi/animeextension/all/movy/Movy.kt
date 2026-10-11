@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -40,6 +41,10 @@ class Movy :
     ConfigurableAnimeSource {
 
     override val name = "Movy"
+
+    override val client = network.client.newBuilder()
+        .rateLimit(2) { it.host.contains("wecollege.net") }
+        .build()
 
     private val preferences: SharedPreferences by getPreferencesLazy {
         clearOldPrefs()
@@ -315,7 +320,7 @@ class Movy :
             author = movie.productionCompanies.joinToString { it.name }
             genre = movie.genres.joinToString { it.name }
             status = parseStatus(movie.status)
-            background_url = movie.backdropPath
+            background_url = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Episodes
             description = buildString {
                 movie.overview?.also { append(it + "\n\n") }
@@ -358,7 +363,7 @@ class Movy :
             artist = tv.networks.joinToString { it.name }
             genre = tv.genres.joinToString { it.name }
             status = parseStatus(tv.status)
-            background_url = tv.backdropPath
+            background_url = tv.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Seasons
             description = buildString {
                 tv.overview?.also { append(it + "\n\n") }
@@ -477,19 +482,25 @@ class Movy :
                         .filter { it.seasonNumber > 0 }
                         .map { season ->
                             async {
-                                val seasonDetail = client.get(
-                                    "$apiUrl/tv/$tvId/season/${season.seasonNumber}",
-                                ).parseAs<TvSeasonDetailDto>()
-                                seasonDetail.episodes.reversed().map { episode ->
-                                    SEpisode.create().apply {
-                                        name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
-                                        episode_number = episode.episodeNumber.toFloat()
-                                        scanlator = "Season ${season.seasonNumber}"
-                                        date_upload = parseDate(episode.airDate)
-                                        summary = episode.overview?.takeIf { it.isNotBlank() }
-                                        preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-                                        url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}#$extraDataEncoded"
+                                try {
+                                    val seasonDetail = client.get(
+                                        "$apiUrl/tv/$tvId/season/${season.seasonNumber}",
+                                    ).parseAs<TvSeasonDetailDto>()
+                                    seasonDetail.episodes.reversed().map { episode ->
+                                        SEpisode.create().apply {
+                                            name = "S${season.seasonNumber} E${episode.episodeNumber} - ${episode.name}"
+                                            episode_number = episode.episodeNumber.toFloat()
+                                            scanlator = "Season ${season.seasonNumber}"
+                                            date_upload = parseDate(episode.airDate)
+                                            summary = episode.overview?.takeIf { it.isNotBlank() }
+                                            preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+                                            url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}#$extraDataEncoded"
+                                        }
                                     }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Throwable) {
+                                    emptyList()
                                 }
                             }
                         }.awaitAll().flatten()
@@ -571,17 +582,21 @@ class Movy :
         )
 
         val preferredQuality = preferences.qualityPref
+        val prefInt = preferredQuality.toIntOrNull() ?: 1080
+
         return videoList.sortedWith(
-            compareByDescending<Video> {
-                it.videoTitle.contains(preferredQuality, ignoreCase = true) ||
-                    (preferredQuality == "2160" && it.videoTitle.contains("4k", ignoreCase = true))
+            compareByDescending<Video> { v ->
+                val qVal = qualityRegex.find(v.videoTitle)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: if (v.videoTitle.contains("4k", ignoreCase = true)) 2160 else 0
+                qVal == prefInt
             }.thenByDescending { v ->
-                val match = qualityRegex.find(v.videoTitle)
-                match?.groupValues?.get(1)?.toIntOrNull() ?: if (v.videoTitle.contains("4k", ignoreCase = true)) 2160 else 0
+                qualityRegex.find(v.videoTitle)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: if (v.videoTitle.contains("4k", ignoreCase = true)) 2160 else 0
             },
         ).map { v ->
-            val isPreferred = v.videoTitle.contains(preferredQuality, ignoreCase = true) ||
-                (preferredQuality == "2160" && v.videoTitle.contains("4k", ignoreCase = true))
+            val qVal = qualityRegex.find(v.videoTitle)?.groupValues?.get(1)?.toIntOrNull()
+                ?: if (v.videoTitle.contains("4k", ignoreCase = true)) 2160 else 0
+            val isPreferred = qVal == prefInt
             if (isPreferred) v.copy(preferred = true) else v
         }
     }
