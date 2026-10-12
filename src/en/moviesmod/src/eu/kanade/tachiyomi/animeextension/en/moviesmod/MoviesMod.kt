@@ -24,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import java.util.concurrent.atomic.AtomicBoolean
@@ -283,7 +284,7 @@ class MoviesMod : Source() {
             ?.substringAfter(":")?.trim()?.let { " - $it" }
             .orEmpty()
 
-        // Only the Instant buttons lead to a stream; the rest need a login, a captcha or Telegram
+        // Resume Cloud serves a zip and Telegram File needs the Telegram bot, so neither is playable
         return btns.flatMap { btn ->
             val href = btn.attr("abs:href").takeUnless { it.isBlank() } ?: return@flatMap emptyList()
             val label = btn.text()
@@ -317,10 +318,32 @@ class MoviesMod : Source() {
                         )
                     }.getOrDefault(emptyList())
                 }
+                href.contains("/wfile/") -> extractWorkerLinks(href, quality, size)
                 else -> emptyList()
             }
         }
     }
+
+    private suspend fun extractWorkerLinks(wfileUrl: String, quality: String, size: String): List<Video> {
+        val servers = runCatching { client.get(wfileUrl, headers).asJsoup() }.getOrNull()
+            ?.select("a[href*='?type=']")
+            ?.distinctBy { it.attr("abs:href") }
+            .orEmpty()
+
+        return servers.parallelCatchingFlatMap { server ->
+            val doc = client.get(server.attr("abs:href"), headers, CacheControl.FORCE_NETWORK).asJsoup()
+            doc.select("div.mb-4 > a[href*=workers.dev]").mapNotNull { link ->
+                val url = link.attr("abs:href").takeIf { isPlayable(it) } ?: return@mapNotNull null
+                Video(videoUrl = url, videoTitle = "$quality - Direct ${server.text()}$size")
+            }
+        }
+    }
+
+    // Worker links often fail with a Google Drive quota error, so only keep the ones that serve the file
+    private suspend fun isPlayable(url: String): Boolean = runCatching {
+        val rangeHeaders = headers.newBuilder().set("Range", "bytes=0-0").build()
+        client.get(url, rangeHeaders, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { it.isSuccessful }
+    }.getOrDefault(false)
 
     // ============================= Utilities ==============================
     private val redirectBypasser by lazy { RedirectorBypasser(client, headers) }
