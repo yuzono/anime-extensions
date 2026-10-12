@@ -99,6 +99,8 @@ class MoviesMod : Source() {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
+    private val noRedirectClient by lazy { client.newBuilder().followRedirects(false).build() }
+
     override fun getAnimeUrl(anime: SAnime): String = currentBaseUrl + anime.url
 
     // ============================== Popular ===============================
@@ -261,70 +263,68 @@ class MoviesMod : Source() {
     }
 
     // =========================== Hosters & Videos ==========================
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = listOf(Hoster(hosterName = "Default", hosterUrl = episode.url))
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val urlJson = runCatching { json.decodeFromString<EpLinks>(hoster.hosterUrl) }.getOrNull()
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val links = runCatching { json.decodeFromString<EpLinks>(episode.url) }.getOrNull()?.urls
             ?: return emptyList()
 
-        return urlJson.urls.parallelCatchingFlatMap { eplink ->
-            val mediaUrl = getMediaUrl(eplink) ?: return@parallelCatchingFlatMap emptyList()
-            extractVideos(mediaUrl, eplink.quality)
-        }.sortVideosByPreference()
+        return links.parallelCatchingFlatMap { link ->
+            val mediaUrl = getMediaUrl(link) ?: return@parallelCatchingFlatMap emptyList()
+            extractVideos(mediaUrl, link.quality)
+        }
+            .groupBy({ it.first }, { it.second })
+            .map { (server, videos) ->
+                // Movies list the same file under two server buttons
+                Hoster(hosterName = server, videoList = videos.distinctBy { it.videoTitle }.sortVideosByPreference())
+            }
     }
 
-    private suspend fun extractVideos(fileUrl: String, quality: String): List<Video> {
+    private suspend fun extractVideos(fileUrl: String, quality: String): List<Pair<String, Video>> {
         val doc = runCatching { client.get(fileUrl, headers).asJsoup() }.getOrNull()
             ?: return emptyList()
 
-        val btns = doc.select("div.card-body a.btn")
-        if (btns.isEmpty()) return emptyList()
-
+        val resolution = RESOLUTION_REGEX.find(quality)?.value?.lowercase() ?: quality
         val size = doc.selectFirst("li.list-group-item:matchesOwn(^Size\\s*:)")?.ownText()
             ?.substringAfter(":")?.trim()?.let { " - $it" }
             .orEmpty()
+        val title = "$resolution$size"
 
         // Resume Cloud serves a zip and Telegram File needs the Telegram bot, so neither is playable
-        return btns.flatMap { btn ->
-            val href = btn.attr("abs:href").takeUnless { it.isBlank() } ?: return@flatMap emptyList()
-            val label = btn.text()
+        return doc.select("div.card-body a.btn").parallelCatchingFlatMap { btn ->
+            val href = btn.attr("abs:href").takeUnless { it.isBlank() } ?: return@parallelCatchingFlatMap emptyList()
+            val server = btn.text()
 
             when {
                 href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") ||
                     href.contains("r2.dev") || href.contains("instant.video-gen") -> {
-                    val finalUrl = runCatching {
-                        client.head(href, headers).use { resp ->
-                            if (!resp.isSuccessful) return@use null
-                            resp.request.url.queryParameter("url") ?: resp.request.url.toString()
-                        }
-                    }.getOrNull() ?: href
-
-                    if (finalUrl.contains(".m3u8")) {
+                    val finalUrl = resolveRedirect(href)
+                    val videos = if (finalUrl.contains(".m3u8")) {
                         runCatching {
-                            playlistUtils.extractFromHls(
-                                finalUrl,
-                                videoNameGen = { q -> "$quality - $q$size" },
-                            )
-                        }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - $label$size")))
+                            playlistUtils.extractFromHls(finalUrl, videoNameGen = { q -> "$q$size" })
+                        }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = title)))
                     } else {
-                        listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - $label$size"))
+                        listOf(Video(videoUrl = finalUrl, videoTitle = title, resolution = resolution.toVideoResolution()))
                     }
+                    videos.map { server to it }
                 }
                 href.contains(".m3u8") -> {
                     runCatching {
-                        playlistUtils.extractFromHls(
-                            href,
-                            videoNameGen = { q -> "$quality - $q$size" },
-                        )
-                    }.getOrDefault(emptyList())
+                        playlistUtils.extractFromHls(href, videoNameGen = { q -> "$q$size" })
+                    }.getOrDefault(emptyList()).map { server to it }
                 }
-                href.contains("/wfile/") -> extractWorkerLinks(href, quality, size)
+                href.contains("/wfile/") -> extractWorkerLinks(href, resolution, size)
                 else -> emptyList()
             }
         }
     }
 
-    private suspend fun extractWorkerLinks(wfileUrl: String, quality: String, size: String): List<Video> {
+    // The instant links redirect to video-seed.dev?url=<stream>; that page is slow, so only read the Location header
+    private suspend fun resolveRedirect(url: String): String = runCatching {
+        noRedirectClient.head(url, headers, ensureSuccess = false).use { resp ->
+            resp.header("Location")?.let { resp.request.url.resolve(it) }
+        }
+    }.getOrNull()?.let { it.queryParameter("url") ?: it.toString() } ?: url
+
+    private suspend fun extractWorkerLinks(wfileUrl: String, resolution: String, size: String): List<Pair<String, Video>> {
         val servers = runCatching { client.get(wfileUrl, headers).asJsoup() }.getOrNull()
             ?.select("a[href*='?type=']")
             ?.distinctBy { it.attr("abs:href") }
@@ -334,7 +334,11 @@ class MoviesMod : Source() {
             val doc = client.get(server.attr("abs:href"), headers, CacheControl.FORCE_NETWORK).asJsoup()
             doc.select("div.mb-4 > a[href*=workers.dev]").mapNotNull { link ->
                 val url = link.attr("abs:href").takeIf { isPlayable(it) } ?: return@mapNotNull null
-                Video(videoUrl = url, videoTitle = "$quality - Direct ${server.text()}$size")
+                "Direct ${server.text()}" to Video(
+                    videoUrl = url,
+                    videoTitle = "$resolution$size",
+                    resolution = resolution.toVideoResolution(),
+                )
             }
         }
     }
@@ -344,6 +348,8 @@ class MoviesMod : Source() {
         val rangeHeaders = headers.newBuilder().set("Range", "bytes=0-0").build()
         client.get(url, rangeHeaders, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { it.isSuccessful }
     }.getOrDefault(false)
+
+    private fun String.toVideoResolution(): Int? = removeSuffix("p").toIntOrNull()
 
     // ============================= Utilities ==============================
     private val redirectBypasser by lazy { RedirectorBypasser(client, headers) }
@@ -438,6 +444,8 @@ class MoviesMod : Source() {
     private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
 
     companion object {
+        private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
+
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
         private const val PREF_DOMAIN_TITLE = "Currently used domain"
         private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.zone"
