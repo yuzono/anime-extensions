@@ -279,10 +279,14 @@ class MoviesMod : Source() {
         val btns = doc.select("div.card-body a.btn")
         if (btns.isEmpty()) return emptyList()
 
-        // Extract videos, handling HLS via PlaylistUtils where applicable
+        val size = doc.selectFirst("li.list-group-item:matchesOwn(^Size\\s*:)")?.ownText()
+            ?.substringAfter(":")?.trim()?.let { " - $it" }
+            .orEmpty()
+
+        // Only the Instant buttons lead to a stream; the rest need a login, a captcha or Telegram
         return btns.flatMap { btn ->
             val href = btn.attr("abs:href").takeUnless { it.isBlank() } ?: return@flatMap emptyList()
-            val size = SIZE_REGEX.find(btn.text())?.groupValues?.get(1)?.let { " - $it" } ?: ""
+            val label = btn.text()
 
             when {
                 href.contains("cdn.video-gen.xyz") || href.contains("video-seed.dev") ||
@@ -300,9 +304,9 @@ class MoviesMod : Source() {
                                 finalUrl,
                                 videoNameGen = { q -> "$quality - $q$size" },
                             )
-                        }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - HLS$size")))
+                        }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - $label$size")))
                     } else {
-                        listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - Instant$size"))
+                        listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - $label$size"))
                     }
                 }
                 href.contains(".m3u8") -> {
@@ -313,11 +317,7 @@ class MoviesMod : Source() {
                         )
                     }.getOrDefault(emptyList())
                 }
-                href.contains("/login") -> emptyList()
-                else -> {
-                    // Fallback for r2.dev, seedtg.xyz, tgcdn_bot and future hosts - expose as direct
-                    listOf(Video(videoUrl = href, videoTitle = "$quality - Direct$size"))
-                }
+                else -> emptyList()
             }
         }
     }
@@ -415,8 +415,6 @@ class MoviesMod : Source() {
     private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
 
     companion object {
-        private val SIZE_REGEX = """\[((?:.(?!\[))+)]*\$""".toRegex(RegexOption.IGNORE_CASE)
-
         private const val PREF_DOMAIN_KEY = "pref_domain_new"
         private const val PREF_DOMAIN_TITLE = "Currently used domain"
         private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.zone"
