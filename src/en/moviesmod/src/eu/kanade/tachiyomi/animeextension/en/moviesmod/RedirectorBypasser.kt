@@ -23,7 +23,7 @@ class RedirectorBypasser(private val client: OkHttpClient, private val headers: 
             ?.data()
             ?: return null
 
-        val nextUrl = HREF_REGEX.find(script)?.groupValues?.get(1)?.unescape() ?: return null
+        val nextUrl = HREF_REGEX.find(script)?.groupValues?.get(2)?.unescape() ?: return null
         val httpUrl = nextUrl.toHttpUrlOrNull() ?: return null
         val cookieName = httpUrl.queryParameter("lp_go") ?: httpUrl.queryParameter("go") ?: return null
         val cookieValue = Regex("""['"]${Regex.escape(cookieName)}['"]\s*,\s*['"]([^'"]+)""")
@@ -41,11 +41,11 @@ class RedirectorBypasser(private val client: OkHttpClient, private val headers: 
         }
 
         doc.selectFirst("meta[http-equiv=refresh]")?.let {
-            return it.attr("content").substringAfter("url=")
+            return REFRESH_REGEX.find(it.attr("content"))?.groupValues?.get(1)
         }
 
         val redirect = doc.selectFirst("script:containsData(location.replace)")?.data() ?: return null
-        return LOCATION_REGEX.find(redirect)?.groupValues?.get(1)?.unescape()
+        return LOCATION_REGEX.find(redirect)?.groupValues?.get(2)?.unescape()
     }
 
     private fun recursiveDoc(doc: Document): Document {
@@ -70,7 +70,8 @@ class RedirectorBypasser(private val client: OkHttpClient, private val headers: 
 
     companion object {
         private val MUTEX by lazy { Mutex() }
-        private val HREF_REGEX = Regex("""['"]href['"]\s*,\s*"([^"]+)"""")
-        private val LOCATION_REGEX = Regex("""location\.replace\("([^"]+)"""")
+        private val HREF_REGEX = Regex("""['"]href['"]\s*,\s*(['"])(.+?)\1""")
+        private val LOCATION_REGEX = Regex("""location\.replace\((['"])(.+?)\1""")
+        private val REFRESH_REGEX = Regex("""url\s*=\s*['"]?([^'"\s]+)""", RegexOption.IGNORE_CASE)
     }
 }
