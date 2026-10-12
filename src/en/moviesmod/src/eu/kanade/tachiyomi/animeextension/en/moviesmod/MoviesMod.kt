@@ -343,10 +343,14 @@ class MoviesMod : Source() {
         }
     }
 
-    // Worker links often fail with a Google Drive quota error, so only keep the ones that serve the file
+    // Worker links often fail with a Google Drive quota error: a JSON error, a crash page, or a redirect to an HTML
+    // error page. HEAD still reports the video there, so fetch the first byte and only keep links that serve the file.
     private suspend fun isPlayable(url: String): Boolean = runCatching {
         val rangeHeaders = headers.newBuilder().set("Range", "bytes=0-0").build()
-        client.get(url, rangeHeaders, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { it.isSuccessful }
+        noRedirectClient.get(url, rangeHeaders, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { resp ->
+            val type = resp.body.contentType()
+            resp.isSuccessful && type?.type != "text" && type?.subtype != "json"
+        }
     }.getOrDefault(false)
 
     private fun String.toVideoResolution(): Int? = removeSuffix("p").toIntOrNull()
