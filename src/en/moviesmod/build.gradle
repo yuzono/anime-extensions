@@ -2,7 +2,7 @@ ext {
     extName = 'MoviesMod'
     extClass = '.MoviesMod'
     libVersion = 16
-    extVersionCode = 3
+    extVersionCode = 4
     isNsfw = false
 }
 

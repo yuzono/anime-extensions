@@ -300,9 +300,9 @@ class MoviesMod : Source() {
                                 finalUrl,
                                 videoNameGen = { q -> "$quality - $q$size" },
                             )
-                        }.getOrDefault(listOf(Video(finalUrl, "$quality - HLS$size", finalUrl)))
+                        }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - HLS$size")))
                     } else {
-                        listOf(Video(finalUrl, "$quality - Instant$size", finalUrl))
+                        listOf(Video(videoUrl = finalUrl, videoTitle = "$quality - Instant$size"))
                     }
                 }
                 href.contains(".m3u8") -> {
@@ -316,7 +316,7 @@ class MoviesMod : Source() {
                 href.contains("/login") -> emptyList()
                 else -> {
                     // Fallback for r2.dev, seedtg.xyz, tgcdn_bot and future hosts - expose as direct
-                    listOf(Video(href, "$quality - Direct$size", href))
+                    listOf(Video(videoUrl = href, videoTitle = "$quality - Direct$size"))
                 }
             }
         }
