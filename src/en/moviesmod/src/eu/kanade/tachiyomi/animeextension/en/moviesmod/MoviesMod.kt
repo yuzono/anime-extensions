@@ -10,12 +10,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.network.get
 import keiyoushi.network.head
 import keiyoushi.utils.Source
-import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelMapNotNullBlocking
@@ -39,62 +37,23 @@ class MoviesMod : Source() {
 
     override val supportsLatest = false
 
-    override val baseUrl by lazy {
-        val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-        if (stored == "https://moviesmod.red" || stored == "https://moviesmod.army") {
-            preferences.edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
-            PREF_DOMAIN_DEFAULT
-        } else {
-            stored
-        }
-    }
+    override val baseUrl = "https://moviesmod.zone"
 
+    // mmodlist redirects to the current domain; check it responds, else follow wherever baseUrl redirects
     private val currentBaseUrl by lazy {
-        runCatching {
-            runBlocking {
-                withContext(Dispatchers.Default) {
-                    // Try baseUrl first, handling HTTP redirects
-                    val resolvedFromBase = runCatching {
-                        client.newBuilder()
-                            .followRedirects(false)
-                            .build()
-                            .newCall(GET("$baseUrl/")).await().use { resp ->
-                                when (resp.code) {
-                                    301, 302, 307, 308 -> {
-                                        val target = resp.headers["location"]
-                                            ?.let { resp.request.url.resolve(it) }
-                                            ?.takeIf { it.host.contains("moviesmod") }
-                                        val origin = target?.let { "${it.scheme}://${it.host}" }
-                                        if (origin != null && resp.code in setOf(301, 308)) {
-                                            preferences.edit().putString(PREF_DOMAIN_KEY, origin).apply()
-                                        }
-                                        origin ?: baseUrl
-                                    }
-                                    in 200..299 -> baseUrl
-                                    else -> null
-                                }
-                            }
-                    }.getOrNull()
-
-                    if (resolvedFromBase != null) return@withContext resolvedFromBase
-
-                    // Fallback: resolve latest domain via mmodlist redirect which always points to current domain
-                    val latest = runCatching {
-                        client.newCall(GET(MMODLIST_URL, headers)).execute().use { resp ->
-                            val body = resp.body.string()
-                            // mmodlist returns 200 with meta refresh: url=https://moviesmod.zone
-                            // Trim trailing dot that can come from sentence punctuation
-                            Regex("""https://moviesmod\.[a-z0-9.-]+""").find(body)?.value?.trimEnd('/', '.')
-                        }
-                    }.getOrNull()
-
-                    latest?.let {
-                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
-                        it
-                    } ?: baseUrl
+        runBlocking(Dispatchers.IO) {
+            val listed = runCatching {
+                client.get(MMODLIST_URL, headers).use { resp ->
+                    MMODLIST_REGEX.find(resp.body.string())?.groupValues?.get(1)?.trimEnd('/', '.')
                 }
-            }
-        }.getOrDefault(baseUrl)
+            }.getOrNull()
+
+            listOfNotNull(listed, baseUrl).firstNotNullOfOrNull { domain ->
+                runCatching {
+                    client.head("$domain/", headers).use { "${it.request.url.scheme}://${it.request.url.host}" }
+                }.getOrNull()
+            } ?: baseUrl
+        }
     }
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -420,16 +379,6 @@ class MoviesMod : Source() {
             default = PREF_SIZE_SORT_DEFAULT,
             summary = PREF_SIZE_SORT_SUMMARY,
         )
-
-        screen.addEditTextPreference(
-            key = PREF_DOMAIN_KEY,
-            title = PREF_DOMAIN_TITLE,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = getDomainPrefSummary(),
-            getSummary = { it },
-            dialogMessage = "For any change to be applied App restart is required.",
-            restartRequired = true,
-        )
     }
 
     @Serializable
@@ -445,15 +394,11 @@ class MoviesMod : Source() {
 
     private fun EpLinks.toJson(): String = json.encodeToString(this)
 
-    private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-
     companion object {
         private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
 
-        private const val PREF_DOMAIN_KEY = "pref_domain_new"
-        private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://moviesmod.zone"
         private const val MMODLIST_URL = "https://mmodlist.org/?type=hollywood"
+        private val MMODLIST_REGEX = Regex("""url=(https?://[^"'\s>]+)""", RegexOption.IGNORE_CASE)
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
